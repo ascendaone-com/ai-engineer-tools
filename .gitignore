@@ -1,0 +1,20 @@
+# Local-only secrets / DevAuth tokens — never commit
+.env
+.env.*
+!.env.example
+local.devauth.env
+**/local.devauth.env
+*.local.env
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Build / deps (package-level ignores also apply)
+**/node_modules/
+**/dist/
+**/out/
+*.tsbuildinfo

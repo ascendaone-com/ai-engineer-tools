@@ -1,0 +1,19 @@
+{
+  "name": "ascenda-pairing-sim",
+  "version": "0.1.0",
+  "description": "Console simulator for the Ascenda mobile app pairing side (confirm, list, revoke).",
+  "type": "module",
+  "bin": {
+    "ascenda-pairing-sim": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "start": "node dist/cli.js"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.0"
+  }
+}

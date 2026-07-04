@@ -1,0 +1,6 @@
+{
+  "toolName": "Edit",
+  "durationMs": 4200,
+  "result": { "exitCode": 0 },
+  "tool_input": { "file_path": "/redacted/path/example.ts" }
+}

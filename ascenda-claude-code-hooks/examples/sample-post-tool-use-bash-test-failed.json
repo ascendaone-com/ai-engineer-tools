@@ -1,0 +1,6 @@
+{
+  "toolName": "Bash",
+  "durationMs": 8200,
+  "tool_input": { "command": "npm test" },
+  "result": { "exitCode": 1 }
+}

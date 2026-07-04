@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook UserPromptSubmit" }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PreToolUse" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PostToolUse" }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PreCompact" }] }],
+    "PostCompact": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PostCompact" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook Stop" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook Notification" }] }]
+  }
+}

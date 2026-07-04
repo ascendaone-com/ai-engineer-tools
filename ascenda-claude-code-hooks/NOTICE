@@ -1,0 +1,3 @@
+Ascenda Claude Code Hooks
+
+Metadata-only AI workload telemetry adapter. Do not send source code, raw prompts, raw responses, file names, branch names, repository names, or terminal output by default.
