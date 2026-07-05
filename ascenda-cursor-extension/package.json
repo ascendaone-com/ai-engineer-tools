@@ -4,8 +4,12 @@
   "description": "Privacy-first AI workload telemetry and app pairing for Cursor.",
   "version": "0.1.0",
   "publisher": "ascenda",
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["Other"],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "onStartupFinished",
     "onCommand:ascenda.connect",
@@ -19,33 +23,84 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "ascenda.connect", "title": "Ascenda: Connect App" },
-      { "command": "ascenda.disconnect", "title": "Ascenda: Disconnect App" },
-      { "command": "ascenda.sendTestSignal", "title": "Ascenda: Send Test Signal" },
-      { "command": "ascenda.simulateContextCompression", "title": "Ascenda: Simulate Context Compression" },
-      { "command": "ascenda.simulateContextPressureHigh", "title": "Ascenda: Simulate Context Pressure High" },
-      { "command": "ascenda.simulateAgentLoopLong", "title": "Ascenda: Simulate Agent Loop Long" },
-      { "command": "ascenda.showStatus", "title": "Ascenda: Show Status" }
+      {
+        "command": "ascenda.connect",
+        "title": "Ascenda: Connect App"
+      },
+      {
+        "command": "ascenda.disconnect",
+        "title": "Ascenda: Disconnect App"
+      },
+      {
+        "command": "ascenda.sendTestSignal",
+        "title": "Ascenda: Send Test Signal"
+      },
+      {
+        "command": "ascenda.simulateContextCompression",
+        "title": "Ascenda: Simulate Context Compression"
+      },
+      {
+        "command": "ascenda.simulateContextPressureHigh",
+        "title": "Ascenda: Simulate Context Pressure High"
+      },
+      {
+        "command": "ascenda.simulateAgentLoopLong",
+        "title": "Ascenda: Simulate Agent Loop Long"
+      },
+      {
+        "command": "ascenda.showStatus",
+        "title": "Ascenda: Show Status"
+      }
     ],
     "configuration": {
       "title": "Ascenda",
       "properties": {
-        "ascenda.apiBaseUrl": { "type": "string", "default": "https://api.ascenda.one", "description": "Ascenda backend API base URL." },
-        "ascenda.telemetry.enabled": { "type": "boolean", "default": true, "description": "Enable privacy-safe AI workload telemetry collection." },
-        "ascenda.telemetry.captureEditorActivity": { "type": "boolean", "default": true, "description": "Capture privacy-safe editor activity events. Raw source code is never sent." },
-        "ascenda.telemetry.captureTerminalCommands": { "type": "boolean", "default": true, "description": "Capture privacy-safe terminal command classes where shell integration exposes command execution events." },
-        "ascenda.telemetry.afterHoursStart": { "type": "string", "default": "19:00", "description": "Local time when after-hours monitoring begins, HH:mm." },
-        "ascenda.telemetry.afterHoursEnd": { "type": "string", "default": "07:00", "description": "Local time when after-hours monitoring ends, HH:mm." },
-        "ascenda.telemetry.flushIntervalSeconds": { "type": "number", "default": 30, "minimum": 5, "description": "How frequently telemetry events are flushed to the backend." }
+        "ascenda.apiBaseUrl": {
+          "type": "string",
+          "default": "https://api.ascenda.one",
+          "description": "Ascenda backend API base URL."
+        },
+        "ascenda.telemetry.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable privacy-safe AI workload telemetry collection."
+        },
+        "ascenda.telemetry.captureEditorActivity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Capture privacy-safe editor activity events. Raw source code is never sent."
+        },
+        "ascenda.telemetry.captureTerminalCommands": {
+          "type": "boolean",
+          "default": true,
+          "description": "Capture privacy-safe terminal command classes where shell integration exposes command execution events."
+        },
+        "ascenda.telemetry.afterHoursStart": {
+          "type": "string",
+          "default": "19:00",
+          "description": "Local time when after-hours monitoring begins, HH:mm."
+        },
+        "ascenda.telemetry.afterHoursEnd": {
+          "type": "string",
+          "default": "07:00",
+          "description": "Local time when after-hours monitoring ends, HH:mm."
+        },
+        "ascenda.telemetry.flushIntervalSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "description": "How frequently telemetry events are flushed to the backend."
+        }
       }
     }
   },
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run compile",
-    "package": "vsce package --no-dependencies",
-    "package:ovsx": "ovsx package"
+    "vscode:prepublish": "npm run bundle",
+    "package": "npm run compile && npm run bundle && vsce package --no-dependencies",
+    "package:ovsx": "ovsx package",
+    "bundle": "esbuild src/extension.ts --bundle --external:vscode --platform=node --format=cjs --outfile=out/extension.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",

@@ -1,0 +1,24 @@
+{
+  "name": "ai-engineer-tools",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Ascenda developer telemetry and pairing tooling monorepo",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "ascenda-vscode-extension-telemetry",
+    "ascenda-cursor-extension",
+    "ascenda-claude-code-hooks",
+    "ascenda-pairing-sim"
+  ],
+  "scripts": {
+    "build": "npm run compile --workspaces --if-present && npm run build --workspaces --if-present",
+    "verify": "./scripts/check-dry.sh && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
+  }
+}
