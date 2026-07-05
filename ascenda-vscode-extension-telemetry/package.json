@@ -17,6 +17,7 @@
     "onCommand:ascenda.sendTestSignal",
     "onCommand:ascenda.simulateContextCompression",
     "onCommand:ascenda.simulateContextPressureHigh",
+    "onCommand:ascenda.simulateAgentLoopLong",
     "onCommand:ascenda.showStatus"
   ],
   "main": "./out/extension.js",
@@ -41,6 +42,10 @@
       {
         "command": "ascenda.simulateContextPressureHigh",
         "title": "Ascenda: Simulate Context Pressure High"
+      },
+      {
+        "command": "ascenda.simulateAgentLoopLong",
+        "title": "Ascenda: Simulate Agent Loop Long"
       },
       {
         "command": "ascenda.showStatus",
@@ -100,5 +105,8 @@
     "@types/node": "^20.14.10",
     "@types/vscode": "^1.90.0",
     "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "@ascenda/ide-extension-core": "0.1.0"
   }
 }

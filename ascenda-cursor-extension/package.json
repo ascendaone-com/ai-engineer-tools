@@ -108,5 +108,8 @@
     "@vscode/vsce": "^3.2.1",
     "ovsx": "^0.10.0",
     "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "@ascenda/ide-extension-core": "0.1.0"
   }
 }
