@@ -3,32 +3,16 @@ import { classifyCommand } from "./commandClassifier";
 import { AscendaConfig } from "./config";
 import { TelemetryService } from "./telemetryService";
 import { CommandClass, CommandOutcome } from "./types";
-
 type ShellExecutionStartEvent = { execution?: { commandLine?: { value?: string } } };
 type ShellExecutionEndEvent = { execution?: { commandLine?: { value?: string } }; exitCode?: number | undefined };
-
 export class TerminalTelemetry implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   constructor(private readonly telemetry: TelemetryService) {}
-
   start(): void {
     if (!AscendaConfig.captureTerminalCommands) return;
-    const anyWindow = vscode.window as unknown as {
-      onDidStartTerminalShellExecution?: (listener: (event: ShellExecutionStartEvent) => void) => vscode.Disposable;
-      onDidEndTerminalShellExecution?: (listener: (event: ShellExecutionEndEvent) => void) => vscode.Disposable;
-    };
-    if (typeof anyWindow.onDidStartTerminalShellExecution === "function") {
-      this.disposables.push(anyWindow.onDidStartTerminalShellExecution((event) => {
-        const commandClass = classifyCommand(event.execution?.commandLine?.value);
-        this.trackCommandStarted(commandClass);
-      }));
-    }
-    if (typeof anyWindow.onDidEndTerminalShellExecution === "function") {
-      this.disposables.push(anyWindow.onDidEndTerminalShellExecution((event) => {
-        const commandClass = classifyCommand(event.execution?.commandLine?.value);
-        this.trackCommandCompleted(commandClass, classifyOutcome(event.exitCode));
-      }));
-    }
+    const anyWindow = vscode.window as unknown as { onDidStartTerminalShellExecution?: (listener: (event: ShellExecutionStartEvent) => void) => vscode.Disposable; onDidEndTerminalShellExecution?: (listener: (event: ShellExecutionEndEvent) => void) => vscode.Disposable; };
+    if (typeof anyWindow.onDidStartTerminalShellExecution === "function") this.disposables.push(anyWindow.onDidStartTerminalShellExecution((event) => this.trackCommandStarted(classifyCommand(event.execution?.commandLine?.value))));
+    if (typeof anyWindow.onDidEndTerminalShellExecution === "function") this.disposables.push(anyWindow.onDidEndTerminalShellExecution((event) => this.trackCommandCompleted(classifyCommand(event.execution?.commandLine?.value), classifyOutcome(event.exitCode))));
   }
   dispose(): void { for (const disposable of this.disposables) disposable.dispose(); }
   private trackCommandStarted(commandClass: CommandClass): void {
