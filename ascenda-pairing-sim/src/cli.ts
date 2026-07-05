@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 import * as crypto from "crypto";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
+import { defaultTokenFilePath, persistEventWriteToken } from "@ascenda/tool-kit";
 import { PairingSimApi } from "./api.js";
 import { loadConfig } from "./config.js";
 
@@ -133,10 +131,8 @@ async function runE2e(api: PairingSimApi, args: string[]): Promise<void> {
     throw new Error(`Expected paired + token, got: ${JSON.stringify(status)}`);
   }
 
-  const tokenDir = path.join(os.homedir(), ".ascenda", "tokens");
-  fs.mkdirSync(tokenDir, { recursive: true });
-  const tokenPath = path.join(tokenDir, toolInstallationId.replace(/[^a-zA-Z0-9._:-]/g, "_"));
-  fs.writeFileSync(tokenPath, status.eventWriteToken, { encoding: "utf8", mode: 0o600 });
+  const tokenPath = defaultTokenFilePath(toolInstallationId);
+  persistEventWriteToken(tokenPath, status.eventWriteToken);
 
   console.log("Paired successfully.");
   console.log(`toolInstallationId=${status.toolInstallationId ?? toolInstallationId}`);

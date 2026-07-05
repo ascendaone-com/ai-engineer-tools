@@ -1,28 +1,9 @@
+import type { ConnectedTool, PairingSessionResponse, PairingStatusResponse } from "@ascenda/tool-contract";
 import { SimConfig } from "./config.js";
 
-export type ConnectedTool = {
-  toolInstallationId: string;
-  toolType: string;
-  displayName: string | null;
-  pairedAt: string | null;
-  lastSeenAt: string | null;
-};
-
-export type PairingStatus = {
-  status: "pending" | "paired" | "expired" | "cancelled";
-  toolInstallationId: string | null;
-  eventWriteToken: string | null;
-  pairedAt: string | null;
-};
-
-export type CreatePairingSessionResponse = {
-  pairingSessionId: string;
-  code: string;
-  deviceCode: string;
-  secret: string;
-  qrUrl: string;
-  expiresAt: string;
-};
+export type { ConnectedTool } from "@ascenda/tool-contract";
+export type PairingStatus = PairingStatusResponse;
+export type CreatePairingSessionResponse = PairingSessionResponse;
 
 export class PairingSimApi {
   constructor(private readonly config: SimConfig) {}

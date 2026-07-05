@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { classifyCommand } from "./commandClassifier";
+import { classifyCommand, isVerificationCommand } from "./commandClassifier";
 import { AscendaConfig } from "./config";
 import { TelemetryService } from "./telemetryService";
 import { CommandClass, CommandOutcome } from "./types";
@@ -25,5 +25,4 @@ export class TerminalTelemetry implements vscode.Disposable {
     this.telemetry.track("editor_activity", "low", { activity: "terminal_command_completed", commandClass, outcome });
   }
 }
-function isVerificationCommand(commandClass: CommandClass): boolean { return commandClass === "test" || commandClass === "lint" || commandClass === "typecheck" || commandClass === "build"; }
 function classifyOutcome(exitCode: number | undefined): CommandOutcome { if (typeof exitCode !== "number") return "unknown"; return exitCode === 0 ? "success" : "failure"; }

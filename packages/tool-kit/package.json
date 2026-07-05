@@ -1,0 +1,18 @@
+{
+  "name": "@ascenda/tool-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared vscode-free runtime for Ascenda tools: command classification, buckets, after-hours calculation, token store, and /v1 HTTP client.",
+  "main": "./out/index.js",
+  "types": "./out/index.d.ts",
+  "scripts": {
+    "compile": "tsc -p ./"
+  },
+  "dependencies": {
+    "@ascenda/tool-contract": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.0"
+  }
+}

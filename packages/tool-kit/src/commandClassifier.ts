@@ -1,9 +1,8 @@
-import { CommandClass } from "./types.js";
+import { CommandClass } from "@ascenda/tool-contract";
 
 export function classifyCommand(command: string | undefined | null): CommandClass {
   if (!command) return "unknown";
   const value = command.toLowerCase().trim();
-
   if (/\b(test|jest|vitest|mocha|pytest|rspec|go test|cargo test|dotnet test|xcodebuild test)\b/.test(value) || /\bnpm\s+(run\s+)?test\b/.test(value) || /\byarn\s+test\b/.test(value) || /\bpnpm\s+(run\s+)?test\b/.test(value)) return "test";
   if (/\b(lint|eslint|ruff|flake8|pylint|rubocop)\b/.test(value) || /\bnpm\s+(run\s+)?lint\b/.test(value)) return "lint";
   if (/\b(tsc|typecheck|mypy|pyright|sorbet|flow)\b/.test(value) || /\bnpm\s+(run\s+)?typecheck\b/.test(value)) return "typecheck";
