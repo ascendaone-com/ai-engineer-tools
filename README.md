@@ -20,6 +20,26 @@ All packages align to the backend-agreed research foundation:
 | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | Claude Code agent hooks — prompts, tool calls, compaction, agent loops |
 | [ascenda-pairing-sim](./ascenda-pairing-sim/) | Console app that simulates the mobile app for pairing tests (confirm / list / revoke / e2e) |
 
+### Shared packages
+
+The repo is an npm workspace. The installable tools above are thin shells over shared packages:
+
+| Package | Role |
+| --- | --- |
+| [packages/tool-contract](./packages/tool-contract/) | Canonical DTOs, event catalog, and constants — mirrors [TOOL_PAIRING_API_REFERENCE.md](./api-docs/TOOL_PAIRING_API_REFERENCE.md); declared once, consumed everywhere |
+| [packages/tool-kit](./packages/tool-kit/) | vscode-free shared runtime: command classifier, buckets, after-hours calculation, token file store, `/v1` HTTP client |
+| [packages/ide-extension-core](./packages/ide-extension-core/) | The single extension implementation; host identity (VS Code vs Cursor) is detected at runtime |
+
+Build everything from the repo root (dependency-ordered):
+
+```bash
+npm install
+npm run build     # shared packages first, then tools
+npm run verify    # DRY guard rail (scripts/check-dry.sh) + full build
+```
+
+Both extension VSIXes are bundled with esbuild at package time (`npm run package` in each extension folder), so the shared packages are inlined; per-folder F5 debugging works after a root build.
+
 ## Phase 1 data collection (this repo)
 
 **In scope**
