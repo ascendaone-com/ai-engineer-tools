@@ -117,4 +117,3 @@ export type IngestResult = "accepted" | "auth_failed" | "consent_missing" | "val
 
 export const ASCENDA_CONSENT_SCOPE: ToolConsentScope = "ide_telemetry";
 export const ASCENDA_PROVENANCE = "ai_work_telemetry";
-export const TOKEN_RENEW_LEAD_MS = 3 * 24 * 60 * 60 * 1000;

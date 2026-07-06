@@ -15,7 +15,7 @@
     "typescript": "^5.5.0"
   },
   "dependencies": {
-    "@ascenda/tool-contract": "0.1.0",
-    "@ascenda/tool-kit": "0.1.0"
+    "@ascenda/tool-contract": "*",
+    "@ascenda/tool-kit": "*"
   }
 }

@@ -18,7 +18,8 @@
     "build": "npm run build:shared && npm run build:tools",
     "build:shared": "npm run compile -w @ascenda/tool-contract && npm run compile -w @ascenda/tool-kit && npm run compile -w @ascenda/ide-extension-core",
     "build:tools": "npm run compile -w ascenda-vscode && npm run compile -w ascenda-cursor && npm run build -w ascenda-claude-code-hooks && npm run build -w ascenda-pairing-sim",
-    "verify": "./scripts/check-dry.sh && npm run build"
+    "verify": "./scripts/check-dry.sh && npm run test",
+    "test": "npm run build && npm run test --workspaces --if-present"
   },
   "devDependencies": {
     "esbuild": "^0.23.0"

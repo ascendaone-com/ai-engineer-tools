@@ -3,9 +3,10 @@ import * as vscode from "vscode";
 import { AscendaApi } from "./ascendaApi";
 import { getHostDisplayName, getToolType } from "./host";
 import { PairingPanel } from "./pairingPanel";
-import { TOKEN_RENEW_LEAD_MS } from "./types";
 
-export const TOOL_INSTALLATION_ID_KEY = "ascenda.toolInstallationId";
+export // Renew this long before token expiry (client policy, not wire contract).
+const TOKEN_RENEW_LEAD_MS = 3 * 24 * 60 * 60 * 1000;
+const TOOL_INSTALLATION_ID_KEY = "ascenda.toolInstallationId";
 export const PAIRING_SESSION_ID_KEY = "ascenda.pairingSessionId";
 export const PAIRED_KEY = "ascenda.paired";
 export const EVENT_WRITE_TOKEN_KEY = "ascenda.eventWriteToken";

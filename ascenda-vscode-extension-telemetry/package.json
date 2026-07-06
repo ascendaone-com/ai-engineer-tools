@@ -108,6 +108,6 @@
     "typescript": "^5.5.0"
   },
   "dependencies": {
-    "@ascenda/ide-extension-core": "0.1.0"
+    "@ascenda/ide-extension-core": "*"
   }
 }

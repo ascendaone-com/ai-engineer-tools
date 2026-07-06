@@ -16,7 +16,7 @@
   "devDependencies": {
     "@types/node": "^20.14.10",
     "typescript": "^5.5.0",
-    "@ascenda/tool-contract": "0.1.0",
-    "@ascenda/tool-kit": "0.1.0"
+    "@ascenda/tool-contract": "*",
+    "@ascenda/tool-kit": "*"
   }
 }

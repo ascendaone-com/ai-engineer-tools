@@ -22,6 +22,6 @@ export function readTokenFile(tokenFilePath: string): string | undefined {
   }
 }
 
-export function sanitizeFilePart(value: string): string {
+function sanitizeFilePart(value: string): string {
   return value.replace(/[^a-zA-Z0-9._:-]/g, "_");
 }
