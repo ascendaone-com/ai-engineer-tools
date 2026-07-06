@@ -1,50 +1,29 @@
-import { persistEventWriteToken, postToolEvent, renewToolToken } from "@ascenda/tool-kit";
-import {
-  ASCENDA_CONSENT_SCOPE,
-  ASCENDA_PROVENANCE,
-  AscendaEventPayload,
-  IngestResult,
-  MappedAscendaEvent
-} from "./types.js";
+import { AscendaEventSender } from "@ascenda/tool-kit";
+import { IngestResult, MappedAscendaEvent } from "./types.js";
 import { AscendaHookConfig } from "./config.js";
 
 export { AscendaApiError as AscendaClientError } from "@ascenda/tool-kit";
 
 export class AscendaClient {
-  private eventWriteToken: string;
+  private readonly sender: AscendaEventSender;
 
-  constructor(private readonly config: AscendaHookConfig) {
-    this.eventWriteToken = config.eventWriteToken;
+  constructor(config: AscendaHookConfig) {
+    this.sender = new AscendaEventSender({
+      apiBaseUrl: config.apiBaseUrl,
+      toolInstallationId: config.toolInstallationId,
+      source: "claude_code",
+      eventWriteToken: config.eventWriteToken,
+      tokenFilePath: config.tokenFilePath,
+      sessionId: config.sessionId,
+      workspaceHash: config.workspaceHash
+    });
   }
 
   async send(mapped: MappedAscendaEvent): Promise<IngestResult> {
-    const payload: AscendaEventPayload = {
-      toolInstallationId: this.config.toolInstallationId,
-      source: "claude_code",
-      occurredAt: new Date().toISOString(),
-      sessionId: this.config.sessionId ?? undefined,
-      workspaceHash: this.config.workspaceHash ?? undefined,
-      consentScope: ASCENDA_CONSENT_SCOPE,
-      provenance: ASCENDA_PROVENANCE,
-      privacyMode: "metadata_only",
-      ...mapped,
-      metadata: mapped.metadata ?? {}
-    };
-
-    let result = await postToolEvent(this.config.apiBaseUrl, this.eventWriteToken, payload);
-    if (result === "auth_failed") {
-      const renewed = await this.renewEventToken();
-      if (!renewed) return "auth_failed";
-      result = await postToolEvent(this.config.apiBaseUrl, this.eventWriteToken, payload);
-    }
-    return result;
+    return this.sender.send(mapped);
   }
 
   async renewEventToken(): Promise<boolean> {
-    const renewed = await renewToolToken(this.config.apiBaseUrl, this.eventWriteToken);
-    if (!renewed) return false;
-    this.eventWriteToken = renewed.eventWriteToken;
-    persistEventWriteToken(this.config.tokenFilePath, renewed.eventWriteToken);
-    return true;
+    return this.sender.renewEventToken();
   }
 }
