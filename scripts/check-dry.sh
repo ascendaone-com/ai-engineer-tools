@@ -14,6 +14,7 @@ consumer_dirs=(
   ascenda-cursor-extension/src
   ascenda-cursor-extension/mcp-adapter
   ascenda-claude-code-hooks/src
+  ascenda-codex-hooks/src
   ascenda-pairing-sim/src
   packages/ide-extension-core/src
 )

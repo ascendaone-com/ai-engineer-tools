@@ -1,0 +1,26 @@
+{
+  "name": "ascenda-codex-hooks",
+  "version": "0.1.0",
+  "description": "OpenAI Codex hooks adapter for Ascenda AI workload telemetry",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "ascenda-codex-hook": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./ && npm run bundle",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
+    "watch": "tsc -w -p ./",
+    "test": "node --test",
+    "test:sample": "npm run build && cat examples/sample-post-tool-use-bash.json | node dist/cli.js PostToolUse"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@ascenda/tool-contract": "*",
+    "@ascenda/tool-kit": "*",
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.0"
+  }
+}

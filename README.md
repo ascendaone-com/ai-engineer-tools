@@ -18,6 +18,7 @@ All packages align to the backend-agreed research foundation:
 | [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/) | VS Code IDE telemetry — editor activity, terminal classification, sessions |
 | [ascenda-cursor-extension](./ascenda-cursor-extension/) | Cursor IDE telemetry + planned MCP/agent adapter |
 | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | Claude Code agent hooks — prompts, tool calls, compaction, agent loops |
+| [ascenda-codex-hooks](./ascenda-codex-hooks/) | OpenAI Codex lifecycle hooks — same agent signals as Claude hooks, via Codex's hooks.json |
 | [ascenda-pairing-sim](./ascenda-pairing-sim/) | Console app that simulates the mobile app for pairing tests (confirm / list / revoke / e2e) |
 
 ### Shared packages
