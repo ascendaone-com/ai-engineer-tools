@@ -1,8 +1,8 @@
 import * as crypto from "crypto";
 import * as vscode from "vscode";
-import { AscendaApi } from "./ascendaApi";
+import { AscendaApi, IngestResult } from "./ascendaApi";
 import { AscendaConfig } from "./config";
-import { getTelemetrySource } from "./host";
+import { resolveTelemetrySource } from "./host";
 import { PairingService } from "./pairingService";
 import {
   ASCENDA_CONSENT_SCOPE,
@@ -71,19 +71,27 @@ export class TelemetryService implements vscode.Disposable {
     try {
       while (this.queue.length > 0) {
         const batch = this.queue.splice(0, Math.min(10, this.queue.length));
-        let result = batch.length === 1
-          ? await this.api.sendEvent(batch[0], token)
-          : await this.api.sendEventsBatch(batch, token);
-
-        if (result === "auth_failed") {
-          token = await this.pairingService.handleAuthFailure();
-          if (!token) {
-            this.queue.unshift(...batch);
-            break;
-          }
+        let result: IngestResult;
+        try {
           result = batch.length === 1
             ? await this.api.sendEvent(batch[0], token)
             : await this.api.sendEventsBatch(batch, token);
+
+          if (result === "auth_failed") {
+            token = await this.pairingService.handleAuthFailure();
+            if (!token) {
+              this.queue.unshift(...batch);
+              break;
+            }
+            result = batch.length === 1
+              ? await this.api.sendEvent(batch[0], token)
+              : await this.api.sendEventsBatch(batch, token);
+          }
+        } catch (error) {
+          // 5xx and network failures throw rather than returning an IngestResult;
+          // keep the batch for the next flush instead of dropping it.
+          this.queue.unshift(...batch);
+          throw error;
         }
 
         if (result === "consent_missing") {
@@ -116,7 +124,7 @@ export class TelemetryService implements vscode.Disposable {
   ): AscendaEventPayload {
     return {
       toolInstallationId,
-      source: getTelemetrySource(),
+      source: resolveTelemetrySource(toolInstallationId),
       eventType,
       occurredAt: new Date().toISOString(),
       severity,

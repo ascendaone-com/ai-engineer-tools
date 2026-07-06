@@ -8,6 +8,7 @@ export function isAfterHours(now = new Date(), start = "19:00", end = "07:00"): 
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const startMinutes = parseTimeToMinutes(start, 19 * 60);
   const endMinutes = parseTimeToMinutes(end, 7 * 60);
+  if (startMinutes === endMinutes) return false; // zero-length window: after-hours flagging disabled
   if (startMinutes < endMinutes) return currentMinutes >= startMinutes && currentMinutes < endMinutes;
   return currentMinutes >= startMinutes || currentMinutes < endMinutes;
 }

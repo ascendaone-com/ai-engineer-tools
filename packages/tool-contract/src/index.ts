@@ -87,7 +87,7 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   commandClass?: CommandClass;
   outcome?: CommandOutcome;
   trigger?: "manual" | "auto" | "inferred";
-  promptClass?: PromptClass | string;
+  promptClass?: PromptClass;
   reason?: "context_limit" | "repeated_reprompting" | "tool_failure" | "test_failure" | "manual_interrupt" | "after_hours" | "long_session" | "unknown";
   afterHours?: boolean;
   activity?: string;
