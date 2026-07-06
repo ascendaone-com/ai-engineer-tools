@@ -59,6 +59,8 @@ Both extension VSIXes are bundled with esbuild at package time (`npm run package
 
 ## Quick start
 
+**Local testing without a backend, phone, or DevAuth:** see [TESTING.md](./TESTING.md) — `./scripts/dev-quickstart.sh` gets events flowing against a local mock server in ~2 minutes.
+
 Install instructions live in each package README:
 
 | Tool | Install guide |
