@@ -13,7 +13,6 @@ import {
   renewToolToken
 } from "@ascenda/tool-kit";
 import { AscendaConfig } from "./config";
-import { getToolType } from "./host";
 
 export type { IngestResult };
 export { AscendaApiError } from "@ascenda/tool-kit";
@@ -38,9 +37,5 @@ export class AscendaApi {
 
   async sendEventsBatch(payloads: AscendaEventPayload[], eventWriteToken: string): Promise<IngestResult> {
     return postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads);
-  }
-
-  resolveToolType(): string {
-    return getToolType();
   }
 }

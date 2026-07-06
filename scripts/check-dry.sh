@@ -7,6 +7,21 @@ cd "$(dirname "$0")/.."
 
 fail=0
 
+# Consumer source trees that must not re-declare shared code. tool-kit and
+# tool-contract own their modules and are excluded from ownership checks only.
+consumer_dirs=(
+  ascenda-vscode-extension-telemetry/src
+  ascenda-cursor-extension/src
+  ascenda-cursor-extension/mcp-adapter
+  ascenda-claude-code-hooks/src
+  ascenda-pairing-sim/src
+  packages/ide-extension-core/src
+)
+existing_dirs=()
+for d in "${consumer_dirs[@]}"; do
+  [ -d "$d" ] && existing_dirs+=("$d")
+done
+
 # 1. Extension src/ folders may contain only the shell entry point.
 for ext in ascenda-vscode-extension-telemetry ascenda-cursor-extension; do
   extra=$(find "$ext/src" -name "*.ts" ! -name "extension.ts" | sort)
@@ -21,28 +36,31 @@ for ext in ascenda-vscode-extension-telemetry ascenda-cursor-extension; do
   fi
 done
 
-# 2. Modules owned by the shared packages must not be re-declared elsewhere.
-owned_symbols="function classifyCommand|function isVerificationCommand|function bucketDurationMs|function bucketLinesChanged|function isAfterHours|function persistEventWriteToken|function parseIngestResponse"
-dupes=$(grep -rlE "$owned_symbols" \
-  ascenda-vscode-extension-telemetry/src \
-  ascenda-cursor-extension/src \
-  ascenda-claude-code-hooks/src \
-  ascenda-pairing-sim/src \
-  packages/ide-extension-core/src 2>/dev/null || true)
+# 2. Functions owned by tool-kit must not be re-declared elsewhere.
+#    Matches declaration forms: `function name`, `const/let/var name =`,
+#    and class-method definitions `name(...): Type {` at line start.
+owned_names="classifyCommand|isVerificationCommand|bucketDurationMs|bucketLinesChanged|isAfterHours|persistEventWriteToken|readTokenFile|defaultTokenFilePath|parseIngestResponse"
+decl_re="^[[:space:]]*(export[[:space:]]+)?((async[[:space:]]+)?function[[:space:]]+(${owned_names})\\b|(const|let|var)[[:space:]]+(${owned_names})[[:space:]]*=|(private[[:space:]]+|public[[:space:]]+|protected[[:space:]]+)?(${owned_names})[[:space:]]*\\([^)]*\\)[[:space:]]*:[^;]*\\{)"
+dupes=$(grep -rlE "$decl_re" --include="*.ts" "${existing_dirs[@]}" packages/tool-contract/src 2>/dev/null || true)
 if [ -n "$dupes" ]; then
-  echo "FAIL: shared tool-kit functions re-declared outside packages/tool-kit:"
+  echo "FAIL: tool-kit-owned functions re-declared outside packages/tool-kit:"
   echo "$dupes"
   fail=1
 fi
 
-# 3. The canonical event catalog must be declared exactly once (tool-contract).
-catalog_copies=$(grep -rl 'AscendaTelemetryEventType =' --include="*.ts" \
-  packages ascenda-vscode-extension-telemetry/src ascenda-cursor-extension/src \
-  ascenda-claude-code-hooks/src ascenda-pairing-sim/src 2>/dev/null \
-  | grep -v "packages/tool-contract/src" | grep -v "/out/" || true)
-if [ -n "$catalog_copies" ]; then
-  echo "FAIL: event catalog re-declared outside packages/tool-contract:"
-  echo "$catalog_copies"
+# 3. The canonical event catalog must live only in tool-contract. Two nets:
+#    the type name, and a sentinel event string that no tool ever emits
+#    (supervis_meeting_load), which only appears where the full catalog is
+#    enumerated - catching const-array or renamed-type copies.
+catalog_copies=$(grep -rl 'AscendaTelemetryEventType' --include="*.ts" \
+  "${existing_dirs[@]}" packages/tool-kit/src 2>/dev/null \
+  | xargs -I{} grep -lE 'AscendaTelemetryEventType[[:space:]]*=' {} 2>/dev/null || true)
+sentinel_copies=$(grep -rl 'supervis_meeting_load' --include="*.ts" \
+  "${existing_dirs[@]}" packages/tool-kit/src 2>/dev/null || true)
+combined=$(printf '%s\n%s\n' "$catalog_copies" "$sentinel_copies" | sort -u | sed '/^$/d')
+if [ -n "$combined" ]; then
+  echo "FAIL: event catalog (or a copy of it) declared outside packages/tool-contract:"
+  echo "$combined"
   fail=1
 fi
 

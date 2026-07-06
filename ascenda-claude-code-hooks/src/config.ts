@@ -1,8 +1,6 @@
 import { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "@ascenda/tool-kit";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
 
-export { persistEventWriteToken } from "@ascenda/tool-kit";
-
 export type AscendaHookConfig = {
   apiBaseUrl: string;
   toolInstallationId: string;
