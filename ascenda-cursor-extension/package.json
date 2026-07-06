@@ -97,10 +97,11 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run bundle",
-    "package": "npm run compile && npm run bundle && vsce package --no-dependencies",
+    "vscode:prepublish": "npm --prefix .. run build:shared && tsc --noEmit && npm run bundle",
+    "package": "vsce package --no-dependencies",
     "package:ovsx": "ovsx package",
-    "bundle": "esbuild src/extension.ts --bundle --external:vscode --platform=node --format=cjs --outfile=out/extension.js"
+    "bundle": "esbuild src/extension.ts --bundle --external:vscode --platform=node --format=cjs --outfile=out/extension.js",
+    "prebundle": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\""
   },
   "devDependencies": {
     "@types/node": "^20.14.10",

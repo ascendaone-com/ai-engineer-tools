@@ -7,17 +7,16 @@
     "ascenda-claude-hook": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p ./",
+    "build": "tsc -p ./ && npm run bundle",
     "watch": "tsc -w -p ./",
     "test:sample": "npm run build && cat examples/sample-post-tool-use-edit.json | node dist/cli.js PostToolUse",
-    "test:compact": "npm run build && cat examples/sample-pre-compact-auto.json | node dist/cli.js PreCompact"
+    "test:compact": "npm run build && cat examples/sample-pre-compact-auto.json | node dist/cli.js PreCompact",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js"
   },
   "license": "Apache-2.0",
   "devDependencies": {
     "@types/node": "^20.14.10",
-    "typescript": "^5.5.0"
-  },
-  "dependencies": {
+    "typescript": "^5.5.0",
     "@ascenda/tool-contract": "0.1.0",
     "@ascenda/tool-kit": "0.1.0"
   }
