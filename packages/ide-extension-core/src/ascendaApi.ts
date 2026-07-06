@@ -4,7 +4,7 @@ import {
   PairingSessionResponse,
   PairingStatusResponse,
   RenewToolTokenResponse
-} from "./types";
+} from "@ascenda/tool-contract";
 import {
   createPairingSession,
   getPairingStatus,

@@ -2,8 +2,6 @@ import * as crypto from "crypto";
 import * as path from "path";
 import * as vscode from "vscode";
 
-export { bucketLinesChanged, isAfterHours } from "@ascenda/tool-kit";
-
 export function hashValue(value: string | undefined | null): string | null {
   if (!value) return null;
   return crypto.createHash("sha256").update(value).digest("hex").slice(0, 16);

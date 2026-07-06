@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { getHostDisplayName } from "./host";
-import { PairingSessionResponse } from "./types";
+import { PairingSessionResponse } from "@ascenda/tool-contract";
 
 export class PairingPanel {
   public static currentPanel: PairingPanel | undefined;

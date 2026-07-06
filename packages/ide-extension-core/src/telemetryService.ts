@@ -11,8 +11,9 @@ import {
   AscendaEventPayload,
   AscendaSeverity,
   AscendaTelemetryEventType
-} from "./types";
-import { getWorkspaceHash, isAfterHours } from "./privacy";
+} from "@ascenda/tool-contract";
+import { isAfterHours } from "@ascenda/tool-kit";
+import { getWorkspaceHash } from "./privacy";
 
 export class TelemetryService implements vscode.Disposable {
   private readonly queue: AscendaEventPayload[] = [];

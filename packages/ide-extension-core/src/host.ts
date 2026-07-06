@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { AscendaTelemetrySource } from "./types";
+import { AscendaTelemetrySource } from "@ascenda/tool-contract";
 
 export type HostKind = "cursor" | "vscode" | "unknown";
 

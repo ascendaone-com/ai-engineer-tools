@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import { classifyCommand, isVerificationCommand } from "./commandClassifier";
+import { classifyCommand, isVerificationCommand } from "@ascenda/tool-kit";
 import { AscendaConfig } from "./config";
 import { TelemetryService } from "./telemetryService";
-import { CommandClass, CommandOutcome } from "./types";
+import { CommandClass, CommandOutcome } from "@ascenda/tool-contract";
 type ShellExecutionStartEvent = { execution?: { commandLine?: { value?: string } } };
 type ShellExecutionEndEvent = { execution?: { commandLine?: { value?: string } }; exitCode?: number | undefined };
 export class TerminalTelemetry implements vscode.Disposable {
