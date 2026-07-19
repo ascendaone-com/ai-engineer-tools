@@ -10,7 +10,7 @@
     "test:sample": "npm run build && cat examples/sample-post-tool-use-edit.json | node dist/cli.js PostToolUse",
     "test:compact": "npm run build && cat examples/sample-pre-compact-auto.json | node dist/cli.js PreCompact"
   },
-  "license": "Apache-2.0",
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.14.10",
     "typescript": "^5.5.0"
