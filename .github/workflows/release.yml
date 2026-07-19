@@ -1,0 +1,122 @@
+name: Release
+
+# Tagging `vX.Y.Z` is the only way artifacts become downloadable. The installer
+# consumes the manifest attached here and never builds from a branch.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version to dry-run, e.g. v0.2.0 (builds and verifies, publishes nothing)"
+        required: true
+
+permissions:
+  contents: write
+  id-token: write # keyless Sigstore signing for build provenance
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      # A dry run builds, verifies and produces a manifest, but skips every
+      # publishing step, so the release path can be exercised before tagging.
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      REPO: ${{ github.repository }}
+      STAGE: dist/release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20 # matches root engines.node; the manifest's minNode
+          cache: npm
+
+      - run: npm ci
+
+      # One tag, one version across every artifact, so the manifest carries a
+      # single `version` and the installer never reasons about per-package skew.
+      - name: Stamp release version
+        run: node scripts/stamp-version.mjs --tag "$TAG"
+
+      # The release gate: DRY guard rail, full dependency-ordered build, and
+      # every workspace test suite. A red verify means no release.
+      - name: Verify
+        run: npm run verify
+
+      - name: Package extension VSIXes
+        run: npm run package
+
+      - name: Stage artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p "$STAGE"
+          # VSIXes keep the name vsce generates (it already carries the version).
+          mv ascenda-vscode-extension-telemetry/*.vsix "$STAGE/"
+          mv ascenda-cursor-extension/*.vsix "$STAGE/"
+          # Both hook CLIs bundle to dist/cli.js, so give them distinct,
+          # self-describing names in the release. They are single-file ESM.
+          cp ascenda-claude-code-hooks/dist/cli.js "$STAGE/ascenda-claude-code-hooks.mjs"
+          cp ascenda-codex-hooks/dist/cli.js "$STAGE/ascenda-codex-hooks.mjs"
+          ls -l "$STAGE"
+
+      - name: Build manifest
+        run: node scripts/release-manifest.mjs --tag "$TAG" --dir "$STAGE" --repo "$REPO"
+
+      # Keyless Sigstore provenance over the artifacts and the manifest itself.
+      # Verified by consumers with: gh attestation verify <file> --repo <owner/name>
+      - name: Attest build provenance
+        if: env.DRY_RUN == 'false'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "${{ env.STAGE }}/*"
+
+      - name: Upload dry-run artifacts
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dry-run-${{ github.event.inputs.tag }}
+          path: ${{ env.STAGE }}/
+
+      # `latest` pointer: GitHub serves the newest release's assets at the
+      # stable URL .../releases/latest/download/manifest.json — no extra infra.
+      - name: Publish GitHub Release
+        if: env.DRY_RUN == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" "$STAGE"/* --generate-notes --verify-tag
+
+      # --- Marketplace publishing -------------------------------------------
+      # Both steps no-op until the publisher accounts exist and the tokens are
+      # added as repository secrets. VSIX-from-release stays the universal
+      # fallback either way, so a missing token never fails a release.
+      - name: Publish to VS Code Marketplace
+        if: env.DRY_RUN == 'false'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "::warning::VSCE_PAT not set — skipping Marketplace publish (VSIX is attached to the release)."
+            exit 0
+          fi
+          npx vsce publish --no-dependencies --packagePath "$STAGE"/ascenda-vscode-*.vsix
+
+      - name: Publish to OpenVSX
+        if: env.DRY_RUN == 'false'
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OVSX_PAT:-}" ]; then
+            echo "::warning::OVSX_PAT not set — skipping OpenVSX publish (VSIX is attached to the release)."
+            exit 0
+          fi
+          npx ovsx publish "$STAGE"/ascenda-cursor-*.vsix -p "$OVSX_PAT"
+          npx ovsx publish "$STAGE"/ascenda-vscode-*.vsix -p "$OVSX_PAT"

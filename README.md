@@ -58,9 +58,60 @@ Both extension VSIXes are bundled with esbuild at package time (`npm run package
 - Subjective NASA-TLX-style check-ins (Ascenda mobile app)
 - Personalised baseline scoring (backend Phase 3)
 
+## Install from a release (no clone required)
+
+Every tagged release attaches all four artifacts plus a `manifest.json`. The
+manifest is the only supported way to discover artifacts — resolve downloads
+through it rather than from `main`, and verify the checksum before running
+anything. Requires **Node 20+**.
+
+The newest release is always at a stable `latest` URL:
+
+```bash
+BASE=https://github.com/ascendaone-com/ai-engineer-tools/releases/latest/download
+curl -fsSLO "$BASE/manifest.json"
+cat manifest.json    # { version, minNode, artifacts: [{ name, url, sha256 }] }
+```
+
+**1. Extensions (VS Code / Cursor).** Download the VSIX named in the manifest and
+install it headlessly — this works with no marketplace dependency:
+
+```bash
+curl -fsSLO "$BASE/ascenda-vscode-<version>.vsix"
+code   --install-extension ./ascenda-vscode-<version>.vsix
+cursor --install-extension ./ascenda-cursor-<version>.vsix
+```
+
+Once the extensions are on the VS Code Marketplace and OpenVSX, installing from
+there is preferred (you get auto-updates); the VSIX remains the universal fallback.
+
+**2. Hook CLIs (Claude Code / Codex).** These are self-contained single-file ESM
+bundles — no `npm install`, no dependencies. Drop them on your PATH:
+
+```bash
+mkdir -p ~/.ascenda/bin
+curl -fsSL "$BASE/ascenda-codex-hooks.mjs" -o ~/.ascenda/bin/ascenda-codex-hook
+chmod +x ~/.ascenda/bin/ascenda-codex-hook
+export PATH="$HOME/.ascenda/bin:$PATH"    # add to your shell rc
+```
+
+`~/.ascenda/bin` is the install target rather than `npm i -g`: no sudo, and no
+npm-global permission failures on locked-down machines.
+
+**3. Verify before you run.** Check the checksum against the manifest, and
+optionally the build provenance:
+
+```bash
+shasum -a 256 ascenda-codex-hooks.mjs        # must match sha256 in manifest.json
+gh attestation verify ascenda-codex-hooks.mjs --repo ascendaone-com/ai-engineer-tools
+```
+
+Releases are built only by [`.github/workflows/release.yml`](./.github/workflows/release.yml),
+gated on `npm run verify`, and signed with keyless Sigstore build provenance.
+
 ## Quick start
 
-Install instructions live in each package README:
+Per-package configuration and development instructions:
 
 | Tool | Install guide |
 | --- | --- |
