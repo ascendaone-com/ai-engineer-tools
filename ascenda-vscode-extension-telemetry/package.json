@@ -4,6 +4,11 @@
   "description": "Privacy-first AI workload telemetry and app pairing for Ascenda.",
   "version": "0.0.2",
   "publisher": "ascenda",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
+    "directory": "ascenda-vscode-extension-telemetry"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -100,11 +105,14 @@
     "vscode:prepublish": "npm --prefix .. run build:shared && tsc --noEmit && npm run bundle",
     "bundle": "esbuild src/extension.ts --bundle --external:vscode --platform=node --format=cjs --outfile=out/extension.js",
     "package": "vsce package --no-dependencies",
+    "package:ovsx": "ovsx package",
     "prebundle": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\""
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.1",
+    "ovsx": "^0.10.0",
     "typescript": "^5.5.0"
   },
   "dependencies": {

@@ -18,3 +18,6 @@ local.devauth.env
 **/dist/
 **/out/
 *.tsbuildinfo
+
+# Release artifacts — built by CI on tag, never committed
+*.vsix
