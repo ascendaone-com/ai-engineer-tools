@@ -23,4 +23,12 @@ Faithful enough that the integration suite drives the **real
 `@ascenda/tool-kit` client** through pair → ingest → renew → revoke → 401
 against it. Not the product backend: no scoring, baselines, or aggregation.
 
+## Loopback only — do not change this
+
+The server listens on `127.0.0.1` and must stay there. It auto-confirms pairing
+requests, issues bearer tokens to anyone who asks, and serves every captured
+event unauthenticated at `/_dev/events`. Binding it to `0.0.0.0` would hand all
+of that to whatever network the developer is on. It is a test fixture with no
+authentication by design — the bind address *is* the security boundary.
+
 See [TESTING.md](../TESTING.md) for the two-minute quickstart.

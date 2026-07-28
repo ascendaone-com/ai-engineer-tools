@@ -1,0 +1,33 @@
+name: CI
+
+# The DRY guard rail only protects the repo if something runs it. Without this,
+# a violation of the single-source-of-truth invariant merges silently.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20 # matches root engines.node
+          cache: npm
+
+      - run: npm ci
+
+      # scripts/check-dry.sh + dependency-ordered build + every workspace suite.
+      - run: npm run verify
+
+      # Packaging breaks in ways a build does not catch (missing vsce, absent
+      # repository field), and it is only noticed at release time otherwise.
+      - name: Package extensions
+        run: npm run package --if-present

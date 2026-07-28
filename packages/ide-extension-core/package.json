@@ -7,15 +7,18 @@
   "types": "./out/index.d.ts",
   "scripts": {
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "node --test"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
     "@types/vscode": "^1.90.0",
+    "jsqr": "^1.4.0",
     "typescript": "^5.5.0"
   },
   "dependencies": {
     "@ascenda/tool-contract": "*",
-    "@ascenda/tool-kit": "*"
+    "@ascenda/tool-kit": "*",
+    "qrcode-generator": "^2.0.4"
   }
 }

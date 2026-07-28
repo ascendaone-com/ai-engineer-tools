@@ -19,6 +19,7 @@ All packages align to the backend-agreed research foundation:
 | [ascenda-cursor-extension](./ascenda-cursor-extension/) | Cursor IDE telemetry + planned MCP/agent adapter |
 | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | Claude Code agent hooks — prompts, tool calls, compaction, agent loops |
 | [ascenda-pairing-sim](./ascenda-pairing-sim/) | Console app that simulates the mobile app for pairing tests (confirm / list / revoke / e2e) |
+| [ascenda-dev-server](./ascenda-dev-server/) | Local mock of the `/v1` pairing + ingest contract — run any tool with no backend, phone, or DevAuth. Dev-only, never published; binds to `127.0.0.1` |
 
 ### Shared packages
 
