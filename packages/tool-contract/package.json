@@ -1,6 +1,7 @@
 {
   "name": "@ascenda/tool-contract",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Canonical Ascenda tool telemetry contract: DTOs, event catalog, and shared constants. Mirrors api-docs/TOOL_PAIRING_API_REFERENCE.md.",
   "main": "./out/index.js",

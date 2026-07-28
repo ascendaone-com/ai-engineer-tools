@@ -4,6 +4,7 @@
   "description": "Privacy-first AI workload telemetry and app pairing for Ascenda.",
   "version": "0.0.2",
   "publisher": "ascenda",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
