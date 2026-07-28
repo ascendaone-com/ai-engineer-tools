@@ -5,6 +5,7 @@ export { getString, getNumber, getNested, getNestedString, getNestedNumber, infe
 export { AscendaEventSender } from "./eventSender";
 export type { EventSenderConfig, MappedEvent } from "./eventSender";
 export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export {
   AscendaApiError,
   createPairingSession,

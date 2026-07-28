@@ -49,7 +49,7 @@ Both extension VSIXes are bundled with esbuild at package time (`npm run package
 - IDE usage (VS Code / Cursor)
 - Terminal test/build/lint signals
 - Claude Code AI interaction load
-- Metadata-only, hashed workspace identifiers
+- Metadata-only, hashed workspace identifiers (salted with a machine-local secret that is never transmitted)
 - Loose app pairing (QR / 6-digit code)
 
 **Out of scope (backend / app / Phase 2+)**
@@ -88,6 +88,8 @@ ascenda-pairing-sim e2e --tool-type cursor_mcp
 Happy path on Azure Dev has been verified: ingest, tool-scoped renew, `list`, and `revoke` (post-revoke ingest returns `401`).
 
 ## Privacy & compliance
+
+Workspace identifiers are hashed with a random salt generated on first run and stored only at `~/.ascenda/salt`. It is never sent, so the hashes cannot be reversed to folder or repository names by anyone holding the telemetry. Deleting the file re-anonymises the machine.
 
 Metadata-only by default. Not a medical device — measures workload patterns for self-awareness, not diagnosis or treatment. Australian Privacy Act / GDPR-aligned consent via `ide_telemetry` scope.
 
