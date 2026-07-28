@@ -1,6 +1,7 @@
 {
   "name": "ascenda-dev-server",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Local mock of the Ascenda /v1 pairing and ingest contract for testing tools without a backend, phone, or DevAuth",
   "type": "module",

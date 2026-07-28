@@ -1,6 +1,7 @@
 {
   "name": "@ascenda/ide-extension-core",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Shared implementation for the Ascenda IDE telemetry extensions (VS Code, Cursor). Host identity is detected at runtime via host.ts.",
   "main": "./out/index.js",

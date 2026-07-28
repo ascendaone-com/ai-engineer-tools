@@ -1,6 +1,7 @@
 {
   "name": "@ascenda/tool-kit",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Shared vscode-free runtime for Ascenda tools: command classification, buckets, after-hours calculation, token store, and /v1 HTTP client.",
   "main": "./out/index.js",
