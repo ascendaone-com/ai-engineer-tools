@@ -22,6 +22,10 @@ export function readTokenFile(tokenFilePath: string): string | undefined {
   }
 }
 
+// `:` is deliberately absent from the allow-list: it is legal on POSIX but
+// illegal in a Windows filename, where it separates the drive and opens an NTFS
+// alternate data stream. Real ids carry it (`claude_code:abc-123`), so allowing
+// it through would break every Windows install.
 function sanitizeFilePart(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._:-]/g, "_");
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
