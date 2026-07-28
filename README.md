@@ -20,6 +20,7 @@ All packages align to the backend-agreed research foundation:
 | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | Claude Code agent hooks — prompts, tool calls, compaction, agent loops |
 | [ascenda-codex-hooks](./ascenda-codex-hooks/) | OpenAI Codex lifecycle hooks — same agent signals as Claude hooks, via Codex's hooks.json |
 | [ascenda-pairing-sim](./ascenda-pairing-sim/) | Console app that simulates the mobile app for pairing tests (confirm / list / revoke / e2e) |
+| [ascenda-dev-server](./ascenda-dev-server/) | Local mock of the `/v1` pairing + ingest contract — run any tool with no backend, phone, or DevAuth. Dev-only, never published; binds to `127.0.0.1` |
 
 ### Shared packages
 
@@ -59,6 +60,8 @@ Both extension VSIXes are bundled with esbuild at package time (`npm run package
 - Personalised baseline scoring (backend Phase 3)
 
 ## Quick start
+
+**Local testing without a backend, phone, or DevAuth:** see [TESTING.md](./TESTING.md) — `./scripts/dev-quickstart.sh` gets events flowing against a local mock server in ~2 minutes.
 
 Install instructions live in each package README:
 

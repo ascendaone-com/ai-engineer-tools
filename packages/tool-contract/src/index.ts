@@ -113,6 +113,34 @@ export type AscendaEventPayload = {
   metadata?: AscendaEventMetadata;
 };
 
+export type WorkloadCategory = "creation" | "verification" | "supervision" | "risk" | "neutral" | "unclassified";
+
+/** Canonical event -> workload category mapping, per the API reference catalog table. */
+export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, WorkloadCategory> = {
+  create_focus_session: "creation",
+  ai_prompt_submitted: "creation",
+  ai_generation_completed: "creation",
+  ai_file_write: "creation",
+  ai_file_edit: "creation",
+  editor_verification_activity: "verification",
+  compile_diagnostic: "verification",
+  editor_correction_activity: "supervision",
+  ai_correction_prompt: "supervision",
+  supervis_meeting_load: "supervision",
+  ai_tool_call_started: "supervision",
+  ai_tool_call_completed: "supervision",
+  ai_tool_call_failed: "supervision",
+  context_pressure_high: "risk",
+  agent_loop_long: "risk",
+  after_hours_ai_session: "risk",
+  compile_error: "risk",
+  tool_failure: "risk",
+  recovery_offline_period: "neutral",
+  context_compression_manual: "neutral",
+  context_compression_auto: "neutral",
+  editor_activity: "neutral"
+};
+
 export type IngestResult = "accepted" | "auth_failed" | "consent_missing" | "validation_failed" | "other";
 
 export const ASCENDA_CONSENT_SCOPE: ToolConsentScope = "ide_telemetry";
