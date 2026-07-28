@@ -44,11 +44,13 @@ These need accounts and cannot be done from CI. The release still succeeds
 without them — the VSIX attached to the release is the universal fallback — but
 each one is a gap until it is done.
 
-| Prerequisite | Why | Blocks |
+`ascenda-one` is the one name for all of it — npm org, Marketplace publisher,
+OpenVSX namespace. Do not introduce a second one.
+
+| Prerequisite | Status | Blocks |
 | --- | --- | --- |
-| **Optionally park the `@ascenda` npm scope** | The shared packages moved to `@ascenda-one/*` — the scope matching the `ascenda-one` org — which is what actually closed the dependency-confusion surface flagged in the PR #1 review. Parking `@ascenda` is now belt-and-braces: it appears in this repo’s git history and nothing stops a third party publishing under it. | Nothing. Do it only if the name is free. |
-| **VS Code Marketplace publisher `ascenda`** | Verification has the longest lead time of anything here. Create it now even if publishing comes later. | `VSCE_PAT` step |
-| **OpenVSX namespace `ascenda`** | Cursor installs from OpenVSX, not the VS Code Marketplace. | `OVSX_PAT` step |
+| VS Code Marketplace publisher `ascenda-one` | **Done.** Extensions publish as `ascenda-one.ascenda-vscode` and `ascenda-one.ascenda-cursor`. | — |
+| OpenVSX namespace `ascenda-one` | Not yet claimed. Cursor installs from OpenVSX, not the VS Code Marketplace, so Cursor users need this. | `OVSX_PAT` step |
 
 Repository secrets to add once those exist:
 
