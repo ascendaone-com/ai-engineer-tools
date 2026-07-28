@@ -4,7 +4,7 @@ import {
   AscendaEventPayload,
   EVENT_WORKLOAD_CATEGORY,
   WorkloadCategory
-} from "@ascenda/tool-contract";
+} from "@ascenda-one/tool-contract";
 
 type Session = {
   pairingSessionId: string;

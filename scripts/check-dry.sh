@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Guard rail: the two IDE extensions must stay thin shells over
-# @ascenda/ide-extension-core, and no package may regrow a private copy
+# @ascenda-one/ide-extension-core, and no package may regrow a private copy
 # of a module owned by the shared packages.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -32,8 +32,8 @@ for ext in ascenda-vscode-extension-telemetry ascenda-cursor-extension; do
     echo "$extra"
     fail=1
   fi
-  if ! grep -q '@ascenda/ide-extension-core' "$ext/src/extension.ts"; then
-    echo "FAIL: $ext/src/extension.ts must re-export from @ascenda/ide-extension-core."
+  if ! grep -q '@ascenda-one/ide-extension-core' "$ext/src/extension.ts"; then
+    echo "FAIL: $ext/src/extension.ts must re-export from @ascenda-one/ide-extension-core."
     fail=1
   fi
 done

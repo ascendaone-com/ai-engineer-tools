@@ -60,8 +60,11 @@ No IDE install — this is a Node console app used alongside the extensions.
 ### Install
 
 ```bash
-cd ascenda-pairing-sim
+# from the repo root — the workspace install resolves @ascenda-one/* locally
 npm install
+npm run build:shared
+
+cd ascenda-pairing-sim
 npm run build
 npm link   # optional: puts ascenda-pairing-sim on PATH
 ```

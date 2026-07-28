@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as crypto from "crypto";
-import { defaultTokenFilePath, persistEventWriteToken } from "@ascenda/tool-kit";
+import { defaultTokenFilePath, persistEventWriteToken } from "@ascenda-one/tool-kit";
 import { PairingSimApi } from "./api.js";
 import { loadConfig } from "./config.js";
 

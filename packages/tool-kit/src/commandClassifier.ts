@@ -1,4 +1,4 @@
-import { CommandClass } from "@ascenda/tool-contract";
+import { CommandClass } from "@ascenda-one/tool-contract";
 
 export function classifyCommand(command: string | undefined | null): CommandClass {
   if (!command) return "unknown";
