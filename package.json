@@ -23,7 +23,7 @@
     "package": "npm run package -w ascenda-vscode && npm run package -w ascenda-cursor",
     "verify": "./scripts/check-dry.sh && npm run test",
     "test": "npm run build && npm run test:scripts && npm run test --workspaces --if-present",
-    "test:scripts": "node --test \"scripts/tests/*.test.mjs\"",
+    "test:scripts": "node --test scripts/tests/*.test.mjs",
     "dev-server": "node ascenda-dev-server/dist/cli.js"
   },
   "devDependencies": {
