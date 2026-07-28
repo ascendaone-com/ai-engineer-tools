@@ -6,7 +6,7 @@ import {
   inferOutcome,
   isVerificationCommand,
   looksLikeCorrection
-} from "@ascenda/tool-kit";
+} from "@ascenda-one/tool-kit";
 import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from "./types.js";
 
 /**

@@ -3,7 +3,7 @@
  * Hook payload shapes drift across agent versions; these probe multiple
  * spellings and nestings so version drift degrades events gracefully.
  */
-import { CommandOutcome } from "@ascenda/tool-contract";
+import { CommandOutcome } from "@ascenda-one/tool-contract";
 
 export function getString(input: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {

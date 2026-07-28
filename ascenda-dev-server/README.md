@@ -12,7 +12,7 @@ node dist/cli.js --manual     # exercise the real confirm flow (pairing-sim / cu
 
 Implements: pairing sessions + confirm + status (token on first paired poll
 only), single/batch ingest with category classification from
-`@ascenda/tool-contract`'s catalog map, tool-scoped renew with rotation,
+`@ascenda-one/tool-contract`'s catalog map, tool-scoped renew with rotation,
 connected-tools list/revoke (post-revoke ingest 401), consent gating.
 
 Dev-only extras under `/_dev`: `GET /_dev/events` (everything received),
@@ -20,7 +20,7 @@ Dev-only extras under `/_dev`: `GET /_dev/events` (everything received),
 lapsed consent lease.
 
 Faithful enough that the integration suite drives the **real
-`@ascenda/tool-kit` client** through pair → ingest → renew → revoke → 401
+`@ascenda-one/tool-kit` client** through pair → ingest → renew → revoke → 401
 against it. Not the product backend: no scoring, baselines, or aggregation.
 
 ## Loopback only — do not change this

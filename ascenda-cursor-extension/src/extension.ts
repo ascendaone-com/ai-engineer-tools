@@ -1,1 +1,1 @@
-export { activate, deactivate } from "@ascenda/ide-extension-core";
+export { activate, deactivate } from "@ascenda-one/ide-extension-core";

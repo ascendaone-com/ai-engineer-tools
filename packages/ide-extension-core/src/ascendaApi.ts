@@ -4,18 +4,18 @@ import {
   PairingSessionResponse,
   PairingStatusResponse,
   RenewToolTokenResponse
-} from "@ascenda/tool-contract";
+} from "@ascenda-one/tool-contract";
 import {
   createPairingSession,
   getPairingStatus,
   postToolEvent,
   postToolEventsBatch,
   renewToolToken
-} from "@ascenda/tool-kit";
+} from "@ascenda-one/tool-kit";
 import { AscendaConfig } from "./config";
 
 export type { IngestResult };
-export { AscendaApiError } from "@ascenda/tool-kit";
+export { AscendaApiError } from "@ascenda-one/tool-kit";
 
 export class AscendaApi {
   async createPairingSession(toolInstallationId: string, toolType: string, displayName: string): Promise<PairingSessionResponse> {

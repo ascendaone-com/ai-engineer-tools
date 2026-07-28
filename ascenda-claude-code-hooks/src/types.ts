@@ -1,7 +1,7 @@
-import type { AscendaEventPayload } from "@ascenda/tool-contract";
+import type { AscendaEventPayload } from "@ascenda-one/tool-contract";
 
-export type { AscendaEventPayload, CommandOutcome, IngestResult } from "@ascenda/tool-contract";
-export { ASCENDA_CONSENT_SCOPE, ASCENDA_PROVENANCE } from "@ascenda/tool-contract";
+export type { AscendaEventPayload, CommandOutcome, IngestResult } from "@ascenda-one/tool-contract";
+export { ASCENDA_CONSENT_SCOPE, ASCENDA_PROVENANCE } from "@ascenda-one/tool-contract";
 
 export type ClaudeHookEventName =
   | "UserPromptSubmit" | "PreToolUse" | "PostToolUse"

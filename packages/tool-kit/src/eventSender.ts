@@ -7,7 +7,7 @@ import {
   AscendaTelemetryEventType,
   AscendaTelemetrySource,
   IngestResult
-} from "@ascenda/tool-contract";
+} from "@ascenda-one/tool-contract";
 import { postToolEvent, renewToolToken } from "./http";
 import { persistEventWriteToken } from "./tokenStore";
 

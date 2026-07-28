@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AscendaEventSender } from "@ascenda/tool-kit";
+import { AscendaEventSender } from "@ascenda-one/tool-kit";
 import { loadConfigFromEnv } from "./config.js";
 import { mapCodexEvent } from "./mapCodexEvent.js";
 import { consumeTurnDurationMs, recordTurnStart } from "./turnState.js";

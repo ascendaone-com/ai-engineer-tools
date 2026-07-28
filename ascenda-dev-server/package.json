@@ -17,8 +17,8 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@ascenda/tool-contract": "*",
-    "@ascenda/tool-kit": "*",
+    "@ascenda-one/tool-contract": "*",
+    "@ascenda-one/tool-kit": "*",
     "@types/node": "^20.14.10",
     "typescript": "^5.5.0"
   }

@@ -43,8 +43,11 @@ Cursor supports VS Code–compatible extensions. Install and run this package **
 ### 1. Build the extension
 
 ```bash
-cd ascenda-cursor-extension
+# from the repo root — the workspace install resolves @ascenda-one/* locally
 npm install
+npm run build:shared
+
+cd ascenda-cursor-extension
 npm run compile
 ```
 

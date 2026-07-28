@@ -1,4 +1,4 @@
-import { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "@ascenda/tool-kit";
+import { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "@ascenda-one/tool-kit";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
 
 export type AscendaCodexConfig = {
