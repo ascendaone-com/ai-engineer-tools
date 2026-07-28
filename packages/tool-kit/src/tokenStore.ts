@@ -8,8 +8,18 @@ export function defaultTokenFilePath(toolInstallationId: string): string {
 }
 
 export function persistEventWriteToken(tokenFilePath: string, token: string): void {
-  fs.mkdirSync(path.dirname(tokenFilePath), { recursive: true });
+  const dir = path.dirname(tokenFilePath);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(tokenFilePath, token, { encoding: "utf8", mode: 0o600 });
+  // Both `mode` options above apply only on creation: an existing token file
+  // keeps whatever permissions it already had, and `recursive: true` ignores
+  // `mode` for directories that already exist. A token rotated into a file that
+  // was once world-readable would stay world-readable, so set both explicitly.
+  // Windows does not model these bits; chmod there is meaningless, not safer.
+  if (process.platform !== "win32") {
+    fs.chmodSync(dir, 0o700);
+    fs.chmodSync(tokenFilePath, 0o600);
+  }
 }
 
 export function readTokenFile(tokenFilePath: string): string | undefined {
