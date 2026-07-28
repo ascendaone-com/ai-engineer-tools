@@ -3,7 +3,7 @@
   "displayName": "Ascenda for Cursor",
   "description": "Privacy-first AI workload telemetry and app pairing for Cursor.",
   "version": "0.1.0",
-  "publisher": "ascenda",
+  "publisher": "ascenda-one",
   "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
