@@ -4,6 +4,7 @@
   "description": "Privacy-first AI workload telemetry and app pairing for Ascenda.",
   "version": "0.0.2",
   "publisher": "ascenda",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
   },

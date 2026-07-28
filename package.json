@@ -13,14 +13,16 @@
     "ascenda-cursor-extension",
     "ascenda-claude-code-hooks",
     "ascenda-codex-hooks",
-    "ascenda-pairing-sim"
+    "ascenda-pairing-sim",
+    "ascenda-dev-server"
   ],
   "scripts": {
     "build": "npm run build:shared && npm run build:tools",
     "build:shared": "npm run compile -w @ascenda/tool-contract && npm run compile -w @ascenda/tool-kit && npm run compile -w @ascenda/ide-extension-core",
-    "build:tools": "npm run compile -w ascenda-vscode && npm run compile -w ascenda-cursor && npm run build -w ascenda-claude-code-hooks && npm run build -w ascenda-codex-hooks && npm run build -w ascenda-pairing-sim",
+    "build:tools": "npm run compile -w ascenda-vscode && npm run compile -w ascenda-cursor && npm run build -w ascenda-claude-code-hooks && npm run build -w ascenda-codex-hooks && npm run build -w ascenda-pairing-sim && npm run build -w ascenda-dev-server",
     "verify": "./scripts/check-dry.sh && npm run test",
-    "test": "npm run build && npm run test --workspaces --if-present"
+    "test": "npm run build && npm run test --workspaces --if-present",
+    "dev-server": "node ascenda-dev-server/dist/cli.js"
   },
   "devDependencies": {
     "esbuild": "^0.23.0"
