@@ -46,7 +46,7 @@ each one is a gap until it is done.
 
 | Prerequisite | Why | Blocks |
 | --- | --- | --- |
-| **Claim the `@ascenda` npm scope** | Dependency-confusion surface flagged in the PR #1 review. An installer plan makes scope-squatting an active supply-chain risk. Publish stub-private packages if nothing is ready — just own the scope. | Nothing in this workflow, but do it first; it is independent and time-sensitive. |
+| **Optionally park the `@ascenda` npm scope** | The shared packages moved to `@ascenda-one/*` — the scope matching the `ascenda-one` org — which is what actually closed the dependency-confusion surface flagged in the PR #1 review. Parking `@ascenda` is now belt-and-braces: it appears in this repo’s git history and nothing stops a third party publishing under it. | Nothing. Do it only if the name is free. |
 | **VS Code Marketplace publisher `ascenda`** | Verification has the longest lead time of anything here. Create it now even if publishing comes later. | `VSCE_PAT` step |
 | **OpenVSX namespace `ascenda`** | Cursor installs from OpenVSX, not the VS Code Marketplace. | `OVSX_PAT` step |
 

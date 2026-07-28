@@ -1,5 +1,5 @@
-export type { AscendaEventPayload, CommandOutcome, IngestResult } from "@ascenda/tool-contract";
-import type { AscendaEventMetadata, AscendaSeverity, AscendaTelemetryEventType } from "@ascenda/tool-contract";
+export type { AscendaEventPayload, CommandOutcome, IngestResult } from "@ascenda-one/tool-contract";
+import type { AscendaEventMetadata, AscendaSeverity, AscendaTelemetryEventType } from "@ascenda-one/tool-contract";
 
 /** Codex lifecycle hook events (developers.openai.com/codex/hooks). */
 export type CodexHookEventName =

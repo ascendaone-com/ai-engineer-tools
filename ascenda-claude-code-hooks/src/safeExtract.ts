@@ -7,4 +7,4 @@ export {
   getString,
   inferOutcome,
   looksLikeCorrection
-} from "@ascenda/tool-kit";
+} from "@ascenda-one/tool-kit";

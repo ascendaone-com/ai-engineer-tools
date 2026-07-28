@@ -1,8 +1,8 @@
-import type { ConnectedTool, PairingSessionResponse, PairingStatusResponse, RenewToolTokenResponse } from "@ascenda/tool-contract";
-import { createPairingSession, getPairingStatus } from "@ascenda/tool-kit";
+import type { ConnectedTool, PairingSessionResponse, PairingStatusResponse, RenewToolTokenResponse } from "@ascenda-one/tool-contract";
+import { createPairingSession, getPairingStatus } from "@ascenda-one/tool-kit";
 import { SimConfig } from "./config.js";
 
-export type { ConnectedTool } from "@ascenda/tool-contract";
+export type { ConnectedTool } from "@ascenda-one/tool-contract";
 export type PairingStatus = PairingStatusResponse;
 export type CreatePairingSessionResponse = PairingSessionResponse;
 
@@ -34,12 +34,12 @@ export class PairingSimApi {
   }
 
   /** Tool-side (anonymous): create a pairing session for e2e tests without an IDE.
-   *  Delegates to @ascenda/tool-kit so the e2e exercises the same client the tools use. */
+   *  Delegates to @ascenda-one/tool-kit so the e2e exercises the same client the tools use. */
   async createToolSession(toolInstallationId: string, toolType: string, displayName: string): Promise<CreatePairingSessionResponse> {
     return createPairingSession(this.config.apiBaseUrl, toolInstallationId, toolType, displayName);
   }
 
-  /** Tool-side (anonymous): poll status. Delegates to @ascenda/tool-kit. */
+  /** Tool-side (anonymous): poll status. Delegates to @ascenda-one/tool-kit. */
   async getStatus(pairingSessionId: string): Promise<PairingStatus> {
     return getPairingStatus(this.config.apiBaseUrl, pairingSessionId);
   }

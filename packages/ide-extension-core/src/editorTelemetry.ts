@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { AscendaConfig } from "./config";
-import { bucketLinesChanged } from "@ascenda/tool-kit";
+import { bucketLinesChanged } from "@ascenda-one/tool-kit";
 import { getFileTypeFromUri } from "./privacy";
 import { TelemetryService } from "./telemetryService";
 export class EditorTelemetry implements vscode.Disposable {

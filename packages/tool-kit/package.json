@@ -1,5 +1,5 @@
 {
-  "name": "@ascenda/tool-kit",
+  "name": "@ascenda-one/tool-kit",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -11,7 +11,7 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@ascenda/tool-contract": "*"
+    "@ascenda-one/tool-contract": "*"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
