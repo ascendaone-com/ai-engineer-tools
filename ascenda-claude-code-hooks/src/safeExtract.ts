@@ -1,6 +1,6 @@
 import { CommandOutcome } from "./types.js";
 
-export { bucketDurationMs } from "@ascenda/tool-kit";
+export { bucketDurationMs } from "@ascenda-one/tool-kit";
 
 export function getString(input: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {

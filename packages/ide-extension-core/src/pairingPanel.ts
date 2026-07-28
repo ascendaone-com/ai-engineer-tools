@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getHostDisplayName } from "./host";
 import { renderQrSvg } from "./qr";
-import { PairingSessionResponse } from "@ascenda/tool-contract";
+import { PairingSessionResponse } from "@ascenda-one/tool-contract";
 
 // Blocks every remote load from the panel. The QR is inlined as SVG markup, so
 // nothing here needs the network — and the pairing secret cannot be exfiltrated

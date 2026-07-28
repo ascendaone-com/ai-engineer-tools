@@ -1,4 +1,4 @@
-import { DurationBucket, LinesChangedBucket } from "@ascenda/tool-contract";
+import { DurationBucket, LinesChangedBucket } from "@ascenda-one/tool-contract";
 
 export function bucketLinesChanged(count: number): LinesChangedBucket {
   if (count <= 0) return "0"; if (count <= 10) return "1-10"; if (count <= 50) return "10-50"; if (count <= 200) return "50-200"; return "200+";

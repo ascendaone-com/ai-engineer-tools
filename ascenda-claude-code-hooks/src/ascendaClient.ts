@@ -1,4 +1,4 @@
-import { persistEventWriteToken, postToolEvent, renewToolToken } from "@ascenda/tool-kit";
+import { persistEventWriteToken, postToolEvent, renewToolToken } from "@ascenda-one/tool-kit";
 import {
   ASCENDA_CONSENT_SCOPE,
   ASCENDA_PROVENANCE,
@@ -8,7 +8,7 @@ import {
 } from "./types.js";
 import { AscendaHookConfig } from "./config.js";
 
-export { AscendaApiError as AscendaClientError } from "@ascenda/tool-kit";
+export { AscendaApiError as AscendaClientError } from "@ascenda-one/tool-kit";
 
 export class AscendaClient {
   private eventWriteToken: string;

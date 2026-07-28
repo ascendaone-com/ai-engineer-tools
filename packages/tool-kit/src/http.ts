@@ -4,7 +4,7 @@ import {
   PairingSessionResponse,
   PairingStatusResponse,
   RenewToolTokenResponse
-} from "@ascenda/tool-contract";
+} from "@ascenda-one/tool-contract";
 
 export class AscendaApiError extends Error {
   constructor(readonly status: number, readonly errorCode?: string, body?: string) {

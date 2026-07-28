@@ -1,5 +1,5 @@
 {
-  "name": "@ascenda/ide-extension-core",
+  "name": "@ascenda-one/ide-extension-core",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -18,8 +18,8 @@
     "typescript": "^5.5.0"
   },
   "dependencies": {
-    "@ascenda/tool-contract": "*",
-    "@ascenda/tool-kit": "*",
+    "@ascenda-one/tool-contract": "*",
+    "@ascenda-one/tool-kit": "*",
     "qrcode-generator": "^2.0.4"
   }
 }

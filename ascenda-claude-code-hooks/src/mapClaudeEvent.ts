@@ -1,4 +1,4 @@
-import { classifyCommand, isVerificationCommand } from "@ascenda/tool-kit";
+import { classifyCommand, isVerificationCommand } from "@ascenda-one/tool-kit";
 import { ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 import { bucketDurationMs, getNestedNumber, getNestedString, getNumber, getString, inferOutcome, looksLikeCorrection } from "./safeExtract.js";
 

@@ -4,7 +4,7 @@ import { createDevServer } from "../dist/server.js";
 // The point of this suite: drive the REAL kit client (the code every tool
 // ships) against the mock server, end to end - a local stand-in for the
 // Azure Dev happy-path verification.
-import kit from "@ascenda/tool-kit";
+import kit from "@ascenda-one/tool-kit";
 const { createPairingSession, getPairingStatus, postToolEvent, postToolEventsBatch, renewToolToken } = kit;
 
 let base;
