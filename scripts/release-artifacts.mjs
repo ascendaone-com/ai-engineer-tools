@@ -10,12 +10,16 @@ import { fileURLToPath } from "node:url";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Workspaces whose build output is attached to a GitHub Release. */
+/**
+ * Workspaces whose build output is attached to a GitHub Release.
+ * `npm` names the package on the registry for the ones that also publish there;
+ * omit it and the package ships as a release asset only.
+ */
 export const RELEASE_PACKAGES = [
   { dir: "ascenda-vscode-extension-telemetry", name: "ascenda-vscode", kind: "vsix" },
   { dir: "ascenda-cursor-extension", name: "ascenda-cursor", kind: "vsix" },
-  { dir: "ascenda-claude-code-hooks", name: "ascenda-claude-code-hooks", kind: "cli" },
-  { dir: "ascenda-codex-hooks", name: "ascenda-codex-hooks", kind: "cli" },
+  { dir: "ascenda-claude-code-hooks", name: "ascenda-claude-code-hooks", kind: "cli", npm: "@ascenda-one/claude-code-hooks" },
+  { dir: "ascenda-codex-hooks", name: "ascenda-codex-hooks", kind: "cli", npm: "@ascenda-one/codex-hooks" },
 ];
 
 /**

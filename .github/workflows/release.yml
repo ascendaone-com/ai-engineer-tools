@@ -37,6 +37,7 @@ jobs:
         with:
           node-version: 20 # matches root engines.node; the manifest's minNode
           cache: npm
+          registry-url: https://registry.npmjs.org # writes the .npmrc NODE_AUTH_TOKEN needs
 
       - run: npm ci
 
@@ -91,6 +92,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$TAG" "$STAGE"/* --generate-notes --verify-tag
+
+      # --- npm publishing ---------------------------------------------------
+      # Publishing the hook CLIs makes `npx @ascenda-one/codex-hooks` work with
+      # no download step, and proves the path installer M2's @ascenda-one/cli
+      # will land on. --provenance ties them to the same Sigstore chain as the
+      # release assets. Skips cleanly until NPM_TOKEN exists.
+      - name: Publish CLIs to npm
+        if: env.DRY_RUN == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::warning::NPM_TOKEN not set — skipping npm publish (artifacts are attached to the release)."
+            exit 0
+          fi
+          node -e 'import("./scripts/release-artifacts.mjs").then(({ RELEASE_PACKAGES }) =>
+            console.log(RELEASE_PACKAGES.filter((p) => p.npm).map((p) => p.dir).join("\n")))' \
+          | while read -r dir; do
+              [ -n "$dir" ] || continue
+              echo "publishing $dir"
+              npm publish --workspace "$dir" --provenance --access public
+            done
 
       # --- Marketplace publishing -------------------------------------------
       # Both steps no-op until the publisher accounts exist and the tokens are

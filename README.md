@@ -86,8 +86,16 @@ cursor --install-extension ./ascenda-cursor-<version>.vsix
 Once the extensions are on the VS Code Marketplace and OpenVSX, installing from
 there is preferred (you get auto-updates); the VSIX remains the universal fallback.
 
-**2. Hook CLIs (Claude Code / Codex).** These are self-contained single-file ESM
-bundles — no `npm install`, no dependencies. Drop them on your PATH:
+**2. Hook CLIs (Claude Code / Codex).** Published to npm, so the shortest path is:
+
+```bash
+npx @ascenda-one/codex-hooks --help
+npx @ascenda-one/claude-code-hooks --help
+```
+
+They are also attached to every release as self-contained single-file ESM
+bundles — no `npm install`, no dependencies — for machines where you would
+rather not go through npm at all:
 
 ```bash
 mkdir -p ~/.ascenda/bin

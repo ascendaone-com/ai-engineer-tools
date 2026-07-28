@@ -16,7 +16,9 @@ function fixture(versions = {}) {
   };
   write("", { name: "ai-engineer-tools", version: versions.root ?? "0.0.1", engines: { node: ">=20" } });
   for (const p of RELEASE_PACKAGES) {
-    write(p.dir, { name: p.name, version: versions[p.name] ?? "0.0.1", scripts: { build: "tsc" } });
+    // `p.name` names the release artifact; the package.json carries the npm
+    // name where there is one, so the fixture mirrors the real tree.
+    write(p.dir, { name: p.npm ?? p.name, version: versions[p.name] ?? "0.0.1", scripts: { build: "tsc" } });
   }
   return root;
 }
@@ -37,7 +39,7 @@ test("preserves surrounding fields and formatting", () => {
   stampVersion({ tag: "v2.0.0", root });
 
   const pkg = read(root, "ascenda-codex-hooks");
-  assert.equal(pkg.name, "ascenda-codex-hooks");
+  assert.equal(pkg.name, "@ascenda-one/codex-hooks");
   assert.deepEqual(pkg.scripts, { build: "tsc" }, "unrelated fields survive the rewrite");
   assert.match(fs.readFileSync(path.join(root, "package.json"), "utf8"), /\n$/, "trailing newline kept");
 });

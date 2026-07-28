@@ -51,11 +51,13 @@ OpenVSX namespace. Do not introduce a second one.
 | --- | --- | --- |
 | VS Code Marketplace publisher `ascenda-one` | **Done.** Extensions publish as `ascenda-one.ascenda-vscode` and `ascenda-one.ascenda-cursor`. | — |
 | OpenVSX namespace `ascenda-one` | Not yet claimed. Cursor installs from OpenVSX, not the VS Code Marketplace, so Cursor users need this. | `OVSX_PAT` step |
+| npm org `ascenda-one` | Exists. Needs an automation access token as the `NPM_TOKEN` secret. | `Publish CLIs to npm` step |
 
 Repository secrets to add once those exist:
 
 - `VSCE_PAT` — Azure DevOps PAT with Marketplace *Manage* scope.
 - `OVSX_PAT` — OpenVSX access token.
+- `NPM_TOKEN` — npm **automation** token for the `ascenda-one` org. Automation tokens bypass 2FA; interactive ones cannot publish from CI.
 
 Until each secret is set, its publish step logs a warning and skips. No release
 ever fails for a missing marketplace token.

@@ -1,8 +1,10 @@
 {
-  "name": "ascenda-codex-hooks",
+  "publishConfig": { "access": "public" },
+  "name": "@ascenda-one/codex-hooks",
   "version": "0.1.0",
   "description": "OpenAI Codex hooks adapter for Ascenda AI workload telemetry",
   "type": "module",
+  "files": ["dist", "examples"],
   "license": "MIT",
   "bin": {
     "ascenda-codex-hook": "./dist/cli.js"
