@@ -17,19 +17,17 @@ async function main(): Promise<void> {
     const result = await client.send(event);
     if (result === "consent_missing") {
       console.error("Ascenda telemetry rejected: renew IDE telemetry consent in the Ascenda app.");
-      process.exit(2);
+      return;
     }
     if (result === "auth_failed") {
       console.error("Ascenda telemetry rejected: event write token invalid or revoked. Re-pair via the VS Code/Cursor extension.");
-      process.exit(3);
+      return;
     }
     if (result !== "accepted") {
       console.error(`Ascenda telemetry rejected: ${result}`);
-      process.exit(1);
+      return;
     }
   }
-
-  process.exit(0);
 }
 
 async function readJsonFromStdin(): Promise<ClaudeHookInput> {
@@ -46,7 +44,13 @@ async function readJsonFromStdin(): Promise<ClaudeHookInput> {
   return parsed as ClaudeHookInput;
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+main()
+  .catch((error) => {
+    // Never exit non-zero: Claude Code treats exit 2 as a blocking error and
+    // feeds stderr back to the model, and any other non-zero code surfaces in
+    // the user's transcript. Failing to report telemetry is not a failure of
+    // the user's work, so problems are printed to stderr and swallowed.
+    // `ascenda doctor` (installer M2) is the place to diagnose them.
+    console.error(error instanceof Error ? error.message : String(error));
+  })
+  .finally(() => process.exit(0));

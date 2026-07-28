@@ -13,6 +13,31 @@ test("persist and read round-trip", () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test("persist tightens permissions on a token file that already exists", { skip: process.platform === "win32" ? "POSIX permissions" : false }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-"));
+  const tokens = path.join(dir, "tokens");
+  // Simulate the pre-fix state: a world-readable token file and directory.
+  fs.mkdirSync(tokens, { mode: 0o755 });
+  const file = path.join(tokens, "tok");
+  fs.writeFileSync(file, "old", { mode: 0o644 });
+
+  persistEventWriteToken(file, "tok_rotated");
+
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, "token file must end up owner-only");
+  assert.equal(fs.statSync(tokens).mode & 0o777, 0o700, "token directory must end up owner-only");
+  assert.equal(readTokenFile(file), "tok_rotated");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("persist creates a fresh token file owner-only", { skip: process.platform === "win32" ? "POSIX permissions" : false }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-"));
+  const file = path.join(dir, "tokens", "tok");
+  persistEventWriteToken(file, "tok_new");
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("readTokenFile: missing or empty file is undefined", () => {
   assert.equal(readTokenFile(path.join(os.tmpdir(), "ascenda-nope", "missing")), undefined);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-"));
