@@ -4,6 +4,7 @@
   "description": "Privacy-first AI workload telemetry and app pairing for Cursor.",
   "version": "0.1.0",
   "publisher": "ascenda",
+  "license": "MIT",
   "engines": { "vscode": "^1.90.0" },
   "categories": ["Other"],
   "activationEvents": [
