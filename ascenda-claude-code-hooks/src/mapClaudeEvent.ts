@@ -1,9 +1,10 @@
 import { classifyCommand, isVerificationCommand } from "@ascenda-one/tool-kit";
 import { ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
-import { bucketDurationMs, getNestedNumber, getNestedString, getNumber, getString, inferOutcome, looksLikeCorrection } from "./safeExtract.js";
+import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, inferOutcome, looksLikeCorrection } from "./safeExtract.js";
 
 export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {
   switch (hookName) {
+    case "SessionStart": return mapSessionStart(input);
     case "UserPromptSubmit": return mapUserPromptSubmit(input);
     case "PreToolUse": return mapPreToolUse(input);
     case "PostToolUse": return mapPostToolUse(input);
@@ -14,6 +15,23 @@ export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookI
     case "Notification": return [];
     default: return [];
   }
+}
+
+/**
+ * "clear" and "compact" restarts are context resets mid-work, not a new
+ * working session — asking "what should this session accomplish" again
+ * right after one would be repetitive rather than useful. Exported so
+ * cli.ts's context-injection decision uses the exact same rule as the
+ * telemetry decision below, rather than a second copy that could drift.
+ */
+export function isNewSessionStart(input: ClaudeHookInput): boolean {
+  const source = getString(input, ["source"]);
+  return !source || source === "startup" || source === "resume";
+}
+
+function mapSessionStart(input: ClaudeHookInput): MappedAscendaEvent[] {
+  if (!isNewSessionStart(input)) return [];
+  return [{ eventType: "create_focus_session", severity: "low", metadata: { activity: "session_started" } }];
 }
 
 function mapUserPromptSubmit(input: ClaudeHookInput): MappedAscendaEvent[] {
@@ -45,7 +63,22 @@ function mapPostToolUse(input: ClaudeHookInput): MappedAscendaEvent[] {
   }
 
   if (isWriteTool(toolName)) {
-    return [{ eventType: toolName?.toLowerCase() === "write" ? "ai_file_write" : "ai_file_edit", severity: "low", metadata: { toolName: safeToolName, outcome, durationBucket: bucketDurationMs(durationMs) } }];
+    const linesChanged = computeLinesChanged(toolName, input);
+    return [{
+      eventType: toolName?.toLowerCase() === "write" ? "ai_file_write" : "ai_file_edit",
+      severity: "low",
+      metadata: {
+        toolName: safeToolName,
+        outcome,
+        durationBucket: bucketDurationMs(durationMs),
+        // The boundary C2/the macOS work-self-report card triggers on: at
+        // "200+" this is the "substantial accepted change" moment. No
+        // second event type exists for this — the bucket on the existing
+        // creation event *is* the boundary, deliberately, since the write
+        // already happened; there is nothing else to mark.
+        ...(linesChanged !== undefined ? { linesChangedBucket: bucketLinesChanged(linesChanged) } : {})
+      }
+    }];
   }
 
   if (toolName?.toLowerCase() === "bash" && isVerificationCommand(commandClass)) {
@@ -73,6 +106,54 @@ function mapStop(input: ClaudeHookInput): MappedAscendaEvent[] {
 
 function getToolName(input: ClaudeHookInput): string | undefined {
   return getString(input, ["toolName", "tool_name", "name"]) ?? getNestedString(input, [["tool", "name"], ["tool_use", "name"], ["payload", "toolName"]]);
+}
+
+/**
+ * Reads `old_string`/`new_string`/`content`/`edits` from `tool_input` — the
+ * same fields the model just wrote — purely to count lines, then discards
+ * them. Nothing here is transmitted; only the bucketed count downstream
+ * ever reaches an event. Returns undefined when the shape doesn't match
+ * (missing fields, wrong types), so a version drift in the hook payload
+ * degrades to "not collected" rather than a wrong count.
+ */
+function computeLinesChanged(toolName: string | undefined, input: ClaudeHookInput): number | undefined {
+  const toolInput = getNested(input, ["tool_input"]) ?? getNested(input, ["input"]) ?? getNested(input, ["parameters"]);
+  if (!toolInput || typeof toolInput !== "object") return undefined;
+  const record = toolInput as Record<string, unknown>;
+
+  switch (toolName?.toLowerCase()) {
+    case "write": {
+      const content = record["content"];
+      return typeof content === "string" ? countLines(content) : undefined;
+    }
+    case "edit": {
+      const oldStr = record["old_string"];
+      const newStr = record["new_string"];
+      if (typeof oldStr !== "string" || typeof newStr !== "string") return undefined;
+      return Math.max(countLines(oldStr), countLines(newStr));
+    }
+    case "multiedit": {
+      const edits = record["edits"];
+      if (!Array.isArray(edits)) return undefined;
+      let total = 0;
+      let sawOne = false;
+      for (const edit of edits) {
+        if (!edit || typeof edit !== "object") continue;
+        const oldStr = (edit as Record<string, unknown>)["old_string"];
+        const newStr = (edit as Record<string, unknown>)["new_string"];
+        if (typeof oldStr !== "string" || typeof newStr !== "string") continue;
+        sawOne = true;
+        total += Math.max(countLines(oldStr), countLines(newStr));
+      }
+      return sawOne ? total : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function countLines(text: string): number {
+  return text.length === 0 ? 0 : text.split("\n").length;
 }
 
 function isWriteTool(toolName: string | undefined): boolean {
