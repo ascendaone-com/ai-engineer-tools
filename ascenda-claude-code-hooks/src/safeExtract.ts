@@ -1,4 +1,6 @@
-import { CommandOutcome, DurationBucket } from "./types.js";
+import { CommandOutcome } from "./types.js";
+
+export { bucketDurationMs } from "@ascenda-one/tool-kit";
 
 export function getString(input: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
@@ -48,17 +50,6 @@ export function inferOutcome(input: Record<string, unknown>): CommandOutcome {
   const error = getString(input, ["error", "errorMessage"]) ?? getNestedString(input, [["tool_response", "error"], ["result", "error"]]);
   if (error) return "failure";
   return "unknown";
-}
-
-export function bucketDurationMs(durationMs: number | undefined): DurationBucket | undefined {
-  if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0) return undefined;
-  const minutes = durationMs / 60000;
-  if (minutes <= 1) return "0-1m";
-  if (minutes <= 5) return "1-5m";
-  if (minutes <= 10) return "5-10m";
-  if (minutes <= 30) return "10-30m";
-  if (minutes <= 60) return "30-60m";
-  return "60m+";
 }
 
 export function looksLikeCorrection(text: string | undefined): boolean {

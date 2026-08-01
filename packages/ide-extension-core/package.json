@@ -1,0 +1,25 @@
+{
+  "name": "@ascenda-one/ide-extension-core",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "description": "Shared implementation for the Ascenda IDE telemetry extensions (VS Code, Cursor). Host identity is detected at runtime via host.ts.",
+  "main": "./out/index.js",
+  "types": "./out/index.d.ts",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.90.0",
+    "jsqr": "^1.4.0",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "@ascenda-one/tool-contract": "*",
+    "@ascenda-one/tool-kit": "*",
+    "qrcode-generator": "^2.0.4"
+  }
+}

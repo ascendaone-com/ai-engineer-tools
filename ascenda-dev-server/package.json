@@ -1,0 +1,25 @@
+{
+  "name": "ascenda-dev-server",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "description": "Local mock of the Ascenda /v1 pairing and ingest contract for testing tools without a backend, phone, or DevAuth",
+  "type": "module",
+  "bin": {
+    "ascenda-dev-server": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./ && npm run bundle",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@ascenda-one/tool-contract": "*",
+    "@ascenda-one/tool-kit": "*",
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.0"
+  }
+}

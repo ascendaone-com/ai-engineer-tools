@@ -19,6 +19,27 @@ All packages align to the backend-agreed research foundation:
 | [ascenda-cursor-extension](./ascenda-cursor-extension/) | Cursor IDE telemetry + planned MCP/agent adapter |
 | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | Claude Code agent hooks — prompts, tool calls, compaction, agent loops |
 | [ascenda-pairing-sim](./ascenda-pairing-sim/) | Console app that simulates the mobile app for pairing tests (confirm / list / revoke / e2e) |
+| [ascenda-dev-server](./ascenda-dev-server/) | Local mock of the `/v1` pairing + ingest contract — run any tool with no backend, phone, or DevAuth. Dev-only, never published; binds to `127.0.0.1` |
+
+### Shared packages
+
+The repo is an npm workspace. The installable tools above are thin shells over shared packages:
+
+| Package | Role |
+| --- | --- |
+| [packages/tool-contract](./packages/tool-contract/) | Canonical DTOs, event catalog, and constants — mirrors [TOOL_PAIRING_API_REFERENCE.md](./api-docs/TOOL_PAIRING_API_REFERENCE.md); declared once, consumed everywhere |
+| [packages/tool-kit](./packages/tool-kit/) | vscode-free shared runtime: command classifier, buckets, after-hours calculation, token file store, `/v1` HTTP client |
+| [packages/ide-extension-core](./packages/ide-extension-core/) | The single extension implementation; host identity (VS Code vs Cursor) is detected at runtime |
+
+Build everything from the repo root (dependency-ordered):
+
+```bash
+npm install
+npm run build     # shared packages first, then tools
+npm run verify    # DRY guard rail (scripts/check-dry.sh) + full build
+```
+
+Both extension VSIXes are bundled with esbuild at package time (`npm run package` in each extension folder), so the shared packages are inlined; per-folder F5 debugging works after a root build.
 
 ## Phase 1 data collection (this repo)
 
@@ -27,7 +48,7 @@ All packages align to the backend-agreed research foundation:
 - IDE usage (VS Code / Cursor)
 - Terminal test/build/lint signals
 - Claude Code AI interaction load
-- Metadata-only, hashed workspace identifiers
+- Metadata-only, hashed workspace identifiers (salted with a machine-local secret that is never transmitted)
 - Loose app pairing (QR / 6-digit code)
 
 **Out of scope (backend / app / Phase 2+)**
@@ -38,6 +59,8 @@ All packages align to the backend-agreed research foundation:
 - Personalised baseline scoring (backend Phase 3)
 
 ## Quick start
+
+**Local testing without a backend, phone, or DevAuth:** see [TESTING.md](./TESTING.md) — `./scripts/dev-quickstart.sh` gets events flowing against a local mock server in ~2 minutes.
 
 Install instructions live in each package README:
 
@@ -64,6 +87,8 @@ ascenda-pairing-sim e2e --tool-type cursor_mcp
 Happy path on Azure Dev has been verified: ingest, tool-scoped renew, `list`, and `revoke` (post-revoke ingest returns `401`).
 
 ## Privacy & compliance
+
+Workspace identifiers are hashed with a random salt generated on first run and stored only at `~/.ascenda/salt`. It is never sent, so the hashes cannot be reversed to folder or repository names by anyone holding the telemetry. Deleting the file re-anonymises the machine.
 
 Metadata-only by default. Not a medical device — measures workload patterns for self-awareness, not diagnosis or treatment. Australian Privacy Act / GDPR-aligned consent via `ide_telemetry` scope.
 

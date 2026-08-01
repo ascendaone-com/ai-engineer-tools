@@ -41,8 +41,11 @@ Same loose-coupled pairing model as the VS Code and Cursor extensions. See [TOOL
 ### 1. Build and install the hook CLI
 
 ```bash
-cd ascenda-claude-code-hooks
+# from the repo root (workspace install + shared packages first)
 npm install
+npm run build:shared
+
+cd ascenda-claude-code-hooks
 npm run build
 npm link
 ```

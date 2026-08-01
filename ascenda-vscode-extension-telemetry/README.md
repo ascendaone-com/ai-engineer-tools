@@ -67,8 +67,11 @@ toolInstallationId
 ### 1. Build the extension
 
 ```bash
-cd ascenda-vscode-extension-telemetry
+# from the repo root — the workspace install resolves @ascenda-one/* locally
 npm install
+npm run build:shared
+
+cd ascenda-vscode-extension-telemetry
 npm run compile
 ```
 

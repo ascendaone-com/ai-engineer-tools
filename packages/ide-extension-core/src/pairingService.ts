@@ -1,0 +1,139 @@
+import * as crypto from "crypto";
+import * as vscode from "vscode";
+import { AscendaApi } from "./ascendaApi";
+import { getHostDisplayName, getToolType } from "./host";
+import { PairingPanel } from "./pairingPanel";
+
+export // Renew this long before token expiry (client policy, not wire contract).
+const TOKEN_RENEW_LEAD_MS = 3 * 24 * 60 * 60 * 1000;
+const TOOL_INSTALLATION_ID_KEY = "ascenda.toolInstallationId";
+export const PAIRING_SESSION_ID_KEY = "ascenda.pairingSessionId";
+export const PAIRED_KEY = "ascenda.paired";
+export const EVENT_WRITE_TOKEN_KEY = "ascenda.eventWriteToken";
+export const EVENT_TOKEN_EXPIRES_AT_KEY = "ascenda.eventTokenExpiresAt";
+
+export class PairingService {
+  constructor(private readonly context: vscode.ExtensionContext, private readonly api: AscendaApi) {}
+
+  async connect(): Promise<void> {
+    const toolInstallationId = await this.getOrCreateToolInstallationId();
+    const toolType = getToolType();
+    const pairing = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "Creating Ascenda pairing session...", cancellable: false },
+      async () => this.api.createPairingSession(toolInstallationId, toolType, this.getDisplayName())
+    );
+    await this.context.globalState.update(PAIRING_SESSION_ID_KEY, pairing.pairingSessionId);
+    const panel = PairingPanel.createOrShow(this.context.extensionUri, pairing);
+    await this.pollPairingStatus(pairing.pairingSessionId, panel);
+  }
+
+  async disconnect(): Promise<void> {
+    await this.context.globalState.update(PAIRED_KEY, false);
+    await this.context.globalState.update(PAIRING_SESSION_ID_KEY, undefined);
+    await this.context.globalState.update(EVENT_TOKEN_EXPIRES_AT_KEY, undefined);
+    await this.context.secrets.delete(EVENT_WRITE_TOKEN_KEY);
+    vscode.window.showInformationMessage("Ascenda disconnected from this editor installation.");
+  }
+
+  isPaired(): boolean { return this.context.globalState.get<boolean>(PAIRED_KEY, false); }
+  getToolInstallationId(): string | undefined { return this.context.globalState.get<string>(TOOL_INSTALLATION_ID_KEY); }
+  async getEventWriteToken(): Promise<string | undefined> { return this.context.secrets.get(EVENT_WRITE_TOKEN_KEY); }
+
+  async ensureEventWriteToken(): Promise<string | undefined> {
+    if (!this.isPaired()) return undefined;
+    const token = await this.getEventWriteToken();
+    if (!token) {
+      await this.markNeedsRepair();
+      return undefined;
+    }
+    const expiresAt = this.context.globalState.get<number>(EVENT_TOKEN_EXPIRES_AT_KEY);
+    if (expiresAt && Date.now() < expiresAt - TOKEN_RENEW_LEAD_MS) return token;
+    return this.renewWithEventToken(token);
+  }
+
+  async handleAuthFailure(): Promise<string | undefined> {
+    const token = await this.getEventWriteToken();
+    if (!token) {
+      await this.markNeedsRepair();
+      return undefined;
+    }
+    return this.renewWithEventToken(token);
+  }
+
+  async getOrCreateToolInstallationId(): Promise<string> {
+    const existing = this.context.globalState.get<string>(TOOL_INSTALLATION_ID_KEY);
+    if (existing) return existing;
+    const id = `${getToolType()}:${crypto.randomUUID()}`;
+    await this.context.globalState.update(TOOL_INSTALLATION_ID_KEY, id);
+    return id;
+  }
+
+  private async pollPairingStatus(pairingSessionId: string, panel: PairingPanel): Promise<void> {
+    const startedAt = Date.now();
+    const maxMs = 10 * 60 * 1000;
+    const interval = setInterval(async () => {
+      try {
+        if (Date.now() - startedAt > maxMs) {
+          clearInterval(interval);
+          panel.showExpired();
+          return;
+        }
+        const status = await this.api.getPairingStatus(pairingSessionId);
+        if (status.status === "pending") return;
+        if (status.status === "expired" || status.status === "cancelled") {
+          clearInterval(interval);
+          panel.showExpired();
+          return;
+        }
+        if (status.status === "paired") {
+          clearInterval(interval);
+          await this.context.globalState.update(PAIRED_KEY, true);
+          if (status.toolInstallationId) {
+            await this.context.globalState.update(TOOL_INSTALLATION_ID_KEY, status.toolInstallationId);
+          }
+          if (status.eventWriteToken) {
+            await this.storeEventWriteToken(status.eventWriteToken);
+          }
+          panel.showPaired();
+          vscode.window.showInformationMessage("Ascenda is connected. Workload telemetry can now be routed to your app.");
+        }
+      } catch (error) {
+        clearInterval(interval);
+        vscode.window.showErrorMessage(`Ascenda pairing failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }, 2000);
+  }
+
+  private async renewWithEventToken(currentToken: string): Promise<string | undefined> {
+    try {
+      const renewed = await this.api.renewEventToken(currentToken);
+      if (!renewed) {
+        await this.markNeedsRepair();
+        return undefined;
+      }
+      await this.storeEventWriteToken(renewed.eventWriteToken, renewed.expiresAt);
+      return renewed.eventWriteToken;
+    } catch {
+      await this.markNeedsRepair();
+      return undefined;
+    }
+  }
+
+  private async storeEventWriteToken(token: string, expiresAtIso?: string | null): Promise<void> {
+    await this.context.secrets.store(EVENT_WRITE_TOKEN_KEY, token);
+    const expiresAt = expiresAtIso ? Date.parse(expiresAtIso) : Date.now() + 30 * 24 * 60 * 60 * 1000;
+    await this.context.globalState.update(EVENT_TOKEN_EXPIRES_AT_KEY, expiresAt);
+  }
+
+  private async markNeedsRepair(): Promise<void> {
+    await this.context.globalState.update(PAIRED_KEY, false);
+    await this.context.secrets.delete(EVENT_WRITE_TOKEN_KEY);
+    await this.context.globalState.update(EVENT_TOKEN_EXPIRES_AT_KEY, undefined);
+    vscode.window.showWarningMessage("Ascenda connection expired. Run Ascenda: Connect App to re-pair.");
+  }
+
+  private getDisplayName(): string {
+    const workspaceName = vscode.workspace.name ?? getHostDisplayName();
+    return `${workspaceName} on ${getHostDisplayName()}`;
+  }
+}

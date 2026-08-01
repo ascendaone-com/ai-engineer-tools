@@ -1,28 +1,10 @@
+import type { ConnectedTool, PairingSessionResponse, PairingStatusResponse, RenewToolTokenResponse } from "@ascenda-one/tool-contract";
+import { createPairingSession, getPairingStatus } from "@ascenda-one/tool-kit";
 import { SimConfig } from "./config.js";
 
-export type ConnectedTool = {
-  toolInstallationId: string;
-  toolType: string;
-  displayName: string | null;
-  pairedAt: string | null;
-  lastSeenAt: string | null;
-};
-
-export type PairingStatus = {
-  status: "pending" | "paired" | "expired" | "cancelled";
-  toolInstallationId: string | null;
-  eventWriteToken: string | null;
-  pairedAt: string | null;
-};
-
-export type CreatePairingSessionResponse = {
-  pairingSessionId: string;
-  code: string;
-  deviceCode: string;
-  secret: string;
-  qrUrl: string;
-  expiresAt: string;
-};
+export type { ConnectedTool } from "@ascenda-one/tool-contract";
+export type PairingStatus = PairingStatusResponse;
+export type CreatePairingSessionResponse = PairingSessionResponse;
 
 export class PairingSimApi {
   constructor(private readonly config: SimConfig) {}
@@ -51,23 +33,15 @@ export class PairingSimApi {
     });
   }
 
-  /** Tool-side (anonymous): create a pairing session for e2e tests without an IDE. */
+  /** Tool-side (anonymous): create a pairing session for e2e tests without an IDE.
+   *  Delegates to @ascenda-one/tool-kit so the e2e exercises the same client the tools use. */
   async createToolSession(toolInstallationId: string, toolType: string, displayName: string): Promise<CreatePairingSessionResponse> {
-    return this.postAnonymous("/v1/tool-pairing-sessions", {
-      toolInstallationId,
-      toolType,
-      displayName
-    }) as Promise<CreatePairingSessionResponse>;
+    return createPairingSession(this.config.apiBaseUrl, toolInstallationId, toolType, displayName);
   }
 
-  /** Tool-side (anonymous): poll status. */
+  /** Tool-side (anonymous): poll status. Delegates to @ascenda-one/tool-kit. */
   async getStatus(pairingSessionId: string): Promise<PairingStatus> {
-    const response = await fetch(
-      `${this.config.apiBaseUrl}/v1/tool-pairing-sessions/${encodeURIComponent(pairingSessionId)}/status`,
-      { headers: { Accept: "application/json" } }
-    );
-    await throwIfNotOk(response);
-    return (await response.json()) as PairingStatus;
+    return getPairingStatus(this.config.apiBaseUrl, pairingSessionId);
   }
 
   async listConnectedTools(): Promise<ConnectedTool[]> {
@@ -94,7 +68,7 @@ export class PairingSimApi {
   }
 
   /** App-side user-JWT renew (not used by tools; useful for sim completeness). */
-  async renewTokenAsUser(toolInstallationId: string): Promise<{ eventWriteToken: string; expiresAt: string }> {
+  async renewTokenAsUser(toolInstallationId: string): Promise<RenewToolTokenResponse> {
     const response = await fetch(
       `${this.config.apiBaseUrl}/v1/connected-tools/${encodeURIComponent(toolInstallationId)}/renew-token`,
       {
@@ -107,7 +81,7 @@ export class PairingSimApi {
       }
     );
     await throwIfNotOk(response);
-    return (await response.json()) as { eventWriteToken: string; expiresAt: string };
+    return (await response.json()) as RenewToolTokenResponse;
   }
 
   private async postAuthed(path: string, body: unknown): Promise<void> {
