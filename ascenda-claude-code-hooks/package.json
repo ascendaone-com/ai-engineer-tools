@@ -1,8 +1,10 @@
 {
-  "name": "ascenda-claude-code-hooks",
+  "publishConfig": { "access": "public" },
+  "name": "@ascenda-one/claude-code-hooks",
   "version": "0.1.0",
   "description": "Claude Code hooks adapter for Ascenda AI workload telemetry.",
   "type": "module",
+  "files": ["dist", "examples"],
   "bin": {
     "ascenda-claude-hook": "./dist/cli.js"
   },
@@ -15,6 +17,9 @@
     "test": "node --test"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "devDependencies": {
     "@types/node": "^20.14.10",
     "typescript": "^5.5.0",
