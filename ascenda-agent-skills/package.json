@@ -1,0 +1,13 @@
+{
+  "publishConfig": { "access": "public" },
+  "name": "@ascenda-one/agent-skills",
+  "version": "0.1.0",
+  "description": "The Ascenda agent skill: Claude Code SKILL.md + Cursor rule teaching when and how to report semantic work-friction signals via ascenda_emit_work_signal.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@ascenda-one/tool-contract": "*"
+  }
+}
