@@ -2,8 +2,8 @@ export { classifyCommand, isVerificationCommand } from "./commandClassifier";
 export { bucketLinesChanged, bucketDurationMs } from "./buckets";
 export { isAfterHours } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, looksLikeCorrection } from "./payload";
-export { AscendaEventSender } from "./eventSender";
-export type { EventSenderConfig, MappedEvent } from "./eventSender";
+export { AscendaEventSender, AscendaSemanticEventError } from "./eventSender";
+export type { EventSenderConfig, MappedEvent, MappedSemanticEvent } from "./eventSender";
 export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export {

@@ -214,3 +214,7 @@ export type IngestResult = "accepted" | "auth_failed" | "consent_missing" | "val
 
 export const ASCENDA_CONSENT_SCOPE: ToolConsentScope = "ide_telemetry";
 export const ASCENDA_PROVENANCE = "ai_work_telemetry";
+
+/** The consent scope every event in {@link SEMANTIC_WORK_SIGNAL_EVENT_TYPES} must carry. */
+export const ASCENDA_SEMANTIC_CONSENT_SCOPE: ToolConsentScope = "semantic_work_signals";
+export const ASCENDA_SEMANTIC_PROVENANCE = "semantic_work_signals";

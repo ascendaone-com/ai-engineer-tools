@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ascenda-agent": {
+      "command": "node",
+      "args": ["/absolute/path/to/ascenda-agent-mcp/dist/cli.js"],
+      "env": {
+        "ASCENDA_TOOL_INSTALLATION_ID": "claude_code:abc123",
+        "ASCENDA_API_BASE_URL": "https://api.ascenda.one"
+      }
+    }
+  }
+}
