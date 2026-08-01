@@ -35,21 +35,23 @@ export async function getPairingStatus(apiBaseUrl: string, pairingSessionId: str
 }
 
 /** Tool-scoped renew — Bearer eventWriteToken, no user JWT. Returns null on 401 (re-pair required). */
-export async function renewToolToken(apiBaseUrl: string, eventWriteToken: string): Promise<RenewToolTokenResponse | null> {
+export async function renewToolToken(apiBaseUrl: string, eventWriteToken: string, signal?: AbortSignal): Promise<RenewToolTokenResponse | null> {
   const response = await fetch(`${apiBaseUrl}/v1/tool-events/renew-token`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` }
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
+    signal
   });
   if (response.status === 401) return null;
   if (!response.ok) throw new AscendaApiError(response.status, undefined, await response.text());
   return (await response.json()) as RenewToolTokenResponse;
 }
 
-export async function postToolEvent(apiBaseUrl: string, eventWriteToken: string, payload: AscendaEventPayload): Promise<IngestResult> {
+export async function postToolEvent(apiBaseUrl: string, eventWriteToken: string, payload: AscendaEventPayload, signal?: AbortSignal): Promise<IngestResult> {
   const response = await fetch(`${apiBaseUrl}/v1/tool-events`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
   return parseIngestResponse(response);
 }
