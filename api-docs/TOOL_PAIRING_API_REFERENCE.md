@@ -37,7 +37,8 @@ export type ToolEventPrivacyMode = "metadata_only" | "content_opt_in";
 export type ToolConsentScope =
   | "ide_telemetry"
   | "workflow_telemetry"
-  | "subjective_checkins";
+  | "subjective_checkins"
+  | "semantic_work_signals"; // content-derived classification, own opt-in, default off
 
 export type WorkloadCategory =
   | "creation"
@@ -187,6 +188,23 @@ The same registry is used across ingest, aggregate writing, and telemetry report
 | context_compression_manual | neutral |
 | context_compression_auto | neutral |
 | editor_activity | neutral |
+| approach_churn_detected | risk |
+| goal_drift_detected | risk |
+| progress_stalled | risk |
+| progress_recovered | neutral |
+| session_intention_declared | neutral |
+| scope_change_declared | neutral |
+
+The last six are **semantic**: agent-observed interaction patterns (repeated
+approach churn, drift from a declared goal, a stalled or recovered session, an
+intention or scope change the user or agent declared) rather than a single
+deterministic host event. They require `consentScope: "semantic_work_signals"`
+and `metadata.skillVersion` — see Privacy and Metadata Rules. **As of this
+revision the client-side contract package defines these types; backend
+ingestion classification (asc-core-be's `WorkloadCategoryMap`) has not yet
+been extended to recognise them, so until that lands they accept but classify
+as `unclassified`, per the rule below.** That is the expected, tracked state
+of an in-progress rollout, not drift to fix.
 
 Unknown `eventType` handling:
 
@@ -362,6 +380,13 @@ Privacy mode resolution order:
 Sanitized metadata strips sensitive keys:
 
 - `prompt`, `response`, `sourceCode`, `code`, `fileName`, `filePath`, `branch`, `repository`, `terminalOutput`
+
+Semantic event rules (the six `*_detected`/`*_declared`/`progress_*` types):
+
+- `consentScope` must be `"semantic_work_signals"` — a lease on `ide_telemetry` alone does not cover these.
+- `metadata.skillVersion` is required. Planned backend behavior: reject with `validation_failed` if absent (tracked with B4; not yet implemented server-side as of this revision).
+- `severity` must be `"low"`. The emitter has no baseline to judge against; any elevated reading comes from the backend's own evaluation, never the payload.
+- `metadata.taskFingerprint`, when present, must be a hash — never raw task text.
 
 ## Revocation Behavior
 
