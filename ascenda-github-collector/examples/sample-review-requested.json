@@ -1,0 +1,6 @@
+{
+  "action": "review_requested",
+  "repository": { "full_name": "acme/payments-service" },
+  "pull_request": { "user": { "login": "another-dev" }, "number": 42 },
+  "requested_reviewer": { "login": "octocat" }
+}

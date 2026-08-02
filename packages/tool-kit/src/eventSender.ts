@@ -2,6 +2,8 @@ import {
   ASCENDA_CONSENT_SCOPE,
   ASCENDA_PROVENANCE,
   ASCENDA_SEMANTIC_CONSENT_SCOPE,
+  ASCENDA_COLLABORATION_CONSENT_SCOPE,
+  COLLABORATION_EVENT_TYPES,
   ASCENDA_SEMANTIC_PROVENANCE,
   AscendaEventMetadata,
   AscendaEventPayload,
@@ -121,6 +123,38 @@ export class AscendaEventSender {
       provenance: ASCENDA_SEMANTIC_PROVENANCE,
       privacyMode: "metadata_only",
       metadata: mapped.metadata
+    };
+    return this.post(payload);
+  }
+
+  /**
+   * Sends a collaboration event under `workflow_telemetry`.
+   *
+   * A separate method rather than an option on {@link send}, for the same
+   * reason {@link sendSemanticSignal} is: the consent scope is a property of
+   * what the event *is*, and an options bag would let the wrong one be passed
+   * by accident. Rejects locally for anything outside
+   * {@link COLLABORATION_EVENT_TYPES}.
+   */
+  async sendCollaborationSignal(mapped: MappedEvent): Promise<IngestResult> {
+    if (!COLLABORATION_EVENT_TYPES.includes(mapped.eventType)) {
+      throw new AscendaSemanticEventError(
+        `"${mapped.eventType}" is not a collaboration event type. Use send() for a deterministic host event.`
+      );
+    }
+
+    const payload: AscendaEventPayload = {
+      toolInstallationId: this.config.toolInstallationId,
+      source: this.config.source,
+      eventType: mapped.eventType,
+      occurredAt: new Date().toISOString(),
+      severity: "low",
+      sessionId: this.config.sessionId ?? undefined,
+      workspaceHash: this.config.workspaceHash ?? undefined,
+      consentScope: ASCENDA_COLLABORATION_CONSENT_SCOPE,
+      provenance: ASCENDA_PROVENANCE,
+      privacyMode: "metadata_only",
+      metadata: mapped.metadata ?? {}
     };
     return this.post(payload);
   }

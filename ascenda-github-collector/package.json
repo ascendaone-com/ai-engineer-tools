@@ -1,0 +1,27 @@
+{
+  "publishConfig": { "access": "public" },
+  "name": "@ascenda-one/github-collector",
+  "version": "0.1.0",
+  "description": "Code-forge collaboration collector for Ascenda work telemetry — first-person review and pull-request signals.",
+  "type": "module",
+  "files": ["dist", "examples"],
+  "bin": {
+    "ascenda-forge-collect": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./ && npm run bundle",
+    "watch": "tsc -w -p ./",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
+    "test": "node --test"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.0",
+    "@ascenda-one/tool-contract": "*",
+    "@ascenda-one/tool-kit": "*"
+  }
+}

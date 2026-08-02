@@ -51,7 +51,8 @@ export type AscendaTelemetrySource =
   | "copilot_otel"
   | "cli_agent"
   | "mcp_server"
-  | "activity_signals";
+  | "activity_signals"
+  | "code_forge";
 
 /**
  * Canonical catalog only — unknown types classify as unclassified on the backend.
@@ -91,7 +92,10 @@ export type AscendaTelemetryEventType =
   | "progress_stalled"
   | "progress_recovered"
   | "session_intention_declared"
-  | "scope_change_declared";
+  | "scope_change_declared"
+  | "review_requested_of_me"
+  | "review_given"
+  | "pull_request_opened";
 
 /**
  * The semantic subset of {@link AscendaTelemetryEventType} — agent-observed
@@ -107,6 +111,30 @@ export const SEMANTIC_WORK_SIGNAL_EVENT_TYPES: readonly AscendaTelemetryEventTyp
   "progress_recovered",
   "session_intention_declared",
   "scope_change_declared"
+];
+
+/**
+ * Collaboration events, emitted by a code-forge collector rather than a host
+ * hook.
+ *
+ * **Strictly first-person.** Every one of these describes something the
+ * installing user did or had asked of them. No event in this set carries
+ * another person's identity, and none is emitted on behalf of a third party —
+ * "who reviews for whom" is a picture of a team, and assembling it from
+ * individual telemetry is how a wellbeing rail turns into a management tool.
+ * Concentration of checking load therefore shows up where it belongs: in one
+ * person's own supervision share, and in cohort aggregates that the org rail
+ * already suppresses below its minimum.
+ *
+ * Withdrawal — reviewing *less*, contributing *less* — is deliberately not
+ * derivable from this set and must never be inferred from it. A quiet week has
+ * too many innocent explanations, and the report is explicit that withdrawal is
+ * never to be machine-interpreted.
+ */
+export const COLLABORATION_EVENT_TYPES: readonly AscendaTelemetryEventType[] = [
+  "review_requested_of_me",
+  "review_given",
+  "pull_request_opened"
 ];
 
 export type AscendaSeverity = "low" | "medium" | "high" | "critical";
@@ -208,6 +236,14 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   ai_tool_call_started: "supervision",
   ai_tool_call_completed: "supervision",
   ai_tool_call_failed: "supervision",
+  // Collaboration (the report's §4.2 collaboration family). Both review
+  // events are supervision: being asked to check work, and checking it, are
+  // the load the report's "verification overload" concern is about — the one
+  // that concentrates on senior engineers as a team adopts AI. Opening a pull
+  // request is creation: it is the point your own work leaves your hands.
+  review_requested_of_me: "supervision",
+  review_given: "supervision",
+  pull_request_opened: "creation",
   context_pressure_high: "risk",
   agent_loop_long: "risk",
   after_hours_ai_session: "risk",
@@ -234,4 +270,12 @@ export const ASCENDA_PROVENANCE = "ai_work_telemetry";
 
 /** The consent scope every event in {@link SEMANTIC_WORK_SIGNAL_EVENT_TYPES} must carry. */
 export const ASCENDA_SEMANTIC_CONSENT_SCOPE: ToolConsentScope = "semantic_work_signals";
+
+/**
+ * Collaboration events ride `workflow_telemetry`, not `ide_telemetry`: a pull
+ * request is not an IDE event, and the two are separately revocable on purpose
+ * — someone may be willing to share how they work in their editor and not how
+ * they work with their team.
+ */
+export const ASCENDA_COLLABORATION_CONSENT_SCOPE: ToolConsentScope = "workflow_telemetry";
 export const ASCENDA_SEMANTIC_PROVENANCE = "semantic_work_signals";

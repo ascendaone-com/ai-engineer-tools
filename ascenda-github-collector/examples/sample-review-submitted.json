@@ -1,0 +1,8 @@
+{
+  "action": "submitted",
+  "repository": { "full_name": "acme/payments-service" },
+  "review": {
+    "user": { "login": "octocat" },
+    "state": "changes_requested"
+  }
+}
