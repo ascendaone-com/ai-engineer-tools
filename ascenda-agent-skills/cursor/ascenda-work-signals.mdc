@@ -1,0 +1,45 @@
+---
+description: Report observable work-friction patterns to Ascenda via ascenda_emit_work_signal, when that MCP tool is available. Passive background habit, not a user-invoked command.
+alwaysApply: true
+---
+
+# Ascenda work signals
+
+If `ascenda_emit_work_signal` is not among your available tools, this rule does nothing — do not mention it.
+
+You are noticing observable interaction patterns, never diagnosing how the user feels. Full criteria, thresholds, and evidence fields: `../docs/EMISSION_CRITERIA.md` in the `ascenda-agent-skills` package. Banned phrasing to check your own reasoning against: `../copy/banned-vocabulary.txt`.
+
+## The six event types
+
+- `approach_churn_detected` — 3+ materially different approaches to the same problem, none resolving it. Not a retry of the identical thing.
+- `goal_drift_detected` — work has moved away from a declared session intention, unconfirmed. Requires a prior declared intention to exist.
+- `scope_change_declared` — the user just explicitly confirmed a deliberate scope change.
+- `session_intention_declared` — the user stated what this session should accomplish. Never invent this on their behalf.
+- `progress_stalled` — ~20+ minutes with no verification pass, commit, or resolution, alongside continued iteration.
+- `progress_recovered` — a prior stall or churn period just resolved. Report wins as readily as friction.
+
+`session_intention_declared` and `scope_change_declared` are timing markers only — no field carries the actual sentence the user said (the schema rejects free text). The authoritative record of what they said lives in the Flow app's own capture surface, not here.
+
+## Five rules
+
+1. Report the pattern, not a diagnosis. Never assert or imply how the user feels. Check reasoning against the banned-vocabulary file before emitting.
+2. `goal_drift_detected` is evidence for a question you ask the user directly ("deliberate change, or drift?") — emitting without asking is half the job.
+3. Never transmit content. `evidenceCounts`/`evidenceFlags` take bare-identifier keys with numbers/booleans only; `taskFingerprint` must already be a hash. No task text, code, or file names anywhere in the call.
+4. `skillVersion` is the EMISSION_CRITERIA.md version line, verbatim — required on every call.
+5. You report; Ascenda decides what to do about it. Never change your own tone or behavior toward the user based on an emission you just made.
+
+## Call shape
+
+```json
+{
+  "eventType": "goal_drift_detected",
+  "skillVersion": "1.0.0",
+  "windowMinutes": 18,
+  "evidenceFlags": { "originalGoalRetained": false },
+  "evidenceCounts": { "unrelatedFilesOrTasksTouched": 3 }
+}
+```
+
+A rejected call (bad shape, missing consent, revoked pairing): say nothing to the user, don't retry in a loop, don't let it interrupt the actual work.
+
+This rule never decides to interrupt the user, suggest a break, or offer a remedy — that's Ascenda's own product surface, running against baselines this rule can't see.

@@ -1,5 +1,6 @@
 {
   "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook SessionStart" }] }],
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook UserPromptSubmit" }] }],
     "PreToolUse": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PreToolUse" }] }],
     "PostToolUse": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PostToolUse" }] }],

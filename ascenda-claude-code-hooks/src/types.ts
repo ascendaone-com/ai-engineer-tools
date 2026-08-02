@@ -4,7 +4,7 @@ export type { AscendaEventPayload, CommandOutcome, IngestResult } from "@ascenda
 export { ASCENDA_CONSENT_SCOPE, ASCENDA_PROVENANCE } from "@ascenda-one/tool-contract";
 
 export type ClaudeHookEventName =
-  | "UserPromptSubmit" | "PreToolUse" | "PostToolUse"
+  | "SessionStart" | "UserPromptSubmit" | "PreToolUse" | "PostToolUse"
   | "PreCompact" | "PostCompact" | "Stop" | "Notification";
 
 export type MappedAscendaEvent = Omit<AscendaEventPayload, "toolInstallationId" | "source" | "occurredAt" | "consentScope" | "provenance" | "privacyMode">;

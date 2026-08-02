@@ -1,5 +1,6 @@
 export {
   bucketDurationMs,
+  bucketLinesChanged,
   getNested,
   getNestedNumber,
   getNestedString,

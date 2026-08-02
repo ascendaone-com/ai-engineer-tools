@@ -1,6 +1,68 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mapClaudeEvent } from "../dist/mapClaudeEvent.js";
+import { isNewSessionStart, mapClaudeEvent } from "../dist/mapClaudeEvent.js";
+
+test("SessionStart: startup and resume open a focus session", () => {
+  for (const source of ["startup", "resume", undefined]) {
+    const events = mapClaudeEvent("SessionStart", source ? { source } : {});
+    assert.equal(events.length, 1);
+    assert.equal(events[0].eventType, "create_focus_session");
+  }
+});
+
+test("SessionStart: clear and compact are not new sessions", () => {
+  assert.deepEqual(mapClaudeEvent("SessionStart", { source: "clear" }), []);
+  assert.deepEqual(mapClaudeEvent("SessionStart", { source: "compact" }), []);
+});
+
+test("isNewSessionStart matches mapSessionStart's own gate exactly (cli.ts relies on this)", () => {
+  assert.equal(isNewSessionStart({ source: "startup" }), true);
+  assert.equal(isNewSessionStart({ source: "resume" }), true);
+  assert.equal(isNewSessionStart({}), true);
+  assert.equal(isNewSessionStart({ source: "clear" }), false);
+  assert.equal(isNewSessionStart({ source: "compact" }), false);
+});
+
+test("PostToolUse Edit: lines-changed buckets from old_string/new_string, and neither ever leaves the mapper", () => {
+  const bigNewText = Array.from({ length: 250 }, (_, i) => `line ${i}`).join("\n");
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Edit",
+    tool_input: { old_string: "one\ntwo", new_string: bigNewText },
+    tool_response: { exitCode: 0 }
+  });
+  assert.equal(events[0].metadata.linesChangedBucket, "200+");
+  const serialized = JSON.stringify(events);
+  assert.ok(!serialized.includes("line 0"), "edited content must never leave the mapper");
+});
+
+test("PostToolUse Write: lines-changed buckets from content", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Write",
+    tool_input: { content: "a\nb\nc\nd\ne\nf" },
+    tool_response: { exitCode: 0 }
+  });
+  assert.equal(events[0].metadata.linesChangedBucket, "1-10");
+});
+
+test("PostToolUse MultiEdit: lines-changed sums across edits", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "MultiEdit",
+    tool_input: {
+      edits: [
+        { old_string: "a", new_string: "a\nb\nc" },
+        { old_string: "x", new_string: "x\ny\nz\nw" }
+      ]
+    },
+    tool_response: { exitCode: 0 }
+  });
+  // max(1,3) + max(1,4) = 3 + 4 = 7 -> bucket 1-10
+  assert.equal(events[0].metadata.linesChangedBucket, "1-10");
+});
+
+test("PostToolUse: a write-tool payload with no old_string/new_string/content omits the bucket rather than guessing", () => {
+  const events = mapClaudeEvent("PostToolUse", { tool_name: "Edit", tool_response: { exitCode: 0 } });
+  assert.equal(events[0].metadata.linesChangedBucket, undefined);
+});
 
 test("UserPromptSubmit: plain prompt -> single creation event", () => {
   const events = mapClaudeEvent("UserPromptSubmit", { prompt: "add a login page" });

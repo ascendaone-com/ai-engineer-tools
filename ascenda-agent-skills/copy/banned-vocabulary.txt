@@ -1,0 +1,84 @@
+# Ascenda banned vocabulary — terms that must never appear in a Flow-facing
+# (member-visible) DTO, MCP payload, event value, or piece of rendered copy.
+#
+# This is the canonical list cited by asc-core-be's WorkDemandProjection
+# (Program.cs / Services/WorkDemandProjection.cs doc comments) and by this
+# package's own skill/rule content. asc-core-be maintains its own mirrored
+# copy in its unit test (a cross-repo import isn't available), so if you
+# change this file, open a matching change there — search
+# "ai-engineer-tools/ascenda-agent-skills/copy/banned-vocabulary.txt" in
+# that repo for the citing test.
+#
+# Scope: this bans what the PRODUCT SAYS TO OR ABOUT A USER (a claim, a
+# label, a field value) — not discussion of these concepts in internal
+# docs, decision registers, or this file's own explanatory comments. The
+# ban is on assertion, not on the words existing anywhere in the codebase.
+#
+# Rule of thumb behind every line: report the pattern, never the diagnosis
+# (dark-flow-gap-analysis §2.1; asc-core-be PERSONALISED_INTERVENTION_
+# ENGINE_SPEC.md Phase 0; register D19/D20/D26 rule 8).
+#
+# One term or exact phrase per line. Matching is case-insensitive substring
+# matching by convention (see tests/bannedVocabulary.test.mjs for this
+# package's own usage) — keep entries specific enough that they don't false-
+# positive on legitimate copy (e.g. don't add the bare word "flow").
+
+# ── Internal-only metric names (clinical vocabulary; never Flow-facing) ──
+flow_state_score
+cognitive_load_score
+decision_readiness_score
+recovery_readiness_score
+sustainable_performance_score
+ai_oversight_load_score
+dark flow
+dark_flow
+
+# ── Direct psychological/emotional-state assertions about the user ──
+you are frustrated
+you seem frustrated
+you're frustrated
+user_frustrated
+you are stressed
+you seem stressed
+you are anxious
+you seem anxious
+you are depressed
+you are exhausted
+you are burned out
+you're burned out
+burnout risk
+burnout score
+you are addicted
+addiction risk
+you are distressed
+your mental state
+your emotional state
+you are in crisis
+mental_state
+emotional_state
+
+# ── Diagnosis / clinical-decision language outside the clinical rail ──
+diagnosis
+diagnose
+diagnosed with
+clinically significant
+you have burnout
+this indicates depression
+this indicates anxiety
+risk score
+at risk of burnout
+elevated risk
+
+# ── Flow-naming violations (D19/D20 — the user names flow, never the app) ──
+you are in flow
+you're in flow
+you have entered flow
+detected flow
+flow detected
+measured flow
+
+# ── Confidence theatre — asserting certainty telemetry cannot support ──
+we know you are
+we can tell you are
+this proves you are
+this confirms you are

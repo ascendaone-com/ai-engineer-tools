@@ -1,14 +1,29 @@
 #!/usr/bin/env node
 import { AscendaClient } from "./ascendaClient.js";
 import { loadConfigFromEnv } from "./config.js";
-import { mapClaudeEvent } from "./mapClaudeEvent.js";
+import { isNewSessionStart, mapClaudeEvent } from "./mapClaudeEvent.js";
 import { ClaudeHookEventName, ClaudeHookInput } from "./types.js";
+
+const INTENTION_INVITE =
+  "Ascenda tip: if it's natural, you can ask what would make this session " +
+  "count before diving in — one line is enough. Not a required step, " +
+  "and skip it entirely if the user is already mid-task.";
 
 async function main(): Promise<void> {
   const hookName = process.argv[2] as ClaudeHookEventName | undefined;
   if (!hookName) throw new Error("Usage: ascenda-claude-hook <ClaudeHookEventName>");
 
   const input = await readJsonFromStdin();
+
+  // Local, network-independent, and unconditional on pairing state: a
+  // broken pairing (or the network being down) must not silently suppress
+  // this too, so it happens before anything that can fail below.
+  if (hookName === "SessionStart" && isNewSessionStart(input) && process.env.ASCENDA_DISABLE_INTENTION_INVITE !== "true") {
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: INTENTION_INVITE }
+    }));
+  }
+
   const config = loadConfigFromEnv();
   const client = new AscendaClient(config);
   const mappedEvents = mapClaudeEvent(hookName, input);
