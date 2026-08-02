@@ -79,3 +79,38 @@ Neither event transmits the actual sentence the user said. The schema has no fre
 
 **Evidence to attach:**
 - `evidenceCounts.minutesToResolve`, if a prior stall/churn window is known.
+
+## Rework signals, and the one we deliberately do not collect
+
+Two of the report's rework signals now travel deterministically, on the
+existing `ai_tool_call_completed` event rather than a new type:
+
+| Signal | How | Where it lands |
+|---|---|---|
+| Reversions | `gitAction: revert \| reset_hard \| restore`, plus `activity: "rework_reversion"` | the rework half of velocity–quality |
+| Boundaries | `gitAction: commit \| push` | work boundaries, `commits_per_day` |
+
+`amend` is recorded and is neither: it rewrites a commit that already counted,
+so treating it as a boundary would count the same work twice, and treating it
+as a reversion would call ordinary history tidying lost work.
+
+### Same-file re-edit churn: not collected, and not for want of trying
+
+Churn — the same file edited over and over inside one session — is the other
+rework signal the report names, and it is **not collected on purpose**.
+
+No file identity travels today. `ai_file_write` and `ai_file_edit` carry a
+lines-changed bucket and nothing that says *which* file, so churn cannot be
+computed here, in the hooks, or server-side from the event stream. It is not a
+missing calculation; the input does not exist anywhere.
+
+Making it computable would mean introducing a per-file identifier — a salted
+fingerprint, following `taskFingerprint`'s precedent. That is pseudonymous
+rather than anonymous: a stable per-file token is exactly what makes "this same
+file again" answerable, which is the point, and also what makes it a new
+consent question rather than a new field. **It is a governance decision, not an
+implementation one**, and it should go through the consent-class process the
+same way `semantic_work_signals` did before any code emits it.
+
+Until then the velocity–quality divergence stays declared-unavailable, with
+reversions as the only rework input it has.

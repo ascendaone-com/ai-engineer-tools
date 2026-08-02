@@ -1,4 +1,4 @@
-import { classifyCommand, isVerificationCommand } from "@ascenda-one/tool-kit";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction } from "@ascenda-one/tool-kit";
 import { ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, inferOutcome, looksLikeCorrection } from "./safeExtract.js";
 
@@ -54,6 +54,9 @@ function mapPostToolUse(input: ClaudeHookInput): MappedAscendaEvent[] {
   const durationMs = getNumber(input, ["durationMs", "duration_ms", "elapsedMs"]) ?? getNestedNumber(input, [["tool_response", "durationMs"], ["result", "durationMs"]]);
   const command = getString(input, ["command"]) ?? getNestedString(input, [["tool_input", "command"], ["input", "command"], ["parameters", "command"]]);
   const commandClass = classifyCommand(command);
+  // Only a git action that actually succeeded is a boundary or a reversion —
+  // a failed push moved nothing, and a failed reset undid nothing.
+  const gitAction = outcome === "failure" ? undefined : classifyGitAction(command);
 
   if (outcome === "failure") {
     if (toolName?.toLowerCase() === "bash" && isVerificationCommand(commandClass)) {
@@ -85,7 +88,22 @@ function mapPostToolUse(input: ClaudeHookInput): MappedAscendaEvent[] {
     return [{ eventType: "editor_verification_activity", severity: "low", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), activity: "ai_test_or_build_run" } }];
   }
 
-  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs) } }];
+  return [{
+    eventType: "ai_tool_call_completed",
+    severity: "low",
+    metadata: {
+      toolName: safeToolName,
+      commandClass,
+      outcome,
+      durationBucket: bucketDurationMs(durationMs),
+      // The boundary and rework signal both ride this existing event rather
+      // than minting a type: the backend already reads `gitAction` off any
+      // event, and a commit is not a different *kind* of thing happening, it
+      // is a fact about the tool call that just happened.
+      ...(gitAction !== undefined ? { gitAction } : {}),
+      ...(isReworkGitAction(gitAction) ? { activity: "rework_reversion" } : {})
+    }
+  }];
 }
 
 function mapPreCompact(input: ClaudeHookInput): MappedAscendaEvent[] {

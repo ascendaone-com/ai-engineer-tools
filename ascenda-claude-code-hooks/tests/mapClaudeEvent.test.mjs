@@ -139,3 +139,70 @@ test("Stop: only long sessions produce agent_loop_long", () => {
 test("Notification: skipped (no catalog event)", () => {
   assert.deepEqual(mapClaudeEvent("Notification", { message: "hi" }), []);
 });
+
+// ── git actions: the boundary signal that never existed ────────────────────
+//
+// The backend has read a `gitAction` metadata key since the demand view
+// shipped, and nothing ever wrote it. So no user could produce a commit or
+// push boundary, and `commits_per_day` — the target metric of the
+// commit-at-green remedy — was unmeasurable for everyone. These assert the
+// write side of that contract, spelling out the exact strings, because the
+// consumer is in another repository and cannot be typechecked against.
+
+test("PostToolUse: a successful commit carries gitAction", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "git commit -m 'add the thing'" },
+    tool_response: { exitCode: 0 }
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "ai_tool_call_completed");
+  assert.equal(events[0].metadata.gitAction, "commit");
+});
+
+test("PostToolUse: a push carries gitAction", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "git push origin main" },
+    tool_response: { exitCode: 0 }
+  });
+
+  assert.equal(events[0].metadata.gitAction, "push");
+});
+
+test("PostToolUse: a reversion is marked as rework", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "git revert abc1234" },
+    tool_response: { exitCode: 0 }
+  });
+
+  assert.equal(events[0].metadata.gitAction, "revert");
+  assert.equal(events[0].metadata.activity, "rework_reversion");
+});
+
+test("PostToolUse: a failed push is neither a boundary nor rework", () => {
+  // A push that did not land moved nothing. Emitting the boundary anyway
+  // would credit work that never left the machine.
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "git push origin main" },
+    tool_response: { exitCode: 1 }
+  });
+
+  assert.equal(events[0].eventType, "ai_tool_call_failed");
+  assert.equal(events[0].metadata.gitAction, undefined);
+});
+
+test("PostToolUse: an ordinary command carries no gitAction key at all", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "git status" },
+    tool_response: { exitCode: 0 }
+  });
+
+  // Absent, not null: the field is omitted when there is nothing to say,
+  // matching every other optional metadata key.
+  assert.ok(!("gitAction" in events[0].metadata));
+});

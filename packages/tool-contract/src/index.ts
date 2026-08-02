@@ -115,6 +115,15 @@ export type DurationBucket = "0-1m" | "1-5m" | "5-10m" | "10-30m" | "30-60m" | "
 export type LinesChangedBucket = "0" | "1-10" | "10-50" | "50-200" | "200+";
 export type CommandClass = "test" | "lint" | "typecheck" | "build" | "run" | "git" | "install" | "unknown";
 export type CommandOutcome = "success" | "failure" | "cancelled" | "unknown";
+
+/**
+ * What a git command did. `commit` and `push` are the two the backend turns
+ * into work boundaries; `revert`, `reset_hard` and `restore` are rework — work
+ * produced and then undone. `amend` is neither: it rewrites a commit that
+ * already counted, so treating it as a fresh boundary would double-count the
+ * same work.
+ */
+export type GitAction = "commit" | "push" | "amend" | "revert" | "reset_hard" | "restore";
 export type PromptClass = "creation" | "verification" | "correction" | "debugging" | "planning" | "unknown";
 
 export type AscendaEventMetadata = Record<string, string | number | boolean | null | undefined> & {
@@ -124,6 +133,14 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   tokenPressureBucket?: "low" | "medium" | "high" | "critical";
   linesChangedBucket?: LinesChangedBucket;
   commandClass?: CommandClass;
+
+  /**
+   * Set on a bash event whose command was a recognised git action. The backend
+   * has read this key since the demand view shipped and, until the hooks began
+   * sending it, nothing ever wrote it — so no user could produce a commit or
+   * push boundary, and `commits_per_day` was unmeasurable for everyone.
+   */
+  gitAction?: GitAction;
   outcome?: CommandOutcome;
   trigger?: "manual" | "auto" | "inferred";
   promptClass?: PromptClass;
