@@ -152,6 +152,26 @@ export type CommandOutcome = "success" | "failure" | "cancelled" | "unknown";
  * same work.
  */
 export type GitAction = "commit" | "push" | "amend" | "revert" | "reset_hard" | "restore";
+
+/**
+ * A piece of work reaching its own end — a ticket closing, a PR merging —
+ * as distinct from the keystroke-scale boundaries `GitAction` records.
+ *
+ * The distinction is the point. Commits and pushes happen many times inside
+ * one piece of work; a milestone happens when the work itself is done, which
+ * is the rhythm a review should follow (Hamada's §5.3 note on the Dark Flow
+ * report: *"a review at the end of a 'ticket' or 'project' so the app becomes
+ * part of their iterative self improvement as their work rolls on from task to
+ * task"*). A calendar review asks at a time that suits the app; a milestone
+ * review asks at a moment that already means something to the person.
+ *
+ * Deliberately narrow. `git merge` is **not** classified: `git merge
+ * origin/main` is a sync and `git merge feature-x` is an integration, and the
+ * command string cannot reliably tell them apart — a classifier that guessed
+ * would fire a debrief invitation every time somebody pulled upstream, which
+ * is exactly the nag this is trying not to be.
+ */
+export type WorkMilestoneKind = "pr_merged" | "pr_opened" | "issue_closed";
 export type PromptClass = "creation" | "verification" | "correction" | "debugging" | "planning" | "unknown";
 
 export type AscendaEventMetadata = Record<string, string | number | boolean | null | undefined> & {
@@ -169,6 +189,9 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * push boundary, and `commits_per_day` was unmeasurable for everyone.
    */
   gitAction?: GitAction;
+
+  /** Set on a bash event whose command completed a piece of work (H1). */
+  milestoneKind?: WorkMilestoneKind;
   outcome?: CommandOutcome;
   trigger?: "manual" | "auto" | "inferred";
   promptClass?: PromptClass;

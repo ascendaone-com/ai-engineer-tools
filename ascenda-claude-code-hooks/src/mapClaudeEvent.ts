@@ -1,4 +1,4 @@
-import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction } from "@ascenda-one/tool-kit";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief } from "@ascenda-one/tool-kit";
 import { ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, inferOutcome, looksLikeCorrection } from "./safeExtract.js";
 
@@ -29,6 +29,18 @@ export function isNewSessionStart(input: ClaudeHookInput): boolean {
   return !source || source === "startup" || source === "resume";
 }
 
+/**
+ * Whether this PostToolUse just completed a piece of work worth debriefing
+ * (H1). Exported so the CLI can decide about the invitation without
+ * re-extracting the command — and so the "only completions, only successes"
+ * rule has one implementation rather than two that can drift.
+ */
+export function milestoneInviting(input: ClaudeHookInput): boolean {
+  if (inferOutcome(input) === "failure") return false;
+  const command = getString(input, ["command"]) ?? getNestedString(input, [["tool_input", "command"], ["input", "command"], ["parameters", "command"]]);
+  return invitesDebrief(classifyWorkMilestone(command));
+}
+
 function mapSessionStart(input: ClaudeHookInput): MappedAscendaEvent[] {
   if (!isNewSessionStart(input)) return [];
   return [{ eventType: "create_focus_session", severity: "low", metadata: { activity: "session_started" } }];
@@ -57,6 +69,9 @@ function mapPostToolUse(input: ClaudeHookInput): MappedAscendaEvent[] {
   // Only a git action that actually succeeded is a boundary or a reversion —
   // a failed push moved nothing, and a failed reset undid nothing.
   const gitAction = outcome === "failure" ? undefined : classifyGitAction(command);
+  // A failed `gh pr merge` did not complete anything, so — like gitAction — a
+  // milestone is only read off a command that actually succeeded.
+  const milestoneKind = outcome === "failure" ? undefined : classifyWorkMilestone(command);
 
   if (outcome === "failure") {
     if (toolName?.toLowerCase() === "bash" && isVerificationCommand(commandClass)) {
@@ -101,7 +116,12 @@ function mapPostToolUse(input: ClaudeHookInput): MappedAscendaEvent[] {
       // event, and a commit is not a different *kind* of thing happening, it
       // is a fact about the tool call that just happened.
       ...(gitAction !== undefined ? { gitAction } : {}),
-      ...(isReworkGitAction(gitAction) ? { activity: "rework_reversion" } : {})
+      ...(isReworkGitAction(gitAction) ? { activity: "rework_reversion" } : {}),
+      // Same reasoning as `gitAction` above, one grain coarser: a milestone is
+      // a fact about the tool call that just happened, not a different kind of
+      // event. It rides here so the record carries the work's own rhythm —
+      // ticket closed, PR merged — beside the keystroke boundaries (H1).
+      ...(milestoneKind !== undefined ? { milestoneKind } : {})
     }
   }];
 }

@@ -1,13 +1,31 @@
 #!/usr/bin/env node
 import { AscendaClient } from "./ascendaClient.js";
 import { loadConfigFromEnv } from "./config.js";
-import { isNewSessionStart, mapClaudeEvent } from "./mapClaudeEvent.js";
+import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
 import { ClaudeHookEventName, ClaudeHookInput } from "./types.js";
 
 const INTENTION_INVITE =
   "Ascenda tip: if it's natural, you can ask what would make this session " +
   "count before diving in — one line is enough. Not a required step, " +
   "and skip it entirely if the user is already mid-task.";
+
+/**
+ * The milestone debrief (H1). The bookend to the intention invite: that one
+ * asks what would make the session count, this one asks — at the moment a
+ * piece of work actually ended — what it cost and what carries forward.
+ *
+ * Three deliberate restraints. It fires only on a *completion* (a merge, a
+ * closed ticket), never on a handoff, so it lands where a person is already
+ * pausing. It asks about the work, not the person — the same discipline the
+ * shutdown ritual keeps. And it stays an invitation: only the model that can
+ * see whether the user is already onto the next thing should decide whether
+ * asking is welcome.
+ */
+const MILESTONE_DEBRIEF_INVITE =
+  "Ascenda tip: that finished a piece of work. If the moment suits, it's " +
+  "worth a short debrief — what moved, what's still unresolved, and what " +
+  "you'd do differently next time. One or two lines. Skip it if they're " +
+  "already onto the next thing.";
 
 async function main(): Promise<void> {
   const hookName = process.argv[2] as ClaudeHookEventName | undefined;
@@ -21,6 +39,15 @@ async function main(): Promise<void> {
   if (hookName === "SessionStart" && isNewSessionStart(input) && process.env.ASCENDA_DISABLE_INTENTION_INVITE !== "true") {
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: INTENTION_INVITE }
+    }));
+  }
+
+  // Same placement and the same reasoning as the intention invite above: local,
+  // network-independent, and before anything that can fail, so a broken pairing
+  // never silently costs the user the prompt.
+  if (hookName === "PostToolUse" && milestoneInviting(input) && process.env.ASCENDA_DISABLE_MILESTONE_DEBRIEF !== "true") {
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: MILESTONE_DEBRIEF_INVITE }
     }));
   }
 

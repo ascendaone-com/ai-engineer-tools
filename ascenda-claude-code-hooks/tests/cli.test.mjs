@@ -60,8 +60,82 @@ test("ASCENDA_DISABLE_INTENTION_INVITE=true silences the injection even on start
   assert.equal(result.stdout, "");
 });
 
-test("a non-SessionStart hook never writes to stdout, pairing or not", () => {
+test("an ordinary PostToolUse never writes to stdout, pairing or not", () => {
   const result = runHook("PostToolUse", { tool_name: "Grep", tool_response: { exitCode: 0 } });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+});
+
+// ── The milestone debrief (H1) ──────────────────────────────────────────
+//
+// The bookend to the intention invite, and it earns the same end-to-end
+// treatment for the same reason: it is stdout behaviour on a hook that was
+// previously always silent, on the hot path of every single tool call.
+
+test("a merged PR invites a debrief", () => {
+  const result = runHook("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "gh pr merge 412 --squash" },
+    tool_response: { exitCode: 0 }
+  });
+  assert.equal(result.status, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.hookSpecificOutput.hookEventName, "PostToolUse");
+  assert.match(parsed.hookSpecificOutput.additionalContext, /finished a piece of work/);
+});
+
+test("a closed issue invites a debrief", () => {
+  const result = runHook("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "gh issue close 88" },
+    tool_response: { exitCode: 0 }
+  });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /additionalContext/);
+});
+
+test("opening a PR is a handoff — recorded, but no interruption", () => {
+  const result = runHook("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "gh pr create --fill" },
+    tool_response: { exitCode: 0 }
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+});
+
+test("a failed merge finished nothing, so it asks nothing", () => {
+  const result = runHook("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "gh pr merge 412 --squash" },
+    tool_response: { exitCode: 1 }
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+});
+
+test("committing and pushing never invite — those happen all day", () => {
+  for (const command of ["git commit -m 'wip'", "git push origin feature"]) {
+    const result = runHook("PostToolUse", {
+      tool_name: "Bash",
+      tool_input: { command },
+      tool_response: { exitCode: 0 }
+    });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "", command);
+  }
+});
+
+test("ASCENDA_DISABLE_MILESTONE_DEBRIEF=true silences the invitation", () => {
+  const result = runHook(
+    "PostToolUse",
+    {
+      tool_name: "Bash",
+      tool_input: { command: "gh pr merge 412" },
+      tool_response: { exitCode: 0 }
+    },
+    { ASCENDA_DISABLE_MILESTONE_DEBRIEF: "true" }
+  );
   assert.equal(result.status, 0);
   assert.equal(result.stdout, "");
 });
