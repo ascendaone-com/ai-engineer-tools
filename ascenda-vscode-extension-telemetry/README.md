@@ -134,12 +134,16 @@ npx vsce package --no-dependencies
 code --install-extension ascenda-0.0.2.vsix
 ```
 
+**On macOS**, if `code` is not on your PATH, first run **Cmd+Shift+P → Install 'code' command in PATH** in VS Code, or use the full path: `/Applications/Visual\ Studio\ Code.app/Contents/Resources/app/bin/code --install-extension ascenda-0.0.2.vsix`.
+
 In Cursor, use **Extensions → … (Views and More Actions) → Install from
 VSIX…** and select the same file, or, if `cursor` is on your PATH:
 
 ```bash
 cursor --install-extension ascenda-0.0.2.vsix
 ```
+
+**On macOS**, the easiest approach is the menu: **Extensions → Install from VSIX** and select the built file directly.
 
 Reload the editor, then run **Ascenda: Connect App**. Uninstall with Extensions view → Ascenda → Uninstall.
 
