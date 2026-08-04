@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guard rail: the two IDE extensions must stay thin shells over
+# Guard rail: the IDE extension must stay a thin shell over
 # @ascenda-one/ide-extension-core, and no package may regrow a private copy
 # of a module owned by the shared packages.
 set -euo pipefail
@@ -11,8 +11,6 @@ fail=0
 # tool-contract own their modules and are excluded from ownership checks only.
 consumer_dirs=(
   ascenda-vscode-extension-telemetry/src
-  ascenda-cursor-extension/src
-  ascenda-cursor-extension/mcp-adapter
   ascenda-claude-code-hooks/src
   ascenda-codex-hooks/src
   ascenda-agent-mcp/src
@@ -25,8 +23,8 @@ for d in "${consumer_dirs[@]}"; do
   [ -d "$d" ] && existing_dirs+=("$d")
 done
 
-# 1. Extension src/ folders may contain only the shell entry point.
-for ext in ascenda-vscode-extension-telemetry ascenda-cursor-extension; do
+# 1. The extension's src/ folder may contain only the shell entry point.
+for ext in ascenda-vscode-extension-telemetry; do
   extra=$(find "$ext/src" -name "*.ts" ! -name "extension.ts" | sort)
   if [ -n "$extra" ]; then
     echo "FAIL: $ext/src must contain only extension.ts (the shell). Found:"

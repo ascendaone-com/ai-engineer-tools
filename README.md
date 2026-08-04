@@ -15,8 +15,7 @@ All packages align to the backend-agreed research foundation:
 
 | Package | Phase 1 role |
 | --- | --- |
-| [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/) | VS Code IDE telemetry — editor activity, terminal classification, sessions |
-| [ascenda-cursor-extension](./ascenda-cursor-extension/) | Cursor IDE telemetry + planned MCP/agent adapter |
+| [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/) | IDE telemetry for VS Code and Cursor (one extension, `ascenda-one.ascenda`, runtime host detection) — editor activity, terminal classification, sessions |
 | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | Claude Code agent hooks — prompts, tool calls, compaction, agent loops |
 | [ascenda-codex-hooks](./ascenda-codex-hooks/) | OpenAI Codex lifecycle hooks — same agent signals as Claude hooks, via Codex's hooks.json |
 | [ascenda-pairing-sim](./ascenda-pairing-sim/) | Console app that simulates the mobile app for pairing tests (confirm / list / revoke / e2e) |
@@ -74,13 +73,14 @@ curl -fsSLO "$BASE/manifest.json"
 cat manifest.json    # { version, minNode, artifacts: [{ name, url, sha256 }] }
 ```
 
-**1. Extensions (VS Code / Cursor).** Download the VSIX named in the manifest and
-install it headlessly — this works with no marketplace dependency:
+**1. Extension (VS Code / Cursor).** One VSIX for both hosts. Download the
+version named in the manifest and install it headlessly — this works with no
+marketplace dependency:
 
 ```bash
-curl -fsSLO "$BASE/ascenda-vscode-<version>.vsix"
-code   --install-extension ./ascenda-vscode-<version>.vsix
-cursor --install-extension ./ascenda-cursor-<version>.vsix
+curl -fsSLO "$BASE/ascenda-<version>.vsix"
+code   --install-extension ./ascenda-<version>.vsix   # VS Code
+cursor --install-extension ./ascenda-<version>.vsix   # Cursor — same file
 ```
 
 Once the extensions are on the VS Code Marketplace and OpenVSX, installing from
@@ -126,8 +126,7 @@ Per-package configuration and development instructions:
 
 | Tool | Install guide |
 | --- | --- |
-| VS Code | [ascenda-vscode-extension-telemetry § Installation](./ascenda-vscode-extension-telemetry/README.md#installation-vs-code) |
-| Cursor | [ascenda-cursor-extension § Installation](./ascenda-cursor-extension/README.md#installation-cursor) |
+| VS Code / Cursor | [ascenda-vscode-extension-telemetry § Installation](./ascenda-vscode-extension-telemetry/README.md#installation-vs-code) |
 | Claude Code | [ascenda-claude-code-hooks § Installation](./ascenda-claude-code-hooks/README.md#installation-claude-code) |
 | Pairing sim (app stand-in) | [ascenda-pairing-sim § Installation](./ascenda-pairing-sim/README.md#installation-terminal--cli) |
 

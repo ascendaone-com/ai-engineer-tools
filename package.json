@@ -10,7 +10,6 @@
   "workspaces": [
     "packages/*",
     "ascenda-vscode-extension-telemetry",
-    "ascenda-cursor-extension",
     "ascenda-claude-code-hooks",
     "ascenda-codex-hooks",
     "ascenda-agent-mcp",
@@ -22,8 +21,8 @@
   "scripts": {
     "build": "npm run build:shared && npm run build:tools",
     "build:shared": "npm run compile -w @ascenda-one/tool-contract && npm run compile -w @ascenda-one/tool-kit && npm run compile -w @ascenda-one/ide-extension-core",
-    "build:tools": "npm run compile -w ascenda-vscode && npm run compile -w ascenda-cursor && npm run build -w @ascenda-one/claude-code-hooks && npm run build -w @ascenda-one/codex-hooks && npm run build -w @ascenda-one/agent-mcp && npm run build -w @ascenda-one/github-collector && npm run build -w ascenda-pairing-sim && npm run build -w ascenda-dev-server",
-    "package": "npm run package -w ascenda-vscode && npm run package -w ascenda-cursor",
+    "build:tools": "npm run compile -w ascenda && npm run build -w @ascenda-one/claude-code-hooks && npm run build -w @ascenda-one/codex-hooks && npm run build -w @ascenda-one/agent-mcp && npm run build -w @ascenda-one/github-collector && npm run build -w ascenda-pairing-sim && npm run build -w ascenda-dev-server",
+    "package": "npm run package -w ascenda",
     "verify": "./scripts/check-dry.sh && npm run test",
     "test": "npm run build && npm run test:scripts && npm run test --workspaces --if-present",
     "test:scripts": "node --test scripts/tests/*.test.mjs",

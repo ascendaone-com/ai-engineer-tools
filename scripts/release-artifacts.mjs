@@ -16,8 +16,7 @@ export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url
  * omit it and the package ships as a release asset only.
  */
 export const RELEASE_PACKAGES = [
-  { dir: "ascenda-vscode-extension-telemetry", name: "ascenda-vscode", kind: "vsix" },
-  { dir: "ascenda-cursor-extension", name: "ascenda-cursor", kind: "vsix" },
+  { dir: "ascenda-vscode-extension-telemetry", name: "ascenda", kind: "vsix" },
   { dir: "ascenda-claude-code-hooks", name: "ascenda-claude-code-hooks", kind: "cli", npm: "@ascenda-one/claude-code-hooks" },
   { dir: "ascenda-codex-hooks", name: "ascenda-codex-hooks", kind: "cli", npm: "@ascenda-one/codex-hooks" },
 ];

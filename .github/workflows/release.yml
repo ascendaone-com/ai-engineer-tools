@@ -51,16 +51,17 @@ jobs:
       - name: Verify
         run: npm run verify
 
-      - name: Package extension VSIXes
+      - name: Package extension VSIX
         run: npm run package
 
       - name: Stage artifacts
         run: |
           set -euo pipefail
           mkdir -p "$STAGE"
-          # VSIXes keep the name vsce generates (it already carries the version).
+          # VSIX keeps the name vsce generates (it already carries the version).
+          # One extension, one VSIX, published to both the VS Code Marketplace
+          # and Open VSX — Cursor installs the same file from Open VSX.
           mv ascenda-vscode-extension-telemetry/*.vsix "$STAGE/"
-          mv ascenda-cursor-extension/*.vsix "$STAGE/"
           # Both hook CLIs bundle to dist/cli.js, so give them distinct,
           # self-describing names in the release. They are single-file ESM.
           cp ascenda-claude-code-hooks/dist/cli.js "$STAGE/ascenda-claude-code-hooks.mjs"
@@ -120,6 +121,10 @@ jobs:
       # Both steps no-op until the publisher accounts exist and the tokens are
       # added as repository secrets. VSIX-from-release stays the universal
       # fallback either way, so a missing token never fails a release.
+      #
+      # One identity, ascenda-one.ascenda, published as the same VSIX to both
+      # registries — Cursor installs from Open VSX under this same identity,
+      # via runtime host detection, not a second extension.
       - name: Publish to VS Code Marketplace
         if: env.DRY_RUN == 'false'
         env:
@@ -130,7 +135,7 @@ jobs:
             echo "::warning::VSCE_PAT not set — skipping Marketplace publish (VSIX is attached to the release)."
             exit 0
           fi
-          npx vsce publish --no-dependencies --packagePath "$STAGE"/ascenda-vscode-*.vsix
+          npx vsce publish --no-dependencies --packagePath "$STAGE"/ascenda-*.vsix
 
       - name: Publish to OpenVSX
         if: env.DRY_RUN == 'false'
@@ -142,5 +147,4 @@ jobs:
             echo "::warning::OVSX_PAT not set — skipping OpenVSX publish (VSIX is attached to the release)."
             exit 0
           fi
-          npx ovsx publish "$STAGE"/ascenda-cursor-*.vsix -p "$OVSX_PAT"
-          npx ovsx publish "$STAGE"/ascenda-vscode-*.vsix -p "$OVSX_PAT"
+          npx ovsx publish "$STAGE"/ascenda-*.vsix -p "$OVSX_PAT"

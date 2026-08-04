@@ -1,22 +1,33 @@
-# Ascenda VS Code Extension
+# Ascenda IDE Extension (VS Code & Cursor)
 
-Privacy-first VS Code extension for pairing a local developer tool installation with the Ascenda mobile app and sending AI workload telemetry events.
+Privacy-first extension for pairing a local developer tool installation with the Ascenda mobile app and sending AI workload telemetry events. One extension, one package identity (`ascenda-one.ascenda`) published to both the VS Code Marketplace and Open VSX — Cursor installs the same VSIX from Open VSX. The host is detected at runtime (`packages/ide-extension-core/src/host.ts`); there is no separate Cursor build.
 
 Part of [ai-engineer-tools](../). See the [Workload Telemetry Research Direction](../docs/WORKLOAD_TELEMETRY_RESEARCH_DIRECTION.md) and [Tooling Phase Alignment](../docs/TOOLING_PHASE_ALIGNMENT.md).
 
 ## Role in workload detection (Phase 1)
 
-This package is the **baseline IDE telemetry** source for VS Code. It contributes objective signals to the prototype workload function:
+This package is the **baseline IDE telemetry** source for both hosts. It contributes objective signals to the prototype workload function:
 
 | Workload input | How this extension contributes |
 | --- | --- |
 | FocusDuration | Session boundaries, file-save cadence (partial proxy) |
 | TaskSwitchRate | `active_editor_changed` events (partial proxy) |
 | Interruptions | Session end, after-hours flag |
-| AIInteractionLoad | Not yet — use [Claude hooks](../ascenda-claude-code-hooks/) or Cursor MCP adapter |
+| AIInteractionLoad | Not yet — use [Claude hooks](../ascenda-claude-code-hooks/) or the [Cursor MCP adapter plan](../docs/CURSOR_ADAPTER_PLAN.md) |
 | Verification / friction | Terminal test/lint/build/typecheck classification, failure outcomes |
 
 Subjective strain (NASA-TLX-style check-ins), meeting load, and personalised baselines are handled by the Ascenda app and backend — not this extension.
+
+### Running in Cursor
+
+Identical telemetry to VS Code, reported with `source: cursor_mcp` /
+`toolType: cursor_mcp` — detected automatically, no separate install or
+config. Cursor is treated as a first-class telemetry producer for AI
+engineers; for richer AI-agent signals today, also run [Claude Code
+hooks](../ascenda-claude-code-hooks/). Deeper agent-level capture
+(prompts, tool calls, correction loops) is tracked as a separate future
+surface — see [CURSOR_ADAPTER_PLAN.md](../docs/CURSOR_ADAPTER_PLAN.md) — not
+a second editor extension.
 
 ## What this version provides
 
@@ -120,10 +131,17 @@ Settings UI: **Preferences → Settings → search “Ascenda”**, or in `setti
 npm install -g @vscode/vsce
 npm run compile
 npx vsce package --no-dependencies
-code --install-extension ascenda-vscode-0.0.2.vsix
+code --install-extension ascenda-0.0.2.vsix
 ```
 
-Reload VS Code, then run **Ascenda: Connect App**. Uninstall with Extensions view → Ascenda → Uninstall.
+In Cursor, use **Extensions → … (Views and More Actions) → Install from
+VSIX…** and select the same file, or, if `cursor` is on your PATH:
+
+```bash
+cursor --install-extension ascenda-0.0.2.vsix
+```
+
+Reload the editor, then run **Ascenda: Connect App**. Uninstall with Extensions view → Ascenda → Uninstall.
 
 ### Commands
 

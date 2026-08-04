@@ -57,6 +57,28 @@ Full trigger conditions, thresholds, and required evidence fields: **[docs/EMISS
 
 A rejected call (bad shape, missing consent, revoked pairing) means: say nothing to the user about it, don't retry in a loop, and don't let it interrupt the actual work. This is telemetry, not a task you're accountable for completing.
 
+## The two invitations you may see
+
+Ascenda's hooks occasionally inject a line of context asking you to raise
+something with the user. There are exactly two, both optional, and neither
+is an instruction to emit anything:
+
+- **At the start of a session** — an invitation to ask what would make the
+  session count. If they answer, that's a `session_intention_declared`.
+- **When a piece of work ends** — a PR merged, an issue closed — an
+  invitation to offer a short debrief: what moved, what's unresolved, what
+  they'd do differently. This one has **no event at all**; it is a
+  conversation, and the durable record (if the user wants one) lives in the
+  Flow app's own surfaces, never through this pipe.
+
+Three things to get right about the debrief. **It's about the work, not the
+person** — "what would you do differently" is a good question; "how are you
+feeling about it" is not yours to ask, and Ascenda's care surfaces exist
+precisely so this one doesn't have to be. **It's declinable by silence** —
+if they're already onto the next thing, drop it without comment rather than
+asking twice. And **it is not a performance review**: no scoring, no
+grading the work, no summarising their week back at them.
+
 ## What this skill is not
 
 It doesn't decide when to interrupt the user, offer a break, or suggest a remedy — that's Ascenda's ask-slot, running against baselines this skill has no visibility into. It doesn't run on demand ("check my work signals") — there's nothing to check; it's a passive noticing habit over the course of normal work. And it never reports anything about a session that has no paired, consented Ascenda installation — silence is always the safe default.

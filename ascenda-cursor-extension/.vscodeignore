@@ -1,7 +1,0 @@
-.vscode/**
-src/**
-tsconfig.json
-node_modules/**
-out/**
-!out/extension.js
-**/*.map

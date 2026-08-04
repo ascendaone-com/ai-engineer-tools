@@ -1,5 +1,6 @@
 export { classifyCommand, isVerificationCommand } from "./commandClassifier";
 export { classifyGitAction, isReworkGitAction } from "./gitActionClassifier";
+export { classifyWorkMilestone, invitesDebrief } from "./workMilestoneClassifier";
 export { bucketLinesChanged, bucketDurationMs } from "./buckets";
 export { isAfterHours } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, looksLikeCorrection } from "./payload";

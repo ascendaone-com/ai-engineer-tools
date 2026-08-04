@@ -26,7 +26,7 @@ function fixture(versions = {}) {
 const read = (root, rel) => JSON.parse(fs.readFileSync(path.join(root, rel, "package.json"), "utf8"));
 
 test("stamps one version across the root and every shipped package", () => {
-  const root = fixture({ "ascenda-vscode": "0.0.2", "ascenda-cursor": "0.1.0" });
+  const root = fixture({ "ascenda": "0.0.2", "ascenda-claude-code-hooks": "0.1.0" });
   const changed = stampVersion({ tag: "v1.4.0", root });
 
   assert.equal(read(root, "").version, "1.4.0");
