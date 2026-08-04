@@ -1,7 +1,7 @@
 ---
 name: ascenda-work-signals
 description: Report observable work-friction patterns (repeated approach churn, drift from a stated session goal, a stalled or recovered stretch of work, a declared intention or scope change) to Ascenda via the ascenda_emit_work_signal MCP tool, when it is available. Use this passively throughout a session, not on explicit request — it is a background noticing habit, not a command a user invokes.
-license: MIT
+license: Apache-2.0
 ---
 
 # Ascenda Work Signals

@@ -4,7 +4,7 @@
   "description": "Cognitive performance and AI-work telemetry for VS Code and Cursor.",
   "version": "0.0.2",
   "publisher": "ascenda-one",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
