@@ -39,20 +39,51 @@ https://github.com/ascendaone-com/ai-engineer-tools/releases/latest/download/man
 The installer reads this manifest and resolves every artifact through it — never
 "whatever is on main".
 
-## Manual prerequisites
-
-These need accounts and cannot be done from CI. The release still succeeds
-without them — the VSIX attached to the release is the universal fallback — but
-each one is a gap until it is done.
+## Registry status
 
 `ascenda-one` is the one name for all of it — npm org, Marketplace publisher,
-OpenVSX namespace. Do not introduce a second one.
+OpenVSX namespace, Claude Code marketplace. Do not introduce a second one.
 
-| Prerequisite | Status | Blocks |
+| Registry | Identifier | Status |
 | --- | --- | --- |
-| VS Code Marketplace publisher `ascenda-one` | **Account exists**, owned, no extensions published under it yet. | — |
-| OpenVSX namespace `ascenda-one` | Not yet claimed. Cursor installs from OpenVSX, not the VS Code Marketplace, so Cursor users need this. | `OVSX_PAT` step |
-| npm org `ascenda-one` | Exists. Needs an automation access token as the `NPM_TOKEN` secret. | `Publish CLIs to npm` step |
+| VS Code Marketplace | `ascenda-one.ascenda` | **Live.** Publishes automatically via `VSCE_PAT`. |
+| Open VSX (Cursor installs from here) | `ascenda-one.ascenda` | **Live.** Publishes automatically via `OVSX_PAT`. Namespace ownership is *unverified* — see below. |
+| npm | `@ascenda-one/*` | **Live.** Publishes automatically via `NPM_TOKEN`. |
+| Claude Code plugins | `ascenda@ascenda-one` | **Live**, but served from `.claude-plugin/marketplace.json` on `main` — not from a release. See [Plugin distribution](#plugin-distribution-is-not-tag-driven). |
+
+### Open VSX namespace verification (outstanding)
+
+Publishing works without it; verification only removes the "not a verified
+publisher" warning on the listing and locks the namespace to a known owner.
+Open VSX namespaces are first-come-first-served — claiming is a separate,
+optional step *after* publishing, not a gate before it.
+
+To claim: file the **Claim namespace ownership** issue against
+[`EclipseFdn/open-vsx.org`](https://github.com/EclipseFdn/open-vsx.org/issues/new/choose),
+namespace `ascenda-one`. The template requires **12+ months of public GitHub
+history** on the account filing it, so it must be filed by a long-standing
+account that has commits in this repository — not necessarily the account that
+published. Cite an existing commit as evidence; do not manufacture one for the
+purpose.
+
+### Plugin distribution is not tag-driven
+
+Every other artifact here ships by pushing a tag. The Claude Code plugin does
+not: `/plugin marketplace add ascendaone-com/ai-engineer-tools` reads
+`.claude-plugin/marketplace.json` from `main` directly, and
+`ascenda-agent-skills/.claude-plugin/plugin.json` pins the version users get.
+
+Consequences worth knowing:
+
+- **A merge to `main` is a plugin release.** There is no separate publish step
+  and no tag gate.
+- Bump `version` in `plugin.json` when the plugin's behaviour changes, or users
+  will not receive the update — omitting it falls back to the commit SHA, which
+  makes every commit a new version.
+- Validate before merging: `claude plugin validate ./ascenda-agent-skills --strict`.
+- The plugin's hooks and MCP server invoke the **published npm packages** via
+  `npx`, so a plugin change that depends on new CLI behaviour needs the npm
+  release to land *first*.
 
 ### Extension identity: one, not two
 
@@ -92,45 +123,75 @@ Marketplace — see [`ascenda-agent-skills`](./ascenda-agent-skills/) and
 different marketplace and a different kind of product, not a second copy of
 this editor extension. `ascenda-cursor` is free to use there if that day comes.
 
-### First publish, manually (one-time, per registry)
+## Repository secrets
 
-CI publishes automatically once `VSCE_PAT`/`OVSX_PAT` are set as repository
-secrets (see below) — for most releases that's all this needs. The two
-registries otherwise want the extension's *first* listing created once,
-by hand, before CI can push updates to it:
+All three are set. Rotating or re-creating one is the only reason to revisit
+this list.
 
-1. **VS Code Marketplace** — sign in at
-   [marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage)
-   as the `ascenda-one` publisher, **+ New extension → Visual Studio Code**,
-   and upload a built VSIX (`cd ascenda-vscode-extension-telemetry && npm run compile && npx vsce package --no-dependencies`)
-   or publish straight from the CLI with a PAT: `npx vsce publish -p <VSCE_PAT>`
-   from that directory. The extension's `name`/`publisher` fields in
-   `package.json` are what fix the listing at `ascenda-one.ascenda` —
-   nothing to choose in the web UI.
-2. **Open VSX** — claim the `ascenda-one` namespace at
-   [open-vsx.org](https://open-vsx.org) (needs a GitHub-linked Eclipse
-   account and namespace ownership verification — this is the slower step),
-   then `npx ovsx create-namespace ascenda-one -p <OVSX_PAT>` once, and
-   `npx ovsx publish -p <OVSX_PAT>` from the same built VSIX. Cursor resolves
-   extensions from here, so this is the step that actually makes the
-   extension discoverable inside Cursor.
+| Secret | What it is |
+| --- | --- |
+| `VSCE_PAT` | Azure DevOps PAT with Marketplace **Manage** scope. Not an npm or GitHub token — the failure mode for pasting the wrong type is an opaque "invalid token". |
+| `OVSX_PAT` | Open VSX access token, generated on open-vsx.org itself. Also not an Azure DevOps PAT. |
+| `NPM_TOKEN` | npm **automation** token (or granular token with "bypass 2FA" checked) for the `@ascenda-one` scope with read+write. Interactive tokens cannot publish from CI — there is no one present to approve the 2FA prompt. |
 
-After that first listing exists on each registry, every subsequent release
-(tag push) publishes automatically through the two steps below, as long as
-their secrets are set.
+Until a secret is set, its publish step logs a warning and skips. No release
+ever fails for a missing registry token.
 
-Repository secrets to add once those exist:
+## Gotchas that have actually bitten
 
-- `VSCE_PAT` — Azure DevOps PAT with Marketplace *Manage* scope.
-- `OVSX_PAT` — OpenVSX access token.
-- `NPM_TOKEN` — npm **automation** token for the `ascenda-one` org. Automation tokens bypass 2FA; interactive ones cannot publish from CI.
+### npm provenance requires `repository` in every published package.json
 
-Until each secret is set, its publish step logs a warning and skips. No release
-ever fails for a missing marketplace token.
+Releases are signed with Sigstore build provenance, and npm **rejects the
+publish** if `repository.url` does not match the repo the workflow ran in:
+
+```
+npm error 422 Unprocessable Entity — Error verifying sigstore provenance bundle:
+package.json: "repository.url" is "", expected to match "https://github.com/ascendaone-com/ai-engineer-tools"
+```
+
+Every package in `RELEASE_PACKAGES` needs:
+
+```json
+"repository": {
+  "type": "git",
+  "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
+  "directory": "<the package folder>"
+}
+```
+
+A missing `repository` field passes `npm run verify` and fails only at publish
+time, after the GitHub Release has already been created.
+
+### A rerun cannot recreate an existing GitHub Release
+
+`gh release create` fails with *"a release with the same tag name already
+exists"*. `gh run rerun --failed` re-runs steps that failed **or were skipped**,
+so a run that succeeded at the release step and failed later will fail on the
+rerun. Either delete the GitHub Release first (the tag can stay), or — usually
+simpler — bump to a new tag.
+
+### Images in READMEs must be absolute URLs
+
+The extension README is published to the VS Code Marketplace, Open VSX **and**
+npm, none of which resolve repo-relative paths. Use full
+`https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/…`
+URLs. See [`docs/images/README.md`](./docs/images/README.md).
 
 ## Adding a new shipped tool
 
 `scripts/release-artifacts.mjs` is the single source of truth for what a release
-ships. Add the workspace to `RELEASE_PACKAGES`, then stage its build output in
-the workflow's *Stage artifacts* step. Version stamping and the manifest pick it
-up automatically; `scripts/tests/` covers both.
+ships. Three steps, all required:
+
+1. Add the workspace to `RELEASE_PACKAGES` (with its `npm` name if it publishes
+   to the registry).
+2. Stage its build output in the workflow's *Stage artifacts* step.
+3. Add the `repository` field to its `package.json` — see the provenance gotcha
+   above, or the publish fails after the release is already created.
+
+Version stamping and the manifest pick it up automatically; `scripts/tests/`
+covers both.
+
+Skipping step 1 is silent: the package builds, tests pass, and it simply never
+reaches npm — while its README goes on telling people to `npx` it. Both
+`@ascenda-one/agent-mcp` and `@ascenda-one/github-collector` shipped in that
+state before being caught.

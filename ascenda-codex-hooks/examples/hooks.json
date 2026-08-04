@@ -1,11 +1,11 @@
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "ascenda-codex-hook SessionStart", "timeout": 10 }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ascenda-codex-hook UserPromptSubmit", "timeout": 10 }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "ascenda-codex-hook PreToolUse", "timeout": 10 }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "ascenda-codex-hook PostToolUse", "timeout": 10 }] }],
-    "PreCompact": [{ "hooks": [{ "type": "command", "command": "ascenda-codex-hook PreCompact", "timeout": 10 }] }],
-    "PostCompact": [{ "hooks": [{ "type": "command", "command": "ascenda-codex-hook PostCompact", "timeout": 10 }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "ascenda-codex-hook Stop", "timeout": 10 }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks SessionStart", "timeout": 10 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks UserPromptSubmit", "timeout": 10 }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks PreToolUse", "timeout": 10 }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks PostToolUse", "timeout": 10 }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks PreCompact", "timeout": 10 }] }],
+    "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks PostCompact", "timeout": 10 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks Stop", "timeout": 10 }] }]
   }
 }

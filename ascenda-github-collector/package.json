@@ -3,6 +3,11 @@
   "name": "@ascenda-one/github-collector",
   "version": "0.1.0",
   "description": "Code-forge collaboration collector for Ascenda work telemetry — first-person review and pull-request signals.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
+    "directory": "ascenda-github-collector"
+  },
   "type": "module",
   "files": ["dist", "examples"],
   "bin": {

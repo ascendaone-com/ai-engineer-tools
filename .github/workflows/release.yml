@@ -67,6 +67,7 @@ jobs:
           cp ascenda-claude-code-hooks/dist/cli.js "$STAGE/ascenda-claude-code-hooks.mjs"
           cp ascenda-codex-hooks/dist/cli.js "$STAGE/ascenda-codex-hooks.mjs"
           cp ascenda-agent-mcp/dist/cli.js "$STAGE/ascenda-agent-mcp.mjs"
+          cp ascenda-github-collector/dist/cli.js "$STAGE/ascenda-github-collector.mjs"
           ls -l "$STAGE"
 
       - name: Build manifest

@@ -30,15 +30,110 @@ Claude Code hook adapter
 
 Same loose-coupled pairing model as the VS Code and Cursor extensions. See [TOOL_PAIRING_API_REFERENCE.md](../api-docs/TOOL_PAIRING_API_REFERENCE.md).
 
-## Installation (Claude Code)
+## Install
 
-### Prerequisites
+### Recommended: the Claude Code plugin
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed and working
-- Node.js **20+** and npm
-- A paired Ascenda `toolInstallationId` + `eventWriteToken` (from VS Code/Cursor extension or [pairing-sim `e2e`](../ascenda-pairing-sim/))
+One command installs this adapter, the work-signals skill, and the MCP server
+together — already wired to every lifecycle event, no settings file to edit:
 
-### 1. Build and install the hook CLI
+```bash
+claude plugin marketplace add ascendaone-com/ai-engineer-tools
+claude plugin install ascenda@ascenda-one
+```
+
+From inside a session, use `/plugin marketplace add …` then `/plugin install …`.
+See [ascenda-agent-skills](../ascenda-agent-skills/) for what the bundle holds.
+
+### Alternative: this adapter on its own
+
+If you want the deterministic hooks without the skill or MCP server, the
+published package runs with no clone and no build:
+
+```bash
+npx @ascenda-one/claude-code-hooks --help
+```
+
+Then wire the events yourself — see [Register hooks manually](#register-hooks-manually).
+
+### Pair first (both routes)
+
+Neither route sends anything until this machine is paired. This package shows
+no QR code of its own; it reuses a pairing made elsewhere.
+
+1. Install and pair the [Ascenda extension](../ascenda-vscode-extension-telemetry/)
+   in VS Code or Cursor, then run **Ascenda: Connect App**.
+2. Run **Ascenda: Show Status** and copy the tool installation id.
+3. Export it where Claude Code will see it:
+
+```bash
+export ASCENDA_TOOL_INSTALLATION_ID="claude_code:<uuid>"   # or the cursor_mcp:… / vscode_extension:… id you already have
+```
+
+Add that to your shell profile (`~/.zshrc`, `~/.bashrc`) and restart Claude
+Code. The write token is read from `~/.ascenda/tokens/`, written at pairing
+time — you do not copy it separately.
+
+> **This variable is required, not optional.** Without it every hook
+> invocation exits with `Missing ASCENDA_TOOL_INSTALLATION_ID`. The adapter
+> refuses to guess rather than silently mint a second, unpaired identity that
+> would fragment your telemetry across two installations.
+
+On a Dev backend with no phone, [pairing-sim](../ascenda-pairing-sim/) stands in
+for the app:
+
+```bash
+cd ../ascenda-pairing-sim && npm run build
+node dist/cli.js e2e --tool-type claude_code
+```
+
+Optional environment:
+
+| Variable | Purpose |
+| --- | --- |
+| `ASCENDA_API_BASE_URL` | Backend to send to. Defaults to `https://api.ascenda.one`; use `http://localhost:5002` or the Azure Dev host for development |
+| `ASCENDA_EVENT_WRITE_TOKEN` | Only if you have no prior pairing to reuse — normally the token file supplies this |
+| `ASCENDA_EVENT_WRITE_TOKEN_FILE` | Override token file path (default `~/.ascenda/tokens/<toolInstallationId>`) |
+| `ASCENDA_SESSION_ID` | Stable session id across hooks |
+| `ASCENDA_WORKSPACE_HASH` | Opaque workspace hash if you set one |
+
+On first run the CLI seeds `~/.ascenda/tokens/<toolInstallationId>` so
+**tool-scoped renew** can persist rotated tokens without you editing anything.
+
+### Register hooks manually
+
+The plugin does this for you — this section is only for the standalone route.
+Merge [`examples/settings.local.json`](./examples/settings.local.json) into
+`.claude/settings.local.json` in a project, or into Claude Code's user settings
+for machine-wide coverage:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionStart" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks UserPromptSubmit" }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreToolUse" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUse" }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreCompact" }] }],
+    "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostCompact" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Stop" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification" }] }]
+  }
+}
+```
+
+### Verify
+
+Start Claude Code in a project with hooks configured, submit a prompt or run a
+tool, and confirm events reach the backend (or simply that the hook exits `0`).
+
+Exit codes: `3` on auth failure (re-pair), `2` on missing consent (renew in the
+Ascenda app). A telemetry failure never blocks your turn.
+
+## Build from source
+
+Not needed to use this — both routes above ship prebuilt. It is here because
+"read what runs on your machine" is a fair thing to want from a telemetry tool.
 
 ```bash
 # from the repo root (workspace install + shared packages first)
@@ -47,102 +142,19 @@ npm run build:shared
 
 cd ascenda-claude-code-hooks
 npm run build
-npm link
-```
+npm link                 # or ./scripts/install-local.sh
 
-Or:
-
-```bash
-./scripts/install-local.sh
-```
-
-Confirm the binary is on your PATH:
-
-```bash
 which ascenda-claude-hook
-ascenda-claude-hook   # prints usage if no hook name is passed
-```
+ascenda-claude-hook      # prints usage when passed no hook name
 
-### 2. Obtain pairing credentials
-
-This package does **not** show a QR code. Pair first, then export the token:
-
-**Option A — IDE extension**
-
-1. Install and pair the [Ascenda extension](../ascenda-vscode-extension-telemetry/) (VS Code or Cursor — same extension).
-2. Run **Ascenda: Show Status** and note `tool=…`.
-3. Copy `toolInstallationId` and `eventWriteToken` from extension storage, or run pairing-sim `e2e` and use its printed values.
-
-**Option B — pairing-sim e2e (Dev only)**
-
-```bash
-cd ../ascenda-pairing-sim
-# local.devauth.env configured (gitignored DevAuth tokens)
-npm run build
-node dist/cli.js e2e --tool-type claude_code
-```
-
-Use the printed `ASCENDA_TOOL_INSTALLATION_ID` and `ASCENDA_EVENT_WRITE_TOKEN`. Tokens are also written under `~/.ascenda/tokens/`.
-
-### 3. Configure environment
-
-Add to your shell profile (`~/.zshrc`, `~/.bashrc`) or export in the terminal before starting Claude Code:
-
-```bash
-export ASCENDA_API_BASE_URL="https://app-asc-dev-api-aue.azurewebsites.net"   # or http://localhost:5002 / https://api.ascenda.one
-export ASCENDA_TOOL_INSTALLATION_ID="claude_code:<uuid>"                     # or cursor_mcp:… / vscode_extension:… from IDE pair
-export ASCENDA_EVENT_WRITE_TOKEN="<eventWriteToken>"
-```
-
-Optional:
-
-| Variable | Purpose |
-| --- | --- |
-| `ASCENDA_EVENT_WRITE_TOKEN_FILE` | Override token file path (default `~/.ascenda/tokens/<toolInstallationId>`) |
-| `ASCENDA_SESSION_ID` | Stable session id across hooks |
-| `ASCENDA_WORKSPACE_HASH` | Opaque workspace hash if you set one |
-
-On first run, the CLI seeds `~/.ascenda/tokens/<toolInstallationId>` so **tool-scoped renew** can persist rotated tokens without updating your shell profile.
-
-### 4. Register hooks in Claude Code settings
-
-Merge the hooks from [`examples/settings.local.json`](./examples/settings.local.json) into your Claude Code settings.
-
-**Project-local** (recommended while testing): create or edit `.claude/settings.local.json` in the project root:
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook UserPromptSubmit" }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PreToolUse" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PostToolUse" }] }],
-    "PreCompact": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PreCompact" }] }],
-    "PostCompact": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook PostCompact" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook Stop" }] }],
-    "Notification": [{ "hooks": [{ "type": "command", "command": "ascenda-claude-hook Notification" }] }]
-  }
-}
-```
-
-**User-global:** merge the same `hooks` block into Claude Code’s user settings file (location depends on Claude Code version; often under `~/.claude/`).
-
-If `ascenda-claude-hook` is not on PATH inside Claude Code’s environment, use an absolute path:
-
-```text
-/Users/<you>/.nvm/versions/node/<ver>/bin/ascenda-claude-hook UserPromptSubmit
-```
-
-### 5. Verify
-
-```bash
-# Smoke-test one hook with sample payload
-npm run test:sample
+npm run test:sample      # pipes a sample PostToolUse payload through the CLI
 npm run test:compact
 ```
 
-Then start Claude Code in a project with hooks configured, submit a prompt / run a tool, and confirm events appear on the Ascenda backend (or that the hook exits `0`).
-
-On auth failure the CLI exits `3` (re-pair). On missing consent it exits `2` (renew consent in the Ascenda app).
+A local build exposes the binary as `ascenda-claude-hook` — substitute it for
+`npx -y @ascenda-one/claude-code-hooks` in the hook config above. If it is not
+on Claude Code's PATH, use an absolute path such as
+`/Users/<you>/.nvm/versions/node/<ver>/bin/ascenda-claude-hook`.
 
 ## Supported Claude hook events
 

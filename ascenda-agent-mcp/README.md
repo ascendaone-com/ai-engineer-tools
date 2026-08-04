@@ -28,15 +28,64 @@ Agent (Claude Code / Cursor / other MCP host)
 
 Reuses the same pairing model as the hooks and IDE extensions — same `toolInstallationId` + `eventWriteToken`, same token file convention — but **does not mint its own tool type**. See `src/config.ts`: this process is host-agnostic (the same binary runs under Claude Code or Cursor), so it refuses to guess a prefix the way `ascenda-claude-hook`/`ascenda-codex-hook` do. Passing an id that already contains `:` (i.e. the exact value your existing pairing shows) reuses that pairing's token file; a bare id is rejected rather than silently minting a second, unpaired tool identity.
 
-## Installation
+## Install
+
+### Recommended: the Claude Code plugin
+
+This server ships inside the Ascenda plugin, already configured — no `.mcp.json`
+to write:
+
+```bash
+claude plugin marketplace add ascendaone-com/ai-engineer-tools
+claude plugin install ascenda@ascenda-one
+```
+
+The plugin also brings the skill that decides *when* to call this tool, which
+is the half that makes it useful — see [What calls this tool](#what-calls-this-tool).
+
+### Alternative: configure the MCP server yourself
+
+For Cursor, or Claude Code without the plugin, add to your MCP config — see
+[`examples/mcp.json`](./examples/mcp.json):
+
+```json
+{
+  "mcpServers": {
+    "ascenda-agent": {
+      "command": "npx",
+      "args": ["-y", "@ascenda-one/agent-mcp"],
+      "env": {
+        "ASCENDA_TOOL_INSTALLATION_ID": "claude_code:abc123"
+      }
+    }
+  }
+}
+```
+
+`ASCENDA_API_BASE_URL` is optional — it defaults to `https://api.ascenda.one`.
+Set it only to point at a development backend.
 
 ### Prerequisites
 
 - Node.js **20+**
-- A paired Ascenda `toolInstallationId` + `eventWriteToken` — pair first via the Claude Code hooks, Cursor extension, or [pairing-sim `e2e`](../ascenda-pairing-sim/), then reuse that pairing here.
-- The paired lease must include the `semantic_work_signals` consent scope. `ide_telemetry` alone does not cover these six event types (see the Tool Pairing API Reference).
+- A paired Ascenda `toolInstallationId` + `eventWriteToken` — pair first via the
+  Claude Code hooks, the VS Code/Cursor extension, or
+  [pairing-sim `e2e`](../ascenda-pairing-sim/), then reuse that pairing here.
+- The paired lease must include the `semantic_work_signals` consent scope.
+  `ide_telemetry` alone does not cover these six event types (see the Tool
+  Pairing API Reference).
 
-### Build
+Use the **exact** `toolInstallationId` your existing pairing already shows — it
+contains a `:`. A bare id is rejected rather than guessed, because minting a
+prefix here would pair this process as a *third* tool even when the same
+machine already paired through a hook or the extension. `ASCENDA_EVENT_WRITE_TOKEN`
+is read from the token file that pairing already wrote (`~/.ascenda/tokens/…`);
+set it directly only if you have no prior pairing to reuse.
+
+## Build from source
+
+Not needed to use this — both routes above run the published package. It is
+here so you can verify what executes.
 
 ```bash
 # from the repo root
@@ -46,26 +95,8 @@ cd ascenda-agent-mcp
 npm run build
 ```
 
-### Configure your MCP host
-
-Add to your Claude Code (`.mcp.json`) or Cursor MCP config — see [`examples/mcp.json`](./examples/mcp.json):
-
-```json
-{
-  "mcpServers": {
-    "ascenda-agent": {
-      "command": "node",
-      "args": ["/absolute/path/to/ascenda-agent-mcp/dist/cli.js"],
-      "env": {
-        "ASCENDA_TOOL_INSTALLATION_ID": "claude_code:abc123",
-        "ASCENDA_API_BASE_URL": "https://api.ascenda.one"
-      }
-    }
-  }
-}
-```
-
-Use the **exact** `toolInstallationId` your existing pairing already shows (it contains a `:`). `ASCENDA_EVENT_WRITE_TOKEN` is read from the same token file the hook/extension already wrote (`~/.ascenda/tokens/...`); set `ASCENDA_EVENT_WRITE_TOKEN` directly only if you have no prior pairing to reuse.
+Then point your MCP config at the build instead of npm:
+`"command": "node", "args": ["/absolute/path/to/ascenda-agent-mcp/dist/cli.js"]`.
 
 ## What calls this tool
 

@@ -21,15 +21,69 @@ Identity: Codex rides the canonical `cli_agent` toolType/source (the backend reg
 
 Codex **awaits** command hooks and treats **exit code 2 as blocking** the user's action. This adapter therefore always exits `0` and caps every HTTP call at 3 s (`ASCENDA_HTTP_TIMEOUT_MS` to change): telemetry failures surface as a one-line `systemMessage` or stderr note and never stall or block the engineer.
 
-## Installation
+## Install
 
 ### Prerequisites
 
 - [Codex CLI](https://developers.openai.com/codex) with hooks support (v0.117+)
-- Node.js **20+** and npm
-- A paired Ascenda `toolInstallationId` + `eventWriteToken` (from an IDE extension pair, or [pairing-sim](../ascenda-pairing-sim/) `e2e --tool-type cli_agent` on Dev)
+- Node.js **20+**
+- A pairing to reuse (see [Pair first](#pair-first) below)
 
-### 1. Build and install the hook CLI
+### 1. Run the published CLI
+
+No clone, no build — the package is on npm:
+
+```bash
+npx @ascenda-one/codex-hooks --help
+```
+
+### 2. Pair first
+
+This package shows no QR code; it reuses a pairing made elsewhere. Pair in the
+[VS Code/Cursor extension](../ascenda-vscode-extension-telemetry/)
+(**Ascenda: Connect App**), run **Ascenda: Show Status**, and export the id:
+
+```bash
+export ASCENDA_TOOL_INSTALLATION_ID="cli_agent:<uuid>"
+```
+
+Add it to your shell profile. The write token is read from
+`~/.ascenda/tokens/`, written at pairing time. **Without this variable every
+hook invocation exits with `Missing ASCENDA_TOOL_INSTALLATION_ID`.**
+
+On a Dev backend with no phone:
+
+```bash
+cd ../ascenda-pairing-sim && npm run build
+node dist/cli.js e2e --tool-type cli_agent --name "Codex CLI"
+```
+
+`ASCENDA_API_BASE_URL` defaults to `https://api.ascenda.one`; set it to
+`http://localhost:5002` or the Azure Dev host for development.
+
+### 3. Register hooks in Codex
+
+Merge [`examples/hooks.json`](./examples/hooks.json) into `~/.codex/hooks.json`
+(machine-wide) or `<repo>/.codex/hooks.json` (per project). Inline `config.toml`
+form works too:
+
+```toml
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "npx -y @ascenda-one/codex-hooks UserPromptSubmit"
+timeout = 10
+```
+
+### 4. Verify
+
+Run a Codex session and confirm events arrive on the backend — or simply that
+the hook exits `0`, which it always does (see the safety contract above).
+
+## Build from source
+
+Not needed to use this — npm ships it prebuilt. It is here so you can verify
+what runs.
 
 ```bash
 # from the repo root (workspace install + shared packages first)
@@ -38,51 +92,16 @@ npm run build:shared
 
 cd ascenda-codex-hooks
 npm run build
-npm link
+npm link                # exposes `ascenda-codex-hook`
+which ascenda-codex-hook
+
+npm run test            # unit tests for the mapping
+npm run test:sample     # pipes a sample PostToolUse payload through the CLI
 ```
 
-Confirm: `which ascenda-codex-hook`.
-
-### 2. Obtain pairing credentials
-
-Same loose-coupling model as every Ascenda tool — pair once, reuse the credentials:
-
-```bash
-# Dev only, without a phone:
-cd ../ascenda-pairing-sim
-node dist/cli.js e2e --tool-type cli_agent --name "Codex CLI"
-```
-
-Export the printed values (tokens also land in `~/.ascenda/tokens/`):
-
-```bash
-export ASCENDA_API_BASE_URL="https://app-asc-dev-api-aue.azurewebsites.net"   # or http://localhost:5002 / https://api.ascenda.one
-export ASCENDA_TOOL_INSTALLATION_ID="cli_agent:<uuid>"
-export ASCENDA_EVENT_WRITE_TOKEN="<eventWriteToken>"
-```
-
-### 3. Register hooks in Codex
-
-Merge [`examples/hooks.json`](./examples/hooks.json) into `~/.codex/hooks.json` (machine-wide) or `<repo>/.codex/hooks.json` (per project). Inline `config.toml` form works too:
-
-```toml
-[[hooks.UserPromptSubmit]]
-[[hooks.UserPromptSubmit.hooks]]
-type = "command"
-command = "ascenda-codex-hook UserPromptSubmit"
-timeout = 10
-```
-
-If `ascenda-codex-hook` is not on Codex's PATH, use the absolute path to the binary.
-
-### 4. Verify
-
-```bash
-npm run test          # unit tests for the mapping
-npm run test:sample   # pipes a sample PostToolUse payload through the CLI
-```
-
-Then run a Codex session and confirm events arrive on the backend.
+A local build exposes the binary as `ascenda-codex-hook` — substitute it for
+`npx -y @ascenda-one/codex-hooks` in the hook config above. If it is not on
+Codex's PATH, use the absolute path to the binary.
 
 ## Supported Codex hook events
 

@@ -131,19 +131,25 @@ Settings UI: **Preferences → Settings → search “Ascenda”**, or in `setti
 npm install -g @vscode/vsce
 npm run compile
 npx vsce package --no-dependencies
-code --install-extension ascenda-0.0.2.vsix
+code --install-extension ascenda-<version>.vsix
 ```
 
-**On macOS**, if `code` is not on your PATH, first run **Cmd+Shift+P → Install 'code' command in PATH** in VS Code, or use the full path: `/Applications/Visual\ Studio\ Code.app/Contents/Resources/app/bin/code --install-extension ascenda-0.0.2.vsix`.
+`<version>` is whatever this package's `package.json` says — releases stamp the
+git tag over it in CI without committing back, so a local build is normally
+numbered lower than the published extension. Check the filename `vsce` prints.
 
-In Cursor, use **Extensions → … (Views and More Actions) → Install from
-VSIX…** and select the same file, or, if `cursor` is on your PATH:
+**On macOS**, `code` is not on your `PATH` by default. Run **⇧⌘P → Shell
+Command: Install 'code' command in PATH** first, or use the full path:
 
 ```bash
-cursor --install-extension ascenda-0.0.2.vsix
+/Applications/Visual\ Studio\ Code.app/Contents/Resources/app/bin/code \
+  --install-extension ascenda-<version>.vsix
 ```
 
-**On macOS**, the easiest approach is the menu: **Extensions → Install from VSIX** and select the built file directly.
+In Cursor, the equivalent is **⇧⌘P → Shell Command: Install 'cursor' command in
+PATH**, or install through the UI: **Extensions → … (Views and More Actions) →
+Install from VSIX…** and select the same file. The UI route needs no `PATH`
+setup at all and is the shortest path on macOS.
 
 Reload the editor, then run **Ascenda: Connect App**. Uninstall with Extensions view → Ascenda → Uninstall.
 
