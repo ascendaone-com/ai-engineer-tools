@@ -19,6 +19,7 @@ export const RELEASE_PACKAGES = [
   { dir: "ascenda-vscode-extension-telemetry", name: "ascenda", kind: "vsix" },
   { dir: "ascenda-claude-code-hooks", name: "ascenda-claude-code-hooks", kind: "cli", npm: "@ascenda-one/claude-code-hooks" },
   { dir: "ascenda-codex-hooks", name: "ascenda-codex-hooks", kind: "cli", npm: "@ascenda-one/codex-hooks" },
+  { dir: "ascenda-agent-mcp", name: "ascenda-agent-mcp", kind: "cli", npm: "@ascenda-one/agent-mcp" },
 ];
 
 /**

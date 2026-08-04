@@ -1,3 +1,6 @@
+# Monorepo: vsce follows the npm workspace tree and will otherwise pack
+# the repo root as extension/../… → "invalid relative path".
+../**
 .vscode/**
 src/**
 tsconfig.json

@@ -62,10 +62,11 @@ jobs:
           # One extension, one VSIX, published to both the VS Code Marketplace
           # and Open VSX — Cursor installs the same file from Open VSX.
           mv ascenda-vscode-extension-telemetry/*.vsix "$STAGE/"
-          # Both hook CLIs bundle to dist/cli.js, so give them distinct,
+          # All three CLIs bundle to dist/cli.js, so give them distinct,
           # self-describing names in the release. They are single-file ESM.
           cp ascenda-claude-code-hooks/dist/cli.js "$STAGE/ascenda-claude-code-hooks.mjs"
           cp ascenda-codex-hooks/dist/cli.js "$STAGE/ascenda-codex-hooks.mjs"
+          cp ascenda-agent-mcp/dist/cli.js "$STAGE/ascenda-agent-mcp.mjs"
           ls -l "$STAGE"
 
       - name: Build manifest

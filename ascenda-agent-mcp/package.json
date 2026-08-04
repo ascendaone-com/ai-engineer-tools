@@ -3,6 +3,11 @@
   "name": "@ascenda-one/agent-mcp",
   "version": "0.1.0",
   "description": "MCP server exposing ascenda_emit_work_signal — the one submission interface for agent-observed (semantic) work-friction signals.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
+    "directory": "ascenda-agent-mcp"
+  },
   "type": "module",
   "files": ["dist"],
   "bin": {

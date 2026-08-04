@@ -1,0 +1,20 @@
+{
+  "name": "ascenda",
+  "displayName": "Ascenda",
+  "version": "0.1.0",
+  "description": "Cognitive performance and AI-work telemetry for Claude Code — a passive work-signals skill, a metadata-only MCP reporting tool, and lifecycle hooks, all reading from the same Ascenda pairing.",
+  "author": {
+    "name": "Ascenda One",
+    "url": "https://ascenda.one"
+  },
+  "homepage": "https://github.com/ascendaone-com/ai-engineer-tools/tree/main/ascenda-agent-skills",
+  "repository": "https://github.com/ascendaone-com/ai-engineer-tools",
+  "license": "Apache-2.0",
+  "keywords": [
+    "ascenda",
+    "ai telemetry",
+    "developer flow",
+    "cognitive performance",
+    "mcp"
+  ]
+}

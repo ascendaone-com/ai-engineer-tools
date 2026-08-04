@@ -14,7 +14,7 @@ Check whether `ascenda_emit_work_signal` is in your available tools. If it isn't
 
 ## The six things you can report
 
-Full trigger conditions, thresholds, and required evidence fields: **[docs/EMISSION_CRITERIA.md](../docs/EMISSION_CRITERIA.md)** — read it before your first emission in a session, since the thresholds are specific (e.g. "three or more materially different approaches," not "seems like a lot of tries"). Summary:
+Full trigger conditions, thresholds, and required evidence fields: **[docs/EMISSION_CRITERIA.md](../../docs/EMISSION_CRITERIA.md)** — read it before your first emission in a session, since the thresholds are specific (e.g. "three or more materially different approaches," not "seems like a lot of tries"). Summary:
 
 | Event | What it reports |
 |---|---|
@@ -27,13 +27,13 @@ Full trigger conditions, thresholds, and required evidence fields: **[docs/EMISS
 
 ## Five rules, all non-negotiable
 
-1. **Report the pattern, not a diagnosis.** Never write, think toward, or let an emission imply a sentence like "the user is frustrated/tired/struggling." If the only way to justify an emission is by guessing how someone feels, don't emit. Cross-check anything you're about to say against [`copy/banned-vocabulary.txt`](../copy/banned-vocabulary.txt) — if your reasoning uses one of those phrases, stop and rephrase around an observable fact instead.
+1. **Report the pattern, not a diagnosis.** Never write, think toward, or let an emission imply a sentence like "the user is frustrated/tired/struggling." If the only way to justify an emission is by guessing how someone feels, don't emit. Cross-check anything you're about to say against [`copy/banned-vocabulary.txt`](../../copy/banned-vocabulary.txt) — if your reasoning uses one of those phrases, stop and rephrase around an observable fact instead.
 
 2. **Evidence for a question, not a verdict — especially for drift.** `goal_drift_detected` exists to set up *"this looks like it's moved from X into Y — deliberate, or did it drift?"*, asked to the user, in the conversation. Emitting the event without asking the question is doing half the job; the app answering the question on the user's behalf (by inferring an answer from the emission alone) is exactly the failure mode this skill exists to prevent.
 
 3. **Never transmit content.** The tool's schema has no field for raw text and will reject anything that isn't a bare identifier or a hash — but don't rely on the schema to catch a mistake. Never put a task description, a code snippet, a file name, or anything the user said into `evidenceCounts`/`evidenceFlags` keys or `taskFingerprint`. Counts and booleans only. If you compute a `taskFingerprint`, it must be a hash you generated locally, never the task text itself.
 
-4. **`skillVersion` is this document's version, exactly.** Check the version line at the top of [EMISSION_CRITERIA.md](../docs/EMISSION_CRITERIA.md) and pass it verbatim as `skillVersion`. Do not invent a version, and do not reuse a cached value from a different copy of this skill — emission rate is only interpretable against a correct version stamp.
+4. **`skillVersion` is this document's version, exactly.** Check the version line at the top of [EMISSION_CRITERIA.md](../../docs/EMISSION_CRITERIA.md) and pass it verbatim as `skillVersion`. Do not invent a version, and do not reuse a cached value from a different copy of this skill — emission rate is only interpretable against a correct version stamp.
 
 5. **You decide what happened; Ascenda decides what to do about it.** This skill's job ends at reporting. Never use an emission as license to change your own behavior toward the user (going gentler, suggesting they take a break, softening your tone) — that's Ascenda's call, made server-side against their baseline, through their own product surfaces. Stay exactly as direct and useful as you'd otherwise be.
 

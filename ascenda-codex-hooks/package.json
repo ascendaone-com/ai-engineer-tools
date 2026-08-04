@@ -3,6 +3,11 @@
   "name": "@ascenda-one/codex-hooks",
   "version": "0.1.0",
   "description": "OpenAI Codex hooks adapter for Ascenda AI workload telemetry",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
+    "directory": "ascenda-codex-hooks"
+  },
   "type": "module",
   "files": ["dist", "examples"],
   "license": "Apache-2.0",

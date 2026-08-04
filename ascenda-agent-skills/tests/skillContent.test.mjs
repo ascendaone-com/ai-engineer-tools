@@ -33,7 +33,7 @@ function frontmatter(content) {
 }
 
 test("SKILL.md has valid frontmatter with name and a non-trivial description", () => {
-  const fm = frontmatter(read("claude-code/SKILL.md"));
+  const fm = frontmatter(read("skills/ascenda-work-signals/SKILL.md"));
   assert.equal(fm.name, "ascenda-work-signals");
   assert.ok(fm.description && fm.description.length > 40, "description should be specific enough to trigger correctly");
 });
@@ -65,7 +65,7 @@ test("every semantic event type is documented in EMISSION_CRITERIA.md, and nothi
 });
 
 test("every semantic event type appears in both SKILL.md and the Cursor rule", () => {
-  const skill = read("claude-code/SKILL.md");
+  const skill = read("skills/ascenda-work-signals/SKILL.md");
   const cursorRule = read("cursor/ascenda-work-signals.mdc");
   for (const eventType of SEMANTIC_WORK_SIGNAL_EVENT_TYPES) {
     assert.ok(skill.includes(eventType), `SKILL.md is missing ${eventType}`);
@@ -98,7 +98,7 @@ test("banned-vocabulary.txt does not itself contain the bare word 'flow' as an e
 });
 
 test("SKILL.md and the Cursor rule both point at EMISSION_CRITERIA.md and the vocabulary file", () => {
-  for (const file of ["claude-code/SKILL.md", "cursor/ascenda-work-signals.mdc"]) {
+  for (const file of ["skills/ascenda-work-signals/SKILL.md", "cursor/ascenda-work-signals.mdc"]) {
     const content = read(file);
     assert.ok(content.includes("EMISSION_CRITERIA.md"), `${file} should reference EMISSION_CRITERIA.md`);
     assert.ok(content.includes("banned-vocabulary.txt"), `${file} should reference banned-vocabulary.txt`);

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ascenda-agent": {
+      "command": "npx",
+      "args": ["-y", "@ascenda-one/agent-mcp"]
+    }
+  }
+}
