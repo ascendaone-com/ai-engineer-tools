@@ -2,7 +2,7 @@
 
 MCP server exposing `ascenda_emit_work_signal` — the one submission interface any agent host can call to report an **agent-observed** work-friction pattern.
 
-Part of [ai-engineer-tools](../). See the [Tool Pairing API Reference](../api-docs/TOOL_PAIRING_API_REFERENCE.md#semantic-event-rules) for the wire-level rules this server enforces, and [`ascenda-cursor-extension/mcp-adapter`](../ascenda-cursor-extension/mcp-adapter/README.md) for the earlier scaffold this supersedes for the semantic-signal case (that scaffold's broader `ascenda_emit_workload_event` generic emitter is a separate, still-open concern).
+Part of [ai-engineer-tools](../). See the [Tool Pairing API Reference](../api-docs/TOOL_PAIRING_API_REFERENCE.md#semantic-event-rules) for the wire-level rules this server enforces, and [`docs/CURSOR_ADAPTER_PLAN.md`](../docs/CURSOR_ADAPTER_PLAN.md) for the earlier scaffold this supersedes for the semantic-signal case (that scaffold's broader `ascenda_emit_workload_event` generic emitter is a separate, still-open concern).
 
 ## What this is for
 

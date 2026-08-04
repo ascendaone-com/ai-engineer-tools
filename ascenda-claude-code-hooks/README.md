@@ -69,7 +69,7 @@ This package does **not** show a QR code. Pair first, then export the token:
 
 **Option A — IDE extension**
 
-1. Install and pair [Ascenda for Cursor](../ascenda-cursor-extension/) or [VS Code](../ascenda-vscode-extension-telemetry/).
+1. Install and pair the [Ascenda extension](../ascenda-vscode-extension-telemetry/) (VS Code or Cursor — same extension).
 2. Run **Ascenda: Show Status** and note `tool=…`.
 3. Copy `toolInstallationId` and `eventWriteToken` from extension storage, or run pairing-sim `e2e` and use its printed values.
 

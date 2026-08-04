@@ -1,7 +1,7 @@
 {
-  "name": "ascenda-vscode",
+  "name": "ascenda",
   "displayName": "Ascenda",
-  "description": "Privacy-first AI workload telemetry and app pairing for Ascenda.",
+  "description": "Cognitive performance and AI-work telemetry for VS Code and Cursor.",
   "version": "0.0.2",
   "publisher": "ascenda-one",
   "license": "MIT",
@@ -15,6 +15,14 @@
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "ascenda",
+    "cursor",
+    "vscode",
+    "ai telemetry",
+    "developer flow",
+    "cognitive performance"
   ],
   "activationEvents": [
     "onStartupFinished",
