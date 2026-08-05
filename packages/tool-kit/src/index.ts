@@ -11,7 +11,7 @@ export type { EventLogEntry } from "./eventLog";
 export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig } from "./hookAdapter";
 export type { CliAgentConfig, HookDeliveryOptions } from "./hookAdapter";
 export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
-export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates } from "./liveBus";
 export type { LiveBusEvent, LiveBusSignal, PromptSizeBucket } from "./liveBus";

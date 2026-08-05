@@ -53,14 +53,61 @@ If you want the deterministic hooks without the skill or MCP server, the
 published package runs with no clone and no build:
 
 ```bash
-npx @ascenda-one/claude-code-hooks --help
+npx @ascenda-one/claude-code-hooks setup
 ```
 
-Then wire the events yourself — see [Register hooks manually](#register-hooks-manually).
+This pairs (printing a 6-digit code to confirm in the Ascenda app), installs a
+self-contained hook bundle to `~/.ascenda/bin`, writes
+`~/.ascenda/credentials.json`, and registers the hooks in this project's
+`.claude/settings.local.json`. Restart Claude Code and events flow — no shell
+exports, no settings file to hand-edit.
 
-### Pair first (both routes)
+```bash
+npx @ascenda-one/claude-code-hooks status      # exits non-zero if anything is unwired
+npx @ascenda-one/claude-code-hooks uninstall   # removes hooks and the binary
+```
 
-Neither route sends anything until this machine is paired:
+| Option | |
+| --- | --- |
+| `--api-base-url <url>` | ingest host (default `https://api.ascenda.one`) |
+| `--local [port]` | shorthand for a local [dev server](../ascenda-dev-server/) (default `4477`) |
+| `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
+| `--scope project\|user` | register in this project (default) or in `~/.claude/settings.json` |
+| `--project-dir <path>` | project root for `--scope project` (default cwd) |
+| `--dry-run` | print what would change, write nothing |
+
+From a clone, `./scripts/setup-local.sh` builds the workspace, starts the dev
+server detached, and runs the same `setup --local` — no backend, no phone, no
+DevAuth. Stop it with `./scripts/setup-local.sh --stop`. See
+[TESTING.md](../TESTING.md).
+
+#### What setup writes
+
+| Path | |
+| --- | --- |
+| `~/.ascenda/bin/ascenda-claude-hook` | the self-contained bundle — no `npm -g`, no sudo, no PATH edit |
+| `~/.ascenda/credentials.json` | `apiBaseUrl` + `toolInstallationId`, `0600` |
+| `~/.ascenda/tokens/<id>` | the event write token, `0600`, rotated in place on renew |
+| `.claude/settings.local.json` | one hook entry per lifecycle event, `timeout: 5` |
+
+Registration is idempotent and marker-keyed: re-running replaces our entries
+rather than appending, hooks belonging to anyone else are left alone, and the
+file is backed up to `.ascenda-backup` before the first write. Settings that
+are not valid JSON abort the run rather than being overwritten.
+
+Hooks then need **no environment at all**: the command pins the absolute path
+of the Node that ran setup, and configuration comes from the credentials file.
+Claude Code spawns hooks with whatever environment it was launched from, so
+anything depending on shell exports stops working the moment the editor is
+opened from a launcher rather than a terminal. The variables below still
+override the file when set.
+
+`status` also flags hook entries pointing at a binary that no longer exists —
+those fail silently on every event otherwise.
+
+### Pairing by hand (if you skip `setup`)
+
+`setup` pairs for you. To pair this machine directly instead:
 
 ```bash
 npx -y @ascenda-one/claude-code-hooks pair
@@ -79,10 +126,11 @@ Code. The token itself is never copied around — every CLI tool reads it from
 the file `pair` wrote. (The editor extension's pairing cannot be reused here:
 its token lives in the editor's private secret storage.)
 
-> **This variable is required, not optional.** Without it every hook
-> invocation exits with `Missing ASCENDA_TOOL_INSTALLATION_ID`. The adapter
-> refuses to guess rather than silently mint a second, unpaired identity that
-> would fragment your telemetry across two installations.
+> **On this route the variable is required.** Without it — and without the
+> `~/.ascenda/credentials.json` that `setup` writes — every hook invocation
+> exits saying so. The adapter refuses to guess rather than silently mint a
+> second, unpaired identity that would fragment your telemetry across two
+> installations.
 
 On a Dev backend with no phone, [pairing-sim](../ascenda-pairing-sim/) stands in
 for the app:

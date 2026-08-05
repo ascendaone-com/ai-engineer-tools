@@ -2,9 +2,19 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
+/**
+ * Root for all machine-wide Ascenda state: tokens, credentials, installed
+ * binaries. One directory so an uninstaller has one thing to reason about.
+ * `ASCENDA_HOME` overrides it — tests rely on that to stay out of the real
+ * home directory, and it is the hook for future per-profile installs.
+ */
+export function ascendaHome(): string {
+  return process.env.ASCENDA_HOME ?? path.join(os.homedir(), ".ascenda");
+}
+
 /** Default location for persisted event write tokens: ~/.ascenda/tokens/<toolInstallationId>. */
 export function defaultTokenFilePath(toolInstallationId: string): string {
-  return path.join(os.homedir(), ".ascenda", "tokens", sanitizeFilePart(toolInstallationId));
+  return path.join(ascendaHome(), "tokens", sanitizeFilePart(toolInstallationId));
 }
 
 export function persistEventWriteToken(tokenFilePath: string, token: string): void {
