@@ -87,7 +87,7 @@ Wire contract: [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENC
 
 ## Packages
 
-| Package | Published as | Phase 1 role |
+| Package | Published as | What it does |
 | --- | --- | --- |
 | [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/) | `ascenda-one.ascenda` (VS Code Marketplace + Open VSX) | IDE telemetry for VS Code and Cursor — one extension, runtime host detection; editor activity, terminal classification, sessions |
 | [ascenda-agent-skills](./ascenda-agent-skills/) | `ascenda@ascenda-one` (Claude Code plugin) | The Claude Code plugin — bundles the work-signals skill, hooks, and MCP server into one install. Also holds the Cursor rule and the emission criteria both share |
@@ -158,23 +158,6 @@ npm run verify    # DRY guard rail (scripts/check-dry.sh) + full build + tests
 The extension is bundled with esbuild at package time (`npm run package`), so
 the shared packages are inlined; per-folder F5 debugging works after a root
 build. Per-package development notes live in each package's own README.
-
-## Phase 1 data collection (this repo)
-
-**In scope**
-
-- IDE usage (VS Code / Cursor)
-- Terminal test/build/lint signals
-- Claude Code AI interaction load
-- Metadata-only, hashed workspace identifiers (salted with a machine-local secret that is never transmitted)
-- Loose app pairing (QR / 6-digit code)
-
-**Out of scope (backend / app / Phase 2+)**
-
-- GitHub, Jira, Slack, Teams, calendar (backend activity-signals path)
-- Wearables (Apple Health, Oura, Whoop, Garmin)
-- Subjective NASA-TLX-style check-ins (Ascenda mobile app)
-- Personalised baseline scoring (backend Phase 3)
 
 ## Install from a release (air-gapped / no registry)
 
