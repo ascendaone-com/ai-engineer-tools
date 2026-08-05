@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "ascenda-cursor-hook sessionStart"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "ascenda-cursor-hook sessionEnd"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "ascenda-cursor-hook beforeSubmitPrompt"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "ascenda-cursor-hook preToolUse"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "ascenda-cursor-hook postToolUse"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "ascenda-cursor-hook postToolUseFailure"
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "ascenda-cursor-hook preCompact"
+      }
+    ],
+    "stop": [
+      {
+        "command": "ascenda-cursor-hook stop"
+      }
+    ]
+  }
+}

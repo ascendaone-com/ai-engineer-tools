@@ -1,0 +1,30 @@
+{
+  "publishConfig": { "access": "public" },
+  "name": "@ascenda-one/windsurf-hooks",
+  "version": "0.1.0",
+  "description": "Windsurf Cascade hooks adapter for Ascenda AI workload telemetry",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
+    "directory": "ascenda-windsurf-hooks"
+  },
+  "type": "module",
+  "files": ["dist", "examples"],
+  "license": "Apache-2.0",
+  "bin": {
+    "ascenda-windsurf-hook": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./ && npm run bundle",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
+    "watch": "tsc -w -p ./",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" },
+  "devDependencies": {
+    "@ascenda-one/tool-contract": "*",
+    "@ascenda-one/tool-kit": "*",
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.0"
+  }
+}

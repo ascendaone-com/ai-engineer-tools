@@ -13,6 +13,9 @@ consumer_dirs=(
   ascenda-vscode-extension-telemetry/src
   ascenda-claude-code-hooks/src
   ascenda-codex-hooks/src
+  ascenda-cursor-hooks/src
+  ascenda-windsurf-hooks/src
+  ascenda-gemini-hooks/src
   ascenda-agent-mcp/src
   ascenda-pairing-sim/src
   ascenda-dev-server/src
