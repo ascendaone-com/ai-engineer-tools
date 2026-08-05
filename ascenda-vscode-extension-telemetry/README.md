@@ -2,13 +2,16 @@
 
 Privacy-first extension for pairing a local developer tool installation with the Ascenda mobile app and sending AI workload telemetry events. One extension, one package identity (`ascenda-one.ascenda`) published to both the VS Code Marketplace and Open VSX — Cursor installs the same VSIX from Open VSX. The host is detected at runtime (`packages/ide-extension-core/src/host.ts`); there is no separate Cursor build.
 
-Part of [ai-engineer-tools](../). See the [Workload Telemetry Research Direction](../docs/WORKLOAD_TELEMETRY_RESEARCH_DIRECTION.md) and [Tooling Phase Alignment](../docs/TOOLING_PHASE_ALIGNMENT.md).
+Part of [ai-engineer-tools](../). For what these measurements do and do not
+establish, see [What this measures](../#what-this-measures-and-what-that-does-not-yet-prove).
 
-## Role in workload detection (Phase 1)
+## What it measures
 
-This package is the **baseline IDE telemetry** source for both hosts. It contributes objective signals to the prototype workload function:
+This package is the **baseline IDE telemetry** source for both hosts. Each row
+is a named, observable event — a proxy for the input beside it, not a
+measurement of it:
 
-| Workload input | How this extension contributes |
+| Input | What this extension actually observes |
 | --- | --- |
 | FocusDuration | Session boundaries, file-save cadence (partial proxy) |
 | TaskSwitchRate | `active_editor_changed` events (partial proxy) |
@@ -16,7 +19,14 @@ This package is the **baseline IDE telemetry** source for both hosts. It contrib
 | AIInteractionLoad | Not yet — use [Claude hooks](../ascenda-claude-code-hooks/) or the [Cursor MCP adapter plan](../docs/CURSOR_ADAPTER_PLAN.md) |
 | Verification / friction | Terminal test/lint/build/typecheck classification, failure outcomes |
 
-Subjective strain (NASA-TLX-style check-ins), meeting load, and personalised baselines are handled by the Ascenda app and backend — not this extension.
+"Partial proxy" is meant literally: file-save cadence is not focus, and editor
+switches are not task switches. They are the observable traces those things
+leave in an editor. Whether the traces track the underlying construct is the
+open question — see
+[What this measures](../#what-this-measures-and-what-that-does-not-yet-prove).
+
+Subjective strain (NASA-TLX-style check-ins), meeting load, and personalised
+baselines are handled by the Ascenda app and backend — not this extension.
 
 ### Running in Cursor
 
@@ -159,7 +169,12 @@ May send:
 - success/failure/cancelled outcome
 - after-hours flag
 
-Disallowed metadata keys are stripped server-side. See [compliance notes](../docs/WORKLOAD_TELEMETRY_RESEARCH_DIRECTION.md#8-primary-compliance-requirements).
+Disallowed metadata keys are stripped server-side.
+
+Not a medical device: this measures workload patterns for self-awareness, not
+diagnosis or treatment, and makes no clinical claim. Collection rides the
+`ide_telemetry` consent scope, which is revocable from the app at any time —
+revoking takes effect immediately and further ingest returns `401`.
 
 ## Build from source
 
@@ -207,6 +222,18 @@ Uninstall from the Extensions view like any other extension.
 | Phase 2 | Copilot OTEL adapter (if available) |
 | Phase 3 | Consume backend personalised baseline deltas in status UX |
 
-## Production QR note
+## The pairing QR never leaves your machine
 
-For convenience, this demo renders the QR using a public QR image endpoint. For production, use local QR generation or a backend-provided QR data URI.
+The QR encodes the pairing secret, so rendering it is a privacy decision, not a
+display detail. It is generated **in-process and inlined into the panel as SVG**
+(`packages/ide-extension-core/src/qr.ts`) — the pairing panel makes no network
+request to draw it, and no image service ever receives the secret.
+
+This was not always true: an earlier build handed the URL to a third-party QR
+image endpoint, which put pairing secrets in someone else's access logs. It is
+now a regression test rather than an intention — `tests/qr.test.mjs` includes
+*"the pairing secret never reaches a remote URL"*, so a change that reintroduced
+the leak would fail the build.
+
+Called out because "we render our own QR" is exactly the kind of claim worth
+being able to check yourself: `qr.ts` is about sixty lines.

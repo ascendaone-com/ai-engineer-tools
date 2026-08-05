@@ -2,7 +2,9 @@
 
 Claude Code hooks adapter for Ascenda AI workload telemetry.
 
-Part of [ai-engineer-tools](../). See the [Workload Telemetry Research Direction](../docs/WORKLOAD_TELEMETRY_RESEARCH_DIRECTION.md) and [Tooling Phase Alignment](../docs/TOOLING_PHASE_ALIGNMENT.md) (if present). Event mapping: [docs/CLAUDE_MAPPING.md](./docs/CLAUDE_MAPPING.md).
+Part of [ai-engineer-tools](../). For what these measurements do and do not
+establish, see [What this measures](../#what-this-measures-and-what-that-does-not-yet-prove).
+Event mapping: [docs/CLAUDE_MAPPING.md](./docs/CLAUDE_MAPPING.md).
 
 ## Role in workload detection (Phase 1)
 
@@ -200,4 +202,7 @@ Correction detection uses local pattern matching on prompt text in the hook proc
 
 ## Compliance
 
-`consentScope: ide_telemetry` and `provenance: ai_work_telemetry` on every event. Australian-hosted backend with transparent consent. Not a medical device — workload self-awareness only. See [research direction §7–8](../docs/WORKLOAD_TELEMETRY_RESEARCH_DIRECTION.md).
+`consentScope: ide_telemetry` and `provenance: ai_work_telemetry` on every
+event. Australian-hosted backend. Not a medical device — workload
+self-awareness only, no diagnosis, no clinical claim. Consent is revocable from
+the app at any time; after revocation ingest returns `401`.

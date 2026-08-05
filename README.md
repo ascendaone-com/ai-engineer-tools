@@ -1,6 +1,10 @@
 # ai-engineer-tools
 
-Privacy-first developer telemetry and pairing tooling for Ascenda's AI engineer workload detection platform.
+Privacy-first telemetry and pairing tooling that measures workflow friction in
+AI-assisted engineering — metadata only, never source code, prompts, or file
+names. These are the collection surfaces for Ascenda; what the measurements do
+and do not establish is set out in
+[What this measures](#what-this-measures-and-what-that-does-not-yet-prove).
 
 ## Install
 
@@ -55,14 +59,31 @@ Then register the hooks per
 > the CLI tools reuse that installation — see
 > [Pairing](#pairing) for what to carry across.
 
-## Research direction
+## What this measures, and what that does not yet prove
 
-All packages align to the backend-agreed research foundation:
+**What it captures — real, running, and all this repo does.** Named, observable
+events: context switches, AI prompt and correction loops, verification runs,
+tool-call density, context compaction, agent loop depth, after-hours activity.
+Counts and classifications, compared against your own trailing history.
 
-- Workload Telemetry Research Direction: NASA-TLX / human factors thesis, workload scoring, baselines, compliance, phased rollout
-- [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENCE.md) — pairing and event ingest contract
+**The hypothesis under test.** That friction of this kind rises measurably
+before a person consciously registers being overloaded, and that a personal
+baseline surfaces the rise earlier than self-report alone. That is the reason
+the collection layer exists — it is not a result the collection layer
+demonstrates.
 
-**Core thesis:** burnout is a lagging indicator. Ascenda measures workflow friction — context switching, AI prompt loops, verification burden, after-hours pressure — *before* overload is consciously recognised. Signals combine objective telemetry, subjective check-ins (app), and individual baselines (backend).
+**What is not established.** There is no peer-reviewed link between AI-tool
+operational metrics and any validated cognitive-load instrument, and our own
+calibration study has not been run. The demand signal is captured but is not
+yet an input to any state classifier. So: nothing here detects burnout,
+diagnoses a state, or predicts one. It counts things that happened and shows
+them against your own history.
+
+Stating that plainly is deliberate. Implying the inference already works is the
+specific failure this design exists to avoid, and it would be a strange thing
+to fake in a repository whose whole argument is that you can read the source.
+
+Wire contract: [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENCE.md).
 
 ## Packages
 
@@ -254,6 +275,14 @@ Verified on Azure Dev: ingest, tool-scoped renew, `list`, and `revoke`
 
 Workspace identifiers are hashed with a random salt generated on first run and stored only at `~/.ascenda/salt`. It is never sent, so the hashes cannot be reversed to folder or repository names by anyone holding the telemetry. Deleting the file re-anonymises the machine.
 
-Metadata-only by default. Not a medical device — measures workload patterns for self-awareness, not diagnosis or treatment. Australian Privacy Act / GDPR-aligned consent via `ide_telemetry` scope.
+Metadata-only by default. **Not a medical device** — it measures workload
+patterns for self-awareness, not diagnosis or treatment, and makes no clinical
+claim. Consent is scoped and separately revocable: `ide_telemetry` for editor
+and agent signals, `workflow_telemetry` for collaboration signals, and
+`semantic_work_signals` for the agent-observed patterns — granting one does not
+grant the others.
 
-See [section 7–8 of the research direction](./docs/WORKLOAD_TELEMETRY_RESEARCH_DIRECTION.md) for full compliance notes.
+What the metadata-only guarantee covers in practice, per surface, is listed in
+each package's own README under **Privacy defaults**. Where a guarantee is
+enforced by schema rather than convention — the semantic signal tool rejects
+free text outright — that is stated there too.
