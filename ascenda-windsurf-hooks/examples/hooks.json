@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "pre_user_prompt": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "pre_read_code": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "post_read_code": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "pre_write_code": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "post_write_code": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "pre_run_command": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "post_run_command": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "pre_mcp_tool_use": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "post_mcp_tool_use": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ],
+    "post_cascade_response": [
+      {
+        "command": "ascenda-windsurf-hook"
+      }
+    ]
+  }
+}
