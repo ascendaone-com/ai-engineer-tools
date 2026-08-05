@@ -1,8 +1,9 @@
 #!/usr/bin/env node
+import { appendEventLog, buildEventPayload, resolveEventLogPath } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { loadConfigFromEnv } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
-import { ClaudeHookEventName, ClaudeHookInput } from "./types.js";
+import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 
 const INTENTION_INVITE =
   "Ascenda tip: if it's natural, you can ask what would make this session " +
@@ -51,9 +52,23 @@ async function main(): Promise<void> {
     }));
   }
 
-  const config = loadConfigFromEnv();
-  const client = new AscendaClient(config);
   const mappedEvents = mapClaudeEvent(hookName, input);
+  if (!mappedEvents.length) return;
+
+  let config;
+  try {
+    config = loadConfigFromEnv();
+  } catch (error) {
+    // With a log file configured, an unpaired install is a supported mode, not
+    // a failure: you can watch exactly what this tool would transmit before
+    // deciding to pair. Without one there is nowhere for the event to go.
+    const logFile = resolveEventLogPath();
+    if (!logFile) throw error;
+    for (const event of mappedEvents) logUnsent(logFile, event);
+    return;
+  }
+
+  const client = new AscendaClient(config);
 
   for (const event of mappedEvents) {
     const result = await client.send(event);
@@ -70,6 +85,20 @@ async function main(): Promise<void> {
       return;
     }
   }
+}
+
+/**
+ * The id is a placeholder because there is no pairing to name — `not_sent`
+ * plus this value is what distinguishes these lines from delivered ones.
+ */
+function logUnsent(logFile: string, event: MappedAscendaEvent): void {
+  const payload = buildEventPayload({
+    toolInstallationId: `${ASCENDA_TOOL_TYPE}:unpaired`,
+    source: "claude_code",
+    sessionId: process.env.ASCENDA_SESSION_ID ?? null,
+    workspaceHash: process.env.ASCENDA_WORKSPACE_HASH ?? null
+  }, event);
+  appendEventLog(logFile, { loggedAt: new Date().toISOString(), delivery: "not_sent", payload });
 }
 
 async function readJsonFromStdin(): Promise<ClaudeHookInput> {
