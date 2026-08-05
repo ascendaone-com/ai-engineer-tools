@@ -1,5 +1,8 @@
 import { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "@ascenda-one/tool-kit";
+import { readCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
+
+export const DEFAULT_API_BASE_URL = "https://api.ascenda.one";
 
 export type AscendaHookConfig = {
   apiBaseUrl: string;
@@ -10,10 +13,18 @@ export type AscendaHookConfig = {
   workspaceHash?: string | null;
 };
 
+/**
+ * Resolution order, most specific first: environment, then the machine
+ * credentials written by `setup`, then the built-in default. The credentials
+ * fallback is what lets a hook run with an empty environment.
+ */
 export function loadConfigFromEnv(): AscendaHookConfig {
-  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
-  const toolInstallationIdRaw = process.env.ASCENDA_TOOL_INSTALLATION_ID;
-  if (!toolInstallationIdRaw) throw new Error("Missing ASCENDA_TOOL_INSTALLATION_ID");
+  const credentials = readCredentials();
+  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  const toolInstallationIdRaw = process.env.ASCENDA_TOOL_INSTALLATION_ID ?? credentials?.toolInstallationId;
+  if (!toolInstallationIdRaw) {
+    throw new Error("Not configured: no ASCENDA_TOOL_INSTALLATION_ID and no pairing in ~/.ascenda/credentials.json. Run: npx @ascenda-one/claude-code-hooks setup");
+  }
 
   const toolInstallationId = normalizeToolInstallationId(toolInstallationIdRaw);
   const tokenFilePath = process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE

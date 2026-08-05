@@ -26,7 +26,8 @@
     "verify": "./scripts/check-dry.sh && npm run test",
     "test": "npm run build && npm run test:scripts && npm run test --workspaces --if-present",
     "test:scripts": "node --test scripts/tests/*.test.mjs",
-    "dev-server": "node ascenda-dev-server/dist/cli.js"
+    "dev-server": "node ascenda-dev-server/dist/cli.js",
+    "setup:local": "./scripts/setup-local.sh"
   },
   "devDependencies": {
     "esbuild": "^0.23.0"

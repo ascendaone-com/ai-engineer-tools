@@ -28,9 +28,22 @@ const MILESTONE_DEBRIEF_INVITE =
   "you'd do differently next time. One or two lines. Skip it if they're " +
   "already onto the next thing.";
 
+/**
+ * Two modes on one binary. Hook events are the hot path (Claude Code spawns
+ * this per prompt and per tool call); the lowercase management commands are
+ * what a human types. Hook names are capitalised, so the two cannot collide.
+ */
+const MANAGEMENT_COMMANDS = new Set(["setup", "install", "status", "uninstall", "-h", "--help"]);
+
 async function main(): Promise<void> {
   const hookName = process.argv[2] as ClaudeHookEventName | undefined;
-  if (!hookName) throw new Error("Usage: ascenda-claude-hook <ClaudeHookEventName>");
+  if (!hookName) throw new Error("Usage: ascenda-claude-hook <ClaudeHookEventName> | setup | status | uninstall");
+
+  if (MANAGEMENT_COMMANDS.has(hookName)) {
+    const { runSetup } = await import("./setup.js");
+    setupExitCode = await runSetup(process.argv.slice(2));
+    return;
+  }
 
   const input = await readJsonFromStdin();
 
@@ -115,6 +128,12 @@ async function readJsonFromStdin(): Promise<ClaudeHookInput> {
   return parsed as ClaudeHookInput;
 }
 
+/**
+ * Only the management commands set this. Hook invocations always exit 0 —
+ * see the comment below.
+ */
+let setupExitCode: number | undefined;
+
 main()
   .catch((error) => {
     // Never exit non-zero: Claude Code treats exit 2 as a blocking error and
@@ -124,4 +143,6 @@ main()
     // `ascenda doctor` (installer M2) is the place to diagnose them.
     console.error(error instanceof Error ? error.message : String(error));
   })
-  .finally(() => process.exit(0));
+  // A human running `setup` or `status` does want a real exit code — that is
+  // what lets `status` gate a devcontainer or CI step.
+  .finally(() => process.exit(setupExitCode ?? 0));
