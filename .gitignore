@@ -21,3 +21,8 @@ local.devauth.env
 
 # Release artifacts — built by CI on tag, never committed
 *.vsix
+
+# Local dev-server state + personal Claude Code hook wiring (scripts/setup-local.sh)
+.ascenda/
+.claude/settings.local.json
+.claude/settings.local.json.ascenda-backup

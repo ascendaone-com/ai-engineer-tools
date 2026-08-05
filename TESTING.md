@@ -36,7 +36,7 @@ node ascenda-dev-server/dist/cli.js        # http://localhost:4477
 | Tool | How |
 | --- | --- |
 | **VS Code / Cursor** | F5 the extension (or install the VSIX), set `ascenda.apiBaseUrl` = `http://localhost:4477`, run **Ascenda: Connect App** — pairing auto-confirms, no app needed. Then just work: saves, editor switches, and terminal test/build runs stream to the server. |
-| **Claude Code hooks** | Pair once (quickstart prints the three `export` lines), register hooks per the [package README](./ascenda-claude-code-hooks/README.md), then use Claude Code normally and watch prompts/tool calls arrive. |
+| **Claude Code hooks** | `./scripts/setup-local.sh` — builds, starts this server detached, pairs, and registers the hooks for you. Restart Claude Code and work normally; prompts and tool calls arrive live. No exports needed: config lands in `~/.ascenda/credentials.json`. |
 | **pairing-sim** | `export ASCENDA_API_BASE_URL=http://localhost:4477 ASCENDA_USER_TOKEN=dev` — the mock accepts any bearer, so `e2e`, `list`, `revoke` all work without DevAuth. |
 
 ### Without even the dev server

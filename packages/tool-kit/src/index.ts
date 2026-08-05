@@ -8,7 +8,7 @@ export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent } from "./eventSender";
 export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";
 export type { EventLogEntry } from "./eventLog";
-export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export {
   AscendaApiError,
