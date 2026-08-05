@@ -26,6 +26,7 @@ a branch preview will show a broken image until then. That is expected.
 |---|---|---|
 | `vscode-marketplace-search.png` | Extensions pane (⇧⌘X) with "Ascenda" searched, showing the `ascenda-one` publisher and the Install button | root README, extension README |
 | `vscode-command-palette.png` | Command Palette (⇧⌘P) with "Ascen" typed, listing the Ascenda commands with **Ascenda: Connect App** highlighted | root README, extension README |
+| `vscode-pairing-code.png` | The pairing panel after **Ascenda: Connect App** — QR, six-digit code, expiry, and the privacy statement | root README, extension README |
 | `macos-connections-pane.png` | The macOS app's Connections → Ingest telemetry pane, showing the per-tool tabs and the pairing field | root README |
 
 ## Capture notes
@@ -41,3 +42,10 @@ a branch preview will show a broken image until then. That is expected.
   or an open file in an unrelated repository.** A pairing secret is one-time
   use and short-lived, but a token or a real path is not, and this repository
   is public.
+- **A QR code cannot be redacted by blurring its centre.** QR error correction
+  is designed to survive a centre logo (15–30% damage tolerance), so a
+  centre-blurred code is generally still decodable — and the pairing QR encodes
+  `ascenda://pair?session=…&secret=…`. Only screenshot a code you are willing
+  to treat as fully disclosed, and let it expire before committing.
+  `vscode-pairing-code.png` is safe on that basis: its session expired minutes
+  after capture, and pairing secrets are single-use.

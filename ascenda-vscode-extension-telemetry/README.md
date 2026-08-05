@@ -67,93 +67,72 @@ toolInstallationId
   -> APNs / FCM push token
 ```
 
-## Installation (VS Code)
+## Install
 
-### Prerequisites
+Requires VS Code **1.90+** or any recent Cursor.
 
-- [Visual Studio Code](https://code.visualstudio.com/) **1.90+**
-- Node.js **20+** and npm
-- Access to an Ascenda Development or production API (see pairing below)
+Open the Extensions pane — **⇧⌘X** (macOS) or **Ctrl+Shift+X** — search
+**Ascenda**, and click **Install**. The publisher is `ascenda-one`.
 
-### 1. Build the extension
+![Searching for Ascenda in the VS Code Extensions pane](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-marketplace-search.png)
 
-```bash
-# from the repo root — the workspace install resolves @ascenda-one/* locally
-npm install
-npm run build:shared
-
-cd ascenda-vscode-extension-telemetry
-npm run compile
-```
-
-### 2. Run in Extension Development Host (recommended for local/dev)
-
-1. Open **this folder** (`ascenda-vscode-extension-telemetry`) as the workspace in VS Code  
-   (`File → Open Folder…`).
-2. Press **F5** (or **Run and Debug → Run Ascenda Extension**).  
-   VS Code launches a second window: the **Extension Development Host**.
-3. In that host window, open any project folder you want to work in.
-4. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and run:
-
-```text
-Ascenda: Connect App
-```
-
-5. Confirm pairing with the Ascenda mobile app, or with [ascenda-pairing-sim](../ascenda-pairing-sim/) for Dev backends:
+Cursor installs the same extension from Open VSX — same publisher, same build,
+no separate package to choose between. From a terminal instead:
 
 ```bash
-# In another terminal (DevAuth — see pairing-sim README)
-ascenda-pairing-sim confirm-device-code <6-digit-code>
+code   --install-extension ascenda-one.ascenda   # VS Code
+cursor --install-extension ascenda-one.ascenda   # Cursor
 ```
 
-6. Verify with **Ascenda: Show Status** and **Ascenda: Send Test Signal**.
+On macOS neither CLI is on `PATH` until you run **⇧⌘P → Shell Command: Install
+'code' command in PATH** (Cursor has the equivalent). The Extensions pane needs
+no setup at all, so it is the shorter route.
 
-### 3. Point at the right API
+## Pair
 
-In the Extension Development Host (or User Settings), set:
+1. Open the Command Palette — **⇧⌘P** / **Ctrl+Shift+P** — and run
+   **Ascenda: Connect App**.
 
-| Setting | Example |
-| --- | --- |
-| `ascenda.apiBaseUrl` | `https://app-asc-dev-api-aue.azurewebsites.net` (Dev) or `http://localhost:5002` (local BE) or `https://api.ascenda.one` (prod) |
+   ![The Ascenda commands in the VS Code Command Palette](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-command-palette.png)
 
-Settings UI: **Preferences → Settings → search “Ascenda”**, or in `settings.json`:
+2. The editor shows a QR code and a six-digit code, valid for a few minutes.
+
+   ![The Ascenda pairing panel in VS Code, showing a QR code and a six-digit pairing code](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-pairing-code.png)
+
+3. Scan the QR in the Ascenda app, or enter the code under **Connections →
+   Ingest telemetry**. On a Dev backend with no phone,
+   [ascenda-pairing-sim](../ascenda-pairing-sim/) stands in for the app:
+
+   ```bash
+   ascenda-pairing-sim confirm-device-code <6-digit-code>
+   ```
+
+4. Confirm with **Ascenda: Show Status**, then send one event end to end with
+   **Ascenda: Send Test Signal**.
+
+Pairing is per machine, once. The CLI adapters — [Claude Code
+hooks](../ascenda-claude-code-hooks/), [Codex hooks](../ascenda-codex-hooks/),
+the [MCP server](../ascenda-agent-mcp/) — reuse this installation instead of
+pairing again; see the [repo README](../#pairing) for the single environment
+variable they need.
+
+## Settings
+
+**Preferences → Settings → search "Ascenda"**, or in `settings.json`:
 
 ```json
 {
-  "ascenda.apiBaseUrl": "https://app-asc-dev-api-aue.azurewebsites.net",
+  "ascenda.apiBaseUrl": "https://api.ascenda.one",
   "ascenda.telemetry.enabled": true
 }
 ```
 
-### 4. Optional: install as a local VSIX (daily driver)
+`ascenda.apiBaseUrl` defaults to `https://api.ascenda.one` and only needs
+changing to reach a development backend — `http://localhost:5002` for a local
+build, or the Azure Dev host. Every collection toggle is listed under the same
+search; all default to on and all are per-user.
 
-```bash
-npm install -g @vscode/vsce
-npm run compile
-npx vsce package --no-dependencies
-code --install-extension ascenda-<version>.vsix
-```
-
-`<version>` is whatever this package's `package.json` says — releases stamp the
-git tag over it in CI without committing back, so a local build is normally
-numbered lower than the published extension. Check the filename `vsce` prints.
-
-**On macOS**, `code` is not on your `PATH` by default. Run **⇧⌘P → Shell
-Command: Install 'code' command in PATH** first, or use the full path:
-
-```bash
-/Applications/Visual\ Studio\ Code.app/Contents/Resources/app/bin/code \
-  --install-extension ascenda-<version>.vsix
-```
-
-In Cursor, the equivalent is **⇧⌘P → Shell Command: Install 'cursor' command in
-PATH**, or install through the UI: **Extensions → … (Views and More Actions) →
-Install from VSIX…** and select the same file. The UI route needs no `PATH`
-setup at all and is the shortest path on macOS.
-
-Reload the editor, then run **Ascenda: Connect App**. Uninstall with Extensions view → Ascenda → Uninstall.
-
-### Commands
+## Commands
 
 | Command | Purpose |
 | --- | --- |
@@ -181,6 +160,44 @@ May send:
 - after-hours flag
 
 Disallowed metadata keys are stripped server-side. See [compliance notes](../docs/WORKLOAD_TELEMETRY_RESEARCH_DIRECTION.md#8-primary-compliance-requirements).
+
+## Build from source
+
+Not needed to use the extension — the Marketplace and Open VSX both ship it
+built. This is here so you can read and run what is actually collecting from
+your editor, which is a fair thing to want from a telemetry tool.
+
+```bash
+# from the repo root — the workspace install resolves @ascenda-one/* locally
+npm install
+npm run build:shared
+
+cd ascenda-vscode-extension-telemetry
+npm run compile
+```
+
+**Debug it live.** Open this folder as the VS Code workspace, press **F5**
+(or **Run and Debug → Run Ascenda Extension**), and a second window opens — the
+Extension Development Host — running your build. Open any project in it and the
+commands above work normally. Point it at a development backend with
+`ascenda.apiBaseUrl` so you are not writing to production while testing.
+
+**Package a VSIX.**
+
+```bash
+npm install -g @vscode/vsce
+npm run compile
+npx vsce package --no-dependencies
+code --install-extension ascenda-<version>.vsix
+```
+
+`<version>` comes from this package's `package.json`. Releases stamp the git tag
+over it in CI without committing back, so a local build is normally numbered
+lower than the published extension — check the filename `vsce` prints.
+
+In Cursor, install a VSIX through **Extensions → … (Views and More Actions) →
+Install from VSIX…**, which needs no `PATH` setup. Reload the editor afterwards.
+Uninstall from the Extensions view like any other extension.
 
 ## Roadmap
 

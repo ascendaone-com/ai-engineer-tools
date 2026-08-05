@@ -55,11 +55,6 @@ Then register the hooks per
 > the CLI tools reuse that installation — see
 > [Pairing](#pairing) for what to carry across.
 
-Confirm the pairing in the Ascenda app under **Connections → Ingest telemetry**,
-which also shows the per-tool setup steps and everything currently paired:
-
-![The Connections pane in the Ascenda macOS app](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/macos-connections-pane.png)
-
 ## Research direction
 
 All packages align to the backend-agreed research foundation:
@@ -98,9 +93,21 @@ Pairing is what links a tool installation to your Ascenda account. It happens
 **once per machine**, and every tool on that machine reuses it.
 
 1. In VS Code or Cursor, run **Ascenda: Connect App** (⇧⌘P / Ctrl+Shift+P).
-2. Confirm in the Ascenda app — or, on Dev backends without a phone, with
-   [ascenda-pairing-sim](./ascenda-pairing-sim/).
+   The editor shows a QR code and a six-digit code, good for a few minutes:
+
+   ![The Ascenda pairing panel in VS Code, showing a QR code and a six-digit pairing code](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-pairing-code.png)
+
+2. Confirm in the Ascenda app under **Connections → Ingest telemetry** — scan
+   the QR, or paste the code into the pairing field. On Dev backends without a
+   phone, [ascenda-pairing-sim](./ascenda-pairing-sim/) stands in for the app.
+
+   ![The Connections pane in the Ascenda macOS app](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/macos-connections-pane.png)
+
 3. Run **Ascenda: Show Status** and note the `toolInstallationId`.
+
+The pairing code carries no personal data — it links this editor installation
+to your account so signals can be routed to your device, and nothing more. The
+panel states the same thing where you can see it at the time.
 
 The CLI tools (Claude Code hooks, Codex hooks, the MCP server) read that
 identity from your environment rather than pairing again — this is deliberate,
