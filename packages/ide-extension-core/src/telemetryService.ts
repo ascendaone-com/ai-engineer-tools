@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { AscendaApi, IngestResult } from "./ascendaApi";
 import { AscendaConfig } from "./config";
-import { resolveTelemetrySource } from "./host";
+import { getHostDisplayName, resolveTelemetrySource } from "./host";
 import { PairingService } from "./pairingService";
 import {
   ASCENDA_CONSENT_SCOPE,
@@ -134,7 +134,10 @@ export class TelemetryService implements vscode.Disposable {
       consentScope: ASCENDA_CONSENT_SCOPE,
       provenance: ASCENDA_PROVENANCE,
       privacyMode: "metadata_only",
-      metadata
+      // Forks share the vscode_extension source, so without this an
+      // agent-first IDE is indistinguishable from stock VS Code in the data.
+      // Caller-supplied metadata wins: it is the more specific claim.
+      metadata: { host: getHostDisplayName(), ...metadata }
     };
   }
 }

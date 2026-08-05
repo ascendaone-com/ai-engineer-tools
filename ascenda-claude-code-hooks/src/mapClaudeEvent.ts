@@ -1,8 +1,20 @@
 import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief } from "@ascenda-one/tool-kit";
-import { ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
+import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, inferOutcome, looksLikeCorrection } from "./safeExtract.js";
 
+/**
+ * Every adapter tags `metadata.host` so one local log or one backend query can
+ * separate agents. Claude also has its own `source`, but staying uniform keeps
+ * cross-agent queries from needing a special case.
+ */
 export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {
+  return mapEvent(hookName, input).map((event) => ({
+    ...event,
+    metadata: { host: CLAUDE_HOST, ...event.metadata }
+  }));
+}
+
+function mapEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {
   switch (hookName) {
     case "SessionStart": return mapSessionStart(input);
     case "UserPromptSubmit": return mapUserPromptSubmit(input);
