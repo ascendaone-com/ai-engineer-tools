@@ -34,6 +34,9 @@ hook_for_sample() {
   case "$(basename "$1")" in
     sample-user-prompt-*) echo UserPromptSubmit ;;
     sample-pre-compact-*) echo PreCompact ;;
+    # Failures are their own hook event in Claude Code's model — piping the
+    # failure fixture through PostToolUse would demo it as a success.
+    sample-post-tool-use-failure*) echo PostToolUseFailure ;;
     sample-post-tool-use-*) echo PostToolUse ;;
     *) echo "" ;;
   esac
