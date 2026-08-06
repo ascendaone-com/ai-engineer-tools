@@ -20,6 +20,7 @@ export class PairingPanel {
   update(pairing: PairingSessionResponse): void { this.panel.webview.html = this.getHtml(pairing); }
   showPaired(): void { const host = getHostDisplayName(); this.panel.webview.html = `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><h1>Ascenda connected</h1><p>This ${escapeHtml(host)} installation is now paired to your Ascenda app.</p><p>No email address or personal identity was shared with ${escapeHtml(host)}.</p><p>Privacy-safe workload telemetry can now be routed through the backend to your app.</p></body></html>`; }
   showExpired(): void { this.panel.webview.html = `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><h1>Pairing expired</h1><p>Run <strong>Ascenda: Connect App</strong> again to create a new pairing code.</p></body></html>`; }
+  showTokenMissing(): void { this.panel.webview.html = `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><h1>Pairing did not complete</h1><p>The server confirmed the pairing, but no credentials arrived — so telemetry cannot be sent.</p><p>In the Ascenda app, <strong>disconnect</strong> this tool under Connections, then run <strong>Ascenda: Connect App</strong> here again.</p></body></html>`; }
   dispose(): void { PairingPanel.currentPanel = undefined; this.panel.dispose(); while (this.disposables.length) this.disposables.pop()?.dispose(); }
   private getHtml(pairing: PairingSessionResponse): string {
     const host = getHostDisplayName();

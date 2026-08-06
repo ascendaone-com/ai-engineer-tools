@@ -87,13 +87,30 @@ export class PairingService {
         }
         if (status.status === "paired") {
           clearInterval(interval);
-          await this.context.globalState.update(PAIRED_KEY, true);
           if (status.toolInstallationId) {
             await this.context.globalState.update(TOOL_INSTALLATION_ID_KEY, status.toolInstallationId);
           }
           if (status.eventWriteToken) {
             await this.storeEventWriteToken(status.eventWriteToken);
           }
+          // "Connected" must mean "holding credentials", not just "the server
+          // says paired". The write token is only ever delivered on this poll
+          // — there is no later fetch path without a token to renew from — so
+          // a paired response with no token and none stored is a dead state:
+          // every flush would silently no-op while the UI claims connected.
+          // That exact combination shipped once (a server bug suppressed
+          // minting when a previous pairing's token was still active) and the
+          // only signal anyone got was silence.
+          const token = status.eventWriteToken ?? (await this.getEventWriteToken());
+          if (!token) {
+            await this.context.globalState.update(PAIRED_KEY, false);
+            panel.showTokenMissing();
+            vscode.window.showErrorMessage(
+              "Ascenda pairing did not complete: the server confirmed the pairing but no credentials arrived. Disconnect this tool in the Ascenda app, then run Ascenda: Connect App again."
+            );
+            return;
+          }
+          await this.context.globalState.update(PAIRED_KEY, true);
           panel.showPaired();
           vscode.window.showInformationMessage("Ascenda is connected. Workload telemetry can now be routed to your app.");
         }

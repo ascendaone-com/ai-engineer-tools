@@ -18,6 +18,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand("ascenda.simulateContextCompression", async () => { telemetryService?.track("context_compression_manual", "medium", { trigger: "manual", simulated: true, reason: "context_limit" }); await telemetryService?.flush(); vscode.window.showInformationMessage("Ascenda context compression signal queued."); }));
   context.subscriptions.push(vscode.commands.registerCommand("ascenda.simulateContextPressureHigh", async () => { telemetryService?.track("context_pressure_high", "medium", { trigger: "inferred", simulated: true, tokenPressureBucket: "high", reason: "long_session" }); await telemetryService?.flush(); vscode.window.showInformationMessage("Ascenda context pressure signal queued."); }));
   context.subscriptions.push(vscode.commands.registerCommand("ascenda.simulateAgentLoopLong", async () => { telemetryService?.track("agent_loop_long", "medium", { trigger: "inferred", simulated: true, durationBucket: "30-60m", reason: "long_session" }); await telemetryService?.flush(); vscode.window.showInformationMessage("Ascenda long agent loop signal queued."); }));
-  context.subscriptions.push(vscode.commands.registerCommand("ascenda.showStatus", async () => { const paired = pairingService.isPaired(); const toolInstallationId = pairingService.getToolInstallationId() ?? "not created"; const hasToken = Boolean(await pairingService.getEventWriteToken()); vscode.window.showInformationMessage(`Ascenda status: host=${detectHostKind()}, paired=${paired}, token=${hasToken}, telemetry=${AscendaConfig.telemetryEnabled}, tool=${toolInstallationId}`); }));
+  context.subscriptions.push(vscode.commands.registerCommand("ascenda.showStatus", async () => {
+    const pairedFlag = pairingService.isPaired();
+    const toolInstallationId = pairingService.getToolInstallationId() ?? "not created";
+    const hasToken = Boolean(await pairingService.getEventWriteToken());
+    // paired=true with no token is not a paired state — nothing can be sent
+    // and nothing will recover on its own. Report it as what it is instead
+    // of two individually-true fields that add up to a lie.
+    const state = pairedFlag && hasToken ? "paired" : pairedFlag ? "NEEDS RE-PAIR (paired but no credentials — run Ascenda: Connect App)" : "not paired";
+    vscode.window.showInformationMessage(`Ascenda status: ${state}, host=${detectHostKind()}, telemetry=${AscendaConfig.telemetryEnabled}, tool=${toolInstallationId}`);
+  }));
 }
 export async function deactivate(): Promise<void> { await telemetryService?.stop(); }
