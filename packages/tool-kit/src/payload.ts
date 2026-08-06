@@ -46,12 +46,59 @@ export function getNestedNumber(input: Record<string, unknown>, paths: string[][
   return undefined;
 }
 
+/**
+ * Payload-shape outcome inference, for adapters whose runtime reports the
+ * outcome *inside* the payload.
+ *
+ * **Not for Claude Code.** Claude Code reports outcome through the *event*,
+ * not the payload — a failed call fires `PostToolUseFailure`, a successful
+ * one fires `PostToolUse`, and neither payload carries an exit code or
+ * status field (verified against a live session, 27 Jul 2026). Feeding a
+ * Claude payload through this function returns "unknown" every time, which
+ * is exactly the bug that silently disabled compile_error, every
+ * `outcome: "success"` marker, and the backend's verification and commit
+ * boundaries. Claude adapters must use {@link outcomeForHook}.
+ *
+ * The Codex adapter still routes through here; its payload shapes have not
+ * been captured from a live run yet, so this stays as its best available
+ * inference until they are.
+ */
 export function inferOutcome(input: Record<string, unknown>): CommandOutcome {
   const exitCode = getNumber(input, ["exitCode", "exit_code", "status"]) ?? getNestedNumber(input, [["tool_response", "exitCode"], ["tool_response", "exit_code"], ["result", "exitCode"], ["result", "exit_code"]]);
   if (typeof exitCode === "number") return exitCode === 0 ? "success" : "failure";
 
   const error = getString(input, ["error", "errorMessage"]) ?? getNestedString(input, [["tool_response", "error"], ["result", "error"]]);
   if (error) return "failure";
+  return "unknown";
+}
+
+/**
+ * Outcome for runtimes that split success and failure into separate hook
+ * events — Claude Code's model, verified empirically (27 Jul 2026):
+ *
+ *  - **success** fires `PostToolUse`: `tool_response`
+ *    (`stdout`/`stderr`/`interrupted`/`isImage`/`noOutputExpected`) plus a
+ *    top-level `duration_ms`, and no exit code of any kind. Its arrival *is*
+ *    the success signal, because a failed call never reaches it.
+ *  - **failure** fires `PostToolUseFailure`: `error` (a string beginning
+ *    `"Exit code N\n…"`) and `is_interrupt`, with no `tool_response` at all.
+ *
+ * Two deliberate judgements: `stderr` is not failure (successful calls
+ * routinely carry it — shell notices, tool progress), and an interrupt is
+ * `cancelled`, not `failure` — stopped work is not wrong work.
+ */
+export function outcomeForHook(hookName: string, input: Record<string, unknown>): CommandOutcome {
+  if (hookName === "PostToolUseFailure") {
+    const interrupted = input["is_interrupt"] === true ||
+      getNested(input, ["tool_response", "interrupted"]) === true;
+    return interrupted ? "cancelled" : "failure";
+  }
+
+  if (hookName === "PostToolUse") {
+    if (getNested(input, ["tool_response", "interrupted"]) === true) return "cancelled";
+    return "success";
+  }
+
   return "unknown";
 }
 

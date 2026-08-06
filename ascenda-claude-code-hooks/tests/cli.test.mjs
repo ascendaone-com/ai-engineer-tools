@@ -61,7 +61,7 @@ test("ASCENDA_DISABLE_INTENTION_INVITE=true silences the injection even on start
 });
 
 test("an ordinary PostToolUse never writes to stdout, pairing or not", () => {
-  const result = runHook("PostToolUse", { tool_name: "Grep", tool_response: { exitCode: 0 } });
+  const result = runHook("PostToolUse", { tool_name: "Grep", tool_response: { stdout: "ok", stderr: "", interrupted: false, isImage: false, noOutputExpected: false } });
   assert.equal(result.status, 0);
   assert.equal(result.stdout, "");
 });
@@ -76,7 +76,7 @@ test("a merged PR invites a debrief", () => {
   const result = runHook("PostToolUse", {
     tool_name: "Bash",
     tool_input: { command: "gh pr merge 412 --squash" },
-    tool_response: { exitCode: 0 }
+    tool_response: { stdout: "ok", stderr: "", interrupted: false, isImage: false, noOutputExpected: false }
   });
   assert.equal(result.status, 0);
   const parsed = JSON.parse(result.stdout);
@@ -88,7 +88,7 @@ test("a closed issue invites a debrief", () => {
   const result = runHook("PostToolUse", {
     tool_name: "Bash",
     tool_input: { command: "gh issue close 88" },
-    tool_response: { exitCode: 0 }
+    tool_response: { stdout: "ok", stderr: "", interrupted: false, isImage: false, noOutputExpected: false }
   });
   assert.equal(result.status, 0);
   assert.match(result.stdout, /additionalContext/);
@@ -98,17 +98,30 @@ test("opening a PR is a handoff — recorded, but no interruption", () => {
   const result = runHook("PostToolUse", {
     tool_name: "Bash",
     tool_input: { command: "gh pr create --fill" },
-    tool_response: { exitCode: 0 }
+    tool_response: { stdout: "ok", stderr: "", interrupted: false, isImage: false, noOutputExpected: false }
   });
   assert.equal(result.status, 0);
   assert.equal(result.stdout, "");
 });
 
 test("a failed merge finished nothing, so it asks nothing", () => {
+  // In the real event model a failed merge never reaches PostToolUse at all —
+  // it fires PostToolUseFailure, and the CLI's invite gate is PostToolUse-only.
+  const result = runHook("PostToolUseFailure", {
+    tool_name: "Bash",
+    tool_input: { command: "gh pr merge 412 --squash" },
+    error: "Exit code 1\nfatal: merge failed",
+    is_interrupt: false
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+});
+
+test("an interrupted merge finished nothing either — no invitation", () => {
   const result = runHook("PostToolUse", {
     tool_name: "Bash",
     tool_input: { command: "gh pr merge 412 --squash" },
-    tool_response: { exitCode: 1 }
+    tool_response: { stdout: "", stderr: "", interrupted: true, isImage: false, noOutputExpected: false }
   });
   assert.equal(result.status, 0);
   assert.equal(result.stdout, "");
@@ -119,7 +132,7 @@ test("committing and pushing never invite — those happen all day", () => {
     const result = runHook("PostToolUse", {
       tool_name: "Bash",
       tool_input: { command },
-      tool_response: { exitCode: 0 }
+      tool_response: { stdout: "ok", stderr: "", interrupted: false, isImage: false, noOutputExpected: false }
     });
     assert.equal(result.status, 0);
     assert.equal(result.stdout, "", command);
@@ -132,7 +145,7 @@ test("ASCENDA_DISABLE_MILESTONE_DEBRIEF=true silences the invitation", () => {
     {
       tool_name: "Bash",
       tool_input: { command: "gh pr merge 412" },
-      tool_response: { exitCode: 0 }
+      tool_response: { stdout: "ok", stderr: "", interrupted: false, isImage: false, noOutputExpected: false }
     },
     { ASCENDA_DISABLE_MILESTONE_DEBRIEF: "true" }
   );

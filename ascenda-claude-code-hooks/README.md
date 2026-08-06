@@ -119,6 +119,7 @@ for machine-wide coverage:
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks UserPromptSubmit" }] }],
     "PreToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreToolUse" }] }],
     "PostToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUse" }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUseFailure" }] }],
     "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreCompact" }] }],
     "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostCompact" }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Stop" }] }],
@@ -167,6 +168,7 @@ on Claude Code's PATH, use an absolute path such as
 UserPromptSubmit
 PreToolUse
 PostToolUse
+PostToolUseFailure
 PreCompact
 PostCompact
 Stop
@@ -182,7 +184,8 @@ UserPromptSubmit   -> ai_prompt_submitted / ai_correction_prompt
 PreToolUse         -> ai_tool_call_started
 PostToolUse Edit   -> ai_file_edit
 PostToolUse Write  -> ai_file_write
-PostToolUse Bash   -> editor_verification_activity / compile_error / ai_tool_call_*
+PostToolUse Bash   -> editor_verification_activity / ai_tool_call_completed (success only)
+PostToolUseFailure -> compile_error / ai_tool_call_failed
 PreCompact         -> context_compression_manual / context_compression_auto
 PostCompact        -> context_pressure_high
 Stop (long only)   -> agent_loop_long

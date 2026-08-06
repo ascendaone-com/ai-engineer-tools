@@ -1,13 +1,18 @@
 import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief } from "@ascenda-one/tool-kit";
 import { ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
-import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, inferOutcome, looksLikeCorrection } from "./safeExtract.js";
+import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
 
 export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {
   switch (hookName) {
     case "SessionStart": return mapSessionStart(input);
     case "UserPromptSubmit": return mapUserPromptSubmit(input);
     case "PreToolUse": return mapPreToolUse(input);
-    case "PostToolUse": return mapPostToolUse(input);
+    // Success and failure arrive on different hooks with different payloads —
+    // PostToolUse carries tool_response and no exit code; PostToolUseFailure
+    // carries `error`/`is_interrupt` and no tool_response. One mapper handles
+    // both so the event vocabulary cannot drift between the two paths.
+    case "PostToolUse":
+    case "PostToolUseFailure": return mapPostToolUse(hookName, input);
     case "PreCompact": return mapPreCompact(input);
     case "PostCompact": return [{ eventType: "context_pressure_high", severity: "medium", metadata: { trigger: "inferred", reason: "context_limit" } }];
     case "Stop": return mapStop(input);
@@ -34,9 +39,15 @@ export function isNewSessionStart(input: ClaudeHookInput): boolean {
  * (H1). Exported so the CLI can decide about the invitation without
  * re-extracting the command — and so the "only completions, only successes"
  * rule has one implementation rather than two that can drift.
+ *
+ * PostToolUse-only by contract (the CLI's one call site gates on the hook
+ * name): a failed merge fires PostToolUseFailure and never gets here, so
+ * "only successes" is enforced by the runtime's own event split. The
+ * remaining check is for the interrupted case — a merge the user stopped
+ * finished nothing, so it asks nothing.
  */
 export function milestoneInviting(input: ClaudeHookInput): boolean {
-  if (inferOutcome(input) === "failure") return false;
+  if (outcomeForHook("PostToolUse", input) !== "success") return false;
   const command = getString(input, ["command"]) ?? getNestedString(input, [["tool_input", "command"], ["input", "command"], ["parameters", "command"]]);
   return invitesDebrief(classifyWorkMilestone(command));
 }
@@ -59,19 +70,35 @@ function mapPreToolUse(input: ClaudeHookInput): MappedAscendaEvent[] {
   return [{ eventType: "ai_tool_call_started", severity: "low", metadata: { toolName: sanitiseToolName(getToolName(input)) } }];
 }
 
-function mapPostToolUse(input: ClaudeHookInput): MappedAscendaEvent[] {
+function mapPostToolUse(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {
   const toolName = getToolName(input);
   const safeToolName = sanitiseToolName(toolName);
-  const outcome = inferOutcome(input);
-  const durationMs = getNumber(input, ["durationMs", "duration_ms", "elapsedMs"]) ?? getNestedNumber(input, [["tool_response", "durationMs"], ["result", "durationMs"]]);
+  // The outcome is carried by *which hook fired*, not by the payload: there
+  // is no exit code anywhere in a PostToolUse payload, and a failed call is
+  // routed to PostToolUseFailure instead. inferOutcome read fields Claude
+  // never sends, so every outcome was "unknown" — which silently disabled
+  // compile_error, ai_tool_call_failed, and every outcome:"success" marker
+  // the backend's verification/commit boundaries key on.
+  const outcome = outcomeForHook(hookName, input);
+  // `duration_ms` is the real, top-level field (captured 27 Jul); the
+  // camelCase and nested forms remain as harmless fallbacks.
+  const durationMs = getNumber(input, ["duration_ms", "durationMs", "elapsedMs"]) ?? getNestedNumber(input, [["tool_response", "durationMs"], ["result", "durationMs"]]);
   const command = getString(input, ["command"]) ?? getNestedString(input, [["tool_input", "command"], ["input", "command"], ["parameters", "command"]]);
   const commandClass = classifyCommand(command);
   // Only a git action that actually succeeded is a boundary or a reversion —
-  // a failed push moved nothing, and a failed reset undid nothing.
-  const gitAction = outcome === "failure" ? undefined : classifyGitAction(command);
+  // a failed push moved nothing, a failed reset undid nothing, and an
+  // interrupted push proved nothing either way.
+  const gitAction = outcome === "success" ? classifyGitAction(command) : undefined;
   // A failed `gh pr merge` did not complete anything, so — like gitAction — a
   // milestone is only read off a command that actually succeeded.
-  const milestoneKind = outcome === "failure" ? undefined : classifyWorkMilestone(command);
+  const milestoneKind = outcome === "success" ? classifyWorkMilestone(command) : undefined;
+
+  if (outcome === "cancelled") {
+    // Stopped work is not wrong work: an interrupted test run is not a
+    // compile_error (it proved nothing either way), and severity stays low —
+    // the user pressing escape is routine, not risk.
+    return [{ eventType: "ai_tool_call_failed", severity: "low", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), reason: "manual_interrupt" } }];
+  }
 
   if (outcome === "failure") {
     if (toolName?.toLowerCase() === "bash" && isVerificationCommand(commandClass)) {

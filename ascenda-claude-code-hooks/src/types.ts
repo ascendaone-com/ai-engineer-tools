@@ -4,7 +4,11 @@ export type { AscendaEventPayload, CommandOutcome, IngestResult } from "@ascenda
 export { ASCENDA_CONSENT_SCOPE, ASCENDA_PROVENANCE } from "@ascenda-one/tool-contract";
 
 export type ClaudeHookEventName =
-  | "SessionStart" | "UserPromptSubmit" | "PreToolUse" | "PostToolUse"
+  | "SessionStart" | "UserPromptSubmit" | "PreToolUse"
+  // Success and failure are separate events in Claude Code's hook model — a
+  // failed tool call fires PostToolUseFailure and never reaches PostToolUse.
+  // Registering only PostToolUse makes failures invisible entirely.
+  | "PostToolUse" | "PostToolUseFailure"
   | "PreCompact" | "PostCompact" | "Stop" | "Notification";
 
 export type MappedAscendaEvent = Omit<AscendaEventPayload, "toolInstallationId" | "source" | "occurredAt" | "consentScope" | "provenance" | "privacyMode">;
