@@ -60,21 +60,24 @@ Then wire the events yourself — see [Register hooks manually](#register-hooks-
 
 ### Pair first (both routes)
 
-Neither route sends anything until this machine is paired. This package shows
-no QR code of its own; it reuses a pairing made elsewhere.
-
-1. Install and pair the [Ascenda extension](../ascenda-vscode-extension-telemetry/)
-   in VS Code or Cursor, then run **Ascenda: Connect App**.
-2. Run **Ascenda: Show Status** and copy the tool installation id.
-3. Export it where Claude Code will see it:
+Neither route sends anything until this machine is paired:
 
 ```bash
-export ASCENDA_TOOL_INSTALLATION_ID="claude_code:<uuid>"   # or the cursor_mcp:… / vscode_extension:… id you already have
+npx -y @ascenda-one/claude-code-hooks pair
+```
+
+It prints a 6-digit code — confirm it in the Ascenda app under
+**Connections → Ingest telemetry** — then saves the write token to
+`~/.ascenda/tokens/` and prints the one line left to do by hand:
+
+```bash
+export ASCENDA_TOOL_INSTALLATION_ID="claude_code:<uuid>"   # printed by `pair`
 ```
 
 Add that to your shell profile (`~/.zshrc`, `~/.bashrc`) and restart Claude
-Code. The write token is read from `~/.ascenda/tokens/`, written at pairing
-time — you do not copy it separately.
+Code. The token itself is never copied around — every CLI tool reads it from
+the file `pair` wrote. (The editor extension's pairing cannot be reused here:
+its token lives in the editor's private secret storage.)
 
 > **This variable is required, not optional.** Without it every hook
 > invocation exits with `Missing ASCENDA_TOOL_INSTALLATION_ID`. The adapter

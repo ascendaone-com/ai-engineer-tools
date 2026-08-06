@@ -39,17 +39,20 @@ npx @ascenda-one/codex-hooks --help
 
 ### 2. Pair first
 
-This package shows no QR code; it reuses a pairing made elsewhere. Pair in the
-[VS Code/Cursor extension](../ascenda-vscode-extension-telemetry/)
-(**Ascenda: Connect App**), run **Ascenda: Show Status**, and export the id:
-
 ```bash
-export ASCENDA_TOOL_INSTALLATION_ID="cli_agent:<uuid>"
+npx -y @ascenda-one/claude-code-hooks pair --tool-type cli_agent
 ```
 
-Add it to your shell profile. The write token is read from
-`~/.ascenda/tokens/`, written at pairing time. **Without this variable every
-hook invocation exits with `Missing ASCENDA_TOOL_INSTALLATION_ID`.**
+It prints a 6-digit code — confirm it in the Ascenda app under
+**Connections → Ingest telemetry** — then saves the write token to
+`~/.ascenda/tokens/` and prints the export line:
+
+```bash
+export ASCENDA_TOOL_INSTALLATION_ID="cli_agent:<uuid>"   # printed by `pair`
+```
+
+Add it to your shell profile. **Without this variable every hook invocation
+exits with `Missing ASCENDA_TOOL_INSTALLATION_ID`.**
 
 On a Dev backend with no phone:
 

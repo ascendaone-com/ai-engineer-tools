@@ -1,8 +1,15 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
+import {
+  createPairingSession,
+  defaultTokenFilePath,
+  getPairingStatus,
+  persistEventWriteToken
+} from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { loadConfigFromEnv } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
-import { ClaudeHookEventName, ClaudeHookInput } from "./types.js";
+import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput } from "./types.js";
 
 const INTENTION_INVITE =
   "Ascenda tip: if it's natural, you can ask what would make this session " +
@@ -27,9 +34,79 @@ const MILESTONE_DEBRIEF_INVITE =
   "you'd do differently next time. One or two lines. Skip it if they're " +
   "already onto the next thing.";
 
+/**
+ * The Phase-2 roadmap item, shipped: one command that pairs this machine as
+ * its own claude_code installation. Every prior path was worse in practice —
+ * "reuse the IDE extension's pairing" turned out to be impossible (the
+ * extension keeps its token in the editor's private SecretStorage, never in
+ * ~/.ascenda/tokens/), and the manual alternative was raw curl plus a
+ * hand-written token file.
+ *
+ * Prints a 6-digit code to confirm in the Ascenda app, waits, persists the
+ * write token where every CLI tool reads it, and prints the one export line
+ * the hooks and MCP server still need.
+ */
+async function runPair(): Promise<void> {
+  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
+  // `pair --tool-type cli_agent` lets the Codex adapter (and anything else
+  // CLI-shaped) pair under its honest identity; the server rejects unknown
+  // types, so no allow-list is duplicated here.
+  const flagIndex = process.argv.indexOf("--tool-type");
+  const toolType = flagIndex !== -1 ? (process.argv[flagIndex + 1] ?? "").trim() || ASCENDA_TOOL_TYPE : ASCENDA_TOOL_TYPE;
+  // Reuse an already-exported id so re-pairing heals the existing identity
+  // instead of minting a second one; mint only when none is configured.
+  const existing = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim();
+  const toolInstallationId = existing && existing.includes(":") ? existing : `${toolType}:${randomUUID()}`;
+
+  const session = await createPairingSession(apiBaseUrl, toolInstallationId, toolType, toolType === ASCENDA_TOOL_TYPE ? "Claude Code" : toolType);
+  const code = session.deviceCode ?? session.code;
+  process.stdout.write(
+    `\nPairing code: ${code}\n\n` +
+    `In the Ascenda app: Connections -> Ingest telemetry -> paste the code -> Pair tool.\n` +
+    `Waiting for confirmation (expires ${session.expiresAt})...\n\n`
+  );
+
+  const deadline = Date.now() + 11 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const status = await getPairingStatus(apiBaseUrl, session.pairingSessionId);
+    if (status.status === "pending") continue;
+    if (status.status !== "paired") {
+      process.stderr.write(`Pairing ${status.status}. Run the command again for a fresh code.\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const pairedId = status.toolInstallationId ?? toolInstallationId;
+    if (!status.eventWriteToken) {
+      process.stderr.write(
+        "Paired, but the server did not deliver a write token. Disconnect this tool in the Ascenda app and run the command again.\n"
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const tokenFilePath = defaultTokenFilePath(pairedId);
+    persistEventWriteToken(tokenFilePath, status.eventWriteToken);
+    process.stdout.write(
+      `Paired. Write token saved to ${tokenFilePath}\n\n` +
+      `One step left — add this to your shell profile (~/.zshrc), then restart Claude Code:\n\n` +
+      `  export ASCENDA_TOOL_INSTALLATION_ID="${pairedId}"\n\n`
+    );
+    return;
+  }
+  process.stderr.write("Timed out waiting for confirmation. Run the command again for a fresh code.\n");
+  process.exitCode = 1;
+}
+
 async function main(): Promise<void> {
-  const hookName = process.argv[2] as ClaudeHookEventName | undefined;
-  if (!hookName) throw new Error("Usage: ascenda-claude-hook <ClaudeHookEventName>");
+  const hookName = process.argv[2] as ClaudeHookEventName | "pair" | undefined;
+  if (!hookName) throw new Error("Usage: ascenda-claude-hook <ClaudeHookEventName> | pair");
+
+  // Before the stdin read below — `pair` is interactive-ish and has no hook
+  // payload; reading stdin first would hang it forever.
+  if (hookName === "pair") {
+    await runPair();
+    return;
+  }
 
   const input = await readJsonFromStdin();
 
