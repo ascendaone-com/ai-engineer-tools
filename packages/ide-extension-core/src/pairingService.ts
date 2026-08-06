@@ -1,4 +1,5 @@
 import * as crypto from "crypto";
+import * as os from "os";
 import * as vscode from "vscode";
 import { AscendaApi } from "./ascendaApi";
 import { getHostDisplayName, getToolType } from "./host";
@@ -150,7 +151,13 @@ export class PairingService {
   }
 
   private getDisplayName(): string {
-    const workspaceName = vscode.workspace.name ?? getHostDisplayName();
-    return `${workspaceName} on ${getHostDisplayName()}`;
+    // An editor-wide pairing gets an editor-wide name. The old label froze
+    // whichever workspace was open at pairing time ("asc-core-be on VS
+    // Code"), which misread the scope as per-project — one pairing covers
+    // every project this editor opens — and sent a repository name to the
+    // backend, the exact thing the privacy defaults promise never leaves
+    // the machine. The hostname is machine metadata, not work content, and
+    // is what actually disambiguates pairings across a person's machines.
+    return `${getHostDisplayName()} (${os.hostname()})`;
   }
 }

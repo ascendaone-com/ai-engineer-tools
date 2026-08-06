@@ -170,6 +170,8 @@ May send:
 - terminal command class (test/lint/build/typecheck/run/git/install)
 - success/failure/cancelled outcome
 - after-hours flag
+- pairing label: editor name plus machine hostname (never a workspace or
+  repository name — a pairing is editor-wide, so its label is too)
 
 Disallowed metadata keys are stripped server-side.
 
