@@ -2,7 +2,8 @@ import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { AscendaApi, IngestResult } from "./ascendaApi";
 import { AscendaConfig } from "./config";
-import { resolveTelemetrySource } from "./host";
+import { getToolType, resolveTelemetrySource } from "./host";
+import { liveEventFor } from "./liveSignals";
 import { PairingService } from "./pairingService";
 import {
   ASCENDA_CONSENT_SCOPE,
@@ -12,7 +13,7 @@ import {
   AscendaSeverity,
   AscendaTelemetryEventType
 } from "@ascenda-one/tool-contract";
-import { isAfterHours } from "@ascenda-one/tool-kit";
+import { emitLiveSignal, isAfterHours } from "@ascenda-one/tool-kit";
 import { getWorkspaceHash } from "./privacy";
 
 export class TelemetryService implements vscode.Disposable {
@@ -47,6 +48,18 @@ export class TelemetryService implements vscode.Disposable {
 
   track(eventType: AscendaTelemetryEventType, severity: AscendaSeverity = "low", metadata: AscendaEventMetadata = {}): void {
     if (!AscendaConfig.telemetryEnabled) return;
+
+    // The desktop waterline, before the pairing guard below. It is a local
+    // display cue over a socket on this machine, so it owes nothing to a
+    // backend pairing — gating it there would leave the gauges dark for
+    // people still setting Ascenda up. It stays under `telemetryEnabled`,
+    // though: that switch is the user saying "stop reading my work", and it
+    // means this too.
+    const liveEvent = liveEventFor(eventType);
+    if (liveEvent) {
+      void emitLiveSignal({ tool: getToolType(), session: this.sessionId, event: liveEvent });
+    }
+
     const toolInstallationId = this.pairingService.getToolInstallationId();
     if (!toolInstallationId) return;
     const afterHours = isAfterHours(new Date(), AscendaConfig.afterHoursStart, AscendaConfig.afterHoursEnd);

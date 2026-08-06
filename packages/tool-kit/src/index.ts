@@ -8,6 +8,8 @@ export { AscendaEventSender, AscendaSemanticEventError } from "./eventSender";
 export type { EventSenderConfig, MappedEvent, MappedSemanticEvent } from "./eventSender";
 export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
+export { emitLiveSignal, bucketPromptSize, liveBusSocketPath } from "./liveBus";
+export type { LiveBusEvent, LiveBusSignal, PromptSizeBucket } from "./liveBus";
 export {
   AscendaApiError,
   createPairingSession,

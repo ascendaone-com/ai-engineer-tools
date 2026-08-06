@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import {
+  bucketPromptSize,
   createPairingSession,
   defaultTokenFilePath,
+  emitLiveSignal,
   getPairingStatus,
+  getString,
+  getNestedString,
   persistEventWriteToken
 } from "@ascenda-one/tool-kit";
+import type { LiveBusEvent } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { loadConfigFromEnv } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
@@ -128,6 +133,15 @@ async function main(): Promise<void> {
     }));
   }
 
+  // The live presence bus — deliberately above `loadConfigFromEnv()`, which
+  // throws when this machine has never paired. The waterline is a local
+  // display cue driven by a socket on this machine; it owes nothing to a
+  // backend pairing, and gating it on one would leave the gauges dark for
+  // exactly the people still setting Ascenda up. Same placement reasoning
+  // as the two invites above: local, network-independent, before anything
+  // that can fail.
+  await emitLive(hookName, input);
+
   const config = loadConfigFromEnv();
   const client = new AscendaClient(config);
   const mappedEvents = mapClaudeEvent(hookName, input);
@@ -146,6 +160,52 @@ async function main(): Promise<void> {
       console.error(`Ascenda telemetry rejected: ${result}`);
       return;
     }
+  }
+}
+
+/**
+ * Whisper this hook's moment to the desktop app's waterline gauges.
+ *
+ * Only the lifecycle beats the gauges actually render are mapped; anything
+ * else is silence rather than a signal nothing consumes. `PreToolUse` — not
+ * `PostToolUse` — carries the cadence heartbeat, because it fires at the
+ * *leading* edge of the work and the gauge should rise as the agent starts,
+ * not after it finishes.
+ *
+ * Never throws: {@link emitLiveSignal} already swallows everything, and the
+ * try/catch is belt-and-braces so a future change here can't take a user's
+ * turn down with it.
+ */
+async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): Promise<void> {
+  const event: LiveBusEvent | undefined =
+    hookName === "UserPromptSubmit" ? "prompt_submitted"
+    : hookName === "PreToolUse" ? "tool_call"
+    : hookName === "PreCompact" ? "compaction"
+    : hookName === "PostToolUseFailure" ? "tool_failure"
+    : hookName === "Stop" ? "stop"
+    : undefined;
+  if (!event) return;
+
+  try {
+    const prompt = event === "prompt_submitted"
+      ? getString(input, ["prompt", "userPrompt", "message"])
+        ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]])
+      : undefined;
+
+    await emitLiveSignal({
+      tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
+      // Concurrent sessions must count as separate streams for the X gauge.
+      // Without a session id every window collapses into one, so fall back to
+      // this process's parent — still per-session in practice, since Claude
+      // Code spawns hooks from the session process.
+      session: getString(input, ["session_id", "sessionId"])
+        ?? process.env.ASCENDA_SESSION_ID
+        ?? `ppid-${process.ppid}`,
+      event,
+      ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {})
+    });
+  } catch {
+    // A cosmetic gauge is never worth a word in the user's transcript.
   }
 }
 
