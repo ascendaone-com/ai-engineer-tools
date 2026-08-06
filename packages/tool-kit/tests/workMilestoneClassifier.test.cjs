@@ -56,6 +56,40 @@ test("reading about work is not finishing it", () => {
   }
 });
 
+test("mentioning a milestone is not reaching one", () => {
+  // Observed live on 27 Jul 2026: a heredoc whose *content* said
+  // "gh pr merge 412" fired the debrief invitation mid-session, for a
+  // milestone that never happened. Only command position may classify.
+  const heredoc = [
+    "cat <<'EOF' > notes.md",
+    "Next step: gh pr merge 412 once CI is green.",
+    "Then gh issue close 88.",
+    "EOF"
+  ].join("\n");
+  assert.equal(classifyWorkMilestone(heredoc), undefined);
+
+  // Quoted strings are data too, in either quote style.
+  assert.equal(classifyWorkMilestone("echo 'gh issue close 88'"), undefined);
+  assert.equal(classifyWorkMilestone('echo "gh pr merge 412 --squash"'), undefined);
+  assert.equal(
+    classifyWorkMilestone("git commit -m 'ready for gh pr merge'"),
+    undefined
+  );
+});
+
+test("command position survives prefixes and separators", () => {
+  // The anchor must not be so tight that real invocations stop counting.
+  assert.equal(classifyWorkMilestone("cd x && gh pr merge 412 --squash"), "pr_merged");
+  assert.equal(classifyWorkMilestone("GH_TOKEN=abc gh pr merge 412"), "pr_merged");
+  assert.equal(classifyWorkMilestone("git push origin main; gh issue close 88"), "issue_closed");
+  // And a genuine merge whose own arguments contain quotes still counts:
+  // stripping the quoted region must not unseat the verb at the head.
+  assert.equal(
+    classifyWorkMilestone('gh pr merge 412 --subject "merge: the big one"'),
+    "pr_merged"
+  );
+});
+
 test("nothing in, nothing out", () => {
   assert.equal(classifyWorkMilestone(undefined), undefined);
   assert.equal(classifyWorkMilestone(null), undefined);

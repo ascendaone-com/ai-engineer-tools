@@ -1,4 +1,5 @@
 import { WorkMilestoneKind } from "@ascenda-one/tool-contract";
+import { commandHeads } from "./commandHeads";
 
 /**
  * Whether a command marked a piece of work reaching its own end.
@@ -20,19 +21,26 @@ export function classifyWorkMilestone(command: string | undefined | null): WorkM
   const value = command.toLowerCase().trim();
   if (!/\bgh\b/.test(value)) return undefined;
 
+  // Only text in command position counts. Matching anywhere in the string
+  // fired a debrief invitation for a heredoc whose *content* mentioned
+  // "gh pr merge 412" — a milestone that never happened. Heredoc bodies and
+  // quoted strings are data, not commands, so they are stripped before the
+  // string is split into the positions where a command can actually start.
+  const heads = commandHeads(value);
+
   // `gh pr merge` completes the work. Tested before `gh pr create` because a
   // command doing both (`gh pr create ... && gh pr merge ...`) has ended at the
   // merge, and reporting it as an opening would understate what happened.
-  if (/\bgh\s+pr\s+merge\b/.test(value)) return "pr_merged";
+  if (heads.some((head) => /^gh\s+pr\s+merge\b/.test(head))) return "pr_merged";
 
   // `gh issue close` ends a ticket without any PR being involved — the case
   // Hamada's "end of a ticket" names most directly.
-  if (/\bgh\s+issue\s+close\b/.test(value)) return "issue_closed";
+  if (heads.some((head) => /^gh\s+issue\s+close\b/.test(head))) return "issue_closed";
 
   // Opening a PR is a handoff, not a completion: the work leaves the person's
   // hands but is not finished. Recorded because it is a real boundary the
   // record should carry; it does not invite a debrief (see `invitesDebrief`).
-  if (/\bgh\s+pr\s+create\b/.test(value)) return "pr_opened";
+  if (heads.some((head) => /^gh\s+pr\s+create\b/.test(head))) return "pr_opened";
 
   return undefined;
 }

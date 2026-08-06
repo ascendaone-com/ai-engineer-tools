@@ -48,6 +48,37 @@ test("classifyGitAction: reading the repository says nothing", () => {
   }
 });
 
+test("classifyGitAction: mentioning a command is not running it", () => {
+  // The defect class fixed live in the milestone classifier (27 Jul 2026):
+  // pattern-matching anywhere in the string classifies heredoc bodies and
+  // quoted strings — data, not commands — as the command itself.
+  const heredoc = [
+    "cat <<'EOF' > notes.md",
+    "Remember to git commit -m 'fix' and git push origin main.",
+    "EOF"
+  ].join("\n");
+  assert.equal(classifyGitAction(heredoc), undefined);
+  assert.equal(classifyGitAction("echo 'git push origin main'"), undefined);
+  assert.equal(classifyGitAction('echo "git reset --hard HEAD~1"'), undefined);
+});
+
+test("classifyGitAction: a commit message naming another verb is still a commit", () => {
+  assert.equal(classifyGitAction("git commit -m 'then git push'"), "commit");
+  assert.equal(classifyGitAction("git commit -m 'not an --amend'"), "commit");
+});
+
+test("classifyGitAction: command position survives prefixes and separators", () => {
+  assert.equal(classifyGitAction("cd x && git push origin main"), "push");
+  assert.equal(classifyGitAction("GIT_DIR=/tmp/r git commit -m 'wip'"), "commit");
+  assert.equal(classifyGitAction("git add . ; git commit --amend --no-edit"), "amend");
+});
+
+test("classifyGitAction: flags cannot cross segments to their verb", () => {
+  // The reset here has no --hard of its own; the --hard belongs to a grep
+  // argument in the next segment. Whole-string matching would upgrade it.
+  assert.equal(classifyGitAction("git reset HEAD~1 && grep -r --hard docs"), undefined);
+});
+
 test("classifyGitAction: non-git and empty input", () => {
   assert.equal(classifyGitAction("npm test"), undefined);
   assert.equal(classifyGitAction(""), undefined);
