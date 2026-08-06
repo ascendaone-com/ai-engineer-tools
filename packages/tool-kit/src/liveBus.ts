@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as net from "net";
 import * as os from "os";
 import * as path from "path";
@@ -53,15 +54,51 @@ export interface LiveBusSignal {
   sizeBucket?: PromptSizeBucket;
 }
 
+/** The desktop app's bundle id, for the sandbox container path below. */
+const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
+
 /**
- * Where the app listens. Overridable for tests and for anyone running a
- * non-default home; the app derives the same path from the same rule.
+ * Every place the app might be listening, in preference order.
+ *
+ * The wrinkle: **the macOS app is sandboxed**, so its `HOME` is redirected
+ * into `~/Library/Containers/<bundle-id>/Data/` and it cannot create a
+ * socket at the real `~/.ascenda/` at all. Hooks are ordinary unsandboxed
+ * processes, so they see the true home and would never find it.
+ *
+ * The sandbox constrains the *sandboxed* process, not everyone else: a hook
+ * can happily connect into the container, which is owned by the same user.
+ * So we look in the plain location first (an unsandboxed or future build,
+ * and the nicer home) and fall back to the container.
+ *
+ * The tidier long-term fix is an App Group container shared by both, but
+ * that needs the entitlement provisioned against the signing identity —
+ * a deployment change, not a code one.
+ */
+export function liveBusSocketCandidates(): string[] {
+  const override = process.env.ASCENDA_LIVE_BUS_SOCKET;
+  if (override) return [override];
+  const home = os.homedir();
+  return [
+    path.join(home, ".ascenda", "live.sock"),
+    path.join(home, "Library", "Containers", APP_BUNDLE_ID, "Data", ".ascenda", "live.sock")
+  ];
+}
+
+/**
+ * The first candidate that actually exists, or the preferred one when none
+ * do — connecting to a missing socket is already a silent no-op, so there
+ * is no need for a distinct "nowhere to send" branch.
  */
 export function liveBusSocketPath(): string {
-  return (
-    process.env.ASCENDA_LIVE_BUS_SOCKET ??
-    path.join(os.homedir(), ".ascenda", "live.sock")
-  );
+  const candidates = liveBusSocketCandidates();
+  for (const candidate of candidates) {
+    try {
+      if (fs.statSync(candidate).isSocket()) return candidate;
+    } catch {
+      // Not there; try the next.
+    }
+  }
+  return candidates[0];
 }
 
 /**
