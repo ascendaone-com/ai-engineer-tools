@@ -1,7 +1,10 @@
 // Local QR rendering.
 //
-// The pairing QR encodes `ascenda://pair/<secret>`. That secret is what the
-// app presents to claim the pairing, so it must never leave the machine —
+// The pairing QR encodes the backend's own `qrUrl` — either the legacy
+// `ascenda://pair?session=<id>&secret=<secret>` scheme, or (once
+// asc-core-be's PairingWebOptions.BaseUrl is configured) an https link of
+// the form `<BaseUrl>/p/<sessionId>#<secret>`. Either way the pairing
+// secret is what claims the pairing, so it must never leave the machine —
 // this used to be built by handing the URL to a third-party image service,
 // which put the secret in someone else's access logs. Everything here is
 // computed in-process and inlined into the webview as SVG markup, so the
