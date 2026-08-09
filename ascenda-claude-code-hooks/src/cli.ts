@@ -192,6 +192,18 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
         ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]])
       : undefined;
 
+    // Whether this turn came out of the queue. Claude Code labels user turns
+    // with `promptSource`, and "queued" is one of its values — confirmed in
+    // real transcripts. Read defensively across the plausible spellings and
+    // omitted entirely when absent, because whether the *hook* payload
+    // carries the field (the transcript certainly does) is the open question
+    // this is here to answer: an older Claude Code, or a payload that never
+    // carried it, must look exactly like today rather than like "not queued".
+    const promptSource = event === "prompt_submitted"
+      ? getString(input, ["promptSource", "prompt_source"])
+      : undefined;
+    const queued = promptSource === undefined ? undefined : promptSource === "queued";
+
     await emitLiveSignal({
       tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
       // Concurrent sessions must count as separate streams for the X gauge.
@@ -202,7 +214,8 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
         ?? process.env.ASCENDA_SESSION_ID
         ?? `ppid-${process.ppid}`,
       event,
-      ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {})
+      ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
+      ...(queued !== undefined ? { queued } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.

@@ -36,7 +36,13 @@ const WRITE_TIMEOUT_MS = 50;
 /** Coarse size of the work a prompt kicked off — drives the waterline's attack height. */
 export type PromptSizeBucket = "s" | "m" | "l" | "xl";
 
-/** The lifecycle moments the waterline reacts to. */
+/**
+ * The lifecycle moments the waterline reacts to.
+ *
+ * Note what is *not* here: there is no "queued" event. Nothing fires when a
+ * user queues a message — the only trace queueing leaves is a label on the
+ * turn that eventually runs (see {@link LiveBusSignal.queued}).
+ */
 export type LiveBusEvent =
   | "prompt_submitted"
   | "tool_call"
@@ -52,6 +58,20 @@ export interface LiveBusSignal {
   event: LiveBusEvent;
   /** Only meaningful on `prompt_submitted`. */
   sizeBucket?: PromptSizeBucket;
+  /**
+   * This turn came out of the user's queue rather than being typed live.
+   * Only meaningful on `prompt_submitted`, and **only some tools can know
+   * it** — absent means "not known", never "not queued".
+   *
+   * Read carefully: this is stamped when the queued message is *dequeued
+   * and processed*, so it says "the turn starting now was waiting" — it is
+   * not a queue *depth*, and nothing anywhere emits at the moment a message
+   * is queued. It is therefore evidence that the user stacks work up, never
+   * a guarantee that more is pending, and the app must not treat it as one
+   * (see the settle bell's offer gate,
+   * `docs/MACOS_WATERLINE_SETTLE_BELL.md`).
+   */
+  queued?: boolean;
 }
 
 /** The desktop app's bundle id, for the sandbox container path below. */
