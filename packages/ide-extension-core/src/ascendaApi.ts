@@ -6,6 +6,7 @@ import {
   RenewToolTokenResponse
 } from "@ascenda-one/tool-contract";
 import {
+  appendEventLog,
   createPairingSession,
   getPairingStatus,
   postToolEvent,
@@ -32,10 +33,31 @@ export class AscendaApi {
   }
 
   async sendEvent(payload: AscendaEventPayload, eventWriteToken: string): Promise<IngestResult> {
-    return postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload);
+    return this.logging([payload], () => postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload));
   }
 
   async sendEventsBatch(payloads: AscendaEventPayload[], eventWriteToken: string): Promise<IngestResult> {
-    return postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads);
+    return this.logging(payloads, () => postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads));
+  }
+
+  /**
+   * Mirror to the opt-in local log (ASCENDA_EVENT_LOG_FILE, or the
+   * ascenda.eventLogFile setting). The extension batches, so one HTTP result
+   * covers several payloads — each gets its own line carrying that shared
+   * result. An unreachable backend is logged too: that is when reading the log
+   * is most useful.
+   */
+  private async logging(payloads: AscendaEventPayload[], send: () => Promise<IngestResult>): Promise<IngestResult> {
+    const logFile = AscendaConfig.eventLogFile;
+    if (!logFile) return send();
+
+    let delivery: IngestResult = "other";
+    try {
+      delivery = await send();
+      return delivery;
+    } finally {
+      const loggedAt = new Date().toISOString();
+      for (const payload of payloads) appendEventLog(logFile, { loggedAt, delivery, payload });
+    }
   }
 }

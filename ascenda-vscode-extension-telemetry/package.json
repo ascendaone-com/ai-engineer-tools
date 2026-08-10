@@ -74,6 +74,11 @@
           "default": "https://api.ascenda.one",
           "description": "Ascenda backend API base URL."
         },
+        "ascenda.eventLogFile": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Append every event to this file as JSON Lines — the exact payload sent, plus how delivery went. Empty disables it. `~` is expanded. Overridden by the `ASCENDA_EVENT_LOG_FILE` environment variable."
+        },
         "ascenda.telemetry.enabled": {
           "type": "boolean",
           "default": true,
