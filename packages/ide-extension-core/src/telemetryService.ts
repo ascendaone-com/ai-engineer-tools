@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { AscendaApi, IngestResult } from "./ascendaApi";
 import { AscendaConfig } from "./config";
-import { getToolType, resolveTelemetrySource } from "./host";
+import { getHostDisplayName, getToolType, resolveTelemetrySource } from "./host";
 import { liveEventFor } from "./liveSignals";
 import { PairingService } from "./pairingService";
 import {
