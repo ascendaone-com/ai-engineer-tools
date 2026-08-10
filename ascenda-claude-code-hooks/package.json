@@ -17,6 +17,7 @@
     "build": "tsc -p ./ && npm run bundle",
     "watch": "tsc -w -p ./",
     "test:sample": "npm run build && cat examples/sample-post-tool-use-edit.json | node dist/cli.js PostToolUse",
+    "test:failure": "npm run build && cat examples/sample-post-tool-use-failure.json | node dist/cli.js PostToolUseFailure",
     "test:compact": "npm run build && cat examples/sample-pre-compact-auto.json | node dist/cli.js PreCompact",
     "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
     "test": "node --test"

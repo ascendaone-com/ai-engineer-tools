@@ -130,18 +130,20 @@ The pairing code carries no personal data — it links this editor installation
 to your account so signals can be routed to your device, and nothing more. The
 panel states the same thing where you can see it at the time.
 
-The CLI tools (Claude Code hooks, Codex hooks, the MCP server) read that
-identity from your environment rather than pairing again — this is deliberate,
-so one machine is one installation instead of three competing ones:
+The CLI tools (Claude Code hooks, Codex hooks, the MCP server) pair with one
+command — it prints a 6-digit code to confirm in the app, saves the write
+token to `~/.ascenda/tokens/`, and prints the one export line the tools need:
 
 ```bash
-export ASCENDA_TOOL_INSTALLATION_ID="<the id from Show Status>"
+npx -y @ascenda-one/claude-code-hooks pair
 ```
 
-Add it to your shell profile, then restart the tool. The write token is picked
-up automatically from `~/.ascenda/tokens/`, written at pairing time. Without
-this variable the CLI tools exit with `Missing ASCENDA_TOOL_INSTALLATION_ID`
-rather than silently minting a second, unpaired identity.
+Add the printed `export ASCENDA_TOOL_INSTALLATION_ID=…` line to your shell
+profile, then restart the tool. Without that variable the CLI tools exit with
+`Missing ASCENDA_TOOL_INSTALLATION_ID` rather than silently minting a second,
+unpaired identity. (The editor extension's own pairing cannot be reused here —
+its token lives in the editor's private secret storage, by design — so the CLI
+tools hold their own installation, paired against the same account.)
 
 ## Build from source
 

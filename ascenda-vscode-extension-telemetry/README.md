@@ -120,11 +120,13 @@ no setup at all, so it is the shorter route.
 4. Confirm with **Ascenda: Show Status**, then send one event end to end with
    **Ascenda: Send Test Signal**.
 
-Pairing is per machine, once. The CLI adapters — [Claude Code
+This pairing covers the editor. The CLI adapters — [Claude Code
 hooks](../ascenda-claude-code-hooks/), [Codex hooks](../ascenda-codex-hooks/),
-the [MCP server](../ascenda-agent-mcp/) — reuse this installation instead of
-pairing again; see the [repo README](../#pairing) for the single environment
-variable they need.
+the [MCP server](../ascenda-agent-mcp/) — hold their own installation, paired
+against the same account with one command
+(`npx -y @ascenda-one/claude-code-hooks pair`); this extension's token stays
+in the editor's private secret storage and is not shared with them. See the
+[repo README](../#pairing).
 
 ## Settings
 
@@ -168,6 +170,8 @@ May send:
 - terminal command class (test/lint/build/typecheck/run/git/install)
 - success/failure/cancelled outcome
 - after-hours flag
+- pairing label: editor name plus machine hostname (never a workspace or
+  repository name — a pairing is editor-wide, so its label is too)
 
 Disallowed metadata keys are stripped server-side.
 

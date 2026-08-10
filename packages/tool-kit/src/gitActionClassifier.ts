@@ -1,4 +1,5 @@
 import { GitAction } from "@ascenda-one/tool-contract";
+import { commandHeads } from "./commandHeads";
 
 /**
  * What a `git` command actually did, from the command line alone.
@@ -25,26 +26,33 @@ export function classifyGitAction(command: string | undefined | null): GitAction
   const value = command.toLowerCase().trim();
   if (!/\bgit\b/.test(value)) return undefined;
 
+  // Only text in command position counts — the same guard as the milestone
+  // classifier, for the same reason: `git commit -m 'then git push'` is a
+  // commit whose *message* mentions a push, and a heredoc body that says
+  // "git commit" is prose. Flags are searched within the same segment as
+  // their verb, so one segment's `--hard` cannot upgrade another's reset.
+  const heads = commandHeads(value);
+
   // Order matters. `git commit --amend` is a rewrite of work already
   // committed, not a fresh boundary, so amend is tested before commit — the
   // reverse order would count every amend as new progress.
-  if (/\bgit\s+commit\b[^\n]*--amend\b/.test(value)) return "amend";
+  if (heads.some((h) => /^git\s+commit\b/.test(h) && /\s--amend\b/.test(h))) return "amend";
 
   // `git revert` names an undo explicitly.
-  if (/\bgit\s+revert\b/.test(value)) return "revert";
+  if (heads.some((h) => /^git\s+revert\b/.test(h))) return "revert";
 
   // Only `--hard` discards work. A soft or mixed reset moves a pointer and
   // leaves the tree alone, which is bookkeeping rather than rework.
-  if (/\bgit\s+reset\b[^\n]*--hard\b/.test(value)) return "reset_hard";
+  if (heads.some((h) => /^git\s+reset\b/.test(h) && /\s--hard\b/.test(h))) return "reset_hard";
 
   // `git restore <path>` and the older `git checkout -- <path>` both throw
   // away uncommitted changes. `git restore --staged` only unstages, so it is
   // excluded: nothing is lost.
-  if (/\bgit\s+restore\b/.test(value) && !/--staged\b/.test(value)) return "restore";
-  if (/\bgit\s+checkout\b[^\n]*\s--\s/.test(value)) return "restore";
+  if (heads.some((h) => /^git\s+restore\b/.test(h) && !/\s--staged\b/.test(h))) return "restore";
+  if (heads.some((h) => /^git\s+checkout\b.*\s--\s/.test(h))) return "restore";
 
-  if (/\bgit\s+push\b/.test(value)) return "push";
-  if (/\bgit\s+commit\b/.test(value)) return "commit";
+  if (heads.some((h) => /^git\s+push\b/.test(h))) return "push";
+  if (heads.some((h) => /^git\s+commit\b/.test(h))) return "commit";
 
   // Everything else — status, log, diff, add, fetch — is not a boundary and
   // not rework. Undefined rather than "other": the field is absent when there

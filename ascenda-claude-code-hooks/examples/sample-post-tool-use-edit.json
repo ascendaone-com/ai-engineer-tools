@@ -1,6 +1,19 @@
 {
-  "toolName": "Edit",
-  "durationMs": 4200,
-  "result": { "exitCode": 0 },
-  "tool_input": { "file_path": "/redacted/path/example.ts" }
+  "hook_event_name": "PostToolUse",
+  "session_id": "captured-session",
+  "cwd": "/repo",
+  "permission_mode": "default",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/redacted/path/example.ts",
+    "old_string": "const a = 1;",
+    "new_string": "const a = 1;\nconst b = 2;"
+  },
+  "tool_response": {
+    "filePath": "/redacted/path/example.ts",
+    "userModified": false,
+    "replaceAll": false
+  },
+  "tool_use_id": "toolu_captured_edit",
+  "duration_ms": 4200
 }

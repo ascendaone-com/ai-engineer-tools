@@ -2,6 +2,31 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isNewSessionStart, mapClaudeEvent } from "../dist/mapClaudeEvent.js";
 
+// ── Real payload shapes ────────────────────────────────────────────────────
+//
+// Captured from a live Claude Code session (27 Jul 2026), not invented. A
+// successful call carries `tool_response` (stdout/stderr/interrupted/…) and a
+// top-level `duration_ms` — and NO exit code anywhere. A failed call arrives
+// on a different hook, PostToolUseFailure, carrying `error` (a string
+// beginning "Exit code N\n…") and `is_interrupt`, with no tool_response at
+// all. The previous fixtures asserted against `tool_response.exitCode`, a
+// shape Claude Code never sends — they passed while the adapter was broken,
+// which is why these are captured rather than written.
+
+const okResponse = (over = {}) => ({
+  stdout: "ok", stderr: "", interrupted: false, isImage: false, noOutputExpected: false, ...over
+});
+
+const failurePayload = (over = {}) => ({
+  hook_event_name: "PostToolUseFailure",
+  tool_name: "Bash",
+  tool_input: { command: "npm test" },
+  duration_ms: 251,
+  error: "Exit code 1\nnpm error Test failed",
+  is_interrupt: false,
+  ...over
+});
+
 test("SessionStart: startup and resume open a focus session", () => {
   for (const source of ["startup", "resume", undefined]) {
     const events = mapClaudeEvent("SessionStart", source ? { source } : {});
@@ -28,7 +53,7 @@ test("PostToolUse Edit: lines-changed buckets from old_string/new_string, and ne
   const events = mapClaudeEvent("PostToolUse", {
     tool_name: "Edit",
     tool_input: { old_string: "one\ntwo", new_string: bigNewText },
-    tool_response: { exitCode: 0 }
+    tool_response: okResponse()
   });
   assert.equal(events[0].metadata.linesChangedBucket, "200+");
   const serialized = JSON.stringify(events);
@@ -39,7 +64,7 @@ test("PostToolUse Write: lines-changed buckets from content", () => {
   const events = mapClaudeEvent("PostToolUse", {
     tool_name: "Write",
     tool_input: { content: "a\nb\nc\nd\ne\nf" },
-    tool_response: { exitCode: 0 }
+    tool_response: okResponse()
   });
   assert.equal(events[0].metadata.linesChangedBucket, "1-10");
 });
@@ -53,14 +78,14 @@ test("PostToolUse MultiEdit: lines-changed sums across edits", () => {
         { old_string: "x", new_string: "x\ny\nz\nw" }
       ]
     },
-    tool_response: { exitCode: 0 }
+    tool_response: okResponse()
   });
   // max(1,3) + max(1,4) = 3 + 4 = 7 -> bucket 1-10
   assert.equal(events[0].metadata.linesChangedBucket, "1-10");
 });
 
 test("PostToolUse: a write-tool payload with no old_string/new_string/content omits the bucket rather than guessing", () => {
-  const events = mapClaudeEvent("PostToolUse", { tool_name: "Edit", tool_response: { exitCode: 0 } });
+  const events = mapClaudeEvent("PostToolUse", { tool_name: "Edit", tool_response: okResponse() });
   assert.equal(events[0].metadata.linesChangedBucket, undefined);
 });
 
@@ -87,31 +112,60 @@ test("PreToolUse: tool call started with sanitised tool name", () => {
 });
 
 test("PostToolUse: Write/Edit/MultiEdit map to file creation events", () => {
-  assert.equal(mapClaudeEvent("PostToolUse", { tool_name: "Write", tool_response: { exitCode: 0 } })[0].eventType, "ai_file_write");
-  assert.equal(mapClaudeEvent("PostToolUse", { tool_name: "Edit", tool_response: { exitCode: 0 } })[0].eventType, "ai_file_edit");
-  assert.equal(mapClaudeEvent("PostToolUse", { tool_name: "MultiEdit", tool_response: { exitCode: 0 } })[0].eventType, "ai_file_edit");
+  assert.equal(mapClaudeEvent("PostToolUse", { tool_name: "Write", tool_response: okResponse() })[0].eventType, "ai_file_write");
+  assert.equal(mapClaudeEvent("PostToolUse", { tool_name: "Edit", tool_response: okResponse() })[0].eventType, "ai_file_edit");
+  assert.equal(mapClaudeEvent("PostToolUse", { tool_name: "MultiEdit", tool_response: okResponse() })[0].eventType, "ai_file_edit");
 });
 
-test("PostToolUse: successful verification bash -> editor_verification_activity", () => {
-  const events = mapClaudeEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "npm test" }, tool_response: { exitCode: 0 } });
+test("PostToolUse: a verification run marks outcome success — the boundary depends on it", () => {
+  const events = mapClaudeEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "npm test" }, tool_response: okResponse(), duration_ms: 4200 });
   assert.equal(events[0].eventType, "editor_verification_activity");
   assert.equal(events[0].metadata.commandClass, "test");
+  // The backend derives a verification_pass boundary only from
+  // outcome === "success". While inferOutcome returned "unknown" here, the
+  // timeline checkpoint cards and get_work_demand_context's checkpoints
+  // could never fire from the Claude Code path at all.
+  assert.equal(events[0].metadata.outcome, "success");
+  assert.equal(events[0].metadata.durationBucket, "0-1m");
 });
 
-test("PostToolUse: failed verification bash -> compile_error (risk)", () => {
-  const events = mapClaudeEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "npm test" }, tool_response: { exitCode: 1 } });
+test("PostToolUse: stderr on a successful call is not a failure", () => {
+  // Captured verbatim: a passing command whose stderr carried a shell notice.
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Bash",
+    tool_input: { command: "npm test" },
+    tool_response: okResponse({ stderr: "\nShell cwd was reset to /repo" })
+  });
+  assert.equal(events[0].metadata.outcome, "success");
+});
+
+test("PostToolUseFailure: failed verification bash -> compile_error (risk)", () => {
+  const events = mapClaudeEvent("PostToolUseFailure", failurePayload());
   assert.equal(events[0].eventType, "compile_error");
   assert.equal(events[0].severity, "medium");
+  assert.equal(events[0].metadata.outcome, "failure");
 });
 
-test("PostToolUse: failed non-verification tool -> ai_tool_call_failed", () => {
-  const events = mapClaudeEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "ls -la" }, tool_response: { exitCode: 2 } });
+test("PostToolUseFailure: failed non-verification tool -> ai_tool_call_failed", () => {
+  const events = mapClaudeEvent("PostToolUseFailure", failurePayload({ tool_input: { command: "ls -la" } }));
   assert.equal(events[0].eventType, "ai_tool_call_failed");
+  assert.equal(events[0].metadata.outcome, "failure");
+});
+
+test("interrupted: cancelled is not a failure, and never a compile_error", () => {
+  // Stopped work is not wrong work — an interrupted test run proved nothing
+  // either way, and the user pressing escape is routine, not risk.
+  const events = mapClaudeEvent("PostToolUseFailure", failurePayload({ is_interrupt: true }));
+  assert.equal(events[0].eventType, "ai_tool_call_failed");
+  assert.equal(events[0].severity, "low");
+  assert.equal(events[0].metadata.outcome, "cancelled");
+  assert.equal(events[0].metadata.reason, "manual_interrupt");
 });
 
 test("PostToolUse: generic successful tool -> ai_tool_call_completed", () => {
-  const events = mapClaudeEvent("PostToolUse", { tool_name: "Grep", tool_response: { exitCode: 0 } });
+  const events = mapClaudeEvent("PostToolUse", { tool_name: "Grep", tool_response: okResponse() });
   assert.equal(events[0].eventType, "ai_tool_call_completed");
+  assert.equal(events[0].metadata.outcome, "success");
 });
 
 test("PreCompact: manual vs auto compression", () => {
@@ -153,19 +207,22 @@ test("PostToolUse: a successful commit carries gitAction", () => {
   const events = mapClaudeEvent("PostToolUse", {
     tool_name: "Bash",
     tool_input: { command: "git commit -m 'add the thing'" },
-    tool_response: { exitCode: 0 }
+    tool_response: okResponse()
   });
 
   assert.equal(events.length, 1);
   assert.equal(events[0].eventType, "ai_tool_call_completed");
   assert.equal(events[0].metadata.gitAction, "commit");
+  // The backend's commit boundary needs gitAction AND outcome success on the
+  // same event — asserting both because the consumer is in another repo.
+  assert.equal(events[0].metadata.outcome, "success");
 });
 
 test("PostToolUse: a push carries gitAction", () => {
   const events = mapClaudeEvent("PostToolUse", {
     tool_name: "Bash",
     tool_input: { command: "git push origin main" },
-    tool_response: { exitCode: 0 }
+    tool_response: okResponse()
   });
 
   assert.equal(events[0].metadata.gitAction, "push");
@@ -175,23 +232,36 @@ test("PostToolUse: a reversion is marked as rework", () => {
   const events = mapClaudeEvent("PostToolUse", {
     tool_name: "Bash",
     tool_input: { command: "git revert abc1234" },
-    tool_response: { exitCode: 0 }
+    tool_response: okResponse()
   });
 
   assert.equal(events[0].metadata.gitAction, "revert");
   assert.equal(events[0].metadata.activity, "rework_reversion");
 });
 
-test("PostToolUse: a failed push is neither a boundary nor rework", () => {
+test("PostToolUseFailure: a failed push is neither a boundary nor rework", () => {
   // A push that did not land moved nothing. Emitting the boundary anyway
-  // would credit work that never left the machine.
-  const events = mapClaudeEvent("PostToolUse", {
-    tool_name: "Bash",
+  // would credit work that never left the machine. In the real event model
+  // this arrives on PostToolUseFailure — a failed push never reaches
+  // PostToolUse at all.
+  const events = mapClaudeEvent("PostToolUseFailure", failurePayload({
     tool_input: { command: "git push origin main" },
-    tool_response: { exitCode: 1 }
-  });
+    error: "Exit code 1\nfatal: unable to access remote"
+  }));
 
   assert.equal(events[0].eventType, "ai_tool_call_failed");
+  assert.equal(events[0].metadata.gitAction, undefined);
+});
+
+test("interrupted push: cancelled is not a boundary either", () => {
+  // An interrupted push proved nothing either way — same rule as failure,
+  // different outcome label.
+  const events = mapClaudeEvent("PostToolUseFailure", failurePayload({
+    tool_input: { command: "git push origin main" },
+    is_interrupt: true
+  }));
+
+  assert.equal(events[0].metadata.outcome, "cancelled");
   assert.equal(events[0].metadata.gitAction, undefined);
 });
 
@@ -199,7 +269,7 @@ test("PostToolUse: an ordinary command carries no gitAction key at all", () => {
   const events = mapClaudeEvent("PostToolUse", {
     tool_name: "Bash",
     tool_input: { command: "git status" },
-    tool_response: { exitCode: 0 }
+    tool_response: okResponse()
   });
 
   // Absent, not null: the field is omitted when there is nothing to say,

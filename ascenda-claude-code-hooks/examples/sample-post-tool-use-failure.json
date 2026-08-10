@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "PostToolUseFailure",
+  "session_id": "captured-session",
+  "cwd": "/repo",
+  "permission_mode": "default",
+  "effort": { "level": "high" },
+  "tool_name": "Bash",
+  "tool_input": { "command": "npm test" },
+  "tool_use_id": "toolu_captured_fail",
+  "duration_ms": 8200,
+  "error": "Exit code 1\nTest Suites: 1 failed, 11 passed",
+  "is_interrupt": false
+}

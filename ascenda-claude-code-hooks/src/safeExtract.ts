@@ -7,5 +7,6 @@ export {
   getNumber,
   getString,
   inferOutcome,
+  outcomeForHook,
   looksLikeCorrection
 } from "@ascenda-one/tool-kit";
