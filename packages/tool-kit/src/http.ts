@@ -46,27 +46,57 @@ export async function renewToolToken(apiBaseUrl: string, eventWriteToken: string
   return (await response.json()) as RenewToolTokenResponse;
 }
 
-export async function postToolEvent(apiBaseUrl: string, eventWriteToken: string, payload: AscendaEventPayload, signal?: AbortSignal): Promise<IngestResult> {
-  const response = await fetch(`${apiBaseUrl}/v1/tool-events`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
-    body: JSON.stringify(payload),
-    signal
-  });
-  return parseIngestResponse(response);
+/**
+ * A verdict plus the evidence for it. The status and error code are carried
+ * out rather than folded into the result because the journal and `doctor` both
+ * need to say *why*, and "auth_failed" alone sends someone re-pairing a tool
+ * whose token was fine.
+ */
+export type IngestOutcome = {
+  result: IngestResult;
+  httpStatus?: number;
+  errorCode?: string;
+  detail?: string;
+};
+
+/** Statuses worth a second attempt: the request never got a real verdict. */
+export function isRetryableStatus(status: number | undefined): boolean {
+  return status === 408 || status === 429 || (status !== undefined && status >= 500 && status <= 599);
 }
 
-export async function postToolEventsBatch(apiBaseUrl: string, eventWriteToken: string, payloads: AscendaEventPayload[]): Promise<IngestResult> {
-  const response = await fetch(`${apiBaseUrl}/v1/tool-events/batch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
-    body: JSON.stringify({ events: payloads })
-  });
-  return parseIngestResponse(response);
+export async function postToolEvent(apiBaseUrl: string, eventWriteToken: string, payload: AscendaEventPayload, signal?: AbortSignal): Promise<IngestOutcome> {
+  return sendIngest(`${apiBaseUrl}/v1/tool-events`, eventWriteToken, JSON.stringify(payload), signal);
 }
 
-export async function parseIngestResponse(response: Response): Promise<IngestResult> {
-  if (response.ok) return "accepted";
+export async function postToolEventsBatch(apiBaseUrl: string, eventWriteToken: string, payloads: AscendaEventPayload[], signal?: AbortSignal): Promise<IngestOutcome> {
+  return sendIngest(`${apiBaseUrl}/v1/tool-events/batch`, eventWriteToken, JSON.stringify({ events: payloads }), signal);
+}
+
+/**
+ * Never throws. A network failure, a DNS failure and a timeout are all
+ * `transport_error` with the cause in `detail` — the caller records it and
+ * moves on, because on the hook path an exception is just silence with extra
+ * steps.
+ */
+async function sendIngest(url: string, eventWriteToken: string, body: string, signal?: AbortSignal): Promise<IngestOutcome> {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
+      body,
+      signal
+    });
+    return parseIngestResponse(response);
+  } catch (error) {
+    return {
+      result: "transport_error",
+      detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    };
+  }
+}
+
+export async function parseIngestResponse(response: Response): Promise<IngestOutcome> {
+  if (response.ok) return { result: "accepted", httpStatus: response.status };
   const body = await response.text();
   let errorCode: string | undefined;
   try {
@@ -74,8 +104,11 @@ export async function parseIngestResponse(response: Response): Promise<IngestRes
   } catch {
     errorCode = undefined;
   }
-  if (response.status === 401) return "auth_failed";
-  if (response.status === 403 && errorCode === "consent_missing_or_expired") return "consent_missing";
-  if (response.status === 400 || response.status === 422) return "validation_failed";
-  throw new AscendaApiError(response.status, errorCode, body);
+  const base = { httpStatus: response.status, errorCode, detail: body || undefined };
+  if (response.status === 401) return { ...base, result: "auth_failed" };
+  if (response.status === 403 && errorCode === "consent_missing_or_expired") return { ...base, result: "consent_missing" };
+  if (response.status === 400 || response.status === 422) return { ...base, result: "validation_failed" };
+  // Everything else — 429, 5xx, a proxy's 502 — used to throw here, which on
+  // the hook path meant the event vanished with no record and no retry.
+  return { ...base, result: "transport_error" };
 }

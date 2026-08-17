@@ -7,6 +7,14 @@ export { getString, getNumber, getNested, getNestedString, getNestedNumber, infe
 export { AscendaEventSender, AscendaSemanticEventError } from "./eventSender";
 export type { EventSenderConfig, MappedEvent, MappedSemanticEvent } from "./eventSender";
 export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export {
+  defaultStateFilePath,
+  readCollectorState,
+  recordSendOutcome,
+  shouldAnnounceFailure,
+  markFailureNotified
+} from "./stateStore";
+export type { CollectorState, OutcomeDetail } from "./stateStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates } from "./liveBus";
 export type { LiveBusEvent, LiveBusSignal, PromptSizeBucket } from "./liveBus";
@@ -17,5 +25,7 @@ export {
   renewToolToken,
   postToolEvent,
   postToolEventsBatch,
-  parseIngestResponse
+  parseIngestResponse,
+  isRetryableStatus
 } from "./http";
+export type { IngestOutcome } from "./http";

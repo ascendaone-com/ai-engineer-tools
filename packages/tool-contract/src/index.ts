@@ -286,7 +286,16 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   scope_change_declared: "neutral"
 };
 
-export type IngestResult = "accepted" | "auth_failed" | "consent_missing" | "validation_failed" | "other";
+/**
+ * `transport_error` covers everything that stopped the event reaching a verdict
+ * — DNS failure, connection reset, timeout, and every HTTP status the ingest
+ * door does not spell out (429, 5xx, a proxy's 502). It exists because the
+ * alternative was a thrown `AscendaApiError`, and on the hook path a throw is
+ * indistinguishable from silence: it unwound to a top-level catch that wrote to
+ * a stderr the host discards. A named outcome can be recorded, retried and
+ * reported; an exception could only be swallowed.
+ */
+export type IngestResult = "accepted" | "auth_failed" | "consent_missing" | "validation_failed" | "transport_error" | "other";
 
 export const ASCENDA_CONSENT_SCOPE: ToolConsentScope = "ide_telemetry";
 export const ASCENDA_PROVENANCE = "ai_work_telemetry";

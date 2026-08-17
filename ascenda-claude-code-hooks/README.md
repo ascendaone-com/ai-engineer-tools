@@ -101,6 +101,8 @@ Optional environment:
 | `ASCENDA_EVENT_WRITE_TOKEN_FILE` | Override token file path (default `~/.ascenda/tokens/<toolInstallationId>`) |
 | `ASCENDA_SESSION_ID` | Stable session id across hooks |
 | `ASCENDA_WORKSPACE_HASH` | Opaque workspace hash if you set one |
+| `ASCENDA_STATE_FILE` | Override the send journal path (default `~/.ascenda/state/<toolInstallationId>.json`) |
+| `ASCENDA_DISABLE_FAILURE_NOTICE` | `true` silences the one-time in-session notice about a collector that has stopped delivering |
 
 On first run the CLI seeds `~/.ascenda/tokens/<toolInstallationId>` so
 **tool-scoped renew** can persist rotated tokens without you editing anything.
@@ -130,11 +132,52 @@ for machine-wide coverage:
 
 ### Verify
 
-Start Claude Code in a project with hooks configured, submit a prompt or run a
-tool, and confirm events reach the backend (or simply that the hook exits `0`).
+```bash
+npx -y @ascenda-one/claude-code-hooks doctor
+```
 
-Exit codes: `3` on auth failure (re-pair), `2` on missing consent (renew in the
-Ascenda app). A telemetry failure never blocks your turn.
+`doctor` prints the installation id, the token's presence and age, the last
+recorded send outcome, and the result of a live round trip against the real
+ingest endpoint. It is the first thing to run when the Ascenda app shows a
+connected tool that is not producing data.
+
+A telemetry failure never blocks your turn: **every hook invocation exits `0`**,
+including one that failed to send. Do not read the exit code — or stderr, which
+Claude Code discards for a hook that exits `0` — as evidence of anything. Read
+the journal instead.
+
+### When the collector stops sending
+
+Every send attempt — success included — is recorded to
+`~/.ascenda/state/<toolInstallationId>.json`:
+
+```json
+{
+  "lastAttemptAt": "2026-08-17T08:05:17.436Z",
+  "lastSuccessAt": "2026-08-17T08:05:04.782Z",
+  "lastOutcome": "auth_failed",
+  "consecutiveFailures": 1,
+  "httpStatus": 401,
+  "errorCode": "invalid_token",
+  "failingSince": "2026-08-17T08:05:17.436Z"
+}
+```
+
+Successes are recorded deliberately. If only failures were written, an absent
+journal would mean both "healthy" and "never ran" — and telling those apart is
+the entire problem. A `lastAttemptAt` that is minutes old with
+`"lastOutcome": "accepted"` is positive evidence of health; one that is hours
+stale means the collector is not running at all, which is a different fault with
+a different fix.
+
+When an installation transitions into a failing state, the next `SessionStart`
+or `PostToolUse` adds **one** line of context to the session naming the cause
+and offering `doctor` and `pair`. It appears once per outage, not once per tool
+call, and never repeats until the collector has recovered and failed again.
+
+`lastSeenAt` in the Ascenda app cannot substitute for any of this: it cannot
+distinguish a dead token from a night's sleep, because both are "no events".
+Only the collector knows it tried and was refused.
 
 ## Build from source
 

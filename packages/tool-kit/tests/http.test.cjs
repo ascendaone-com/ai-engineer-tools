@@ -1,54 +1,76 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { parseIngestResponse, AscendaApiError } = require("../out/index.js");
+const { parseIngestResponse, isRetryableStatus } = require("../out/index.js");
 
 // parseIngestResponse is the single place that decides how every producer reacts
 // to a rejected event: give up, re-pair, drop, or surface. Getting a branch wrong
 // is silent — the tool keeps running and the events stop arriving — so each
 // status the API contract defines is pinned here.
+//
+// It now returns a verdict *and* its evidence rather than a bare string, and it
+// no longer throws. A thrown error on the hook path unwound to a top-level catch
+// that wrote to a stderr the host discards, which is indistinguishable from
+// success; a returned `transport_error` can be journalled, retried and reported.
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 test("2xx is accepted", async () => {
-  assert.equal(await parseIngestResponse(new Response("", { status: 200 })), "accepted");
-  assert.equal(await parseIngestResponse(new Response("", { status: 202 })), "accepted");
+  assert.equal((await parseIngestResponse(new Response("", { status: 200 }))).result, "accepted");
+  assert.equal((await parseIngestResponse(new Response("", { status: 202 }))).result, "accepted");
 });
 
 test("401 is auth_failed — token invalid or revoked, re-pair", async () => {
-  assert.equal(await parseIngestResponse(json(401, { error: "unauthorized" })), "auth_failed");
+  const outcome = await parseIngestResponse(json(401, { error: "unauthorized" }));
+  assert.equal(outcome.result, "auth_failed");
+  assert.equal(outcome.httpStatus, 401);
+  assert.equal(outcome.errorCode, "unauthorized");
 });
 
 test("403 + consent_missing_or_expired is consent_missing, not a hard failure", async () => {
-  const r = json(403, { error: "consent_missing_or_expired" });
-  assert.equal(await parseIngestResponse(r), "consent_missing");
+  assert.equal((await parseIngestResponse(json(403, { error: "consent_missing_or_expired" }))).result, "consent_missing");
 });
 
-test("403 with any other error code throws rather than being mistaken for consent", async () => {
+test("403 with any other error code is a transport_error, never mistaken for consent", async () => {
   // A forbidden-for-some-other-reason must not be swallowed as a consent lapse,
-  // which producers treat as recoverable.
-  await assert.rejects(() => parseIngestResponse(json(403, { error: "forbidden" })), AscendaApiError);
+  // which producers treat as recoverable. It stays distinct — and now carries
+  // the code that says which it was.
+  const outcome = await parseIngestResponse(json(403, { error: "forbidden" }));
+  assert.equal(outcome.result, "transport_error");
+  assert.equal(outcome.errorCode, "forbidden");
 });
 
 test("400 and 422 are validation_failed — the payload is wrong, retrying will not help", async () => {
-  assert.equal(await parseIngestResponse(json(400, { error: "bad_request" })), "validation_failed");
-  assert.equal(await parseIngestResponse(json(422, { error: "unprocessable" })), "validation_failed");
+  assert.equal((await parseIngestResponse(json(400, { error: "bad_request" }))).result, "validation_failed");
+  assert.equal((await parseIngestResponse(json(422, { error: "unprocessable" }))).result, "validation_failed");
 });
 
-test("5xx throws AscendaApiError carrying the status", async () => {
-  await assert.rejects(
-    () => parseIngestResponse(json(500, { error: "server_error" })),
-    (e) => e instanceof AscendaApiError && e.status === 500
-  );
+test("5xx is a transport_error carrying the status, not an exception", async () => {
+  const outcome = await parseIngestResponse(json(500, { error: "server_error" }));
+  assert.equal(outcome.result, "transport_error");
+  assert.equal(outcome.httpStatus, 500);
+  assert.equal(outcome.errorCode, "server_error");
 });
 
 test("a non-JSON error body does not crash the parser", async () => {
   // Gateways and proxies return HTML, not JSON. The errorCode lookup must fail
   // soft, and status-based branches must still work.
   const html = new Response("<html>502 Bad Gateway</html>", { status: 401 });
-  assert.equal(await parseIngestResponse(html), "auth_failed");
-  await assert.rejects(
-    () => parseIngestResponse(new Response("<html>oops</html>", { status: 502 })),
-    AscendaApiError
-  );
+  assert.equal((await parseIngestResponse(html)).result, "auth_failed");
+
+  const gateway = await parseIngestResponse(new Response("<html>oops</html>", { status: 502 }));
+  assert.equal(gateway.result, "transport_error");
+  assert.equal(gateway.httpStatus, 502);
+  assert.equal(gateway.errorCode, undefined);
+});
+
+test("isRetryableStatus covers the no-verdict statuses only", () => {
+  for (const status of [408, 429, 500, 502, 503, 504]) {
+    assert.equal(isRetryableStatus(status), true, `${status} should be retried`);
+  }
+  // A rejection with a verdict must not be retried: replaying it cannot change
+  // the answer and would double every failing event.
+  for (const status of [200, 400, 401, 403, 422]) {
+    assert.equal(isRetryableStatus(status), false, `${status} should not be retried`);
+  }
 });

@@ -40,6 +40,11 @@ async function main(): Promise<void> {
     timeoutMs: config.timeoutMs
   });
 
+  // Every outcome below is also written to the shared send journal at
+  // ~/.ascenda/state/<installationId>.json by the sender itself, so a Codex
+  // collector that stops delivering leaves the same readable trail a Claude
+  // Code one does — including its successes, which is what makes "stale
+  // journal" mean "never ran" rather than "healthy".
   for (const event of mappedEvents) {
     const result = await sender.send(event);
     if (result === "consent_missing") {
@@ -48,6 +53,10 @@ async function main(): Promise<void> {
     }
     if (result === "auth_failed") {
       emitSystemMessage("Ascenda telemetry paused: connection revoked or expired. Re-pair via an Ascenda IDE extension or pairing-sim.");
+      return;
+    }
+    if (result === "transport_error") {
+      emitSystemMessage("Ascenda telemetry paused: the ingest endpoint could not be reached. Your work is unaffected.");
       return;
     }
     if (result !== "accepted") {

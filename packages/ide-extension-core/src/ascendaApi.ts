@@ -31,11 +31,15 @@ export class AscendaApi {
     return renewToolToken(AscendaConfig.apiBaseUrl, eventWriteToken);
   }
 
+  // The transport now returns the status and error code alongside the verdict.
+  // This surface keeps returning the bare verdict because the extension holds
+  // its own token in the editor's SecretStorage and reports through the editor
+  // UI, not the file journal — nothing here consumes the extra fields yet.
   async sendEvent(payload: AscendaEventPayload, eventWriteToken: string): Promise<IngestResult> {
-    return postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload);
+    return (await postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload)).result;
   }
 
   async sendEventsBatch(payloads: AscendaEventPayload[], eventWriteToken: string): Promise<IngestResult> {
-    return postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads);
+    return (await postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads)).result;
   }
 }
