@@ -39,6 +39,23 @@ node ascenda-dev-server/dist/cli.js        # http://localhost:4477
 | **Claude Code hooks** | Pair once (quickstart prints the three `export` lines), register hooks per the [package README](./ascenda-claude-code-hooks/README.md), then use Claude Code normally and watch prompts/tool calls arrive. |
 | **pairing-sim** | `export ASCENDA_API_BASE_URL=http://localhost:4477 ASCENDA_USER_TOKEN=dev` — the mock accepts any bearer, so `e2e`, `list`, `revoke` all work without DevAuth. |
 
+### Without even the dev server
+
+Set `ASCENDA_EVENT_LOG_FILE` and every tool appends what it emits to a JSONL
+file — the exact wire payload plus a `delivery` field recording how it went.
+It needs no server and no pairing (unpaired events log as `not_sent`, an
+unreachable backend as `other`), so it is the shortest path to seeing for
+yourself what a tool actually transmits:
+
+```bash
+export ASCENDA_EVENT_LOG_FILE=~/.ascenda/logs/events.jsonl
+jq -c '[.delivery, .payload.eventType, .payload.metadata]' ~/.ascenda/logs/events.jsonl
+```
+
+The editors take the same setting as `ascenda.eventLogFile` instead: an editor
+is launched from a dock icon with no shell environment, so an env var never
+reaches it. The env var wins when both are set.
+
 ### Things worth trying (the interesting failure modes)
 
 ```bash

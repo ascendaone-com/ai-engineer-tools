@@ -2,7 +2,9 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import {
+  appendEventLog,
   bucketPromptSize,
+  buildEventPayload,
   createPairingSession,
   defaultTokenFilePath,
   emitLiveSignal,
@@ -12,13 +14,14 @@ import {
   markFailureNotified,
   persistEventWriteToken,
   readCollectorState,
+  resolveEventLogPath,
   shouldAnnounceFailure
 } from "@ascenda-one/tool-kit";
 import type { CollectorState, LiveBusEvent } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { loadConfigFromEnv, normalizeToolInstallationId, resolveStateFilePath } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
-import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, isClaudeHookEventName } from "./types.js";
+import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 
 const INTENTION_INVITE =
   "Ascenda tip: if it's natural, you can ask what would make this session " +
@@ -174,9 +177,23 @@ async function main(): Promise<void> {
   // that can fail.
   await emitLive(hookName, input);
 
-  const config = loadConfigFromEnv();
-  const client = new AscendaClient(config);
   const mappedEvents = mapClaudeEvent(hookName, input);
+  if (!mappedEvents.length) return;
+
+  let config;
+  try {
+    config = loadConfigFromEnv();
+  } catch (error) {
+    // With a log file configured, an unpaired install is a supported mode, not
+    // a failure: you can watch exactly what this tool would transmit before
+    // deciding to pair. Without one there is nowhere for the event to go.
+    const logFile = resolveEventLogPath();
+    if (!logFile) throw error;
+    for (const event of mappedEvents) logUnsent(logFile, event);
+    return;
+  }
+
+  const client = new AscendaClient(config);
 
   for (const event of mappedEvents) {
     const result = await client.send(event);
@@ -399,6 +416,23 @@ function describeToken(tokenFilePath: string): string {
   } catch (error) {
     return `unreadable — ${error instanceof Error ? error.message : String(error)}`;
   }
+}
+
+/**
+ * Record an event the opt-in local log should see even though no send was
+ * attempted, because this machine has no pairing.
+ *
+ * The id is a placeholder because there is no pairing to name — `not_sent`
+ * plus this value is what distinguishes these lines from delivered ones.
+ */
+function logUnsent(logFile: string, event: MappedAscendaEvent): void {
+  const payload = buildEventPayload({
+    toolInstallationId: `${ASCENDA_TOOL_TYPE}:unpaired`,
+    source: "claude_code",
+    sessionId: process.env.ASCENDA_SESSION_ID ?? null,
+    workspaceHash: process.env.ASCENDA_WORKSPACE_HASH ?? null
+  }, event);
+  appendEventLog(logFile, { loggedAt: new Date().toISOString(), delivery: "not_sent", payload });
 }
 
 async function readJsonFromStdin(): Promise<ClaudeHookInput> {

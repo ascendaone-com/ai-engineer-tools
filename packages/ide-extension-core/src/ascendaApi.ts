@@ -6,6 +6,7 @@ import {
   RenewToolTokenResponse
 } from "@ascenda-one/tool-contract";
 import {
+  appendEventLog,
   createPairingSession,
   getPairingStatus,
   postToolEvent,
@@ -36,10 +37,33 @@ export class AscendaApi {
   // its own token in the editor's SecretStorage and reports through the editor
   // UI, not the file journal — nothing here consumes the extra fields yet.
   async sendEvent(payload: AscendaEventPayload, eventWriteToken: string): Promise<IngestResult> {
-    return (await postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload)).result;
+    return this.logging([payload], async () => (await postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload)).result);
   }
 
   async sendEventsBatch(payloads: AscendaEventPayload[], eventWriteToken: string): Promise<IngestResult> {
-    return (await postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads)).result;
+    return this.logging(payloads, async () => (await postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads)).result);
+  }
+
+  /**
+   * Mirror to the opt-in local log (ASCENDA_EVENT_LOG_FILE, or the
+   * ascenda.eventLogFile setting). The extension batches, so one HTTP result
+   * covers several payloads — each gets its own line carrying that shared
+   * result. An unreachable backend is logged too: that is when reading the log
+   * is most useful — and it now arrives as `transport_error` rather than as a
+   * thrown error caught by the `other` default, because the transport returns
+   * that outcome instead of throwing.
+   */
+  private async logging(payloads: AscendaEventPayload[], send: () => Promise<IngestResult>): Promise<IngestResult> {
+    const logFile = AscendaConfig.eventLogFile;
+    if (!logFile) return send();
+
+    let delivery: IngestResult = "other";
+    try {
+      delivery = await send();
+      return delivery;
+    } finally {
+      const loggedAt = new Date().toISOString();
+      for (const payload of payloads) appendEventLog(logFile, { loggedAt, delivery, payload });
+    }
   }
 }

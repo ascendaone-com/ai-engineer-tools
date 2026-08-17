@@ -13,6 +13,7 @@ import {
   IngestResult,
   SEMANTIC_WORK_SIGNAL_EVENT_TYPES
 } from "@ascenda-one/tool-contract";
+import { appendEventLog, resolveEventLogPath } from "./eventLog";
 import { IngestOutcome, isRetryableStatus, postToolEvent, renewToolToken } from "./http";
 import { persistEventWriteToken } from "./tokenStore";
 import { CollectorState, defaultStateFilePath, recordSendOutcome } from "./stateStore";
@@ -53,7 +54,43 @@ export type EventSenderConfig = {
   timeoutMs?: number;
   /** Send journal location. Defaults to ~/.ascenda/state/<installationId>.json. */
   stateFilePath?: string;
+  /** Local JSONL sink. Defaults to ASCENDA_EVENT_LOG_FILE; absent means no logging. */
+  eventLogFile?: string | null;
 };
+
+/** Who an event is from. The subset of sender config a payload is built out of. */
+export type EventIdentity = {
+  toolInstallationId: string;
+  source: AscendaTelemetrySource;
+  sessionId?: string | null;
+  workspaceHash?: string | null;
+};
+
+/**
+ * The canonical wire payload for a standard-scope host event. Shared so a
+ * caller that logs an event without sending it records byte-for-byte what a
+ * send would have put on the wire — otherwise the local log slowly stops being
+ * evidence of anything.
+ *
+ * The semantic and collaboration senders build their own payloads: their
+ * consent scope, provenance and severity are properties of what the event is,
+ * and folding them in here would mean an options bag that lets the wrong pair
+ * be passed by accident.
+ */
+export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent): AscendaEventPayload {
+  return {
+    toolInstallationId: identity.toolInstallationId,
+    source: identity.source,
+    occurredAt: new Date().toISOString(),
+    sessionId: identity.sessionId ?? undefined,
+    workspaceHash: identity.workspaceHash ?? undefined,
+    consentScope: ASCENDA_CONSENT_SCOPE,
+    provenance: ASCENDA_PROVENANCE,
+    privacyMode: "metadata_only",
+    ...mapped,
+    metadata: mapped.metadata ?? {}
+  };
+}
 
 /**
  * Applied when a caller sets no `timeoutMs`. Previously the absence of one
@@ -81,19 +118,7 @@ export class AscendaEventSender {
   }
 
   async send(mapped: MappedEvent): Promise<IngestResult> {
-    const payload: AscendaEventPayload = {
-      toolInstallationId: this.config.toolInstallationId,
-      source: this.config.source,
-      occurredAt: new Date().toISOString(),
-      sessionId: this.config.sessionId ?? undefined,
-      workspaceHash: this.config.workspaceHash ?? undefined,
-      consentScope: ASCENDA_CONSENT_SCOPE,
-      provenance: ASCENDA_PROVENANCE,
-      privacyMode: "metadata_only",
-      ...mapped,
-      metadata: mapped.metadata ?? {}
-    };
-    return this.post(payload);
+    return this.post(buildEventPayload(this.config, mapped));
   }
 
   /**
@@ -189,6 +214,10 @@ export class AscendaEventSender {
       errorCode: outcome.errorCode,
       detail: outcome.detail
     });
+    // The two sinks answer different questions and both are written here: the
+    // journal is an always-on summary of whether this collector is healthy, the
+    // event log is an opt-in record of what individual events left the machine.
+    this.log(payload, outcome.result);
     return outcome.result;
   }
 
@@ -230,6 +259,21 @@ export class AscendaEventSender {
   }
 
   /** Never throws: a renewal that errors is a failed renewal, not a failed turn. */
+  /**
+   * Every send path funnels through {@link post}, so semantic and
+   * collaboration signals are logged on the same terms as host events — the
+   * log would be misleading as an audit of what left the machine otherwise.
+   *
+   * An unreachable backend used to be logged as `other` from a catch block.
+   * It is now `transport_error` through the ordinary path, because the
+   * transport returns that outcome instead of throwing.
+   */
+  private log(payload: AscendaEventPayload, delivery: IngestResult): void {
+    const logFile = this.config.eventLogFile === undefined ? resolveEventLogPath() : this.config.eventLogFile;
+    if (!logFile) return;
+    appendEventLog(logFile, { loggedAt: new Date().toISOString(), delivery, payload });
+  }
+
   async renewEventToken(): Promise<boolean> {
     try {
       const renewed = await renewToolToken(this.config.apiBaseUrl, this.eventWriteToken, this.signal());

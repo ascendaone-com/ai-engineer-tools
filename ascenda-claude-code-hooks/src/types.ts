@@ -31,3 +31,4 @@ export type MappedAscendaEvent = Omit<AscendaEventPayload, "toolInstallationId" 
 export type ClaudeHookInput = Record<string, unknown>;
 
 export const ASCENDA_TOOL_TYPE = "claude_code";
+export const CLAUDE_HOST = "claude_code";

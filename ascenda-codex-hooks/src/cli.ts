@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-import { AscendaEventSender } from "@ascenda-one/tool-kit";
-import { loadConfigFromEnv } from "./config.js";
+import { consumeTurnDurationMs, deliverHookEvents, recordTurnStart } from "@ascenda-one/tool-kit";
 import { mapCodexEvent } from "./mapCodexEvent.js";
-import { consumeTurnDurationMs, recordTurnStart } from "./turnState.js";
-import { CodexHookEventName, CodexHookInput } from "./types.js";
+import { ASCENDA_TOOL_TYPE, CODEX_HOST, CodexHookEventName, CodexHookInput } from "./types.js";
 
 /**
  * Codex command hook entry point. Contract with Codex: exit code 2 BLOCKS the
@@ -22,48 +20,21 @@ async function main(): Promise<void> {
   const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
   let turnDurationMs: number | undefined;
-  if (hookName === "UserPromptSubmit") recordTurnStart(sessionId);
-  if (hookName === "Stop") turnDurationMs = consumeTurnDurationMs(sessionId);
+  if (hookName === "UserPromptSubmit") recordTurnStart(CODEX_HOST, sessionId);
+  if (hookName === "Stop") turnDurationMs = consumeTurnDurationMs(CODEX_HOST, sessionId);
 
-  const mappedEvents = mapCodexEvent(hookName, input, turnDurationMs);
-  if (mappedEvents.length === 0) return;
-
-  const config = loadConfigFromEnv(sessionId);
-  const sender = new AscendaEventSender({
-    apiBaseUrl: config.apiBaseUrl,
-    toolInstallationId: config.toolInstallationId,
+  await deliverHookEvents(mapCodexEvent(hookName, input, turnDurationMs), {
+    toolType: ASCENDA_TOOL_TYPE,
     source: "cli_agent",
-    eventWriteToken: config.eventWriteToken,
-    tokenFilePath: config.tokenFilePath,
-    sessionId: config.sessionId,
-    workspaceHash: config.workspaceHash,
-    timeoutMs: config.timeoutMs
+    sessionId,
+    onNotice: emitSystemMessage
   });
-
-  // Every outcome below is also written to the shared send journal at
-  // ~/.ascenda/state/<installationId>.json by the sender itself, so a Codex
-  // collector that stops delivering leaves the same readable trail a Claude
-  // Code one does — including its successes, which is what makes "stale
-  // journal" mean "never ran" rather than "healthy".
-  for (const event of mappedEvents) {
-    const result = await sender.send(event);
-    if (result === "consent_missing") {
-      emitSystemMessage("Ascenda telemetry paused: renew IDE telemetry consent in the Ascenda app.");
-      return;
-    }
-    if (result === "auth_failed") {
-      emitSystemMessage("Ascenda telemetry paused: connection revoked or expired. Re-pair via an Ascenda IDE extension or pairing-sim.");
-      return;
-    }
-    if (result === "transport_error") {
-      emitSystemMessage("Ascenda telemetry paused: the ingest endpoint could not be reached. Your work is unaffected.");
-      return;
-    }
-    if (result !== "accepted") {
-      console.error(`Ascenda telemetry rejected: ${result}`);
-      return;
-    }
-  }
+  // Delivery, including the notices above, is `deliverHookEvents` in tool-kit.
+  // Every outcome it sees is also written to the shared send journal at
+  // ~/.ascenda/state/<installationId>.json by the sender underneath it, so a
+  // Codex collector that stops delivering leaves the same readable trail a
+  // Claude Code one does — successes included, which is what makes a stale
+  // journal mean "never ran" rather than "healthy".
 }
 
 function emitSystemMessage(message: string): void {
