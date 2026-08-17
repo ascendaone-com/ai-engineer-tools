@@ -12,6 +12,14 @@ export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig } from "./h
 export type { CliAgentConfig, HookDeliveryOptions } from "./hookAdapter";
 export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
 export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export {
+  defaultStateFilePath,
+  readCollectorState,
+  recordSendOutcome,
+  shouldAnnounceFailure,
+  markFailureNotified
+} from "./stateStore";
+export type { CollectorState, OutcomeDetail } from "./stateStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates } from "./liveBus";
 export type { LiveBusEvent, LiveBusSignal, PromptSizeBucket } from "./liveBus";
@@ -22,5 +30,7 @@ export {
   renewToolToken,
   postToolEvent,
   postToolEventsBatch,
-  parseIngestResponse
+  parseIngestResponse,
+  isRetryableStatus
 } from "./http";
+export type { IngestOutcome } from "./http";

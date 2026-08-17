@@ -178,16 +178,21 @@ test("semantic signals are logged on the same terms, carrying their own consent 
   }
 });
 
-test("an unreachable backend is logged as 'other' before the error reaches the caller", async () => {
+test("an unreachable backend is logged as transport_error, and no longer throws", async () => {
+  // Previously this threw and was logged as the generic `other`. On the hook
+  // path that throw unwound to a top-level catch which wrote to a stderr the
+  // host discards — indistinguishable from success. It is now a returned
+  // outcome that names the cause, so it can be journalled and retried.
   const dir = tempDir();
   const file = path.join(dir, "events.jsonl");
   const { instance, restore } = sender(file, async () => {
     throw new Error("ECONNREFUSED");
   });
   try {
-    await assert.rejects(() => instance.send({ eventType: "compile_error", severity: "medium" }));
+    const result = await instance.send({ eventType: "compile_error", severity: "medium" });
+    assert.equal(result, "transport_error");
     const [entry] = readLog(file);
-    assert.equal(entry.delivery, "other");
+    assert.equal(entry.delivery, "transport_error");
     assert.equal(entry.payload.eventType, "compile_error");
   } finally {
     restore();

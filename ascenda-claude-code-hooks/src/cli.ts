@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
 import {
   appendEventLog,
   bucketPromptSize,
@@ -10,14 +11,17 @@ import {
   getPairingStatus,
   getString,
   getNestedString,
+  markFailureNotified,
   persistEventWriteToken,
-  resolveEventLogPath
+  readCollectorState,
+  resolveEventLogPath,
+  shouldAnnounceFailure
 } from "@ascenda-one/tool-kit";
-import type { LiveBusEvent } from "@ascenda-one/tool-kit";
+import type { CollectorState, LiveBusEvent } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
-import { loadConfigFromEnv } from "./config.js";
+import { loadConfigFromEnv, normalizeToolInstallationId, resolveStateFilePath } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
-import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
+import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 
 const INTENTION_INVITE =
   "Ascenda tip: if it's natural, you can ask what would make this session " +
@@ -68,7 +72,7 @@ async function runPair(): Promise<void> {
 
   const session = await createPairingSession(apiBaseUrl, toolInstallationId, toolType, toolType === ASCENDA_TOOL_TYPE ? "Claude Code" : toolType);
   const code = session.deviceCode ?? session.code;
-  process.stdout.write(
+  await writeStdout(
     `\nPairing code: ${code}\n\n` +
     `In the Ascenda app: Connections -> Ingest telemetry -> paste the code -> Pair tool.\n` +
     `Waiting for confirmation (expires ${session.expiresAt})...\n\n`
@@ -94,7 +98,7 @@ async function runPair(): Promise<void> {
     }
     const tokenFilePath = defaultTokenFilePath(pairedId);
     persistEventWriteToken(tokenFilePath, status.eventWriteToken);
-    process.stdout.write(
+    await writeStdout(
       `Paired. Write token saved to ${tokenFilePath}\n\n` +
       `One step left — add this to your shell profile (~/.zshrc), then restart Claude Code:\n\n` +
       `  export ASCENDA_TOOL_INSTALLATION_ID="${pairedId}"\n\n`
@@ -106,34 +110,62 @@ async function runPair(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const hookName = process.argv[2] as ClaudeHookEventName | "pair" | undefined;
-  if (!hookName) throw new Error("Usage: ascenda-claude-hook <ClaudeHookEventName> | pair");
+  const command = process.argv[2];
+  if (!command) throw new Error("Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | doctor");
 
-  // Before the stdin read below — `pair` is interactive-ish and has no hook
-  // payload; reading stdin first would hang it forever.
-  if (hookName === "pair") {
+  // Both of these run before the stdin read below, and must stay there: they
+  // carry no hook payload, so reading stdin first hangs them forever on a pipe
+  // nothing will ever write to.
+  if (command === "pair") {
     await runPair();
     return;
   }
+  if (command === "doctor") {
+    await runDoctor();
+    return;
+  }
+  if (!isClaudeHookEventName(command)) {
+    throw new Error(`Unknown command "${command}". Expected a Claude Code hook name, "pair" or "doctor".`);
+  }
+  const hookName: ClaudeHookEventName = command;
 
   const input = await readJsonFromStdin();
 
+  // Everything that can put a line in front of the user is composed here and
+  // written exactly once, below. Claude Code parses this hook's stdout as a
+  // single JSON document, so two writes would produce `{...}{...}` and lose
+  // *both* messages — which is how a fix for a silent-failure bug could
+  // silently break the invites it shares a channel with.
+  const contextParts: string[] = [];
+
   // Local, network-independent, and unconditional on pairing state: a
   // broken pairing (or the network being down) must not silently suppress
-  // this too, so it happens before anything that can fail below.
+  // this too, so it is decided before anything that can fail below.
   if (hookName === "SessionStart" && isNewSessionStart(input) && process.env.ASCENDA_DISABLE_INTENTION_INVITE !== "true") {
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: INTENTION_INVITE }
-    }));
+    contextParts.push(INTENTION_INVITE);
   }
 
   // Same placement and the same reasoning as the intention invite above: local,
   // network-independent, and before anything that can fail, so a broken pairing
   // never silently costs the user the prompt.
   if (hookName === "PostToolUse" && milestoneInviting(input) && process.env.ASCENDA_DISABLE_MILESTONE_DEBRIEF !== "true") {
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: MILESTONE_DEBRIEF_INVITE }
+    contextParts.push(MILESTONE_DEBRIEF_INVITE);
+  }
+
+  // Read from the journal rather than from this process's own send, which has
+  // not happened yet. That costs the notice one hook invocation — irrelevant
+  // against an outage measured in hours, and it buys the fail-safe ordering
+  // above: a local file read that cannot throw, decided before the network.
+  const pending = pendingFailureNotice(hookName);
+  if (pending) contextParts.push(pending.text);
+
+  if (contextParts.length > 0) {
+    await writeStdout(JSON.stringify({
+      hookSpecificOutput: { hookEventName: hookName, additionalContext: contextParts.join("\n\n") }
     }));
+    // Only after the write has actually flushed: a notice recorded as
+    // delivered but lost to a truncated pipe is the same bug again.
+    if (pending) markFailureNotified(pending.stateFilePath, pending.state);
   }
 
   // The live presence bus — deliberately above `loadConfigFromEnv()`, which
@@ -165,19 +197,23 @@ async function main(): Promise<void> {
 
   for (const event of mappedEvents) {
     const result = await client.send(event);
-    if (result === "consent_missing") {
-      console.error("Ascenda telemetry rejected: renew IDE telemetry consent in the Ascenda app.");
-      return;
-    }
-    if (result === "auth_failed") {
-      console.error("Ascenda telemetry rejected: event write token invalid or revoked. Re-pair via the VS Code/Cursor extension.");
-      return;
-    }
-    if (result !== "accepted") {
-      console.error(`Ascenda telemetry rejected: ${result}`);
-      return;
-    }
+    if (result === "accepted") continue;
+
+    // Kept for `doctor` and for anyone running the hook by hand — but never
+    // relied upon. Claude Code discards a hook's stderr when it exits 0, and
+    // this process always exits 0 by design, so nothing written here reaches
+    // the user. The durable record is the journal the send just wrote; the
+    // user-facing channel is the notice composed above.
+    console.error(explainRejection(result));
+    return;
   }
+}
+
+function explainRejection(result: IngestResult): string {
+  if (result === "consent_missing") return "Ascenda telemetry rejected: renew IDE telemetry consent in the Ascenda app.";
+  if (result === "auth_failed") return "Ascenda telemetry rejected: event write token invalid or revoked. Re-pair with `npx @ascenda-one/claude-code-hooks pair`.";
+  if (result === "transport_error") return "Ascenda telemetry not delivered: the ingest endpoint could not be reached.";
+  return `Ascenda telemetry rejected: ${result}`;
 }
 
 /**
@@ -240,6 +276,152 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
 }
 
 /**
+ * The one-time notice for a collector that is failing right now.
+ *
+ * This is the only channel that reaches a person while they work — stderr is
+ * discarded at exit 0, and `lastSeenAt` in the app cannot tell a dead token
+ * from a night's sleep. It is deliberately kept to the Gentle Path: state the
+ * fact, name the remedy, and say it once. `notifiedFailingSince` is what makes
+ * "once" true — it is stamped with the episode, not the attempt, so several
+ * hundred failing tool calls produce exactly one line.
+ *
+ * Restricted to the two hooks whose payload Claude Code reads back as context.
+ * `SessionStart` is what makes an overnight outage visible: the notice waits in
+ * the journal and lands at the top of the next session.
+ */
+function pendingFailureNotice(hookName: ClaudeHookEventName): { text: string; state: CollectorState; stateFilePath: string } | undefined {
+  if (hookName !== "SessionStart" && hookName !== "PostToolUse") return undefined;
+  if (process.env.ASCENDA_DISABLE_FAILURE_NOTICE === "true") return undefined;
+
+  const rawId = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim();
+  if (!rawId) return undefined;
+
+  const stateFilePath = resolveStateFilePath(normalizeToolInstallationId(rawId));
+  const state = readCollectorState(stateFilePath);
+  if (!shouldAnnounceFailure(state) || !state) return undefined;
+
+  const since = state.lastSuccessAt ? `since ${state.lastSuccessAt}` : "and has never succeeded on this machine";
+  return {
+    text:
+      `Ascenda note: work telemetry has not been reaching Ascenda ${since} ` +
+      `(${describeOutcome(state)}). Your work is unaffected and nothing was lost from this session. ` +
+      `Run \`npx @ascenda-one/claude-code-hooks doctor\` for details, or ` +
+      `\`npx @ascenda-one/claude-code-hooks pair\` to reconnect. This note appears once.`,
+    state,
+    stateFilePath
+  };
+}
+
+function describeOutcome(state: CollectorState): string {
+  // The caller already wraps this in parentheses, so the status is joined with
+  // a comma rather than nested brackets.
+  const status = state.httpStatus ? `, HTTP ${state.httpStatus}` : "";
+  switch (state.lastOutcome) {
+    case "auth_failed": return `the write token was rejected${status}`;
+    case "consent_missing": return `the telemetry consent lease has lapsed${status}`;
+    case "validation_failed": return `the events were refused as invalid${status}`;
+    case "transport_error": return `the ingest endpoint could not be reached${status}`;
+    default: return `last outcome ${state.lastOutcome}${status}`;
+  }
+}
+
+/**
+ * Resolves only once the bytes have left this process.
+ *
+ * `main()` ends in `process.exit(0)`, which does not wait for a pending write
+ * to a pipe — and this hook's stdout is always a pipe. An un-awaited write here
+ * could be truncated to nothing, taking the session's context injection with
+ * it, intermittently and with no error anywhere.
+ */
+function writeStdout(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    process.stdout.write(text, () => resolve());
+  });
+}
+
+/**
+ * What we needed on 17 Aug 2026 and had to reconstruct by reading `dist/`.
+ *
+ * Answers the four questions a stalled collector raises, in order: who am I,
+ * do I hold a credential, what happened last time I tried, and does it work
+ * right now. The last one is a real send rather than a reachability ping —
+ * a `/health` that returns 200 while ingest 403s is exactly the reassurance
+ * that made this bug expensive.
+ */
+async function runDoctor(): Promise<void> {
+  const lines: string[] = ["Ascenda collector doctor", ""];
+  const rawId = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim();
+  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
+
+  lines.push(`  API base URL          ${apiBaseUrl}`);
+  lines.push(`  Installation id       ${rawId || "(unset — ASCENDA_TOOL_INSTALLATION_ID is empty)"}`);
+
+  if (!rawId) {
+    lines.push("", "  Not paired on this machine. Run:", "    npx @ascenda-one/claude-code-hooks pair");
+    await writeStdout(`${lines.join("\n")}\n`);
+    return;
+  }
+
+  const toolInstallationId = normalizeToolInstallationId(rawId);
+  const tokenFilePath = process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(toolInstallationId);
+  lines.push(`  Token file            ${tokenFilePath}`);
+  lines.push(`  Token                 ${describeToken(tokenFilePath)}`);
+
+  const stateFilePath = resolveStateFilePath(toolInstallationId);
+  lines.push(`  Journal               ${stateFilePath}`);
+  const state = readCollectorState(stateFilePath);
+  if (!state) {
+    // Now a distinguishable state rather than an ambiguous silence: no journal
+    // means no send was ever attempted by a build that writes one.
+    lines.push("  Last outcome          (no journal yet — no send attempted since this version was installed)");
+  } else {
+    lines.push(`  Last attempt          ${state.lastAttemptAt}`);
+    lines.push(`  Last success          ${state.lastSuccessAt ?? "never"}`);
+    lines.push(`  Last outcome          ${state.lastOutcome}${state.httpStatus ? ` (HTTP ${state.httpStatus})` : ""}`);
+    if (state.errorCode) lines.push(`  Error code            ${state.errorCode}`);
+    if (state.detail) lines.push(`  Detail                ${state.detail}`);
+    lines.push(`  Consecutive failures  ${state.consecutiveFailures}`);
+    if (state.failingSince) lines.push(`  Failing since         ${state.failingSince}`);
+  }
+
+  lines.push("", "  Live round trip...");
+  lines.push(`  ${await liveRoundTrip()}`);
+  await writeStdout(`${lines.join("\n")}\n`);
+}
+
+async function liveRoundTrip(): Promise<string> {
+  let config;
+  try {
+    config = loadConfigFromEnv();
+  } catch (error) {
+    return `skipped — ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  // A real, low-severity event through the real sender: same endpoint, same
+  // token, same consent scope as every hook. Anything narrower can pass while
+  // the path that matters fails.
+  const result = await new AscendaClient(config).send({ eventType: "editor_activity", severity: "low", metadata: {} });
+  if (result === "accepted") return "OK — event accepted by the ingest endpoint.";
+  return `FAILED — ${explainRejection(result)}`;
+}
+
+function describeToken(tokenFilePath: string): string {
+  try {
+    if (!fs.existsSync(tokenFilePath)) {
+      return process.env.ASCENDA_EVENT_WRITE_TOKEN ? "from ASCENDA_EVENT_WRITE_TOKEN (no file)" : "MISSING — run `pair`";
+    }
+    const stat = fs.statSync(tokenFilePath);
+    const ageDays = Math.floor((Date.now() - stat.mtimeMs) / 86_400_000);
+    return `present, last written ${stat.mtime.toISOString()} (${ageDays}d ago)`;
+  } catch (error) {
+    return `unreadable — ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/**
+ * Record an event the opt-in local log should see even though no send was
+ * attempted, because this machine has no pairing.
+ *
  * The id is a placeholder because there is no pairing to name — `not_sent`
  * plus this value is what distinguishes these lines from delivered ones.
  */
@@ -269,11 +451,15 @@ async function readJsonFromStdin(): Promise<ClaudeHookInput> {
 
 main()
   .catch((error) => {
-    // Never exit non-zero: Claude Code treats exit 2 as a blocking error and
-    // feeds stderr back to the model, and any other non-zero code surfaces in
-    // the user's transcript. Failing to report telemetry is not a failure of
-    // the user's work, so problems are printed to stderr and swallowed.
-    // `ascenda doctor` (installer M2) is the place to diagnose them.
+    // Never exit non-zero *on a hook path*: Claude Code treats exit 2 as a
+    // blocking error and feeds stderr back to the model, and any other non-zero
+    // code surfaces in the user's transcript. Failing to report telemetry is not
+    // a failure of the user's work, so problems are journalled and swallowed.
+    // `doctor` is the place to diagnose them.
     console.error(error instanceof Error ? error.message : String(error));
   })
-  .finally(() => process.exit(0));
+  // Reads `exitCode` rather than forcing 0, so `pair` can still report that it
+  // timed out or was declined — it is a command a person runs and reads, not a
+  // hook, and it previously set an exit code that this line discarded. No hook
+  // path sets `exitCode`, so their guarantee is unchanged.
+  .finally(() => process.exit(process.exitCode ?? 0));
