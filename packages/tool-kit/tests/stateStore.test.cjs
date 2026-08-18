@@ -127,7 +127,37 @@ test("detail is collapsed and bounded", () => {
 });
 
 test("defaultStateFilePath lives under ~/.ascenda/state and sanitises the id", () => {
-  const p = defaultStateFilePath("claude_code:abc-123");
-  assert.ok(p.includes(path.join(".ascenda", "state")));
-  assert.equal(path.basename(p), "claude_code_abc-123.json");
+  const previous = process.env.ASCENDA_STATE_DIR;
+  delete process.env.ASCENDA_STATE_DIR;
+  try {
+    const p = defaultStateFilePath("claude_code:abc-123");
+    assert.ok(p.includes(path.join(".ascenda", "state")));
+    assert.equal(path.basename(p), "claude_code_abc-123.json");
+  } finally {
+    if (previous !== undefined) process.env.ASCENDA_STATE_DIR = previous;
+  }
+});
+
+test("ASCENDA_STATE_DIR redirects the journal away from the real home", () => {
+  // Guards a defect found on 18 Aug 2026: suites that build a sender without an
+  // explicit stateFilePath wrote `claude_code_abc123.json` and
+  // `claude_code_test-tool.json` into the developer's actual ~/.ascenda/state,
+  // where `doctor` then reported them as real paired installations. A test run
+  // must never be able to fabricate a pairing on the machine running it.
+  const previous = process.env.ASCENDA_STATE_DIR;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-state-dir-"));
+  process.env.ASCENDA_STATE_DIR = dir;
+  try {
+    const p = defaultStateFilePath("claude_code:abc-123");
+    assert.equal(p, path.join(dir, "claude_code_abc-123.json"));
+    assert.ok(!p.includes(os.homedir()));
+
+    // And the override must survive an actual write, not just path arithmetic.
+    recordSendOutcome(p, "claude_code:abc-123", "accepted", { httpStatus: 200 });
+    assert.equal(readCollectorState(p).lastOutcome, "accepted");
+  } finally {
+    if (previous === undefined) delete process.env.ASCENDA_STATE_DIR;
+    else process.env.ASCENDA_STATE_DIR = previous;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
