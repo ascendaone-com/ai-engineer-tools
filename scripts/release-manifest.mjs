@@ -10,7 +10,8 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { minNode, normaliseVersion, REPO_ROOT } from "./release-artifacts.mjs";
+import { fileURLToPath } from "node:url";
+import { compatibility, minNode, normaliseVersion, REPO_ROOT } from "./release-artifacts.mjs";
 
 export const MANIFEST_NAME = "manifest.json";
 
@@ -43,6 +44,10 @@ export function buildManifest({ tag, dir, repo, root = REPO_ROOT }) {
   return {
     version,
     minNode: minNode(root),
+    // Declared floors travel with the release so a consumer that can never see
+    // this repo — doctor on a user's laptop, the Sparkle appcast, the app —
+    // reads them from the same signed document it already trusts for artifacts.
+    compatibility: compatibility(root),
     artifacts: files.map((name) => ({
       name,
       url: `https://github.com/${repo}/releases/download/v${version}/${name}`,
@@ -70,6 +75,10 @@ function main(argv) {
   console.error(`wrote ${out} (${manifest.artifacts.length} artifacts, minNode ${manifest.minNode})`);
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// fileURLToPath, not a `file://${argv[1]}` template: import.meta.url
+// percent-encodes, so a checkout path containing a space makes this comparison
+// silently false and the script exits 0 having done nothing — a stamp or a
+// manifest that never ran, reported as success.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main(process.argv.slice(2));
 }

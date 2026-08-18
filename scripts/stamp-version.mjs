@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { normaliseVersion, RELEASE_PACKAGES, REPO_ROOT } from "./release-artifacts.mjs";
 
 /** Package.json paths a release stamps: the root plus every shipped tool. */
@@ -59,6 +60,10 @@ function main(argv) {
   console.error(check ? `all versions match ${tag}` : `stamped ${normaliseVersion(tag)} into ${changed.length} file(s)`);
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// fileURLToPath, not a `file://${argv[1]}` template: import.meta.url
+// percent-encodes, so a checkout path containing a space makes this comparison
+// silently false and the script exits 0 having done nothing — a stamp or a
+// manifest that never ran, reported as success.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main(process.argv.slice(2));
 }
