@@ -38,7 +38,8 @@ export type ToolConsentScope =
   | "ide_telemetry"
   | "workflow_telemetry"
   | "subjective_checkins"
-  | "semantic_work_signals"; // content-derived classification, own opt-in, default off
+  | "semantic_work_signals"  // content-derived classification, own opt-in, default off
+  | "historical_import";     // retrospective backfill of the past, own opt-in, default off
 
 export type WorkloadCategory =
   | "creation"
@@ -136,16 +137,17 @@ export interface ToolEventBatchRequest {
 }
 
 export interface ToolEventAcceptedResponse {
-  status: "accepted";
+  status: "accepted" | "duplicate";  // duplicate: already imported, nothing written
 }
 
 export interface ToolEventBatchResponse {
   accepted: number;
+  duplicate: number;                 // already imported; neither stored nor failed
   rejected: number;
   results: Array<{
     index: number;
-    status: "accepted" | "rejected";
-    reason?: string;
+    status: "accepted" | "duplicate" | "rejected";
+    reason?: string;                 // "already_imported" for duplicates
   }>;
 }
 
@@ -357,6 +359,15 @@ Scope mapping:
 - `ide_telemetry` -> `AiDataProcessing`
 - `workflow_telemetry` -> `DataSharing`
 - `subjective_checkins` -> `WeeklyCheckins`
+- `semantic_work_signals` -> `SemanticWorkSignals`
+- `historical_import` -> `HistoricalImport`
+
+**Provenance overrides the claimed scope for retrospective events.** An event
+whose `provenance` is `historical_direct`, `historical_derived` or
+`historical_unparsed` requires an active `HistoricalImport` lease whatever
+`consentScope` it sends — an unrecognised scope otherwise falls back to
+`AiDataProcessing`, which would let a backfill ride in on live-telemetry
+consent. Neither lease implies the other, and pairing grants neither.
 
 Source fallback mapping examples:
 
@@ -387,6 +398,29 @@ Semantic event rules (the six `*_detected`/`*_declared`/`progress_*` types):
 - `metadata.skillVersion` is required. Planned backend behavior: reject with `validation_failed` if absent (tracked with B4; not yet implemented server-side as of this revision).
 - `severity` must be `"low"`. The emitter has no baseline to judge against; any elevated reading comes from the backend's own evaluation, never the payload.
 - `metadata.taskFingerprint`, when present, must be a hash — never raw task text.
+
+Retrospective import rules (events with a `historical_*` provenance):
+
+- `provenance` must be `historical_direct`, `historical_derived` or
+  `historical_unparsed` — exact match, not a prefix rule. Anything else is
+  ordinary telemetry, gated the ordinary way.
+- `consentScope` must be `"historical_import"`, and an active `HistoricalImport`
+  lease is required regardless of what the field says (see Consent Lease
+  Enforcement). Pairing does not grant it.
+- `metadata.importKey` is **required**: the stable reference to the source record
+  the event was reconstructed from, identical on every re-run over the same
+  records. Absent or blank → `validation_failed`; longer than 128 chars →
+  `validation_failed` (truncating would break dedup in both directions).
+- Ingest dedups on `(pairedUser, toolInstallation, importKey)`. A replay answers
+  `duplicate` and writes nothing. It dedups on that key **alone** — not on
+  `(extractionId, importKey)`, since an extraction id is fresh per run and would
+  make every key unique. A re-run with a new `extractionId` over the same source
+  records therefore still dedups.
+- `metadata.extractionId` is provenance, not identity. The first run's value stays
+  on the stored event; a replay does not restamp it.
+- Backdated events never fire moment triggers.
+- Non-historical events may also send `importKey` to get idempotent retries; dedup
+  keys off the key, the consent gate off the provenance, independently.
 
 ## Revocation Behavior
 

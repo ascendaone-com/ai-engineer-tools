@@ -59,13 +59,41 @@ are tool-result round-trips that would have inflated every prompt metric ~13x.
 
 ## Gaps that block a real user running this twice
 
-- **Consent scope.** `historical_import` is not yet in tool-contract's
-  `ToolConsentScope`, and backend ingestion doesn't know it. Retrospective
-  consent is not `ide_telemetry`; add the scope to the contract and enforce
-  it at ingest before first real use.
-- **Idempotency.** asc-core-be's `tool-events/batch` accepts backdated
-  `occurredAt` today but has no dedup — a re-run doubles the baseline. Dedup
-  key: `extractionId` + source record ref.
+Both blockers closed 19 Aug 2026 (asc-core-be branch
+`claude/historical-import-dedup-and-consent`). What they became:
+
+- **Consent scope — closed.** `historical_import` is a real
+  `ToolConsentScope`, backed by `ConsentType.HistoricalImport` (507), and
+  ingestion enforces it. Enforcement keys on the event's **provenance**, not
+  on the scope string it sends: any of the three `historical_*` classes
+  requires an active historical-import lease, so a client that keeps claiming
+  `ide_telemetry` over backdated events is rejected rather than waved through
+  to the default consent type. Nothing grants the lease at pairing — a paired
+  tool has consent to watch you from now on, never to read backwards.
+- **Idempotency — closed.** `(pairedUser, toolInstallation, importKey)` is
+  unique in the database, checked before insert and enforced by a partial
+  unique index for the concurrent case. A replayed event answers `duplicate`,
+  writes nothing at all (not the event, not `lastSeenAt`, not an audit row),
+  and the batch response counts duplicates apart from both accepted and
+  rejected. `importKey` is now **required** on any historical event.
+
+  **The dedup key is the source record ref alone — not `extractionId` + ref,
+  as this list originally said.** An extraction id is minted per run, so
+  including it would make every key unique and dedup nothing, which is exactly
+  the case a re-run is. The source record is the stable identity, so it is the
+  whole key; a re-run with a fresh `extractionId` over the same records
+  therefore still dedups, and the first run's extraction stays on record.
+  Pinned by `HistoricalImportIngestTests` in asc-core-be.
+
+Still open, and worth knowing before trusting a second run completely:
+
+- **`importKey` includes a global `ordinal`.** It is the event's index in the
+  whole shipped array, so a later run over a *shrunken* store — Claude Code's
+  30-day purge having eaten the oldest days — shifts every subsequent ordinal
+  and re-keys records that have not changed. Those re-key as new events and
+  land twice. Same-store re-runs are safe; re-running after a purge is not
+  fully. The fix is a per-`(store, sessionRef)` ordinal in `importKeyOf`,
+  here, not in the backend.
 - **Epoch markers** (Copilot→Cursor→Claude eras, Ascenda install) are not yet
   event types anywhere.
 

@@ -14,9 +14,19 @@
  *   import and a shrug.
  * - **Stable `importKey` per event.** sha256 over
  *   (store|sessionRef|eventKind|occurredAt|ordinal) — identical on every
- *   re-run of the same store. The backend has no dedup yet; when it grows
- *   one, this key is what it dedups on, and until then a re-run can at least
- *   be detected after the fact.
+ *   re-run of the same store. Since 19 Aug 2026 this is what the backend
+ *   dedups on: `(pairedUser, toolInstallation, importKey)` is unique, a
+ *   replayed event is reported as `duplicate` and writes nothing, and the
+ *   key is *required* on anything carrying a historical provenance. Note it
+ *   dedups on this key alone, NOT on `(extractionId, importKey)` — an
+ *   extraction id is fresh per run, so including it would dedup nothing.
+ *
+ *   The one soft spot is `ordinal`: it is the event's index in the whole
+ *   shipped array, so if a later run extracts a different *set* — Claude
+ *   Code's 30-day purge having eaten the oldest days, say — the ordinals
+ *   shift and the same source record hashes differently. Re-running over a
+ *   shrunken store can therefore still double the overlap. Fixing that means
+ *   a per-(store, session) ordinal here, not a backend change.
  * - **Raw local refs are hashed at the wire, not before.** The normalized
  *   file in staging keeps the real cwd (local, never leaves the machine);
  *   `workspaceHash`/`projectHash` go out as the same machine-salted 16-hex
@@ -99,11 +109,12 @@ export function toWirePayload(
     sessionId: event.sessionRef,
     workspaceHash,
     projectHash: workspaceHash,
-    // Not yet a contract ToolConsentScope — the backend maps unknown scopes
-    // to its default consent type today and stores the scope string verbatim,
-    // which is exactly the seam a dedicated retrospective consent will
-    // tighten. Deliberate, documented in the README gap list.
-    consentScope: HISTORICAL_CONSENT_SCOPE as AscendaEventPayload["consentScope"],
+    // A real contract ToolConsentScope now, and a real gate: the backend
+    // requires an active historical-import consent lease for anything carrying
+    // one of the provenance classes below, and decides that on the provenance
+    // rather than on this string — sending `ide_telemetry` here would not buy
+    // the event a way in.
+    consentScope: HISTORICAL_CONSENT_SCOPE,
     provenance: event.provenance,
     privacyMode: "metadata_only",
     metadata
@@ -113,6 +124,15 @@ export function toWirePayload(
 export interface ShipResult {
   sent: number;
   accepted: number;
+  /**
+   * Events the backend already held for this installation — a re-run over
+   * source records it has seen before. Neither accepted nor rejected: nothing
+   * was stored and nothing failed. Counted separately because the two wrong
+   * answers are both actively misleading. Folding these into `accepted` would
+   * tell someone their second run added another 8,720 events to their
+   * baseline; folding them into `rejected` would tell them their import broke.
+   */
+  duplicate: number;
   rejected: number;
   /** reason -> count, from the batch response's per-item results. */
   rejectionReasons: Record<string, number>;
@@ -129,6 +149,7 @@ export async function shipEvents(
   const result: ShipResult = {
     sent: 0,
     accepted: 0,
+    duplicate: 0,
     rejected: 0,
     rejectionReasons: {},
     httpFailures: 0
@@ -164,13 +185,17 @@ export async function shipEvents(
     try {
       const body = (await response.json()) as {
         accepted?: number;
+        duplicate?: number;
         rejected?: number;
         results?: { status?: string; reason?: string }[];
       };
       result.accepted += body.accepted ?? 0;
+      result.duplicate += body.duplicate ?? 0;
       result.rejected += body.rejected ?? 0;
       for (const item of body.results ?? []) {
-        if (item.status !== "accepted") {
+        // Duplicates have their own counter; bucketing them as rejection
+        // reasons too would report the same events twice under two headings.
+        if (item.status !== "accepted" && item.status !== "duplicate") {
           const reason = item.reason ?? "unknown";
           result.rejectionReasons[reason] = (result.rejectionReasons[reason] ?? 0) + 1;
         }

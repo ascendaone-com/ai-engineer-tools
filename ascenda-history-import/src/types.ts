@@ -7,6 +7,7 @@
  * carried as data on every event so downstream charts can render HISTORICAL
  * bars distinctly from LIVE ones.
  */
+import { ASCENDA_HISTORICAL_CONSENT_SCOPE } from "@ascenda-one/tool-contract";
 import type { AscendaTelemetrySource } from "@ascenda-one/tool-contract";
 
 /** The stores this importer knows how to read. Ordered by evaporation risk:
@@ -43,14 +44,16 @@ export type HistoricalProvenance =
   (typeof HISTORICAL_PROVENANCE)[keyof typeof HISTORICAL_PROVENANCE];
 
 /**
- * The consent scope imported events must carry. Deliberately NOT one of
- * tool-contract's `ToolConsentScope` values yet: consenting to prospective
- * `ide_telemetry` is not consenting to a read of nine months of history, so
- * this scope must be added to the contract AND enforced by backend ingestion
- * before the first real import runs. Typed as plain string until then so the
- * gap stays visible rather than silently widening the union here.
+ * The consent scope imported events must carry. Now a real
+ * `ToolConsentScope` (re-exported from tool-contract rather than restated
+ * here, so the two cannot drift): consenting to prospective `ide_telemetry`
+ * is not consenting to a read of nine months of history, and since
+ * 19 Aug 2026 the backend agrees — ingestion requires an active
+ * `ConsentType.HistoricalImport` lease for any event carrying one of the
+ * provenance classes above, and rejects it otherwise no matter which scope
+ * string the event claims.
  */
-export const HISTORICAL_CONSENT_SCOPE = "historical_import";
+export const HISTORICAL_CONSENT_SCOPE = ASCENDA_HISTORICAL_CONSENT_SCOPE;
 
 /** What `scan` reports per store — the inventory the onboarding surface shows
  * the user before asking for consent. Everything here is countable without

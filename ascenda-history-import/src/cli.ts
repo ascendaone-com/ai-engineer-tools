@@ -207,12 +207,23 @@ async function main(): Promise<number> {
       });
       process.stdout.write("\n");
       process.stdout.write(
-        `shipped: sent=${result.sent} accepted=${result.accepted} rejected=${result.rejected} httpFailures=${result.httpFailures}\n`
+        `shipped: sent=${result.sent} accepted=${result.accepted} duplicate=${result.duplicate} rejected=${result.rejected} httpFailures=${result.httpFailures}\n`
       );
+      if (result.duplicate > 0) {
+        process.stdout.write(
+          `  ${result.duplicate.toLocaleString("en-US")} already imported — the backend kept its existing copy and stored nothing new.\n`
+        );
+      }
       for (const [reason, n] of Object.entries(result.rejectionReasons)) {
         process.stdout.write(`  rejected ${reason}: ${n}\n`);
       }
-      return result.accepted > 0 && result.rejected === 0 && result.httpFailures === 0 ? 0 : 1;
+      // A re-run over records the backend already holds is a success, not a
+      // failure: everything the user asked to be there is there. Gating the exit
+      // code on `accepted > 0` alone would make the second run of a working
+      // importer report failure precisely because dedup did its job.
+      return result.accepted + result.duplicate > 0 && result.rejected === 0 && result.httpFailures === 0
+        ? 0
+        : 1;
     }
     case "fix-retention": {
       const plan = await planClaudeRetentionFix(paths);
