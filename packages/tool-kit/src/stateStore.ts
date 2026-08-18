@@ -50,9 +50,21 @@ export type CollectorState = {
   notifiedFailingSince?: string;
 };
 
-/** Default location: ~/.ascenda/state/<toolInstallationId>.json */
+/**
+ * Default location: `~/.ascenda/state/<toolInstallationId>.json`, or
+ * `$ASCENDA_STATE_DIR/<toolInstallationId>.json` when that is set.
+ *
+ * The override exists because the journal is the one part of this package that
+ * writes outside its own process on a path nobody passes explicitly — a caller
+ * that omits `stateFilePath` silently lands in the developer's real `$HOME`.
+ * That is wrong in three places at once: a test suite leaves fixtures behind
+ * that `doctor` then reports as real installations, CI writes into a shared
+ * home, and a sandboxed host may have no writable `$HOME` at all.
+ */
 export function defaultStateFilePath(toolInstallationId: string): string {
-  return path.join(os.homedir(), ".ascenda", "state", `${sanitizeFilePart(toolInstallationId)}.json`);
+  const dir = process.env.ASCENDA_STATE_DIR?.trim();
+  const base = dir ? dir : path.join(os.homedir(), ".ascenda", "state");
+  return path.join(base, `${sanitizeFilePart(toolInstallationId)}.json`);
 }
 
 export function readCollectorState(stateFilePath: string): CollectorState | undefined {

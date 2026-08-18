@@ -1,4 +1,12 @@
 const { test } = require("node:test");
+
+// The journal defaults to the real ~/.ascenda/state when a caller omits
+// stateFilePath, so a suite that builds a sender writes fixture installations
+// into the developer's actual home, where `doctor` reports them as real
+// pairings. Redirect before anything is constructed.
+process.env.ASCENDA_STATE_DIR = require("node:fs").mkdtempSync(
+  require("node:path").join(require("node:os").tmpdir(), "ascenda-test-state-")
+);
 const assert = require("node:assert/strict");
 const { AscendaEventSender, AscendaSemanticEventError } = require("../out/index.js");
 

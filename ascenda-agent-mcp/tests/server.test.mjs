@@ -1,5 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+// The journal defaults to the real ~/.ascenda/state when a config omits
+// stateFilePath, so this suite used to write a `claude_code:test-tool`
+// installation into the developer's actual home, where `doctor` then reported
+// it as a real pairing.
+//
+// This assignment runs after the import declarations below, which ESM hoists —
+// it is still in time because defaultStateFilePath reads the variable when a
+// send resolves its path, not when the module is evaluated. Do not "fix" this
+// by moving it; do not make the path resolve at import time either.
+process.env.ASCENDA_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-state-"));
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildServer } from "../dist/server.js";
