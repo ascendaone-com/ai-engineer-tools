@@ -1,0 +1,184 @@
+/**
+ * Ships normalized historical events over the existing batch wire
+ * (`POST /v1/tool-events/batch`), authenticated with the same event write
+ * token the live hooks use — the import is just another paired tool speaking
+ * the same protocol, backdated.
+ *
+ * Three deliberate choices:
+ *
+ * - **Own fetch, not tool-kit's `postToolEventsBatch`.** The hook path
+ *   collapses the response to accepted/failed because a hook can't do
+ *   anything with detail. An importer can: the batch response carries
+ *   per-item accepted/rejected with reasons, and surfacing "9,741 accepted,
+ *   3 rejected (validation_failed)" is the difference between a verifiable
+ *   import and a shrug.
+ * - **Stable `importKey` per event.** sha256 over
+ *   (store|sessionRef|eventKind|occurredAt|ordinal) — identical on every
+ *   re-run of the same store. The backend has no dedup yet; when it grows
+ *   one, this key is what it dedups on, and until then a re-run can at least
+ *   be detected after the fact.
+ * - **Raw local refs are hashed at the wire, not before.** The normalized
+ *   file in staging keeps the real cwd (local, never leaves the machine);
+ *   `workspaceHash`/`projectHash` go out as the same machine-salted 16-hex
+ *   hashes the live hooks send, so historical and live events for the same
+ *   repo correlate server-side without the server ever learning the path.
+ */
+import { createHash } from "node:crypto";
+import { hashWithMachineSalt, readTokenFile, defaultTokenFilePath } from "@ascenda-one/tool-kit";
+import type { AscendaEventPayload, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
+import { HISTORICAL_CONSENT_SCOPE, NormalizedHistoricalEvent, STORE_SOURCE } from "./types.js";
+
+export interface ShipConfig {
+  apiBaseUrl: string;
+  toolInstallationId: string;
+  eventWriteToken: string;
+}
+
+export const DEFAULT_API_BASE_URL = "https://api.ascenda.one";
+
+/** Mirrors tool-kit's loadCliAgentConfig, minus the hook-only pieces. */
+export function loadShipConfig(): ShipConfig {
+  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  const idRaw = process.env.ASCENDA_TOOL_INSTALLATION_ID;
+  if (!idRaw) {
+    throw new Error(
+      "Missing ASCENDA_TOOL_INSTALLATION_ID — the importer ships as the machine's paired tool; pair it first"
+    );
+  }
+  const toolInstallationId = idRaw.trim().includes(":") ? idRaw.trim() : `claude_code:${idRaw.trim()}`;
+  const tokenFilePath =
+    process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(toolInstallationId);
+  const eventWriteToken = readTokenFile(tokenFilePath) ?? process.env.ASCENDA_EVENT_WRITE_TOKEN;
+  if (!eventWriteToken) {
+    throw new Error(`No event write token at ${tokenFilePath} (or ASCENDA_EVENT_WRITE_TOKEN)`);
+  }
+  return { apiBaseUrl, toolInstallationId, eventWriteToken };
+}
+
+export function importKeyOf(event: NormalizedHistoricalEvent, ordinal: number): string {
+  return createHash("sha256")
+    .update(
+      [event.store, event.sessionRef ?? "", event.eventKind, event.occurredAt, String(ordinal)].join(
+        "|"
+      )
+    )
+    .digest("hex")
+    .slice(0, 16);
+}
+
+export function toWirePayload(
+  event: NormalizedHistoricalEvent,
+  ordinal: number,
+  toolInstallationId: string
+): AscendaEventPayload {
+  const metadata: Record<string, string | number | boolean> = {
+    importKey: importKeyOf(event, ordinal),
+    extractionId: event.extractionId,
+    importSchema: 1
+  };
+  if (event.sourceVersion) metadata.sourceVersion = event.sourceVersion;
+  for (const [key, value] of Object.entries(event.metrics)) {
+    metadata[key] = value;
+  }
+  // gitBranch is a metric locally but a name on the wire — hash it like the
+  // repo path. Branch names leak project vocabulary ("feature/acme-migration").
+  if (typeof metadata.gitBranch === "string") {
+    metadata.gitBranchHash = hashWithMachineSalt(metadata.gitBranch) ?? "";
+    delete metadata.gitBranch;
+  }
+  const workspaceHash = event.repoRef ? hashWithMachineSalt(event.repoRef) : null;
+  return {
+    toolInstallationId,
+    source: STORE_SOURCE[event.store] as AscendaTelemetrySource,
+    // Canonical kinds (ai_prompt_submitted, after_hours_ai_session) land in
+    // the catalog and power existing views; historical_* kinds store as
+    // unclassified until the catalog learns them. Both are intended.
+    eventType: event.eventKind as AscendaEventPayload["eventType"],
+    occurredAt: event.occurredAt,
+    severity: "low",
+    sessionId: event.sessionRef,
+    workspaceHash,
+    projectHash: workspaceHash,
+    // Not yet a contract ToolConsentScope — the backend maps unknown scopes
+    // to its default consent type today and stores the scope string verbatim,
+    // which is exactly the seam a dedicated retrospective consent will
+    // tighten. Deliberate, documented in the README gap list.
+    consentScope: HISTORICAL_CONSENT_SCOPE as AscendaEventPayload["consentScope"],
+    provenance: event.provenance,
+    privacyMode: "metadata_only",
+    metadata
+  };
+}
+
+export interface ShipResult {
+  sent: number;
+  accepted: number;
+  rejected: number;
+  /** reason -> count, from the batch response's per-item results. */
+  rejectionReasons: Record<string, number>;
+  httpFailures: number;
+}
+
+const BATCH_SIZE = 200;
+
+export async function shipEvents(
+  events: NormalizedHistoricalEvent[],
+  config: ShipConfig,
+  onProgress?: (done: number, total: number) => void
+): Promise<ShipResult> {
+  const result: ShipResult = {
+    sent: 0,
+    accepted: 0,
+    rejected: 0,
+    rejectionReasons: {},
+    httpFailures: 0
+  };
+  for (let offset = 0; offset < events.length; offset += BATCH_SIZE) {
+    const chunk = events.slice(offset, offset + BATCH_SIZE);
+    const payloads = chunk.map((event, i) => toWirePayload(event, offset + i, config.toolInstallationId));
+    let response: Response;
+    try {
+      response = await fetch(`${config.apiBaseUrl}/v1/tool-events/batch`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${config.eventWriteToken}`
+        },
+        body: JSON.stringify({ events: payloads })
+      });
+    } catch {
+      result.httpFailures += 1;
+      continue; // Transport failure: skip this chunk, keep going — the stable
+      // importKey makes a later re-run of just the gaps safe to reconcile.
+    }
+    result.sent += chunk.length;
+    if (!response.ok) {
+      result.httpFailures += 1;
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          `Ingest refused (${response.status}) — token invalid/revoked or consent missing; aborting rather than burning ${events.length - offset} more events`
+        );
+      }
+      continue;
+    }
+    try {
+      const body = (await response.json()) as {
+        accepted?: number;
+        rejected?: number;
+        results?: { status?: string; reason?: string }[];
+      };
+      result.accepted += body.accepted ?? 0;
+      result.rejected += body.rejected ?? 0;
+      for (const item of body.results ?? []) {
+        if (item.status !== "accepted") {
+          const reason = item.reason ?? "unknown";
+          result.rejectionReasons[reason] = (result.rejectionReasons[reason] ?? 0) + 1;
+        }
+      }
+    } catch {
+      result.httpFailures += 1;
+    }
+    onProgress?.(Math.min(offset + BATCH_SIZE, events.length), events.length);
+  }
+  return result;
+}
