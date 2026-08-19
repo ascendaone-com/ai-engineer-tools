@@ -1,0 +1,32 @@
+{
+  "publishConfig": { "access": "public" },
+  "name": "@ascenda-one/history-import",
+  "version": "0.1.0",
+  "description": "Retrospective AI-usage import for Ascenda work telemetry — extracts the baseline already sitting in Claude Code, Cursor and VS Code stores.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
+    "directory": "ascenda-history-import"
+  },
+  "type": "module",
+  "files": ["dist"],
+  "bin": {
+    "ascenda-history-import": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./ && npm run bundle",
+    "watch": "tsc -w -p ./",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
+    "test": "node --test"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.0",
+    "@ascenda-one/tool-contract": "*",
+    "@ascenda-one/tool-kit": "*"
+  }
+}

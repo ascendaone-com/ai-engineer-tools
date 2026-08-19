@@ -21,6 +21,7 @@ export const RELEASE_PACKAGES = [
   { dir: "ascenda-codex-hooks", name: "ascenda-codex-hooks", kind: "cli", npm: "@ascenda-one/codex-hooks" },
   { dir: "ascenda-agent-mcp", name: "ascenda-agent-mcp", kind: "cli", npm: "@ascenda-one/agent-mcp" },
   { dir: "ascenda-github-collector", name: "ascenda-github-collector", kind: "cli", npm: "@ascenda-one/github-collector" },
+  { dir: "ascenda-history-import", name: "ascenda-history-import", kind: "cli", npm: "@ascenda-one/history-import" },
 ];
 
 /**

@@ -62,12 +62,17 @@ jobs:
           # One extension, one VSIX, published to both the VS Code Marketplace
           # and Open VSX — Cursor installs the same file from Open VSX.
           mv ascenda-vscode-extension-telemetry/*.vsix "$STAGE/"
-          # All three CLIs bundle to dist/cli.js, so give them distinct,
-          # self-describing names in the release. They are single-file ESM.
-          cp ascenda-claude-code-hooks/dist/cli.js "$STAGE/ascenda-claude-code-hooks.mjs"
-          cp ascenda-codex-hooks/dist/cli.js "$STAGE/ascenda-codex-hooks.mjs"
-          cp ascenda-agent-mcp/dist/cli.js "$STAGE/ascenda-agent-mcp.mjs"
-          cp ascenda-github-collector/dist/cli.js "$STAGE/ascenda-github-collector.mjs"
+          # Every CLI bundles to dist/cli.js, so each is staged under its own
+          # self-describing name. Derived from RELEASE_PACKAGES rather than
+          # listed here: a second hand-maintained copy of that list is how
+          # @ascenda-one/history-import shipped for a release cycle without
+          # ever being published.
+          node -e 'import("./scripts/release-artifacts.mjs").then(({ RELEASE_PACKAGES }) =>
+            console.log(RELEASE_PACKAGES.filter((p) => p.kind === "cli").map((p) => `${p.dir} ${p.name}`).join("\n")))' \
+          | while read -r dir name; do
+              [ -n "$dir" ] || continue
+              cp "$dir/dist/cli.js" "$STAGE/$name.mjs"
+            done
           ls -l "$STAGE"
 
       - name: Build manifest
