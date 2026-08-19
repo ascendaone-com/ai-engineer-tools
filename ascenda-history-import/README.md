@@ -59,12 +59,24 @@ are tool-result round-trips that would have inflated every prompt metric ~13x.
 
 ## Gaps that block a real user running this twice
 
-Both blockers closed 19 Aug 2026 (asc-core-be branch
-`claude/historical-import-dedup-and-consent`). What they became:
+Both blockers are **implemented but unmerged** — asc-core-be branch
+`claude/historical-import-dedup-and-consent`, not `origin/main` (verified
+19 Aug 2026). Neither is enforced by the backend a published client would
+actually reach. What they become **once that branch merges**:
 
-- **Consent scope — closed.** `historical_import` is a real
-  `ToolConsentScope`, backed by `ConsentType.HistoricalImport` (507), and
-  ingestion enforces it. Enforcement keys on the event's **provenance**, not
+- **Consent scope — specified, not yet enforced.** `historical_import` is a
+  real `ToolConsentScope` here, and on that branch it is backed by
+  `ConsentType.HistoricalImport` (507) with ingestion enforcing it.
+
+  On `origin/main` today none of that exists: `ResolveConsentType` does not
+  recognise the scope and falls to its default arm, `AiDataProcessing` — the
+  lease already granted for live IDE telemetry. A backfill would ride in on
+  live-telemetry consent, which is exactly what the separate scope exists to
+  stop. **This gates publishing the package**, independently of any tier or
+  entitlement decision: paying for a capability is not the same act as
+  agreeing to a specific read of nine months of local history.
+
+  How it behaves once merged: Enforcement keys on the event's **provenance**, not
   on the scope string it sends: any of the three `historical_*` classes
   requires an active historical-import lease, so a client that keeps claiming
   `ide_telemetry` over backdated events is rejected rather than waved through
@@ -75,7 +87,8 @@ Both blockers closed 19 Aug 2026 (asc-core-be branch
   unique index for the concurrent case. A replayed event answers `duplicate`,
   writes nothing at all (not the event, not `lastSeenAt`, not an audit row),
   and the batch response counts duplicates apart from both accepted and
-  rejected. `importKey` is now **required** on any historical event.
+  rejected. `importKey` is **required** on any historical event. (Same caveat:
+  this is the branch's behaviour, not main's.)
 
   **The dedup key is the source record ref alone — not `extractionId` + ref,
   as this list originally said.** An extraction id is minted per run, so

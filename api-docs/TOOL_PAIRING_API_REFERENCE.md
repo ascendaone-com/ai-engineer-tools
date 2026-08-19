@@ -360,7 +360,11 @@ Scope mapping:
 - `workflow_telemetry` -> `DataSharing`
 - `subjective_checkins` -> `WeeklyCheckins`
 - `semantic_work_signals` -> `SemanticWorkSignals`
-- `historical_import` -> `HistoricalImport`
+- `historical_import` -> `HistoricalImport` — **not on `origin/main` yet.**
+  Implemented on asc-core-be `claude/historical-import-dedup-and-consent`;
+  verified absent from main 19 Aug 2026. Until it merges an unrecognised scope
+  takes the default arm below, so `historical_import` currently resolves to
+  `AiDataProcessing`. Everything in this subsection describes the branch.
 
 **Provenance overrides the claimed scope for retrospective events.** An event
 whose `provenance` is `historical_direct`, `historical_derived` or
@@ -400,6 +404,14 @@ Semantic event rules (the six `*_detected`/`*_declared`/`progress_*` types):
 - `metadata.taskFingerprint`, when present, must be a hash — never raw task text.
 
 Retrospective import rules (events with a `historical_*` provenance):
+
+> **Status: specified, not live.** These rules are implemented on asc-core-be
+> `claude/historical-import-dedup-and-consent` and are **not** on `origin/main`
+> as of 19 Aug 2026. Against main, a `historical_*` event is gated as ordinary
+> telemetry under `AiDataProcessing`, `importKey` is not required, and no
+> dedup occurs. Write clients against this section, but do not rely on the
+> backend enforcing it until that branch merges.
+
 
 - `provenance` must be `historical_direct`, `historical_derived` or
   `historical_unparsed` — exact match, not a prefix rule. Anything else is
