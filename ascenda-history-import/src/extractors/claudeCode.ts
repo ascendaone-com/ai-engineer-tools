@@ -73,7 +73,7 @@
  * Emission (aggregate before shipping — never one event per line):
  *  - `ai_prompt_submitted` per HUMAN prompt (canonical type, so the existing
  *    demand/baseline readers count it natively), provenance historical_direct.
- *  - `historical_ai_session` per session: counts, token totals, model mix,
+ *  - `create_focus_session` per session: counts, token totals, model mix,
  *    duration, compaction/failure/edit/context signals — provenance
  *    historical_derived.
  *  - `after_hours_ai_session` per session with ≥1 human prompt in the
@@ -84,7 +84,9 @@
  *    one event per compaction).
  *  - `tool_failure` per session with ≥1 failure (canonical type, aggregate,
  *    same shape).
- *  - one `historical_epoch_marker` for the store's observed window.
+ *  - one `extraction_epoch` for the store's observed window. Local only:
+ *    the shipper filters it out, since it describes the read rather than
+ *    anyone's work and has no canonical catalog type.
  * Metrics carry counts, ids and timestamps only — never prompt/response text.
  */
 import * as fs from "node:fs/promises";
@@ -544,8 +546,9 @@ async function foldTranscript(filePath: string, projectSlug: string): Promise<Se
  * sorted for determinism. Not hardcoded to `subagents/` — nothing about that
  * nesting is documented, so this walks whatever is actually there rather
  * than assuming today's layout survives the next Claude Code release. */
-async function walkJsonlFiles(root: string): Promise<string[]> {
+async function walkJsonlFiles(root: string): Promise<{ files: string[]; otherFiles: number }> {
   const out: string[] = [];
+  let otherFiles = 0;
   async function walk(dir: string): Promise<void> {
     let entries;
     try {
@@ -559,11 +562,13 @@ async function walkJsonlFiles(root: string): Promise<string[]> {
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
         out.push(full);
+      } else if (entry.isFile()) {
+        otherFiles += 1;
       }
     }
   }
   await walk(root);
-  return out;
+  return { files: out, otherFiles };
 }
 
 function topModel(models: Map<string, number>): string | null {
@@ -595,6 +600,20 @@ export async function* extractClaudeCode(
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
   let sessionCount = 0;
+  // Projects holding files but no readable transcript at all.
+  //
+  // A first attempt counted every non-`.jsonl` file, which read 449 on a
+  // healthy store: `memory/*.md`, `agent-*.meta.json`, `toolu_*.txt`, fetched
+  // PDFs. A counter that is permanently non-zero is one nobody reads, so it
+  // detects nothing. This asks the question that actually matters instead —
+  // is there a project whose transcripts we can no longer read? — which is
+  // shape-based rather than a guess at what the next format will be called,
+  // so an entirely novel encoding trips it just as well as a known one.
+  //
+  // On the reference machine this is 1 of 74: a session directory whose
+  // `tool-results/` sidecars outlived the transcript the 30-day purge took.
+  // That is a true positive, and the reason the counter is worth having.
+  let projectsWithNoReadableTranscript = 0;
 
   for (const slug of projectSlugs.sort()) {
     const dir = path.join(projectsDir, slug);
@@ -608,6 +627,8 @@ export async function* extractClaudeCode(
       .filter((e) => e.isFile() && e.name.endsWith(".jsonl"))
       .map((e) => e.name)
       .sort();
+    let slugJsonlFiles = topLevelFiles.length;
+    let slugOtherFiles = entries.filter((e) => e.isFile() && !e.name.endsWith(".jsonl")).length;
     const sessionDirNames = entries
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
@@ -624,7 +645,10 @@ export async function* extractClaudeCode(
     }
 
     for (const sessionDirName of sessionDirNames) {
-      const nestedFiles = await walkJsonlFiles(path.join(dir, sessionDirName));
+      const nested = await walkJsonlFiles(path.join(dir, sessionDirName));
+      const nestedFiles = nested.files;
+      slugJsonlFiles += nestedFiles.length;
+      slugOtherFiles += nested.otherFiles;
       if (nestedFiles.length === 0) continue;
       let fold = foldsByKey.get(sessionDirName);
       if (!fold) {
@@ -638,6 +662,9 @@ export async function* extractClaudeCode(
         await foldLinesInto(fold, nestedPath, { isSidechain: true });
       }
     }
+
+    // Files here, but nothing this extractor can read as a transcript.
+    if (slugJsonlFiles === 0 && slugOtherFiles > 0) projectsWithNoReadableTranscript += 1;
 
     for (const fold of foldsByKey.values()) {
       // A fold with no usable timeline is unusable regardless of its
@@ -711,7 +738,7 @@ export async function* extractClaudeCode(
         sourceVersion: fold.sourceVersion,
         sessionRef: fold.sessionId,
         repoRef: fold.cwd ?? fold.projectSlug,
-        eventKind: "historical_ai_session",
+        eventKind: "create_focus_session",
         metrics: sessionMetrics,
         provenance: HISTORICAL_PROVENANCE.derived,
         extractionId
@@ -734,7 +761,7 @@ export async function* extractClaudeCode(
       // Aggregate per session, same shape as after_hours_ai_session above —
       // never one event per compaction/failure. Canonical event names so
       // these ride the existing catalog rather than living only inside
-      // historical_ai_session's metrics bag.
+      // create_focus_session's metrics bag.
       if (fold.compactionManualCount > 0) {
         yield {
           occurredAt: fold.lastTs,
@@ -781,18 +808,27 @@ export async function* extractClaudeCode(
     }
   }
 
-  if (windowOldest && windowNewest) {
+  // A store that yielded nothing readable still has something to report. The
+  // window guard alone suppressed the epoch in exactly that case, so a store
+  // this extractor could no longer read produced no diagnostic at all —
+  // silence indistinguishable from "you did no work". Emit whenever there is
+  // either a window or a read failure to declare.
+  if ((windowOldest && windowNewest) || projectsWithNoReadableTranscript > 0) {
+    const window: Record<string, string> =
+      windowOldest && windowNewest ? { windowOldest, windowNewest } : {};
     yield {
-      occurredAt: windowNewest,
+      // No window means nothing datable was read; the only honest timestamp
+      // left is when the read happened.
+      occurredAt: windowNewest ?? new Date().toISOString(),
       store: "claude_code",
       sourceVersion: null,
       sessionRef: null,
       repoRef: null,
-      eventKind: "historical_epoch_marker",
+      eventKind: "extraction_epoch",
       metrics: {
-        windowOldest,
-        windowNewest,
-        sessionCount
+        ...window,
+        sessionCount,
+        projectsWithNoReadableTranscript
       },
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId

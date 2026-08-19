@@ -76,7 +76,8 @@ export async function snapshotPath(
 /**
  * Surgical snapshot of `Code/User/workspaceStorage` for the VS Code
  * extractor: only `workspace.json` (workspace identity) and
- * `chatSessions/*.json` (Copilot sessions) per hash directory, never the
+ * `chatSessions/*.json` and `chatSessions/*.jsonl` (Copilot sessions) per
+ * hash directory, never the
  * rest — `state.vscdb`, `state.vscdb.backup`, extension caches and other
  * per-workspace artifacts live alongside those two and can run to gigabytes
  * across dozens of workspaces, none of it needed by this extractor. A plain
@@ -116,7 +117,13 @@ export async function snapshotVsCodeWorkspaceStorage(
     const chatSessionsDir = path.join(sourceRoot, hash, "chatSessions");
     let sessionFiles: string[] = [];
     try {
-      sessionFiles = (await fs.readdir(chatSessionsDir)).filter((f) => f.endsWith(".json"));
+      // Both on-disk shapes: `.json` (pre-Feb-2026) and `.jsonl` (the delta-log
+      // format VS Code migrated to). Filtering to `.json` here is what kept
+      // seven months of sessions out of staging entirely — the extractor never
+      // saw them, so it could not even report them as unread.
+      sessionFiles = (await fs.readdir(chatSessionsDir)).filter(
+        (f) => f.endsWith(".json") || f.endsWith(".jsonl")
+      );
     } catch {
       continue; // Most workspaces have no chatSessions dir — the norm.
     }

@@ -103,7 +103,7 @@ test("isToolFailureLine reads the is_error marker, not the toolUseResult text", 
 });
 
 // Contract-vocabulary pin. asc-core-be's ToolTelemetryMetricsService reads
-// `durationBucket` off historical_ai_session events expecting exactly the
+// `durationBucket` off create_focus_session events expecting exactly the
 // tool-contract vocabulary ("0-1m" | "1-5m" | "5-10m" | "10-30m" | "30-60m" |
 // "60m+", packages/tool-contract/src/index.ts DurationBucket). This extractor
 // used to emit a third, incompatible dialect ("0-5m" | "5-30m" | ...), which
@@ -125,7 +125,7 @@ async function withTempSnapshot(lines, run) {
   }
 }
 
-test("historical_ai_session emits a contract-vocabulary durationBucket plus exact sessionMinutes", async () => {
+test("create_focus_session emits a contract-vocabulary durationBucket plus exact sessionMinutes", async () => {
   const start = "2026-07-21T03:00:00.000Z";
   const end = "2026-07-21T03:03:00.000Z"; // 3 minutes apart — falls in "1-5m"
   const lines = [
@@ -151,8 +151,8 @@ test("historical_ai_session emits a contract-vocabulary durationBucket plus exac
     for await (const event of extractClaudeCode(snapshotDir, "extraction-1")) {
       events.push(event);
     }
-    const session = events.find((e) => e.eventKind === "historical_ai_session");
-    assert.ok(session, "expected a historical_ai_session event");
+    const session = events.find((e) => e.eventKind === "create_focus_session");
+    assert.ok(session, "expected a create_focus_session event");
     assert.ok(
       CONTRACT_DURATION_BUCKETS.has(session.metrics.durationBucket),
       `durationBucket ${session.metrics.durationBucket} is not in the tool-contract vocabulary`

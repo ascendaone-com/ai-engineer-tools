@@ -8,7 +8,7 @@
  * bars distinctly from LIVE ones.
  */
 import { ASCENDA_HISTORICAL_CONSENT_SCOPE } from "@ascenda-one/tool-contract";
-import type { AscendaTelemetrySource } from "@ascenda-one/tool-contract";
+import type { AscendaTelemetrySource, AscendaTelemetryEventType } from "@ascenda-one/tool-contract";
 
 /** The stores this importer knows how to read. Ordered by evaporation risk:
  * Claude Code's 30-day rolling purge deletes a day of baseline every day the
@@ -74,6 +74,29 @@ export interface StoreInventory {
 }
 
 /**
+ * The extraction-window marker every extractor emits once per store. It is
+ * **not** a work event: it carries no session, no repo, and its metrics are
+ * statistics about the extraction run itself (observed window, unparsed file
+ * counts). It exists so `scan`/`import` can report the window and so the
+ * handoff can bound its own data, and the shipper drops it before the wire —
+ * there is no canonical telemetry type for "here is what I read", and
+ * inventing one would put extraction bookkeeping into the work catalog.
+ */
+export const EXTRACTION_EPOCH_KIND = "extraction_epoch" as const;
+
+/**
+ * What an extractor may put in `eventKind`: a canonical telemetry type, or the
+ * local-only epoch marker above.
+ *
+ * Typed against the contract rather than `string` on purpose. This field is
+ * cast straight onto the wire in the shipper, so an invented name here reaches
+ * the backend, is accepted, and is bucketed as `unclassified` where no view
+ * reads it — a silent import that reports success. Narrowing it to the union
+ * makes that failure a compile error instead.
+ */
+export type HistoricalEventKind = AscendaTelemetryEventType | typeof EXTRACTION_EPOCH_KIND;
+
+/**
  * The normalized event every extractor emits — the doc's
  * `(occurred_at, source, source_version, session_ref, repo_ref, event_kind,
  * metrics{}, provenance_class, extraction_id)` schema. Mapping onto
@@ -88,7 +111,7 @@ export interface NormalizedHistoricalEvent {
   sourceVersion: string | null;
   sessionRef: string | null;
   repoRef: string | null;
-  eventKind: string;
+  eventKind: HistoricalEventKind;
   /** Bucketed/counted metrics only — never prompt or response text. Content
    * stays on the machine; see the doc's privacy line. */
   metrics: Record<string, number | string | boolean>;

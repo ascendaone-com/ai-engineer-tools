@@ -347,9 +347,9 @@ test("extractCursor folds a composer's bubbles, excludes subagent composers from
     for await (const e of extractCursor(snapshotDir, "test-extraction")) events.push(e);
 
     const prompts = events.filter((e) => e.eventKind === "ai_prompt_submitted");
-    const sessions = events.filter((e) => e.eventKind === "historical_ai_session");
+    const sessions = events.filter((e) => e.eventKind === "create_focus_session");
     const afterHours = events.filter((e) => e.eventKind === "after_hours_ai_session");
-    const epochs = events.filter((e) => e.eventKind === "historical_epoch_marker");
+    const epochs = events.filter((e) => e.eventKind === "extraction_epoch");
 
     // Only C1 gets a session — C2/C4 (subagents) and C3 (unrecognised
     // header type) never do.

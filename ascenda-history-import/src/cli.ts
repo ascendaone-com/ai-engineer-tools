@@ -100,7 +100,7 @@ async function main(): Promise<number> {
         }
         allEvents.push(...claudeEvents);
 
-        const epoch = claudeEvents.find((e) => e.eventKind === "historical_epoch_marker");
+        const epoch = claudeEvents.find((e) => e.eventKind === "extraction_epoch");
         process.stdout.write(`claude_code extracted: ${claudeEvents.length.toLocaleString("en-US")} events\n`);
         for (const [kind, n] of Object.entries(kindCounts)) {
           process.stdout.write(`  ${kind}: ${n.toLocaleString("en-US")}\n`);
@@ -133,7 +133,7 @@ async function main(): Promise<number> {
         }
         allEvents.push(...cursorEvents);
 
-        const epoch = cursorEvents.find((e) => e.eventKind === "historical_epoch_marker");
+        const epoch = cursorEvents.find((e) => e.eventKind === "extraction_epoch");
         process.stdout.write(`cursor extracted: ${cursorEvents.length.toLocaleString("en-US")} events\n`);
         for (const [kind, n] of Object.entries(kindCounts)) {
           process.stdout.write(`  ${kind}: ${n.toLocaleString("en-US")}\n`);
@@ -167,7 +167,7 @@ async function main(): Promise<number> {
         }
         allEvents.push(...vsCodeEvents);
 
-        const epoch = vsCodeEvents.find((e) => e.eventKind === "historical_epoch_marker");
+        const epoch = vsCodeEvents.find((e) => e.eventKind === "extraction_epoch");
         process.stdout.write(`vscode extracted: ${vsCodeEvents.length.toLocaleString("en-US")} events\n`);
         for (const [kind, n] of Object.entries(kindCounts)) {
           process.stdout.write(`  ${kind}: ${n.toLocaleString("en-US")}\n`);

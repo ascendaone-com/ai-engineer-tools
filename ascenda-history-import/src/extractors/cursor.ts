@@ -385,7 +385,26 @@ export async function* extractCursor(
   try {
     headerRows = await queryJson<RawHeaderRow>(dbPath, HEADER_QUERY);
   } catch {
-    return; // Staged file exists but doesn't open, or composerHeaders is missing — a schema this extractor cannot read at all.
+    // The staged db exists but does not open, or `composerHeaders` is gone —
+    // a schema this extractor cannot read at all. Returning silently here is
+    // what made a store-format change indistinguishable from an unused store:
+    // no events, no marker, nothing to notice. Declare it instead. This is the
+    // same failure that hid VS Code's Feb-2026 `.jsonl` migration for months.
+    yield {
+      occurredAt: new Date().toISOString(),
+      store: "cursor",
+      sourceVersion: null,
+      sessionRef: null,
+      repoRef: null,
+      eventKind: "extraction_epoch",
+      metrics: {
+        sessionCount: 0,
+        schemaUnreadable: 1
+      },
+      provenance: HISTORICAL_PROVENANCE.derived,
+      extractionId
+    };
+    return;
   }
 
   const folds = new Map<string, ComposerFold>();
@@ -552,7 +571,7 @@ export async function* extractCursor(
       sourceVersion,
       sessionRef: fold.composerId,
       repoRef: fold.repoRef,
-      eventKind: "historical_ai_session",
+      eventKind: "create_focus_session",
       metrics: sessionMetrics,
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId
@@ -573,18 +592,26 @@ export async function* extractCursor(
     }
   }
 
-  if (windowOldest && windowNewest) {
+  // As above: an unreadable store is a finding, not a reason to stay quiet.
+  // Without this, a db that opens but whose rows no longer sniff renders as an
+  // empty history rather than as a store nobody can read any more.
+  const readFailures =
+    unparsedComposerHeaders + unknownComposerHeaderTypes + orphanedSubagentBubbles + orphanedBubbles;
+
+  if ((windowOldest && windowNewest) || readFailures > 0) {
+    const window: Record<string, string> =
+      windowOldest && windowNewest ? { windowOldest, windowNewest } : {};
     yield {
-      occurredAt: windowNewest,
+      occurredAt: windowNewest ?? new Date().toISOString(),
       store: "cursor",
       sourceVersion: null,
       sessionRef: null,
       repoRef: null,
-      eventKind: "historical_epoch_marker",
+      eventKind: "extraction_epoch",
       metrics: {
-        windowOldest,
-        windowNewest,
+        ...window,
         sessionCount,
+        schemaUnreadable: 0,
         unparsedComposerHeaders,
         unknownComposerHeaderTypes,
         orphanedSubagentBubbles,

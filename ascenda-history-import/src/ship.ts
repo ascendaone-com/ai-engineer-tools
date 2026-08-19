@@ -36,7 +36,12 @@
 import { createHash } from "node:crypto";
 import { hashWithMachineSalt, readTokenFile, defaultTokenFilePath } from "@ascenda-one/tool-kit";
 import type { AscendaEventPayload, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
-import { HISTORICAL_CONSENT_SCOPE, NormalizedHistoricalEvent, STORE_SOURCE } from "./types.js";
+import {
+  EXTRACTION_EPOCH_KIND,
+  HISTORICAL_CONSENT_SCOPE,
+  NormalizedHistoricalEvent,
+  STORE_SOURCE
+} from "./types.js";
 
 export interface ShipConfig {
   apiBaseUrl: string;
@@ -77,7 +82,7 @@ export function importKeyOf(event: NormalizedHistoricalEvent, ordinal: number): 
 }
 
 export function toWirePayload(
-  event: NormalizedHistoricalEvent,
+  event: NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] },
   ordinal: number,
   toolInstallationId: string
 ): AscendaEventPayload {
@@ -100,10 +105,11 @@ export function toWirePayload(
   return {
     toolInstallationId,
     source: STORE_SOURCE[event.store] as AscendaTelemetrySource,
-    // Canonical kinds (ai_prompt_submitted, after_hours_ai_session) land in
-    // the catalog and power existing views; historical_* kinds store as
-    // unclassified until the catalog learns them. Both are intended.
-    eventType: event.eventKind as AscendaEventPayload["eventType"],
+    // Always a canonical catalog type. `eventKind` is typed against the
+    // contract union and the epoch marker is filtered out upstream in
+    // `shippableEvents`, so no cast is needed here — and an off-catalog name
+    // cannot reach the wire to be silently bucketed as `unclassified`.
+    eventType: event.eventKind,
     occurredAt: event.occurredAt,
     severity: "low",
     sessionId: event.sessionRef,
@@ -141,6 +147,21 @@ export interface ShipResult {
 
 const BATCH_SIZE = 200;
 
+/**
+ * The events that belong on the wire: everything except the extraction epoch
+ * marker, which is local bookkeeping about the read itself rather than an
+ * observation of anyone's work (see `EXTRACTION_EPOCH_KIND`). Exported so the
+ * CLI can report the same count it is about to send.
+ */
+export function shippableEvents(
+  events: NormalizedHistoricalEvent[]
+): (NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] })[] {
+  return events.filter(
+    (e): e is NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] } =>
+      e.eventKind !== EXTRACTION_EPOCH_KIND
+  );
+}
+
 export async function shipEvents(
   events: NormalizedHistoricalEvent[],
   config: ShipConfig,
@@ -154,8 +175,9 @@ export async function shipEvents(
     rejectionReasons: {},
     httpFailures: 0
   };
-  for (let offset = 0; offset < events.length; offset += BATCH_SIZE) {
-    const chunk = events.slice(offset, offset + BATCH_SIZE);
+  const wireEvents = shippableEvents(events);
+  for (let offset = 0; offset < wireEvents.length; offset += BATCH_SIZE) {
+    const chunk = wireEvents.slice(offset, offset + BATCH_SIZE);
     const payloads = chunk.map((event, i) => toWirePayload(event, offset + i, config.toolInstallationId));
     let response: Response;
     try {
@@ -177,7 +199,7 @@ export async function shipEvents(
       result.httpFailures += 1;
       if (response.status === 401 || response.status === 403) {
         throw new Error(
-          `Ingest refused (${response.status}) — token invalid/revoked or consent missing; aborting rather than burning ${events.length - offset} more events`
+          `Ingest refused (${response.status}) — token invalid/revoked or consent missing; aborting rather than burning ${wireEvents.length - offset} more events`
         );
       }
       continue;
@@ -203,7 +225,7 @@ export async function shipEvents(
     } catch {
       result.httpFailures += 1;
     }
-    onProgress?.(Math.min(offset + BATCH_SIZE, events.length), events.length);
+    onProgress?.(Math.min(offset + BATCH_SIZE, wireEvents.length), wireEvents.length);
   }
   return result;
 }

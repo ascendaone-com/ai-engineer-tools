@@ -200,14 +200,14 @@ export function buildHandoff(
   let windowNewest: string | null = null;
 
   for (const event of events) {
-    if (event.eventKind === "historical_epoch_marker") {
+    if (event.eventKind === "extraction_epoch") {
       const oldest = event.metrics.windowOldest;
       const newest = event.metrics.windowNewest;
       if (typeof oldest === "string") windowOldest = oldest;
       if (typeof newest === "string") windowNewest = newest;
       continue;
     }
-    if (event.eventKind !== "historical_ai_session") continue;
+    if (event.eventKind !== "create_focus_session") continue;
     sessions.push({
       at: event.occurredAt,
       startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
@@ -250,14 +250,14 @@ export function buildCursorHandoff(
   let windowNewest: string | null = null;
 
   for (const event of events) {
-    if (event.eventKind === "historical_epoch_marker") {
+    if (event.eventKind === "extraction_epoch") {
       const oldest = event.metrics.windowOldest;
       const newest = event.metrics.windowNewest;
       if (typeof oldest === "string") windowOldest = oldest;
       if (typeof newest === "string") windowNewest = newest;
       continue;
     }
-    if (event.eventKind !== "historical_ai_session") continue;
+    if (event.eventKind !== "create_focus_session") continue;
     sessions.push({
       at: event.occurredAt,
       startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
@@ -303,14 +303,14 @@ export function buildVsCodeHandoff(
   let windowNewest: string | null = null;
 
   for (const event of events) {
-    if (event.eventKind === "historical_epoch_marker") {
+    if (event.eventKind === "extraction_epoch") {
       const oldest = event.metrics.windowOldest;
       const newest = event.metrics.windowNewest;
       if (typeof oldest === "string") windowOldest = oldest;
       if (typeof newest === "string") windowNewest = newest;
       continue;
     }
-    if (event.eventKind === "historical_ai_edit_day") {
+    if (event.eventKind === "editor_activity") {
       editDays.push({
         date: typeof event.metrics.date === "string" ? event.metrics.date : event.occurredAt.slice(0, 10),
         projectLabel: projectLabelOf(event.repoRef),
@@ -320,7 +320,7 @@ export function buildVsCodeHandoff(
       });
       continue;
     }
-    if (event.eventKind !== "historical_ai_session") continue;
+    if (event.eventKind !== "create_focus_session") continue;
     chatSessions.push({
       at: event.occurredAt,
       startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
