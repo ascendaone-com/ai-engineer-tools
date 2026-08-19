@@ -97,16 +97,23 @@ actually reach. What they become **once that branch merges**:
   whole key; a re-run with a fresh `extractionId` over the same records
   therefore still dedups, and the first run's extraction stays on record.
   Pinned by `HistoricalImportIngestTests` in asc-core-be.
+- **The key survives a changing store.** `ordinal` numbers an event only
+  among events sharing its whole identity — store, session, kind, instant —
+  so it separates genuine same-millisecond duplicates without encoding the
+  event's position in the run. Deleting a day, a session or an entire store
+  between runs leaves every surviving key untouched. Pinned by
+  `tests/importKeyStability.test.mjs`. (Until 20 Aug 2026 this was the
+  event's index in the whole shipped array, which re-keyed unchanged records
+  after a purge — the one case a re-run is for.)
 
 Still open, and worth knowing before trusting a second run completely:
 
-- **`importKey` includes a global `ordinal`.** It is the event's index in the
-  whole shipped array, so a later run over a *shrunken* store — Claude Code's
-  30-day purge having eaten the oldest days — shifts every subsequent ordinal
-  and re-keys records that have not changed. Those re-key as new events and
-  land twice. Same-store re-runs are safe; re-running after a purge is not
-  fully. The fix is a per-`(store, sessionRef)` ordinal in `importKeyOf`,
-  here, not in the backend.
+- **The 18 Aug 2026 shipment cannot be deduped against.** Production accepted
+  8,720 backdated events from one machine before the `ImportKey` column
+  existed, so those rows carry `NULL` and the unique index is filtered on
+  `IS NOT NULL`. Nothing will ever match them. A clean re-ship needs them
+  removed backend-side first, or that window lands twice — once. Runs from
+  here are idempotent with each other.
 - **Epoch markers** (Copilot→Cursor→Claude eras, Ascenda install) are not yet
   event types anywhere.
 
