@@ -1,13 +1,22 @@
 /**
- * Local handoff into the desktop app's sandbox container.
+ * Local handoff into the desktop app's own `.ascenda` directory.
  *
- * The problem this solves: the macOS app is sandboxed and can never read
- * `~/.claude` or `~/.ascenda`, but it CAN read its own container — and the
- * live-presence bus already establishes the pattern of an unsandboxed
- * collector writing into `~/Library/Containers/<bundle>/Data/.ascenda/`
- * (see tool-kit's `liveBusSocketCandidates`). The importer writes its
- * session digest there and the app picks it up with no entitlement, no
- * Powerbox prompt, and no backend round-trip.
+ * **This targeted the app's sandbox container until 20 Aug 2026** —
+ * `~/Library/Containers/<bundle>/Data/.ascenda/history-import` — because the
+ * macOS app was sandboxed and could never read `~/.claude` or `~/.ascenda`
+ * directly, only its own container. The app dropped App Sandbox that day
+ * (macos, P-D?? — sandbox removal): there is no more container to reach
+ * into, and `$HOME/.ascenda/history-import` is simply where both sides now
+ * agree to meet, which is also where `staging/` (this CLI's own working
+ * data, see `staging.ts`) already lives — one `.ascenda` tree, not two.
+ *
+ * **Anyone running a version of this CLI older than this change against a
+ * newly-unsandboxed app will write handoffs nobody reads.** The app's own
+ * fix carries a one-time migration that copies whatever handoffs already
+ * sit in the old container path across on first unsandboxed launch, so an
+ * existing install's history is not lost — but only a re-run of THIS CLI
+ * with this fix produces a handoff the new app finds on its own from then
+ * on. The two changes are coupled and should ship close together.
  *
  * Why local at all, when the events already ship to the backend: the
  * timeline is a local-first surface, and the demand view that would
@@ -56,7 +65,7 @@ const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
 export const HANDOFF_SCHEMA = 3;
 
 export function handoffDir(home: string = os.homedir()): string {
-  return path.join(home, "Library", "Containers", APP_BUNDLE_ID, "Data", ".ascenda", "history-import");
+  return path.join(home, ".ascenda", "history-import");
 }
 
 /** One handoff file per store — `store` names the file (`claude_code.json`,
@@ -634,17 +643,26 @@ export function buildVsCodeHandoff(
  * moment, and a half-written JSON document is indistinguishable from a
  * corrupt one. Write-then-rename makes the swap atomic on the same volume.
  *
- * Returns null (rather than throwing) when the container does not exist —
- * the app simply is not installed, which is a normal state for a CLI that
- * also serves people who only ship to the backend.
+ * Returns null (rather than throwing) when the app does not appear to be
+ * installed, which is a normal state for a CLI that also serves people who
+ * only ship to the backend — writing a handoff nobody will ever read is
+ * just an orphan file.
+ *
+ * The signal for "installed" moved with the target directory: it used to be
+ * the sandbox container existing (`~/Library/Containers/<bundle>/Data`,
+ * created the app's first launch), and now it is the unsandboxed app's own
+ * Application Support directory, created the same way at the same moment.
+ * Same semantics — "has this app ever launched on this Mac" — same
+ * limitation (an installed-but-never-opened app still reads as absent), one
+ * change: which directory answers the question.
  */
 export async function writeHandoff(
   handoff: HandoffFile | CursorHandoffFile | VsCodeHandoffFile,
   home: string = os.homedir()
 ): Promise<string | null> {
-  const containerRoot = path.join(home, "Library", "Containers", APP_BUNDLE_ID, "Data");
+  const appSupportRoot = path.join(home, "Library", "Application Support", APP_BUNDLE_ID);
   try {
-    await fs.stat(containerRoot);
+    await fs.stat(appSupportRoot);
   } catch {
     return null;
   }
