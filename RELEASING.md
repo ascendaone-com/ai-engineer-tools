@@ -134,8 +134,15 @@ this list.
 | `OVSX_PAT` | Open VSX access token, generated on open-vsx.org itself. Also not an Azure DevOps PAT. |
 | `NPM_TOKEN` | npm **automation** token (or granular token with "bypass 2FA" checked) for the `@ascenda-one` scope with read+write. Interactive tokens cannot publish from CI — there is no one present to approve the 2FA prompt. |
 
-Until a secret is set, its publish step logs a warning and skips. No release
-ever fails for a missing registry token.
+Each publish step still warns and skips when its own token is absent, but a
+tagged release now **fails a preflight check** before it builds anything if any
+of the three is missing — otherwise the release completes green, publishes
+nothing, and cannot be re-run, because the GitHub Release already exists. Set
+the repository variable `ALLOW_PARTIAL_RELEASE=true` to restore the old
+skip-quietly behaviour for a release you intend to be partial.
+
+The preflight only checks that a secret is set. An expired `VSCE_PAT` passes it
+and fails at the Marketplace step; see the gotcha on transfers below.
 
 ## Gotchas that have actually bitten
 
