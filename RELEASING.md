@@ -162,6 +162,46 @@ Every package in `RELEASE_PACKAGES` needs:
 A missing `repository` field passes `npm run verify` and fails only at publish
 time, after the GitHub Release has already been created.
 
+### Transferring the repo to another owner is a repo-side change only
+
+`asc-core-be` moved to the `Ascenda-One-Pty-Ltd` org; this repo has not. When it
+moves, **nothing changes on any registry**. The npm scope `@ascenda-one`, the
+Marketplace publisher `ascenda-one` and the Open VSX namespace `ascenda-one` are
+identities in those systems, not on GitHub, and all three publish steps
+authenticate with a stored token (`NPM_TOKEN` / `VSCE_PAT` / `OVSX_PAT`) rather
+than with GitHub OIDC trusted publishing. There is nothing to update on
+npmjs.org, in the Marketplace publisher, or on open-vsx.org.
+
+What does change is every place this repo names itself. The provenance gotcha
+above is the hard one — `npm publish --provenance` errors rather than warns, so
+the first tag after a transfer fails at the npm step, *after* the GitHub Release
+and both marketplace publishes have already gone out. The rest keep working on
+GitHub's redirect until the old name is reused, and two of them are already
+baked into shipped artifacts: the extension README's absolute image URLs render
+from the Marketplace and Open VSX listings, and
+`releases/latest/download/manifest.json` is what installed clients poll.
+
+`scripts/tests/repoIdentity.test.mjs` holds the whole set. It reads the expected
+owner from `GITHUB_REPOSITORY` in CI (the exact value provenance compares
+against) and from the `origin` remote locally, so it needs no update in advance
+— it starts failing on the first CI run after the transfer and names every file.
+Preview the work at any time:
+
+```bash
+GITHUB_REPOSITORY=NEW-OWNER/ai-engineer-tools npm run test:scripts
+```
+
+The sweep itself is mechanical — one pass, then `npm run verify`:
+
+```bash
+git grep -lz ascendaone-com/ai-engineer-tools | xargs -0 sed -i '' 's|ascendaone-com/ai-engineer-tools|NEW-OWNER/ai-engineer-tools|g'
+```
+
+One thing the test cannot see: repository secrets are per-repo, and a publish
+step with a missing token **warns and skips**, so a release that lost its
+secrets in the move goes green having published nothing. Confirm all three are
+present before the first tag under the new owner.
+
 ### A rerun cannot recreate an existing GitHub Release
 
 `gh release create` fails with *"a release with the same tag name already
