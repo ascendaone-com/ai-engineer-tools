@@ -43,6 +43,9 @@ function headerRow({ composerId, createdAtMs, lastUpdatedAtMs, recency, checkpoi
   )});`;
 }
 
+// A bubble with `createdAt` omitted: it proves the conversation is not empty
+// without being able to date it — which is what forces the header fallbacks
+// to be exercised now that empty conversations are excluded outright.
 function bubbleRow({ composerId, bubbleId, type, createdAt }) {
   return `INSERT INTO cursorDiskKV (key, value) VALUES (${sqlString(
     `bubbleId:${composerId}:${bubbleId}`
@@ -50,7 +53,7 @@ function bubbleRow({ composerId, bubbleId, type, createdAt }) {
     JSON.stringify({
       _v: 3,
       type,
-      createdAt,
+      ...(createdAt === undefined ? {} : { createdAt }),
       tokenCount: { inputTokens: 10, outputTokens: 20 },
       modelInfo: { modelName: "claude-4-sonnet" }
     })
@@ -109,11 +112,12 @@ test("an undated header with bubbles keeps its session and its prompts", async (
   assert.equal(epoch.metrics.sessionsWithoutTimeline, 0);
 });
 
-test("with no bubbles to date it, recency ends the session", async () => {
+test("with no bubble able to date it, recency ends the session", async () => {
   const composerId = "aaaaaaaa-0000-0000-0000-000000000002";
   const recency = CREATED_AT_MS + 9 * 60_000;
   const dir = await storeWith([
-    headerRow({ composerId, createdAtMs: CREATED_AT_MS, lastUpdatedAtMs: null, recency })
+    headerRow({ composerId, createdAtMs: CREATED_AT_MS, lastUpdatedAtMs: null, recency }),
+    bubbleRow({ composerId, bubbleId: "b1", type: 1 })
   ]);
 
   const events = await collect(dir);
@@ -149,7 +153,8 @@ test("checkpointAt is the last resort, behind recency", async () => {
   const composerId = "aaaaaaaa-0000-0000-0000-000000000004";
   const checkpointAt = CREATED_AT_MS + 3 * 60_000;
   const dir = await storeWith([
-    headerRow({ composerId, createdAtMs: CREATED_AT_MS, lastUpdatedAtMs: null, checkpointAt })
+    headerRow({ composerId, createdAtMs: CREATED_AT_MS, lastUpdatedAtMs: null, checkpointAt }),
+    bubbleRow({ composerId, bubbleId: "b1", type: 1 })
   ]);
 
   const events = await collect(dir);
@@ -161,7 +166,8 @@ test("checkpointAt is the last resort, behind recency", async () => {
 test("a composer nothing can date is declared, not dropped in silence", async () => {
   const composerId = "aaaaaaaa-0000-0000-0000-000000000005";
   const dir = await storeWith([
-    headerRow({ composerId, createdAtMs: CREATED_AT_MS, lastUpdatedAtMs: null })
+    headerRow({ composerId, createdAtMs: CREATED_AT_MS, lastUpdatedAtMs: null }),
+    bubbleRow({ composerId, bubbleId: "b1", type: 1 })
   ]);
 
   const events = await collect(dir);
@@ -186,7 +192,8 @@ test("a fallback earlier than createdAt is refused, never a negative duration", 
       lastUpdatedAtMs: null,
       recency: CREATED_AT_MS - 60_000,
       checkpointAt: CREATED_AT_MS - 120_000
-    })
+    }),
+    bubbleRow({ composerId, bubbleId: "b1", type: 1 })
   ]);
 
   const events = await collect(dir);
@@ -235,4 +242,42 @@ test("resolveTimeline reports which field ended the session", () => {
   assert.equal(resolveTimeline({ ...base, checkpointAtMs: CREATED_AT_MS + 1 }).source, "checkpoint");
   assert.equal(resolveTimeline(base), null);
   assert.equal(resolveTimeline({ ...base, createdAtMs: null, recencyMs: 1 }), null);
+});
+
+test("a conversation nobody typed into is excluded, and counted as excluded", async () => {
+  const empty = "bbbbbbbb-0000-0000-0000-000000000001";
+  const used = "bbbbbbbb-0000-0000-0000-000000000002";
+  const dir = await storeWith([
+    // Datable, but nothing ever happened in it — the 48 of these the
+    // extractor used to emit are why the rule needed stating.
+    headerRow({
+      composerId: empty,
+      createdAtMs: CREATED_AT_MS,
+      lastUpdatedAtMs: CREATED_AT_MS + 60_000
+    }),
+    headerRow({
+      composerId: used,
+      createdAtMs: CREATED_AT_MS,
+      lastUpdatedAtMs: CREATED_AT_MS + 60_000
+    }),
+    bubbleRow({
+      composerId: used,
+      bubbleId: "b1",
+      type: 1,
+      createdAt: new Date(CREATED_AT_MS + 30_000).toISOString()
+    })
+  ]);
+
+  const events = await collect(dir);
+  const sessions = events.filter((e) => e.eventKind === "create_focus_session");
+  assert.equal(sessions.length, 1, "only the conversation with a message counts");
+  assert.equal(sessions[0].sessionRef, used);
+
+  const epoch = epochOf(events);
+  assert.equal(epoch.metrics.emptyComposers, 1, "the exclusion is reported, not inferred");
+  assert.equal(
+    epoch.metrics.sessionsWithoutTimeline,
+    0,
+    "an empty conversation is not miscounted as one nothing could date"
+  );
 });

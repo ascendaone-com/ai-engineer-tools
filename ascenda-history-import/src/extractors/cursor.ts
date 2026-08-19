@@ -324,6 +324,9 @@ interface ComposerFold {
   lintErrorsCount: number;
   unknownBubbles: number;
   unparsedBubbles: number;
+  /** Every bubble seen under this composer, of any type or version —
+   * the test for "did anything happen here". */
+  ownBubbles: number;
   models: Map<string, number>;
   bubbleVersions: Map<string, number>;
   /** Timestamps of the composer's OWN human-message bubbles only — never a
@@ -360,6 +363,7 @@ function newFold(row: RawHeaderRow, sniffed: Extract<SniffedCursorHeader, { kind
     lintErrorsCount: 0,
     unknownBubbles: 0,
     unparsedBubbles: 0,
+    ownBubbles: 0,
     models: new Map(),
     bubbleVersions: new Map(),
     humanPromptTimestamps: [],
@@ -506,7 +510,10 @@ export async function* extractCursor(
     const sniffed = sniffCursorBubbleRow(row);
     if (sniffed.kind === "unparsed") {
       const fold = sniffed.composerId ? folds.get(sniffed.composerId) : undefined;
-      if (fold) fold.unparsedBubbles += 1;
+      if (fold) {
+        fold.unparsedBubbles += 1;
+        fold.ownBubbles += 1;
+      }
       else if (sniffed.composerId && subagentParentOf.has(sniffed.composerId)) {
         // Unparsed bubble under a subagent — nothing to trust, but still
         // attribute the count to the parent so it isn't invisible.
@@ -518,6 +525,7 @@ export async function* extractCursor(
 
     const ownFold = folds.get(sniffed.composerId);
     if (ownFold) {
+      ownFold.ownBubbles += 1;
       if (sniffed.kind === "unknown") {
         ownFold.unknownBubbles += 1;
         continue;
@@ -581,9 +589,21 @@ export async function* extractCursor(
   /** Composers no fallback could date — the loud version of the old silent
    * `continue`. Non-zero means conversations are missing from this import. */
   let sessionsWithoutTimeline = 0;
+  /** Conversations opened and never used. Not sessions (a window nobody
+   * typed into is not work), but counted, because "excluded by rule" and
+   * "lost at a boundary" must not look alike. */
+  let emptyComposers = 0;
 
   for (const composerId of [...folds.keys()].sort()) {
     const fold = folds.get(composerId) as ComposerFold;
+    // Emptiness is decided before dating, so an empty conversation is
+    // reported as empty rather than as one nothing could date. The two are
+    // different findings: one is this extractor applying a rule, the other
+    // is it failing to read a store.
+    if (fold.ownBubbles === 0 && fold.subagentComposerIds.size === 0) {
+      emptyComposers += 1;
+      continue;
+    }
     const timeline = resolveTimeline(fold);
     if (timeline === null) {
       sessionsWithoutTimeline += 1;
@@ -705,6 +725,7 @@ export async function* extractCursor(
         orphanedSubagentBubbles,
         orphanedBubbles,
         sessionsWithoutTimeline,
+        emptyComposers,
         sessionsFromBubbleTimeline: derivedTimelines.get("bubbles") ?? 0,
         sessionsFromRecencyTimeline: derivedTimelines.get("recency") ?? 0,
         sessionsFromCheckpointTimeline: derivedTimelines.get("checkpoint") ?? 0
