@@ -78,6 +78,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { bucketDurationMs, isAfterHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
+import { sliceSessionByLocalDay } from "../daySlice.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -674,6 +675,7 @@ export async function* extractCursor(
       repoRef: fold.repoRef,
       eventKind: "create_focus_session",
       metrics: sessionMetrics,
+      dayBreakdown: sliceSessionByLocalDay(fold.humanPromptTimestamps),
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId
     };

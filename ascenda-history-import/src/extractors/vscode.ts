@@ -57,6 +57,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bucketDurationMs, isAfterHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
+import { sliceSessionByLocalDay } from "../daySlice.js";
 
 /** Self-labelled schema versions this extractor has a fixture for. Anything
  * else sniffs as unparsed — counted, never guessed at (the same
@@ -625,6 +626,7 @@ export async function* extractVsCode(
       repoRef: fold.workspaceRoot,
       eventKind: "create_focus_session",
       metrics: sessionMetrics,
+      dayBreakdown: sliceSessionByLocalDay(fold.requestTimestamps),
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId
     };
