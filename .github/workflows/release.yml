@@ -31,6 +31,35 @@ jobs:
       REPO: ${{ github.repository }}
       STAGE: dist/release
     steps:
+      # Fail before anything ships. Each publish step below warns and skips when
+      # its token is missing, so a release that lost a secret — a repo transfer
+      # is how that happens — finishes green having published nothing, and
+      # cannot simply be re-run: the GitHub Release already exists and
+      # `gh release create` refuses a tag that has one. Checking here, before
+      # the tag becomes a Release, makes that failure cost nothing.
+      #
+      # Presence is all this can check. An expired VSCE_PAT (Azure PATs cap at a
+      # year) still passes here and fails at the Marketplace step.
+      #
+      # Set repository variable ALLOW_PARTIAL_RELEASE=true to release without
+      # one, which is the pre-token behaviour this replaces.
+      - name: Preflight — registry tokens present
+        if: env.DRY_RUN == 'false' && vars.ALLOW_PARTIAL_RELEASE != 'true'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in NPM_TOKEN VSCE_PAT OVSX_PAT; do
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::${TAG} would publish nothing to ${missing[*]} — repository secrets are missing. Secrets are per-repo and do not always survive a transfer: check Settings > Secrets and variables > Actions on ${REPO}. To release anyway, set repository variable ALLOW_PARTIAL_RELEASE=true."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
