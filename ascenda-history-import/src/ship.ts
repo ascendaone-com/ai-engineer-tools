@@ -37,7 +37,12 @@
  *   repo correlate server-side without the server ever learning the path.
  */
 import { createHash } from "node:crypto";
-import { hashWithMachineSalt, readTokenFile, defaultTokenFilePath } from "@ascenda-one/tool-kit";
+import {
+  hashWithMachineSalt,
+  readTokenFile,
+  defaultTokenFilePath,
+  utcOffsetMinutesAt
+} from "@ascenda-one/tool-kit";
 import type { AscendaEventPayload, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
 import {
   EXTRACTION_EPOCH_KIND,
@@ -142,6 +147,10 @@ export function toWirePayload(
     // cannot reach the wire to be silently bucketed as `unclassified`.
     eventType: event.eventKind,
     occurredAt: event.occurredAt,
+    // The offset in force WHEN THE EVENT HAPPENED, not when the import ran.
+    // A nine-month backfill crosses DST boundaries; stamping today's
+    // offset on all of it would shift a whole season by an hour.
+    utcOffsetMinutes: utcOffsetMinutesAt(new Date(event.occurredAt)),
     severity: "low",
     sessionId: event.sessionRef,
     workspaceHash,
