@@ -257,6 +257,29 @@ export type AscendaEventPayload = {
   eventType: AscendaTelemetryEventType;
   occurredAt: string;
   /**
+   * Minutes the emitter's local clock is AHEAD of UTC at `occurredAt`
+   * (Brisbane = 600, Los Angeles = -420). Optional only so an older
+   * collector's payload still validates; every collector in this repo sends
+   * it.
+   *
+   * It exists because `occurredAt` is UTC and carries no offset, so a
+   * consumer had no way to recover the person's own clock — and the backend
+   * was reading UTC hours as if they were local. On the reference machine
+   * (UTC+10) that flagged the working day as after-hours and missed the
+   * actual evenings: 83% of prompts marked after-hours against a true 15%,
+   * the two rules agreeing on 14% of 22,535 prompts.
+   *
+   * An offset rather than an IANA zone, deliberately. It answers every
+   * question a consumer actually has — after-hours, which local day, which
+   * local week — while naming only a rough longitude band, where
+   * "Australia/Brisbane" narrows a person considerably. Sending less that
+   * still answers the question is the cheaper privacy position.
+   *
+   * Per event, not per install: an offset is a property of an instant, so a
+   * DST boundary inside a backfill is captured rather than flattened.
+   */
+  utcOffsetMinutes?: number | null;
+  /**
    * For a type in {@link SEMANTIC_WORK_SIGNAL_EVENT_TYPES}, always send `"low"`.
    * Severity is a judgement against the person's own baseline, which the
    * emitter — hook or skill — cannot see; computing it here would mean an
