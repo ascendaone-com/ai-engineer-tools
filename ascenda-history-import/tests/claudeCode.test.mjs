@@ -10,9 +10,9 @@ import {
   isToolFailureLine
 } from "../dist/extractors/claudeCode.js";
 
-// Fixture lines shaped like Claude Code 2.1.227 transcripts (fields observed
-// on a real store 2026-08-18, content replaced). Per the contract-test rule
-// in the research note: one fixture set per known (tool, version) pair, and
+// Fixture lines shaped like Claude Code 2.1.x transcripts (real field shapes,
+// content replaced). Per the contract-test rule: one fixture set per known
+// (tool, version) pair, and
 // an unknown shape must sniff as unparsed rather than half-parse.
 
 const userLine = JSON.stringify({
@@ -102,7 +102,7 @@ test("isToolFailureLine reads the is_error marker, not the toolUseResult text", 
   assert.equal(isToolFailureLine({ message: { content: [{ type: "text", text: "hi" }] } }), false);
 });
 
-// Contract-vocabulary pin. asc-core-be's ToolTelemetryMetricsService reads
+// Contract-vocabulary pin. The backend's metrics service reads
 // `durationBucket` off create_focus_session events expecting exactly the
 // tool-contract vocabulary ("0-1m" | "1-5m" | "5-10m" | "10-30m" | "30-60m" |
 // "60m+", packages/tool-contract/src/index.ts DurationBucket). This extractor

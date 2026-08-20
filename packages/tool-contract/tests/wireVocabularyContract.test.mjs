@@ -9,15 +9,15 @@ import { EVENT_WORKLOAD_CATEGORY } from "../out/index.js";
  * Pins `AscendaTelemetryEventType` to the wire vocabulary the backend owns.
  *
  * The vocabulary was hand-authored twice with no mechanical link: this union in
- * TypeScript, and `WorkloadCategoryMap` in asc-core-be's
- * `Services/ToolTelemetryCatalog.cs`. Drift between them did not fail a build —
+ * TypeScript, and the equivalent map in the backend's telemetry catalog.
+ * Drift between them did not fail a build —
  * the backend accepted unknown types and filed them under `unclassified`, so a
  * name that existed on only one side surfaced as missing dashboard rows months
  * later rather than as a red test. That is how `@ascenda-one/history-import`
  * shipped three invented names and lost seven months of history behind a 2xx.
  *
  * `contracts/tool-telemetry-event-types.v1.json` is a vendored copy of the
- * file asc-core-be owns at `Contracts/tool-telemetry-event-types.v1.json`.
+ * equivalent file the backend owns.
  *
  * What this test does and does not buy:
  *

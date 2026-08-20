@@ -12,11 +12,11 @@ import {
   KNOWN_CURSOR_HEADER_TYPES
 } from "../dist/extractors/cursor.js";
 
-// Fixtures are shaped like a real Cursor 2026-08-18 store (147 composerHeaders
-// / 17,727 bubbles, verified live): composerHeaders rows are real columns
+// Fixtures are shaped like a real Cursor store: composerHeaders rows are
+// real columns
 // (composerId/createdAt/lastUpdatedAt/isSubagent) plus a `value` JSON blob
 // self-labelling `"type":"head"`; bubbles are `cursorDiskKV` rows keyed
-// `bubbleId:<composer>:<bubble>` self-labelling `_v` (uniformly 3 observed).
+// `bubbleId:<composer>:<bubble>` self-labelling `_v`.
 // Per the contract-test rule: one fixture per known (tool, version) pair, and
 // an unknown _v / unknown header type must sniff as unparsed/unknown rather
 // than half-parse.

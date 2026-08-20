@@ -49,24 +49,16 @@ export type HistoricalProvenance =
  * cannot drift): consenting to prospective `ide_telemetry` is not consenting
  * to a read of nine months of history.
  *
- * **The backend does not enforce this yet, and this package must not ship as
- * if it did.** `ConsentType.HistoricalImport` (507), the `historical_import`
- * scope mapping and the provenance override are implemented on the asc-core-be
- * branch `claude/historical-import-dedup-and-consent`, and are absent from
- * `origin/main` — verified 19 Aug 2026, zero occurrences of `HistoricalImport`
- * in `Services/` or `Models/` there.
+ * **Enforcement is server-side and still rolling out, so this package must
+ * not ship as if the gate were already live.** The distinct consent type, the
+ * `historical_import` scope mapping and the provenance-keyed override are
+ * backend concerns; until they are deployed, a published client could backfill
+ * history under the lease a user granted for ordinary live IDE telemetry —
+ * the precise outcome the separate scope exists to prevent. Publishing this
+ * package is gated on that rollout.
  *
- * Until that branch merges, `ResolveConsentType` does not recognise
- * `historical_import` and takes its default arm, `ConsentType.AiDataProcessing`
- * — the lease a user already granted for ordinary live IDE telemetry. So
- * against main today, nine months of retrospective history would ingest under
- * a consent the user gave for something else, which is the precise outcome the
- * separate scope exists to prevent.
- *
- * Sending this scope is still correct: it is what the enforcing backend keys
- * on, and it makes the intent explicit in the audit record either way. What is
- * not correct is publishing this package while a reader of this file would
- * conclude the protection is live.
+ * Sending this scope is correct regardless: it is what the enforcing backend
+ * keys on, and it makes the intent explicit in the audit record either way.
  */
 export const HISTORICAL_CONSENT_SCOPE = ASCENDA_HISTORICAL_CONSENT_SCOPE;
 

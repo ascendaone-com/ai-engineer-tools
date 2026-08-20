@@ -1,6 +1,6 @@
 # The collector send journal — and what the 17 Aug incident actually was
 
-Response to `TOOLS_HANDOFF_SILENT_TELEMETRY_DROP.md` (asc-ascenda-app-workspace).
+Response to a handoff document reporting silent telemetry drops.
 The ask in that document was sound and is implemented here. Its diagnosis was
 wrong in two load-bearing ways, and both are worth recording, because acting on
 either would have produced a fix that changed nothing.

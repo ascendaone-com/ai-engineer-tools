@@ -73,7 +73,7 @@ test("Claude Code declares a project whose transcripts it cannot read", async ()
 });
 
 test("a session whose transcript the purge took, but whose sidecars survived, is declared", async () => {
-  // Observed on the reference machine: `tool-results/*.txt` outliving the
+  // Observed on a real store: `tool-results/*.txt` outliving the
   // `.jsonl` the 30-day purge deleted. The work happened; the record of it is
   // gone. That is worth surfacing, not rounding to zero.
   const dir = await projectStore({

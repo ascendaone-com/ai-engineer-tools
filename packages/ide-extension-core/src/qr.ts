@@ -2,7 +2,7 @@
 //
 // The pairing QR encodes the backend's own `qrUrl` — either the legacy
 // `ascenda://pair?session=<id>&secret=<secret>` scheme, or (once
-// asc-core-be's PairingWebOptions.BaseUrl is configured) an https link of
+// the backend's pairing-web base URL is configured) an https link of
 // the form `<BaseUrl>/p/<sessionId>#<secret>`. Either way the pairing
 // secret is what claims the pairing, so it must never leave the machine —
 // this used to be built by handing the URL to a third-party image service,

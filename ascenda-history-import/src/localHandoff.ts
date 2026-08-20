@@ -181,8 +181,8 @@ export interface VsCodeHandoffFile {
   chatSessions: VsCodeHandoffSession[];
 }
 
-/** Last path segment of a repo path — "asc-ascenda-app-workspace" from a
- * full cwd. Falls back to the raw ref when it is already a slug. */
+/** Last path segment of a repo path — "my-service" from a full cwd.
+ * Falls back to the raw ref when it is already a slug. */
 export function projectLabelOf(repoRef: string | null): string | null {
   if (!repoRef) return null;
   const trimmed = repoRef.replace(/\/+$/, "");

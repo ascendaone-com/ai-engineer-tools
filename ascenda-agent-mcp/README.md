@@ -23,7 +23,7 @@ Agent (Claude Code / Cursor / other MCP host)
   -> AscendaEventSender.sendSemanticSignal (@ascenda-one/tool-kit)
   -> Ascenda backend (POST /v1/tool-events, consentScope: semantic_work_signals)
   -> paired anonymous Ascenda user
-  -> Weekly Loop trigger evaluation / work-map (asc-core-be)
+  -> Weekly Loop trigger evaluation / work-map (backend)
 ```
 
 Reuses the same pairing model as the hooks and IDE extensions — same `toolInstallationId` + `eventWriteToken`, same token file convention — but **does not mint its own tool type**. See `src/config.ts`: this process is host-agnostic (the same binary runs under Claude Code or Cursor), so it refuses to guess a prefix the way `ascenda-claude-hook`/`ascenda-codex-hook` do. Passing an id that already contains `:` (i.e. the exact value your existing pairing shows) reuses that pairing's token file; a bare id is rejected rather than silently minting a second, unpaired tool identity.

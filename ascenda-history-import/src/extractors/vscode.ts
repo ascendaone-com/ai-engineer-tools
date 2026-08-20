@@ -1,17 +1,18 @@
 /**
- * VS Code extractor — the deep baseline (stable stores, ~9 months observed),
- * safe to run in a background pass after Claude Code and Cursor.
+ * VS Code extractor — the deep baseline (stable stores, retained far longer
+ * than Claude Code's), safe to run in a background pass after Claude Code and
+ * Cursor.
  *
  * Two independent stores, one extractor:
  *  - `User/History/<hash>/entries.json` — Timeline local history. One
  *    directory per tracked FILE (not per workspace), format self-labels
  *    `{"version":1,"resource","entries"}`. The decisive per-entry field is
- *    `source: "Chat Edit: '<prompt>'"` — 13,780 of 14,928 entries on the
- *    reference machine (verified 2026-08-18). The PROMPT TEXT inside that
- *    string is content: only the `"Chat Edit:"` prefix is ever read: the
- *    extractor counts and timestamps Chat Edits, never ships the string.
+ *    `source: "Chat Edit: '<prompt>'"`, which on an AI-heavy machine accounts
+ *    for most entries. The PROMPT TEXT inside that string is content: only
+ *    the `"Chat Edit:"` prefix is ever read: the extractor counts and
+ *    timestamps Chat Edits, never ships the string.
  *  - `workspaceStorage/<ws>/chatSessions/*.{json,jsonl}` — Copilot sessions,
- *    self-label `"version":3` on the reference machine. Each `requests[]`
+ *    self-labelling `"version":3` where observed. Each `requests[]`
  *    entry carries `message`/`response` (content — never read past checking
  *    they exist) and `modelId`/`timestamp`/`isCanceled`/`result.errorDetails`
  *    (metrics).
@@ -21,11 +22,10 @@
  * VS Code itself resolved for that workspace hash — not a guess at path
  * segments. `buildWorkspaceFolderIndex` reads every one of those once and a
  * Timeline-history file's `resource` path is matched against it by longest
- * prefix (verified 2026-08-18: 3,726 of 3,792 resource paths on the
- * reference machine resolve this way; the remainder are `/tmp` scratch files
- * and files under paths VS Code never opened as a workspace — real gaps, not
- * bugs, and they fall back to the file's own containing directory rather
- * than a fabricated workspace name). Multi-root workspaces (`workspace.json`
+ * prefix. The paths that do not resolve are typically scratch files and files
+ * under paths VS Code never opened as a workspace — real gaps, not bugs, and
+ * they fall back to the file's own containing directory rather than a
+ * fabricated workspace name. Multi-root workspaces (`workspace.json`
  * pointing at `workspace` instead of `folder`, itself a pointer into
  * `Code/Workspaces/…`) are outside this store's own snapshot boundary and
  * are deliberately left unresolved rather than followed into a second store
@@ -34,8 +34,8 @@
  * Emission (aggregate before shipping — never one event per Timeline entry
  * or per bubble):
  *  - `editor_activity` per (day, workspace) with ≥1 Timeline-history
- *    entry: chat-edit count vs. total entry count. This alone reproduces the
- *    adoption arc (the May-2026 cliff) once rolled up to months downstream —
+ *    entry: chat-edit count vs. total entry count. This alone reproduces a
+ *    machine's AI-adoption arc once rolled up to months downstream —
  *    provenance historical_derived (a fold across many raw entries).
  *  - `ai_prompt_submitted` per Copilot chat request (canonical type, no
  *    metrics — same content-free shape claudeCode.ts uses for human
@@ -292,11 +292,11 @@ interface ChatSessionsResult {
  * `{kind:1, k:[...path], v}` sets a value, `{kind:2, k:[...path], v:[...], i?}`
  * splices into an array (appending when `i` is absent).
  *
- * Folding the deltas is not optional. On the reference machine the `kind:0`
- * headers alone carry 579 requests across 1,161 sessions; folding recovers
- * 6,869. Reading only the header would have restored the sessions with ~92%
- * of their prompts missing — a quieter wrong answer than the empty months it
- * replaced, because nothing downstream would flag a deflated count.
+ * Folding the deltas is not optional. The `kind:0` headers alone carry a
+ * small fraction of a session's requests; the rest arrive as appends. Reading
+ * only the header restores the sessions with most of their prompts missing —
+ * a quieter wrong answer than the empty months it replaced, because nothing
+ * downstream would flag a deflated count.
  */
 const JSONL_KIND_HEADER = 0;
 const JSONL_KIND_SET = 1;

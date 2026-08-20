@@ -20,6 +20,6 @@ export async function* extractGit(
   // The snapshotDir parameter is accepted for interface uniformity and
   // ignored.
   throw new Error(
-    "extractGit is not implemented yet — scaffolded 2026-08-18; see docs/HISTORICAL_TELEMETRY_IMPORT.md in the Flow workspace"
+    "extractGit is not implemented yet — scaffolded, no extraction path built"
   );
 }

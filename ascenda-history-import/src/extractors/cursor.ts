@@ -1,7 +1,7 @@
 /**
  * Cursor extractor — second in the evaporation order (no purge observed, but
- * the richest per-message structure: 71-field bubbles with tokenCount,
- * human-vs-AI edit attribution, and post-edit lint state).
+ * the richest per-message structure: wide message bubbles carrying
+ * tokenCount, human-vs-AI edit attribution, and post-edit lint state).
  *
  * Store: `state.vscdb` (SQLite, WAL). Extraction reads the STAGED copy only
  * — `snapshotDir` is the directory `src/staging.ts` copied `state.vscdb`
@@ -15,8 +15,7 @@
  * copied the `-wal` sibling to preserve — exactly the newest sessions a user
  * would notice missing. Read-write on a private copy has no such trap.
  *
- * Tables (observed 2026-08-18, Cursor installed 2026-02-24, 147
- * composerHeaders / 146 composerData / 17,727 bubbles):
+ * Tables:
  *  - `composerHeaders` — one row per conversation. `composerId`, `createdAt`,
  *    `lastUpdatedAt` and `isSubagent` are real columns; everything else
  *    (`totalLinesAdded`/`totalLinesRemoved`/`filesChangedCount`,
@@ -25,27 +24,25 @@
  *    column holding one JSON blob per row. That blob self-labels
  *    `"type": "head"` — the closest thing to a version tag a header carries,
  *    dispatched on the same way `_v` is (see `sniffCursorHeaderRow`).
- *  - `cursorDiskKV` — a flat key/value table. `composerData:<id>` (146 rows,
- *    duplicates each header's own bubble list plus full prompt/response text)
- *    is deliberately never read: nothing this extractor needs isn't already
- *    on `composerHeaders` or the bubbles. `bubbleId:<composerId>:<bubbleId>`
- *    (17,727 rows) are the message bubbles; each is a 71-field JSON blob
- *    self-labelling `_v` (uniformly 3 on the verified store), `type` (1 =
- *    human message, 603 observed; 2 = assistant turn, 17,124 observed —
- *    Cursor fragments one assistant reply across many bubbles, tool calls
- *    and thinking included, unlike Claude Code's near-1:1 line ratio),
- *    `tokenCount`, `humanChanges`/`approximateLintErrors` (both empty-array
- *    on the verified store — the fields exist and are read regardless, since
- *    a machine with real usage of Cursor's diff-review flow would populate
+ *  - `cursorDiskKV` — a flat key/value table. `composerData:<id>` (duplicates
+ *    each header's own bubble list plus full prompt/response text) is
+ *    deliberately never read: nothing this extractor needs is absent from
+ *    `composerHeaders` or the bubbles. `bubbleId:<composerId>:<bubbleId>`
+ *    are the message bubbles; each is a wide JSON blob self-labelling `_v`,
+ *    `type` (1 = human message, 2 = assistant turn — Cursor fragments one
+ *    assistant reply across many bubbles, tool calls and thinking included,
+ *    unlike Claude Code's near-1:1 line ratio), `tokenCount`,
+ *    `humanChanges`/`approximateLintErrors` (frequently empty, and read
+ *    regardless — a machine that uses Cursor's diff-review flow populates
  *    them), and `modelInfo.modelName`.
  *
  * Content never enters this process, not just "never leaves the machine":
  * every bubble query below selects individual `json_extract`/
  * `json_array_length` scalars, never the bubble's own `value` column, so the
- * 71-field blob's `text`/`richText`/`allThinkingBlocks`/`gitDiffs` — the
+ * bubble blob's `text`/`richText`/`allThinkingBlocks`/`gitDiffs` — the
  * fields that actually hold prompt and response content — are never even
  * parsed into a JS object, let alone shipped. `composerHeaders.value` IS read
- * whole (it is one order of magnitude smaller — 147 rows, not 17,727 — and
+ * whole (there are orders of magnitude fewer headers than bubbles, and it
  * has no prompt/response text field, only `name`/`subtitle` UI labels similar
  * in kind to the `cwd`/`gitBranch` fields the Claude extractor already reads
  * directly off transcript lines).
@@ -70,7 +67,7 @@
  * Session-level events come from `composerHeaders` alone (outcome metrics
  * are already folded there); bubbles are aggregated per composer for
  * prompt-iteration counts, token totals, and human/AI attribution — NEVER
- * emitted as their own event (17,727 of them on one observed machine).
+ * emitted as their own event (a single machine holds tens of thousands).
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -82,8 +79,8 @@ import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 const execFileAsync = promisify(execFile);
 
 /** Bubble schema version this extractor knows how to read (`_v` on
- * `bubbleId:<composer>:<bubble>` records). Every bubble on the verified
- * 17,727-bubble store self-labels `_v: 3`; a bubble outside this set is
+ * `bubbleId:<composer>:<bubble>` records). Bubbles observed to date
+ * self-label `_v: 3`; a bubble outside this set is
  * unparsed — none of its fields are trusted, only counted. */
 export const KNOWN_CURSOR_BUBBLE_VERSIONS = new Set([3]);
 
