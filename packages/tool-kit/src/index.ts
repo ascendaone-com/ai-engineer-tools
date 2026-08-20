@@ -2,7 +2,7 @@ export { classifyCommand, isVerificationCommand } from "./commandClassifier";
 export { classifyGitAction, isReworkGitAction } from "./gitActionClassifier";
 export { classifyWorkMilestone, invitesDebrief } from "./workMilestoneClassifier";
 export { bucketLinesChanged, bucketDurationMs } from "./buckets";
-export { isAfterHours } from "./afterHours";
+export { isAfterHours, isOutsideBusinessHours, BUSINESS_DAY } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection } from "./payload";
 export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent } from "./eventSender";

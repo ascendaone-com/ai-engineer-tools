@@ -82,7 +82,7 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { bucketDurationMs, bucketLinesChanged, isAfterHours } from "@ascenda-one/tool-kit";
+import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 
 /** Line types the extractor reads fields from. */
@@ -373,16 +373,27 @@ function rapidRepromptCountOf(fold: SessionFold): number {
 /**
  * Standard Claude API context window. A documented approximation, not a fact
  * the transcript records: a session running an extended/1M-token context
- * would read as a smaller-than-real peak fraction. Honest under-reporting
- * beats a silently wrong ceiling — the same "claim never outruns its
- * evidence" rule the rest of this package follows.
+ * has a larger real window than this.
+ *
+ * **The clamp this function used to apply was not honest under-reporting —
+ * it was signal destruction, and it was measured.** Clipping the ratio at
+ * 1.0 made a 600k-token session and a 200k-token session report the
+ * identical value, and on a real machine that collapsed 214 of 363 sessions
+ * (59%) onto exactly 1.0. A field with no variance across the majority of
+ * its observations carries no within-person information at all, which is
+ * why the state engine excludes `contextWindowPeakPct` as an input.
+ *
+ * The ratio is still emitted uncapped for anyone who wants a rough
+ * fraction, but `contextWindowPeakTokens` is the measured quantity and is
+ * now carried through to the handoff so consumers can baseline against the
+ * raw number instead of a ratio to an assumed denominator.
  */
 const ASSUMED_CONTEXT_WINDOW_TOKENS = 200_000;
 
 function contextWindowPeakPctOf(fold: SessionFold): number {
   if (fold.contextWindowPeakTokens <= 0) return 0;
   const pct = fold.contextWindowPeakTokens / ASSUMED_CONTEXT_WINDOW_TOKENS;
-  return Math.round(Math.min(1, pct) * 1000) / 1000;
+  return Math.round(pct * 1000) / 1000;
 }
 
 /**
@@ -451,7 +462,7 @@ async function foldLinesInto(
             fold.subagentPrompts += 1;
           } else {
             fold.humanPrompts += 1;
-            if (sniffed.occurredAt && isAfterHours(new Date(sniffed.occurredAt))) {
+            if (sniffed.occurredAt && isOutsideBusinessHours(new Date(sniffed.occurredAt))) {
               fold.afterHoursPrompts += 1;
             }
             fold.humanPromptTimestamps.push(sniffed.occurredAt);

@@ -97,7 +97,11 @@ test("buildHandoff defaults new friction fields to 0/null for events that predat
   assert.equal(session.compactionCount, 0);
   assert.equal(session.toolFailureCount, 0);
   assert.equal(session.contextWindowPeakPct, 0);
-  assert.equal(session.userModifiedEditCount, 0);
+  // Null, not 0: an absent count means the store could not answer, and on
+  // Claude Code it never can — `toolUseResult.userModified` is present
+  // 20,133 times in a real store and false every time. A 0 here would ship
+  // "no AI edit was ever corrected by hand" as a finding.
+  assert.equal(session.userModifiedEditCount, null);
   assert.equal(session.subagentTranscripts, 0);
 });
 
