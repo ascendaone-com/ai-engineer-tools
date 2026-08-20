@@ -114,7 +114,12 @@ test("day slices never reach the wire", () => {
     repoRef: "/Users/someone/dev/repo",
     eventKind: "create_focus_session",
     metrics: { promptCount: 3 },
-    dayBreakdown: [{ day: "2026-07-01", prompts: 3, activeMinutes: 12 }],
+    // A sentinel day deliberately unrelated to occurredAt. Asserting the
+    // absence of the event's OWN date would be a tautology in some zones and
+    // a false pass in others: at UTC+10 this fixture's occurredAt serialises
+    // to the previous UTC day, so the check passed locally and failed on a
+    // UTC runner. The string being hunted has to belong only to the slice.
+    dayBreakdown: [{ day: "1999-12-31", prompts: 3, activeMinutes: 12 }],
     provenance: "historical_derived",
     extractionId: "e-1"
   };
@@ -122,6 +127,6 @@ test("day slices never reach the wire", () => {
   const payload = toWirePayload(shippableEvents([event])[0], 0, "claude_code:test");
   const serialised = JSON.stringify(payload);
   assert.equal(serialised.includes("dayBreakdown"), false);
-  assert.equal(serialised.includes("2026-07-01"), false);
+  assert.equal(serialised.includes("1999-12-31"), false);
   assert.equal(payload.metadata.promptCount, 3, "the session itself still ships");
 });
