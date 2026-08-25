@@ -1,3 +1,4 @@
+import { utcOffsetMinutesAt } from "./afterHours";
 import {
   ASCENDA_CONSENT_SCOPE,
   ASCENDA_PROVENANCE,
@@ -82,6 +83,7 @@ export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent):
     toolInstallationId: identity.toolInstallationId,
     source: identity.source,
     occurredAt: new Date().toISOString(),
+    utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
     sessionId: identity.sessionId ?? undefined,
     workspaceHash: identity.workspaceHash ?? undefined,
     consentScope: ASCENDA_CONSENT_SCOPE,
@@ -157,6 +159,7 @@ export class AscendaEventSender {
       source: this.config.source,
       eventType: mapped.eventType,
       occurredAt: new Date().toISOString(),
+      utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
       workspaceHash: this.config.workspaceHash ?? undefined,
@@ -189,6 +192,7 @@ export class AscendaEventSender {
       source: this.config.source,
       eventType: mapped.eventType,
       occurredAt: new Date().toISOString(),
+      utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
       workspaceHash: this.config.workspaceHash ?? undefined,

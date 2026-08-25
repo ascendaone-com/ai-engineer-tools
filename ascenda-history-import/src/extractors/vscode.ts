@@ -57,6 +57,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bucketDurationMs, isAfterHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
+import { sliceSessionByLocalDay } from "../daySlice.js";
 
 /** Self-labelled schema versions this extractor has a fixture for. Anything
  * else sniffs as unparsed — counted, never guessed at (the same
@@ -305,6 +306,10 @@ interface ChatSessionsResult {
    * `unparsedFiles` stayed 0 and the import reported clean. A glob is a blind
    * spot the parser cannot see past; this counter is what makes it visible. */
   unrecognisedFiles: number;
+  /** Sessions opened and never used. Excluded by the same rule Cursor
+   * applies — a window nobody typed into is not work — and counted, so the
+   * exclusion is visible rather than inferred from a shortfall. */
+  emptyDrafts: number;
   /** Lines inside a `.jsonl` session that did not parse. A truncated tail is
    * normal for a session VS Code was still writing; a large count is not. */
   malformedLines: number;
@@ -435,6 +440,7 @@ async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessio
     unparsedFiles: 0,
     unreadableFiles: 0,
     unrecognisedFiles: 0,
+    emptyDrafts: 0,
     malformedLines: 0
   };
 
@@ -512,7 +518,10 @@ async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessio
         continue;
       }
       const requests = Array.isArray(record.requests) ? record.requests : [];
-      if (requests.length === 0) continue; // An empty draft — no real usage to fold.
+      if (requests.length === 0) {
+        result.emptyDrafts += 1; // An empty draft — no real usage to fold.
+        continue;
+      }
 
       const fold: ChatSessionFold = {
         sessionId:
@@ -662,6 +671,7 @@ export async function* extractVsCode(
       repoRef: fold.workspaceRoot,
       eventKind: "create_focus_session",
       metrics: sessionMetrics,
+      dayBreakdown: sliceSessionByLocalDay(fold.requestTimestamps),
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId
     };
@@ -731,6 +741,7 @@ export async function* extractVsCode(
         unparsedChatSessionFiles: chatSessions.unparsedFiles,
         unreadableChatSessionFiles: chatSessions.unreadableFiles,
         unrecognisedChatSessionFiles: chatSessions.unrecognisedFiles,
+        emptyChatSessions: chatSessions.emptyDrafts,
         malformedChatSessionLines: chatSessions.malformedLines
       },
       provenance: HISTORICAL_PROVENANCE.derived,

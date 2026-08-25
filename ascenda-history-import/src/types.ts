@@ -1,3 +1,5 @@
+import type { SessionDaySlice } from "./daySlice.js";
+
 /**
  * Shared shapes for the retrospective import.
  *
@@ -126,6 +128,14 @@ export interface NormalizedHistoricalEvent {
   /** Bucketed/counted metrics only — never prompt or response text. Content
    * stays on the machine; see the doc's privacy line. */
   metrics: Record<string, number | string | boolean>;
+  /**
+   * Per-local-day slices of a session, oldest first. Local-only: `metrics` is
+   * flat by contract because it becomes wire metadata, and this is nested, so
+   * it rides beside rather than inside — which also means it cannot reach the
+   * backend by accident. Only `create_focus_session` carries it, and only
+   * where the store gave prompt timestamps to slice.
+   */
+  dayBreakdown?: SessionDaySlice[];
   provenance: HistoricalProvenance;
   extractionId: string;
 }

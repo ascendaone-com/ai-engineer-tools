@@ -75,6 +75,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { bucketDurationMs, isAfterHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
+import { sliceSessionByLocalDay } from "../daySlice.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -130,6 +131,8 @@ SELECT
   composerId,
   createdAt,
   lastUpdatedAt,
+  recency,
+  checkpointAt,
   isSubagent,
   json_extract(value,'$.type') AS recordType,
   json_extract(value,'$.totalLinesAdded') AS linesAdded,
@@ -161,6 +164,8 @@ interface RawHeaderRow {
   composerId: string;
   createdAt: number | null;
   lastUpdatedAt: number | null;
+  recency: number | null;
+  checkpointAt: number | null;
   isSubagent: number | null;
   recordType: string | null;
   linesAdded: number | null;
@@ -296,6 +301,11 @@ interface ComposerFold {
   composerId: string;
   createdAtMs: number | null;
   lastUpdatedAtMs: number | null;
+  /** Fallbacks for a null `lastUpdatedAt`: `recency` and `checkpointAt` off
+   * the header row, and the newest bubble timestamp folded in below. */
+  recencyMs: number | null;
+  checkpointAtMs: number | null;
+  lastBubbleMs: number | null;
   mode: string | null;
   linesAdded: number;
   linesRemoved: number;
@@ -312,6 +322,9 @@ interface ComposerFold {
   lintErrorsCount: number;
   unknownBubbles: number;
   unparsedBubbles: number;
+  /** Every bubble seen under this composer, of any type or version —
+   * the test for "did anything happen here". */
+  ownBubbles: number;
   models: Map<string, number>;
   bubbleVersions: Map<string, number>;
   /** Timestamps of the composer's OWN human-message bubbles only — never a
@@ -329,6 +342,9 @@ function newFold(row: RawHeaderRow, sniffed: Extract<SniffedCursorHeader, { kind
     composerId: row.composerId,
     createdAtMs: Number.isFinite(row.createdAt) ? (row.createdAt as number) : null,
     lastUpdatedAtMs: Number.isFinite(row.lastUpdatedAt) ? (row.lastUpdatedAt as number) : null,
+    recencyMs: Number.isFinite(row.recency) ? (row.recency as number) : null,
+    checkpointAtMs: Number.isFinite(row.checkpointAt) ? (row.checkpointAt as number) : null,
+    lastBubbleMs: null,
     mode: sniffed.mode,
     linesAdded: sniffed.linesAdded,
     linesRemoved: sniffed.linesRemoved,
@@ -345,6 +361,7 @@ function newFold(row: RawHeaderRow, sniffed: Extract<SniffedCursorHeader, { kind
     lintErrorsCount: 0,
     unknownBubbles: 0,
     unparsedBubbles: 0,
+    ownBubbles: 0,
     models: new Map(),
     bubbleVersions: new Map(),
     humanPromptTimestamps: [],
@@ -355,9 +372,60 @@ function newFold(row: RawHeaderRow, sniffed: Extract<SniffedCursorHeader, { kind
   };
 }
 
+/** Where a composer's end timestamp came from. `header` is `lastUpdatedAt`
+ * itself; the rest are fallbacks, reported per-extraction so a store leaning
+ * on them is visible rather than merely plausible. */
+export type CursorTimelineSource = "header" | "bubbles" | "recency" | "checkpoint";
+
+export interface ResolvedTimeline {
+  endedAtMs: number;
+  source: CursorTimelineSource;
+}
+
+/**
+ * The end of a composer's timeline, falling back when `lastUpdatedAt` is null.
+ *
+ * `lastUpdatedAt` is nullable and Cursor leaves it unset on real conversations
+ * — 42 of 151 headers on the reference machine. This function exists because
+ * the emit loop used to `continue` past exactly those, silently: no event, no
+ * counter, and no way to tell a dropped conversation from one that never
+ * happened. On that machine the 15 non-subagent casualties were all empty, so
+ * nothing was lost; nothing in the schema ties a null `lastUpdatedAt` to
+ * emptiness, so on another machine they would not be.
+ *
+ * Order is by how directly each field witnesses the conversation ending:
+ *  - `bubbles` — the newest message's own timestamp. Content truth: a message
+ *    exists and it happened then. Preferred over any header field.
+ *  - `recency` — a millisecond epoch that equals `lastUpdatedAt` on all 109
+ *    reference-machine headers carrying both, which is why it is trusted at
+ *    all; the name still suggests it could track opening rather than editing,
+ *    so a bubble outranks it.
+ *  - `checkpointAt` — last, present on only 27 of the 42 and describing a
+ *    checkpoint rather than the conversation.
+ *
+ * A candidate before `createdAtMs` is not an end and is skipped, so a
+ * repaired timeline can never invent a negative duration.
+ */
+export function resolveTimeline(fold: ComposerFold): ResolvedTimeline | null {
+  if (fold.createdAtMs === null) return null;
+  if (fold.lastUpdatedAtMs !== null) return { endedAtMs: fold.lastUpdatedAtMs, source: "header" };
+  const candidates: [number | null, CursorTimelineSource][] = [
+    [fold.lastBubbleMs, "bubbles"],
+    [fold.recencyMs, "recency"],
+    [fold.checkpointAtMs, "checkpoint"]
+  ];
+  for (const [ms, source] of candidates) {
+    if (ms !== null && Number.isFinite(ms) && ms >= fold.createdAtMs) {
+      return { endedAtMs: ms, source };
+    }
+  }
+  return null;
+}
+
 function sessionDurationMs(fold: ComposerFold): number | null {
-  if (fold.createdAtMs === null || fold.lastUpdatedAtMs === null) return null;
-  const ms = fold.lastUpdatedAtMs - fold.createdAtMs;
+  const timeline = resolveTimeline(fold);
+  if (timeline === null) return null;
+  const ms = timeline.endedAtMs - (fold.createdAtMs as number);
   return Number.isFinite(ms) && ms >= 0 ? ms : null;
 }
 
@@ -440,7 +508,10 @@ export async function* extractCursor(
     const sniffed = sniffCursorBubbleRow(row);
     if (sniffed.kind === "unparsed") {
       const fold = sniffed.composerId ? folds.get(sniffed.composerId) : undefined;
-      if (fold) fold.unparsedBubbles += 1;
+      if (fold) {
+        fold.unparsedBubbles += 1;
+        fold.ownBubbles += 1;
+      }
       else if (sniffed.composerId && subagentParentOf.has(sniffed.composerId)) {
         // Unparsed bubble under a subagent — nothing to trust, but still
         // attribute the count to the parent so it isn't invisible.
@@ -452,6 +523,7 @@ export async function* extractCursor(
 
     const ownFold = folds.get(sniffed.composerId);
     if (ownFold) {
+      ownFold.ownBubbles += 1;
       if (sniffed.kind === "unknown") {
         ownFold.unknownBubbles += 1;
         continue;
@@ -466,6 +538,12 @@ export async function* extractCursor(
       ownFold.lintErrorsCount += sniffed.lintErrorsCount;
       if (sniffed.modelName) {
         ownFold.models.set(sniffed.modelName, (ownFold.models.get(sniffed.modelName) ?? 0) + 1);
+      }
+      if (sniffed.createdAt) {
+        const ms = Date.parse(sniffed.createdAt);
+        if (Number.isFinite(ms) && (ownFold.lastBubbleMs === null || ms > ownFold.lastBubbleMs)) {
+          ownFold.lastBubbleMs = ms;
+        }
       }
       if (sniffed.kind === "user") {
         ownFold.humanPrompts += 1;
@@ -504,12 +582,36 @@ export async function* extractCursor(
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
   let sessionCount = 0;
+  /** Sessions whose end timestamp came from a fallback, by source. */
+  const derivedTimelines = new Map<CursorTimelineSource, number>();
+  /** Composers no fallback could date — the loud version of the old silent
+   * `continue`. Non-zero means conversations are missing from this import. */
+  let sessionsWithoutTimeline = 0;
+  /** Conversations opened and never used. Not sessions (a window nobody
+   * typed into is not work), but counted, because "excluded by rule" and
+   * "lost at a boundary" must not look alike. */
+  let emptyComposers = 0;
 
   for (const composerId of [...folds.keys()].sort()) {
     const fold = folds.get(composerId) as ComposerFold;
-    if (fold.createdAtMs === null || fold.lastUpdatedAtMs === null) continue; // No usable timeline.
-    const startedAt = new Date(fold.createdAtMs).toISOString();
-    const endedAt = new Date(fold.lastUpdatedAtMs).toISOString();
+    // Emptiness is decided before dating, so an empty conversation is
+    // reported as empty rather than as one nothing could date. The two are
+    // different findings: one is this extractor applying a rule, the other
+    // is it failing to read a store.
+    if (fold.ownBubbles === 0 && fold.subagentComposerIds.size === 0) {
+      emptyComposers += 1;
+      continue;
+    }
+    const timeline = resolveTimeline(fold);
+    if (timeline === null) {
+      sessionsWithoutTimeline += 1;
+      continue;
+    }
+    if (timeline.source !== "header") {
+      derivedTimelines.set(timeline.source, (derivedTimelines.get(timeline.source) ?? 0) + 1);
+    }
+    const startedAt = new Date(fold.createdAtMs as number).toISOString();
+    const endedAt = new Date(timeline.endedAtMs).toISOString();
     sessionCount += 1;
     if (!windowOldest || startedAt < windowOldest) windowOldest = startedAt;
     if (!windowNewest || endedAt > windowNewest) windowNewest = endedAt;
@@ -570,6 +672,7 @@ export async function* extractCursor(
       repoRef: fold.repoRef,
       eventKind: "create_focus_session",
       metrics: sessionMetrics,
+      dayBreakdown: sliceSessionByLocalDay(fold.humanPromptTimestamps),
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId
     };
@@ -592,8 +695,15 @@ export async function* extractCursor(
   // As above: an unreadable store is a finding, not a reason to stay quiet.
   // Without this, a db that opens but whose rows no longer sniff renders as an
   // empty history rather than as a store nobody can read any more.
+  // `sessionsWithoutTimeline` counts here too: a composer no fallback could
+  // date is a conversation this import does not contain, which is precisely
+  // the thing the marker exists to declare.
   const readFailures =
-    unparsedComposerHeaders + unknownComposerHeaderTypes + orphanedSubagentBubbles + orphanedBubbles;
+    unparsedComposerHeaders +
+    unknownComposerHeaderTypes +
+    orphanedSubagentBubbles +
+    orphanedBubbles +
+    sessionsWithoutTimeline;
 
   if ((windowOldest && windowNewest) || readFailures > 0) {
     const window: Record<string, string> =
@@ -612,7 +722,12 @@ export async function* extractCursor(
         unparsedComposerHeaders,
         unknownComposerHeaderTypes,
         orphanedSubagentBubbles,
-        orphanedBubbles
+        orphanedBubbles,
+        sessionsWithoutTimeline,
+        emptyComposers,
+        sessionsFromBubbleTimeline: derivedTimelines.get("bubbles") ?? 0,
+        sessionsFromRecencyTimeline: derivedTimelines.get("recency") ?? 0,
+        sessionsFromCheckpointTimeline: derivedTimelines.get("checkpoint") ?? 0
       },
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId

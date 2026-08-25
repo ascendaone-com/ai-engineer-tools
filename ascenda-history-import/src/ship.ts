@@ -21,12 +21,15 @@
  *   dedups on this key alone, NOT on `(extractionId, importKey)` — an
  *   extraction id is fresh per run, so including it would dedup nothing.
  *
- *   The one soft spot is `ordinal`: it is the event's index in the whole
- *   shipped array, so if a later run extracts a different *set* — Claude
- *   Code's 30-day purge having eaten the oldest days, say — the ordinals
- *   shift and the same source record hashes differently. Re-running over a
- *   shrunken store can therefore still double the overlap. Fixing that means
- *   a per-(store, session) ordinal here, not a backend change.
+ *   `ordinal` used to be the event's index in the whole shipped array, which
+ *   made the key stable only while the store was. A later run extracting a
+ *   different *set* — Claude Code's 30-day purge having eaten the oldest
+ *   days — shifted every subsequent ordinal, so unchanged records re-keyed
+ *   and dedup silently stopped working on exactly the re-run it exists for.
+ *   That is no longer a position: `importOrdinals` numbers an event only
+ *   among events sharing its whole identity (store, session, kind, instant),
+ *   so it disambiguates genuine duplicates and nothing else. Deleting a day,
+ *   a session, or an entire store leaves every surviving key untouched.
  * - **Raw local refs are hashed at the wire, not before.** The normalized
  *   file in staging keeps the real cwd (local, never leaves the machine);
  *   `workspaceHash`/`projectHash` go out as the same machine-salted 16-hex
@@ -34,7 +37,12 @@
  *   repo correlate server-side without the server ever learning the path.
  */
 import { createHash } from "node:crypto";
-import { hashWithMachineSalt, readTokenFile, defaultTokenFilePath } from "@ascenda-one/tool-kit";
+import {
+  hashWithMachineSalt,
+  readTokenFile,
+  defaultTokenFilePath,
+  utcOffsetMinutesAt
+} from "@ascenda-one/tool-kit";
 import type { AscendaEventPayload, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
 import {
   EXTRACTION_EPOCH_KIND,
@@ -68,6 +76,34 @@ export function loadShipConfig(): ShipConfig {
     throw new Error(`No event write token at ${tokenFilePath} (or ASCENDA_EVENT_WRITE_TOKEN)`);
   }
   return { apiBaseUrl, toolInstallationId, eventWriteToken };
+}
+
+/**
+ * Per-event ordinals for a batch, positionally aligned with `events`.
+ *
+ * The ordinal exists only to separate events that are otherwise identical on
+ * the wire — same store, same session, same kind, same instant. Claude Code
+ * really does emit these: one prompt can produce several events sharing a
+ * millisecond, and without a tiebreak they would collapse to one key and the
+ * backend would dedup away real records.
+ *
+ * Counting within that identity rather than across the array is what makes
+ * the key survive a changing store. Two runs over stores that differ by
+ * whole days still agree on every record they share, because nothing outside
+ * an event's own identity group can move its number. Within a group the
+ * assignment order is irrelevant: the members are indistinguishable by
+ * definition, so any consistent numbering pairs them up.
+ */
+export function importOrdinals(events: NormalizedHistoricalEvent[]): number[] {
+  const seen = new Map<string, number>();
+  return events.map((event) => {
+    const identity = [event.store, event.sessionRef ?? "", event.eventKind, event.occurredAt].join(
+      "|"
+    );
+    const ordinal = seen.get(identity) ?? 0;
+    seen.set(identity, ordinal + 1);
+    return ordinal;
+  });
 }
 
 export function importKeyOf(event: NormalizedHistoricalEvent, ordinal: number): string {
@@ -111,6 +147,10 @@ export function toWirePayload(
     // cannot reach the wire to be silently bucketed as `unclassified`.
     eventType: event.eventKind,
     occurredAt: event.occurredAt,
+    // The offset in force WHEN THE EVENT HAPPENED, not when the import ran.
+    // A nine-month backfill crosses DST boundaries; stamping today's
+    // offset on all of it would shift a whole season by an hour.
+    utcOffsetMinutes: utcOffsetMinutesAt(new Date(event.occurredAt)),
     severity: "low",
     sessionId: event.sessionRef,
     workspaceHash,
@@ -216,9 +256,16 @@ export async function shipEvents(
     attributionComplete: true
   };
   const wireEvents = shippableEvents(events);
+  // Ordinals are assigned across the whole shipment before it is cut into
+  // batches: an identity group split by a chunk boundary must still number
+  // continuously, or the same record would key differently depending on
+  // where the batching happened to fall.
+  const ordinals = importOrdinals(wireEvents);
   for (let offset = 0; offset < wireEvents.length; offset += BATCH_SIZE) {
     const chunk = wireEvents.slice(offset, offset + BATCH_SIZE);
-    const payloads = chunk.map((event, i) => toWirePayload(event, offset + i, config.toolInstallationId));
+    const payloads = chunk.map((event, i) =>
+      toWirePayload(event, ordinals[offset + i], config.toolInstallationId)
+    );
     let response: Response;
     try {
       response = await fetch(`${config.apiBaseUrl}/v1/tool-events/batch`, {

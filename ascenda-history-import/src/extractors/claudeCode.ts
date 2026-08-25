@@ -84,6 +84,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
+import { sliceSessionByLocalDay } from "../daySlice.js";
 
 /** Line types the extractor reads fields from. */
 export const KNOWN_CLAUDE_LINE_TYPES = [
@@ -742,6 +743,11 @@ export async function* extractClaudeCode(
         repoRef: fold.cwd ?? fold.projectSlug,
         eventKind: "create_focus_session",
         metrics: sessionMetrics,
+        // Same gap threshold the session-level activeMinutes uses, passed in
+        // rather than redeclared: two definitions of "active" would drift.
+        dayBreakdown: sliceSessionByLocalDay(fold.humanPromptTimestamps, {
+          activeGapMs: ACTIVE_GAP_MS
+        }),
         provenance: HISTORICAL_PROVENANCE.derived,
         extractionId
       };
