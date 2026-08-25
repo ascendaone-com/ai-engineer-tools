@@ -1,17 +1,18 @@
 /**
- * VS Code extractor — the deep baseline (stable stores, ~9 months observed),
- * safe to run in a background pass after Claude Code and Cursor.
+ * VS Code extractor — the deep baseline (stable stores, retained far longer
+ * than Claude Code's), safe to run in a background pass after Claude Code and
+ * Cursor.
  *
  * Two independent stores, one extractor:
  *  - `User/History/<hash>/entries.json` — Timeline local history. One
  *    directory per tracked FILE (not per workspace), format self-labels
  *    `{"version":1,"resource","entries"}`. The decisive per-entry field is
- *    `source: "Chat Edit: '<prompt>'"` — 13,780 of 14,928 entries on the
- *    reference machine (verified 2026-08-18). The PROMPT TEXT inside that
- *    string is content: only the `"Chat Edit:"` prefix is ever read: the
- *    extractor counts and timestamps Chat Edits, never ships the string.
- *  - `workspaceStorage/<ws>/chatSessions/*.json` — Copilot sessions,
- *    self-label `"version":3` on the reference machine. Each `requests[]`
+ *    `source: "Chat Edit: '<prompt>'"`, which on an AI-heavy machine accounts
+ *    for most entries. The PROMPT TEXT inside that string is content: only
+ *    the `"Chat Edit:"` prefix is ever read: the extractor counts and
+ *    timestamps Chat Edits, never ships the string.
+ *  - `workspaceStorage/<ws>/chatSessions/*.{json,jsonl}` — Copilot sessions,
+ *    self-labelling `"version":3` where observed. Each `requests[]`
  *    entry carries `message`/`response` (content — never read past checking
  *    they exist) and `modelId`/`timestamp`/`isCanceled`/`result.errorDetails`
  *    (metrics).
@@ -21,11 +22,10 @@
  * VS Code itself resolved for that workspace hash — not a guess at path
  * segments. `buildWorkspaceFolderIndex` reads every one of those once and a
  * Timeline-history file's `resource` path is matched against it by longest
- * prefix (verified 2026-08-18: 3,726 of 3,792 resource paths on the
- * reference machine resolve this way; the remainder are `/tmp` scratch files
- * and files under paths VS Code never opened as a workspace — real gaps, not
- * bugs, and they fall back to the file's own containing directory rather
- * than a fabricated workspace name). Multi-root workspaces (`workspace.json`
+ * prefix. The paths that do not resolve are typically scratch files and files
+ * under paths VS Code never opened as a workspace — real gaps, not bugs, and
+ * they fall back to the file's own containing directory rather than a
+ * fabricated workspace name. Multi-root workspaces (`workspace.json`
  * pointing at `workspace` instead of `folder`, itself a pointer into
  * `Code/Workspaces/…`) are outside this store's own snapshot boundary and
  * are deliberately left unresolved rather than followed into a second store
@@ -33,19 +33,20 @@
  *
  * Emission (aggregate before shipping — never one event per Timeline entry
  * or per bubble):
- *  - `historical_ai_edit_day` per (day, workspace) with ≥1 Timeline-history
- *    entry: chat-edit count vs. total entry count. This alone reproduces the
- *    adoption arc (the May-2026 cliff) once rolled up to months downstream —
+ *  - `editor_activity` per (day, workspace) with ≥1 Timeline-history
+ *    entry: chat-edit count vs. total entry count. This alone reproduces a
+ *    machine's AI-adoption arc once rolled up to months downstream —
  *    provenance historical_derived (a fold across many raw entries).
  *  - `ai_prompt_submitted` per Copilot chat request (canonical type, no
  *    metrics — same content-free shape claudeCode.ts uses for human
  *    prompts), provenance historical_direct.
- *  - `historical_ai_session` per Copilot chat session: request count,
+ *  - `create_focus_session` per Copilot chat session: request count,
  *    model mix, after-hours count, cancellation/error counts, duration —
  *    provenance historical_derived.
  *  - `after_hours_ai_session` / `tool_failure` per session with ≥1 of that
  *    signal (canonical types, aggregate — same shape claudeCode.ts uses).
- *  - one `historical_epoch_marker` for the store's observed window, folding
+ *  - one `extraction_epoch` (local only — filtered before the wire) for
+ *    the store's observed window, folding
  *    in unparsed/malformed counts from both sub-stores so a partial import
  *    is visible rather than silently read as complete.
  * Metrics carry counts, ids and timestamps only — never prompt/response text
@@ -66,6 +67,19 @@ const KNOWN_CHAT_SESSION_VERSION = 3;
 /** Only this prefix is ever inspected on a Timeline-history entry's
  * `source` field — the prompt text after it is content. */
 const CHAT_EDIT_PREFIX = "Chat Edit:";
+
+/**
+ * A missing file is a shape of the store, not a failure — most hash
+ * directories genuinely have no `entries.json` and most workspaces no
+ * `chatSessions`. Anything else (EACCES, EIO, EISDIR, ENOSPC, a file that
+ * vanished mid-run) is a read this extractor was supposed to make and did
+ * not, and must be counted rather than dropped: an uncounted read failure is
+ * indistinguishable downstream from a store that simply had less in it.
+ */
+function isAbsence(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
 
 function uriToPath(uri: unknown): string | null {
   if (typeof uri !== "string" || !uri.startsWith("file://")) return null;
@@ -179,6 +193,9 @@ interface EditDayFold {
 interface EditDaysResult {
   days: Map<string, EditDayFold>;
   unparsedFiles: number;
+  /** Files this extractor was supposed to read and could not — distinct from
+   * `unparsedFiles` (read fine, schema unknown). */
+  unreadableFiles: number;
   malformedEntries: number;
   oldest: string | null;
   newest: string | null;
@@ -188,6 +205,7 @@ async function foldEditDays(historyDir: string, index: WorkspaceFolder[]): Promi
   const result: EditDaysResult = {
     days: new Map(),
     unparsedFiles: 0,
+    unreadableFiles: 0,
     malformedEntries: 0,
     oldest: null,
     newest: null
@@ -206,8 +224,11 @@ async function foldEditDays(historyDir: string, index: WorkspaceFolder[]): Promi
     let raw: string;
     try {
       raw = await fs.readFile(path.join(historyDir, hash, "entries.json"), "utf8");
-    } catch {
-      continue; // A hash directory without entries.json isn't this store's concern.
+    } catch (error) {
+      // A hash directory without entries.json isn't this store's concern; a
+      // hash directory whose entries.json we could not READ very much is.
+      if (!isAbsence(error)) result.unreadableFiles += 1;
+      continue;
     }
     const sniffed = sniffHistoryFile(raw);
     if (!sniffed) {
@@ -232,7 +253,7 @@ async function foldEditDays(historyDir: string, index: WorkspaceFolder[]): Promi
       if (!result.oldest || iso < result.oldest) result.oldest = iso;
       if (!result.newest || iso > result.newest) result.newest = iso;
 
-      const key = `${date} ${workspaceRoot}`;
+      const key = `${date}\0${workspaceRoot}`;
       let fold = result.days.get(key);
       if (!fold) {
         fold = { date, workspaceRoot, chatEditCount: 0, totalEntryCount: 0, lastTs: iso };
@@ -273,6 +294,127 @@ interface ChatSessionFold {
 interface ChatSessionsResult {
   sessions: ChatSessionFold[];
   unparsedFiles: number;
+  /** Session files that could not be read at all. Distinct from
+   * `unparsedFiles` (read fine, schema unknown) and `unrecognisedFiles`
+   * (never opened, extension unknown): this is an attempted read that failed. */
+  unreadableFiles: number;
+  /** Files in a `chatSessions/` directory whose extension this extractor has
+   * no reader for. Counted rather than ignored: VS Code migrated this store
+   * from `.json` to `.jsonl` in Feb 2026 and the `.json`-only filter dropped
+   * seven months of sessions without ever attempting a parse, so
+   * `unparsedFiles` stayed 0 and the import reported clean. A glob is a blind
+   * spot the parser cannot see past; this counter is what makes it visible. */
+  unrecognisedFiles: number;
+  /** Lines inside a `.jsonl` session that did not parse. A truncated tail is
+   * normal for a session VS Code was still writing; a large count is not. */
+  malformedLines: number;
+}
+
+/**
+ * A `.jsonl` chat session is a keypath-delta log, not a document: line 1 is
+ * `{kind:0, v:<the session object>}` and every later line mutates it —
+ * `{kind:1, k:[...path], v}` sets a value, `{kind:2, k:[...path], v:[...], i?}`
+ * splices into an array (appending when `i` is absent).
+ *
+ * Folding the deltas is not optional. The `kind:0` headers alone carry a
+ * small fraction of a session's requests; the rest arrive as appends. Reading
+ * only the header restores the sessions with most of their prompts missing —
+ * a quieter wrong answer than the empty months it replaced, because nothing
+ * downstream would flag a deflated count.
+ */
+const JSONL_KIND_HEADER = 0;
+const JSONL_KIND_SET = 1;
+const JSONL_KIND_SPLICE = 2;
+
+type KeyPath = (string | number)[];
+
+/** Walks `path` from `root`, returning the container it addresses, or null if
+ * any segment is missing — a delta against a path the header never had is
+ * dropped, never conjured into existence. */
+function resolvePath(root: unknown, path: KeyPath): unknown {
+  let cur: unknown = root;
+  for (const seg of path) {
+    if (typeof seg === "number") {
+      if (!Array.isArray(cur) || seg >= cur.length) return null;
+      cur = cur[seg];
+    } else {
+      if (typeof cur !== "object" || cur === null || Array.isArray(cur)) return null;
+      cur = (cur as Record<string, unknown>)[seg];
+    }
+  }
+  return cur ?? null;
+}
+
+function applySet(root: unknown, path: KeyPath, value: unknown): void {
+  if (path.length === 0) return;
+  const parent = resolvePath(root, path.slice(0, -1));
+  const last = path[path.length - 1];
+  if (typeof last === "number") {
+    if (!Array.isArray(parent)) return;
+    while (parent.length <= last) parent.push(null);
+    parent[last] = value;
+  } else {
+    if (typeof parent !== "object" || parent === null || Array.isArray(parent)) return;
+    (parent as Record<string, unknown>)[last] = value;
+  }
+}
+
+function applySplice(root: unknown, path: KeyPath, values: unknown[], index: number | null): void {
+  const target = resolvePath(root, path);
+  if (!Array.isArray(target)) return;
+  if (index !== null && index >= 0 && index <= target.length) target.splice(index, 0, ...values);
+  else target.push(...values);
+}
+
+interface JsonlParse {
+  record: Record<string, unknown> | null;
+  malformedLines: number;
+}
+
+/** Folds one `.jsonl` session into the same record shape the `.json` reader
+ * produces, so both formats converge before any counting happens. */
+export function parseJsonlChatSession(raw: string): JsonlParse {
+  let malformedLines = 0;
+  let record: Record<string, unknown> | null = null;
+
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      malformedLines += 1;
+      continue;
+    }
+    if (typeof parsed !== "object" || parsed === null) {
+      malformedLines += 1;
+      continue;
+    }
+    const delta = parsed as Record<string, unknown>;
+
+    if (delta.kind === JSONL_KIND_HEADER) {
+      // The header is the document. A second one would mean a concatenated
+      // log; keep the first, which is the session's own creation record.
+      if (record === null && typeof delta.v === "object" && delta.v !== null) {
+        record = delta.v as Record<string, unknown>;
+      }
+      continue;
+    }
+    if (record === null || !Array.isArray(delta.k)) continue;
+    const keyPath = delta.k.filter(
+      (seg): seg is string | number => typeof seg === "string" || typeof seg === "number"
+    );
+    if (keyPath.length !== delta.k.length) continue;
+
+    if (delta.kind === JSONL_KIND_SET) {
+      applySet(record, keyPath, delta.v);
+    } else if (delta.kind === JSONL_KIND_SPLICE && Array.isArray(delta.v)) {
+      applySplice(record, keyPath, delta.v, typeof delta.i === "number" ? delta.i : null);
+    }
+  }
+
+  return { record, malformedLines };
 }
 
 function topModel(models: Map<string, number>): string | null {
@@ -288,7 +430,13 @@ function topModel(models: Map<string, number>): string | null {
 }
 
 async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessionsResult> {
-  const result: ChatSessionsResult = { sessions: [], unparsedFiles: 0 };
+  const result: ChatSessionsResult = {
+    sessions: [],
+    unparsedFiles: 0,
+    unreadableFiles: 0,
+    unrecognisedFiles: 0,
+    malformedLines: 0
+  };
 
   let wsHashes: string[] = [];
   try {
@@ -312,7 +460,11 @@ async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessio
 
     let files: string[] = [];
     try {
-      files = (await fs.readdir(path.join(wsDir, "chatSessions"))).filter((f) => f.endsWith(".json"));
+      const entries = await fs.readdir(path.join(wsDir, "chatSessions"));
+      files = entries.filter((f) => f.endsWith(".json") || f.endsWith(".jsonl"));
+      // Anything else in here is a store shape this extractor does not know.
+      // Counted, never silently skipped — see `unrecognisedFiles`.
+      result.unrecognisedFiles += entries.length - files.length;
     } catch {
       continue; // Most workspaces have no chatSessions dir — the norm.
     }
@@ -322,20 +474,39 @@ async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessio
       try {
         raw = await fs.readFile(path.join(wsDir, "chatSessions", file), "utf8");
       } catch {
+        // `readdir` just listed this file, so every failure here is real —
+        // including ENOENT (it vanished mid-run) and ERR_STRING_TOO_LONG (a
+        // session larger than V8's max string; several on this machine run to
+        // 450 MB). This `continue` used to be bare, which meant an unreadable
+        // session was not counted as unparsed, not counted as unrecognised,
+        // and absent from the epoch — the import reported clean while dropping
+        // it.
+        result.unreadableFiles += 1;
         continue;
       }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
+      // Two on-disk shapes, one record. `.json` is the whole session; `.jsonl`
+      // is a delta log whose header plus deltas fold to the same thing. Both
+      // must clear the same version gate below — the migration changed the
+      // container, not the session schema (still version 3).
+      let record: Record<string, unknown> | null = null;
+      if (file.endsWith(".jsonl")) {
+        const folded = parseJsonlChatSession(raw);
+        result.malformedLines += folded.malformedLines;
+        record = folded.record;
+      } else {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (typeof parsed === "object" && parsed !== null) {
+            record = parsed as Record<string, unknown>;
+          }
+        } catch {
+          record = null;
+        }
+      }
+      if (record === null) {
         result.unparsedFiles += 1;
         continue;
       }
-      if (typeof parsed !== "object" || parsed === null) {
-        result.unparsedFiles += 1;
-        continue;
-      }
-      const record = parsed as Record<string, unknown>;
       if (record.version !== KNOWN_CHAT_SESSION_VERSION) {
         result.unparsedFiles += 1;
         continue;
@@ -344,7 +515,10 @@ async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessio
       if (requests.length === 0) continue; // An empty draft — no real usage to fold.
 
       const fold: ChatSessionFold = {
-        sessionId: typeof record.sessionId === "string" ? record.sessionId : path.basename(file, ".json"),
+        sessionId:
+          typeof record.sessionId === "string"
+            ? record.sessionId
+            : path.basename(file, path.extname(file)),
         workspaceRoot,
         firstTs: null,
         lastTs: null,
@@ -395,12 +569,24 @@ async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessio
  * `staging.ts`, which is what the CLI's `import` command stages this store
  * with).
  */
+/**
+ * `source` is either a staging root laid out as `<root>/history` +
+ * `<root>/workspaceStorage`, or the two directories named explicitly. The
+ * explicit form exists so the caller can point the chat-session read at the
+ * LIVE store while still snapshotting the stores that need it — see
+ * `cli.ts`. Both sub-stores are addressed independently because they have
+ * genuinely different volatility, and pretending otherwise cost 15 GB a run.
+ */
+export type VsCodeSource = string | { historyDir: string; workspaceStorageDir: string };
+
 export async function* extractVsCode(
-  snapshotDir: string,
+  source: VsCodeSource,
   extractionId: string
 ): AsyncIterable<NormalizedHistoricalEvent> {
-  const historyDir = path.join(snapshotDir, "history");
-  const workspaceStorageDir = path.join(snapshotDir, "workspaceStorage");
+  const historyDir =
+    typeof source === "string" ? path.join(source, "history") : source.historyDir;
+  const workspaceStorageDir =
+    typeof source === "string" ? path.join(source, "workspaceStorage") : source.workspaceStorageDir;
 
   const index = await buildWorkspaceFolderIndex(workspaceStorageDir);
   const editDays = await foldEditDays(historyDir, index);
@@ -410,7 +596,7 @@ export async function* extractVsCode(
   let windowNewest = editDays.newest;
 
   const sortedDays = [...editDays.days.values()].sort((a, b) =>
-    `${a.date} ${a.workspaceRoot}`.localeCompare(`${b.date} ${b.workspaceRoot}`)
+    `${a.date}\0${a.workspaceRoot}`.localeCompare(`${b.date}\0${b.workspaceRoot}`)
   );
   for (const fold of sortedDays) {
     yield {
@@ -419,7 +605,7 @@ export async function* extractVsCode(
       sourceVersion: String(KNOWN_HISTORY_VERSION),
       sessionRef: null,
       repoRef: fold.workspaceRoot,
-      eventKind: "historical_ai_edit_day",
+      eventKind: "editor_activity",
       metrics: {
         date: fold.date,
         chatEditCount: fold.chatEditCount,
@@ -474,7 +660,7 @@ export async function* extractVsCode(
       sourceVersion: String(KNOWN_CHAT_SESSION_VERSION),
       sessionRef: fold.sessionId,
       repoRef: fold.workspaceRoot,
-      eventKind: "historical_ai_session",
+      eventKind: "create_focus_session",
       metrics: sessionMetrics,
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId
@@ -509,22 +695,43 @@ export async function* extractVsCode(
     }
   }
 
-  if (windowOldest && windowNewest) {
+  // A store that yielded nothing readable still has something to report. The
+  // window guard alone suppressed the epoch in exactly that case, so the
+  // counters that exist to expose an unreadable store were themselves hidden
+  // by it — the same shape of blind spot as the `.json`-only glob. Emit
+  // whenever there is either a window or a read failure to declare.
+  const readFailures =
+    editDays.unparsedFiles +
+    editDays.unreadableFiles +
+    editDays.malformedEntries +
+    chatSessions.unparsedFiles +
+    chatSessions.unreadableFiles +
+    chatSessions.unrecognisedFiles +
+    chatSessions.malformedLines;
+
+  if ((windowOldest && windowNewest) || readFailures > 0) {
+    const window: Record<string, string> =
+      windowOldest && windowNewest ? { windowOldest, windowNewest } : {};
     yield {
-      occurredAt: windowNewest,
+      // No window means nothing datable was read; the only honest timestamp
+      // left is when the read happened.
+      occurredAt: windowNewest ?? new Date().toISOString(),
       store: "vscode",
       sourceVersion: null,
       sessionRef: null,
       repoRef: null,
-      eventKind: "historical_epoch_marker",
+      eventKind: "extraction_epoch",
       metrics: {
-        windowOldest,
-        windowNewest,
+        ...window,
         editDayCount: editDays.days.size,
         sessionCount,
         unparsedHistoryFiles: editDays.unparsedFiles,
+        unreadableHistoryFiles: editDays.unreadableFiles,
         malformedHistoryEntries: editDays.malformedEntries,
-        unparsedChatSessionFiles: chatSessions.unparsedFiles
+        unparsedChatSessionFiles: chatSessions.unparsedFiles,
+        unreadableChatSessionFiles: chatSessions.unreadableFiles,
+        unrecognisedChatSessionFiles: chatSessions.unrecognisedFiles,
+        malformedChatSessionLines: chatSessions.malformedLines
       },
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId

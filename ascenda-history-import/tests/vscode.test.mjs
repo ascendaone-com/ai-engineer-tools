@@ -8,11 +8,10 @@ import { extractVsCode } from "../dist/extractors/vscode.js";
 import { toWirePayload } from "../dist/ship.js";
 import { buildVsCodeHandoff } from "../dist/localHandoff.js";
 
-// Fixtures shaped like a real VS Code store (verified 2026-08-18): Timeline
-// history self-labels `{"version":1,"resource","entries"}`, entries carry
-// `source: "Chat Edit: '<prompt>'"` for AI-driven edits (13,780 of 14,928 on
-// the reference machine) and no `source` at all for a manual save (1,128
-// observed). Copilot chat sessions self-label `"version":3`, each
+// Fixtures shaped like a real VS Code store: Timeline history self-labels
+// `{"version":1,"resource","entries"}`, entries carry
+// `source: "Chat Edit: '<prompt>'"` for AI-driven edits and no `source` at all
+// for a manual save. Copilot chat sessions self-label `"version":3`, each
 // `requests[]` item carries `message`/`response` (content, never read past
 // existence checks here) plus `modelId`/`timestamp`/`isCanceled`/
 // `result.errorDetails` (metrics). Workspace identity for both stores comes
@@ -98,7 +97,7 @@ test("extractVsCode aggregates Chat-Edit entries into per-day, per-workspace cou
 
     const events = [];
     for await (const e of extractVsCode(root, "test-extraction")) events.push(e);
-    const editDays = events.filter((e) => e.eventKind === "historical_ai_edit_day");
+    const editDays = events.filter((e) => e.eventKind === "editor_activity");
 
     assert.equal(editDays.length, 2); // 2026-07-20 and 2026-07-21, both repo-a
     const day1 = editDays.find((d) => d.metrics.date === "2026-07-20");
@@ -150,7 +149,7 @@ test("extractVsCode resolves workspace identity via workspace.json, falling back
 
     const events = [];
     for await (const e of extractVsCode(root, "test-extraction")) events.push(e);
-    const editDays = events.filter((e) => e.eventKind === "historical_ai_edit_day");
+    const editDays = events.filter((e) => e.eventKind === "editor_activity");
 
     assert.ok(editDays.some((d) => d.repoRef === REPO_A));
     assert.ok(editDays.some((d) => d.repoRef === "/tmp/scratch"));
@@ -175,9 +174,15 @@ test("extractVsCode treats an unrecognised Timeline-history version as unparsed,
 
     const events = [];
     for await (const e of extractVsCode(root, "test-extraction")) events.push(e);
-    assert.equal(events.filter((e) => e.eventKind === "historical_ai_edit_day").length, 0);
-    const epoch = events.find((e) => e.eventKind === "historical_epoch_marker");
-    assert.equal(epoch, undefined); // No usable window — nothing parsed at all.
+    assert.equal(events.filter((e) => e.eventKind === "editor_activity").length, 0);
+    // The epoch is emitted precisely BECAUSE nothing parsed. It used to be
+    // suppressed here — no window, no marker — which meant a store the
+    // extractor could not read produced no diagnostic at all. That is how the
+    // Feb-2026 `.jsonl` migration stayed invisible: silence read as success.
+    const epoch = events.find((e) => e.eventKind === "extraction_epoch");
+    assert.ok(epoch, "an unreadable store must still declare itself");
+    assert.equal(epoch.metrics.unparsedHistoryFiles, 2);
+    assert.equal(epoch.metrics.windowOldest, undefined, "nothing datable was read, so no window is claimed");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -231,10 +236,10 @@ test("extractVsCode folds Copilot chat sessions: prompts, session metrics, after
     for await (const e of extractVsCode(root, "test-extraction")) events.push(e);
 
     const prompts = events.filter((e) => e.eventKind === "ai_prompt_submitted");
-    const sessions = events.filter((e) => e.eventKind === "historical_ai_session");
+    const sessions = events.filter((e) => e.eventKind === "create_focus_session");
     const afterHours = events.filter((e) => e.eventKind === "after_hours_ai_session");
     const failures = events.filter((e) => e.eventKind === "tool_failure");
-    const epochs = events.filter((e) => e.eventKind === "historical_epoch_marker");
+    const epochs = events.filter((e) => e.eventKind === "extraction_epoch");
 
     assert.equal(prompts.length, 3);
     assert.ok(prompts.every((p) => p.sessionRef === "session-1"));
@@ -286,10 +291,13 @@ test("extractVsCode treats an unrecognised chat-session version as unparsed", as
 
     const events = [];
     for await (const e of extractVsCode(root, "test-extraction")) events.push(e);
-    assert.equal(events.filter((e) => e.eventKind === "historical_ai_session").length, 0);
+    assert.equal(events.filter((e) => e.eventKind === "create_focus_session").length, 0);
 
-    const epoch = events.find((e) => e.eventKind === "historical_epoch_marker");
-    assert.equal(epoch, undefined); // Nothing usable parsed at all in this fixture.
+    // Same rule as the Timeline case above: unreadable is a finding, not a
+    // reason to stay quiet.
+    const epoch = events.find((e) => e.eventKind === "extraction_epoch");
+    assert.ok(epoch, "an unreadable store must still declare itself");
+    assert.equal(epoch.metrics.unparsedChatSessionFiles, 1); // Nothing usable parsed at all in this fixture.
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -309,7 +317,7 @@ test("wire payload for an edit-day event hashes the workspace path and carries o
 
     const events = [];
     for await (const e of extractVsCode(root, "test-extraction")) events.push(e);
-    const day = events.find((e) => e.eventKind === "historical_ai_edit_day");
+    const day = events.find((e) => e.eventKind === "editor_activity");
     const payload = toWirePayload(day, 0, "claude_code:test-install");
 
     assert.equal(payload.source, "vscode_extension");

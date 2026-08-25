@@ -7,7 +7,8 @@
  * carried as data on every event so downstream charts can render HISTORICAL
  * bars distinctly from LIVE ones.
  */
-import type { AscendaTelemetrySource } from "@ascenda-one/tool-contract";
+import { ASCENDA_HISTORICAL_CONSENT_SCOPE } from "@ascenda-one/tool-contract";
+import type { AscendaTelemetrySource, AscendaTelemetryEventType } from "@ascenda-one/tool-contract";
 
 /** The stores this importer knows how to read. Ordered by evaporation risk:
  * Claude Code's 30-day rolling purge deletes a day of baseline every day the
@@ -43,14 +44,27 @@ export type HistoricalProvenance =
   (typeof HISTORICAL_PROVENANCE)[keyof typeof HISTORICAL_PROVENANCE];
 
 /**
- * The consent scope imported events must carry. Deliberately NOT one of
- * tool-contract's `ToolConsentScope` values yet: consenting to prospective
- * `ide_telemetry` is not consenting to a read of nine months of history, so
- * this scope must be added to the contract AND enforced by backend ingestion
- * before the first real import runs. Typed as plain string until then so the
- * gap stays visible rather than silently widening the union here.
+ * The consent scope imported events must carry. A real `ToolConsentScope`
+ * (re-exported from tool-contract rather than restated here, so the two
+ * cannot drift): consenting to prospective `ide_telemetry` is not consenting
+ * to a read of nine months of history.
+ *
+ * **Enforcement is live in production, verified 25 August 2026** — a real run
+ * of 28,158 backdated events came back `accepted=0 rejected=28158
+ * consent_missing_or_expired`, having reached an account with no
+ * `HistoricalImport` lease. This comment previously said the gate was still
+ * rolling out and that this package must not ship as if it were live; that was
+ * accurate when written on 19 August and stopped being accurate when the
+ * backend merged, which is exactly the drift P-D30.1 rule 3 requires this line
+ * to be kept ahead of.
+ *
+ * **The gate does not read this string.** The backend decides on the event's
+ * *provenance* — the closed `historical_*` set — precisely so an importer that
+ * kept declaring `ide_telemetry` could not buy its way in with a label. Sending
+ * this scope is still correct: it makes the intent explicit in the audit
+ * record, and it is what the consent surface names.
  */
-export const HISTORICAL_CONSENT_SCOPE = "historical_import";
+export const HISTORICAL_CONSENT_SCOPE = ASCENDA_HISTORICAL_CONSENT_SCOPE;
 
 /** What `scan` reports per store — the inventory the onboarding surface shows
  * the user before asking for consent. Everything here is countable without
@@ -71,6 +85,29 @@ export interface StoreInventory {
 }
 
 /**
+ * The extraction-window marker every extractor emits once per store. It is
+ * **not** a work event: it carries no session, no repo, and its metrics are
+ * statistics about the extraction run itself (observed window, unparsed file
+ * counts). It exists so `scan`/`import` can report the window and so the
+ * handoff can bound its own data, and the shipper drops it before the wire —
+ * there is no canonical telemetry type for "here is what I read", and
+ * inventing one would put extraction bookkeeping into the work catalog.
+ */
+export const EXTRACTION_EPOCH_KIND = "extraction_epoch" as const;
+
+/**
+ * What an extractor may put in `eventKind`: a canonical telemetry type, or the
+ * local-only epoch marker above.
+ *
+ * Typed against the contract rather than `string` on purpose. This field is
+ * cast straight onto the wire in the shipper, so an invented name here reaches
+ * the backend, is accepted, and is bucketed as `unclassified` where no view
+ * reads it — a silent import that reports success. Narrowing it to the union
+ * makes that failure a compile error instead.
+ */
+export type HistoricalEventKind = AscendaTelemetryEventType | typeof EXTRACTION_EPOCH_KIND;
+
+/**
  * The normalized event every extractor emits — the doc's
  * `(occurred_at, source, source_version, session_ref, repo_ref, event_kind,
  * metrics{}, provenance_class, extraction_id)` schema. Mapping onto
@@ -85,7 +122,7 @@ export interface NormalizedHistoricalEvent {
   sourceVersion: string | null;
   sessionRef: string | null;
   repoRef: string | null;
-  eventKind: string;
+  eventKind: HistoricalEventKind;
   /** Bucketed/counted metrics only — never prompt or response text. Content
    * stays on the machine; see the doc's privacy line. */
   metrics: Record<string, number | string | boolean>;

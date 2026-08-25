@@ -50,7 +50,7 @@ test("reading about work is not finishing it", () => {
     "gh pr list --state merged",
     "gh pr checkout 412",
     "gh issue create --title 'bug'",
-    "gh repo clone ascendaone-com/asc-core-be"
+    "gh repo clone example-org/example-repo"
   ]) {
     assert.equal(classifyWorkMilestone(command), undefined, command);
   }

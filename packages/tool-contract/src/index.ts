@@ -42,7 +42,19 @@ export type ConnectedTool = {
  * lifecycle events (tool calls, file writes, compaction) never require.
  * Default off; a user consenting to `ide_telemetry` has not consented to this.
  */
-export type ToolConsentScope = "ide_telemetry" | "workflow_telemetry" | "subjective_checkins" | "semantic_work_signals";
+/**
+ * `historical_import` is its own scope for the same reason, one step further out.
+ * Every other scope here is prospective — from now on, as you work, this tool
+ * reports what it sees. A retrospective import is a different act on a different
+ * corpus: months of past sessions the person already lived, written before they
+ * had heard of us, in stores they may have assumed nobody would ever read.
+ * Agreeing that a tool may watch you going forward is not agreeing it may go
+ * back. Default off, and the backend enforces it on the event's *provenance*
+ * (`historical_direct` / `historical_derived` / `historical_unparsed`), not on
+ * this string — a client that keeps sending `ide_telemetry` over backdated
+ * events is rejected regardless of what it claims.
+ */
+export type ToolConsentScope = "ide_telemetry" | "workflow_telemetry" | "subjective_checkins" | "semantic_work_signals" | "historical_import";
 
 export type AscendaTelemetrySource =
   | "vscode_extension"
@@ -217,6 +229,26 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
 
   /** Hashed, local-only task identifier — never raw task content. */
   taskFingerprint?: string;
+
+  /**
+   * Required whenever `provenance` is one of the historical classes. The stable
+   * reference to the source record this event was reconstructed from — identical
+   * on every re-run of the importer over the same records, and therefore the key
+   * backend ingestion dedups on. Without it a second import run is
+   * indistinguishable from a second span of work, and doubles the person's whole
+   * historical baseline; ingestion rejects a historical event that omits it.
+   *
+   * Deliberately not `extractionId`, and not a composite with it: an extraction
+   * id is minted per run, so a key including it would be unique on every run and
+   * would dedup exactly nothing.
+   */
+  importKey?: string;
+
+  /** Which import run produced this event. Provenance, never identity — see {@link importKey}. */
+  extractionId?: string;
+
+  /** Version of the normalized historical event shape the importer emitted. */
+  importSchema?: number;
 };
 
 export type AscendaEventPayload = {
@@ -310,4 +342,10 @@ export const ASCENDA_SEMANTIC_CONSENT_SCOPE: ToolConsentScope = "semantic_work_s
  * they work with their team.
  */
 export const ASCENDA_COLLABORATION_CONSENT_SCOPE: ToolConsentScope = "workflow_telemetry";
+
+/**
+ * The consent scope every retrospectively imported event must carry — see
+ * `@ascenda-one/history-import`, which is the only thing that emits them.
+ */
+export const ASCENDA_HISTORICAL_CONSENT_SCOPE: ToolConsentScope = "historical_import";
 export const ASCENDA_SEMANTIC_PROVENANCE = "semantic_work_signals";

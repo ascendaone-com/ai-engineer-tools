@@ -18,7 +18,7 @@ const events = [
     sourceVersion: "2.1.227",
     sessionRef: "session-b",
     repoRef: "/Users/example/Dev/repo-b",
-    eventKind: "historical_ai_session",
+    eventKind: "create_focus_session",
     metrics: {
       promptCount: 4,
       durationBucket: "30m-2h",
@@ -34,7 +34,7 @@ const events = [
     sourceVersion: "2.1.227",
     sessionRef: "session-a",
     repoRef: "/Users/example/Dev/repo-a/",
-    eventKind: "historical_ai_session",
+    eventKind: "create_focus_session",
     metrics: { promptCount: 2, durationBucket: "0-5m", afterHoursPrompts: 2 },
     provenance: "historical_derived",
     extractionId: "x1"
@@ -56,7 +56,7 @@ const events = [
     sourceVersion: null,
     sessionRef: null,
     repoRef: null,
-    eventKind: "historical_epoch_marker",
+    eventKind: "extraction_epoch",
     metrics: {
       windowOldest: "2026-07-19T09:00:00.000Z",
       windowNewest: "2026-07-20T11:00:00.000Z",
@@ -97,7 +97,11 @@ test("buildHandoff defaults new friction fields to 0/null for events that predat
   assert.equal(session.compactionCount, 0);
   assert.equal(session.toolFailureCount, 0);
   assert.equal(session.contextWindowPeakPct, 0);
-  assert.equal(session.userModifiedEditCount, 0);
+  // Null, not 0: an absent count means the store could not answer, and on
+  // Claude Code it never can — `toolUseResult.userModified` is present
+  // 20,133 times in a real store and false every time. A 0 here would ship
+  // "no AI edit was ever corrected by hand" as a finding.
+  assert.equal(session.userModifiedEditCount, null);
   assert.equal(session.subagentTranscripts, 0);
 });
 
@@ -110,7 +114,7 @@ test("buildHandoff carries the new friction/context fields through when present"
       sourceVersion: "2.1.227",
       sessionRef: "session-c",
       repoRef: "/Users/example/Dev/repo-c",
-      eventKind: "historical_ai_session",
+      eventKind: "create_focus_session",
       metrics: {
         promptCount: 3,
         durationBucket: "30-60m",

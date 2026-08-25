@@ -99,8 +99,8 @@ test("extractClaudeCode folds a session correctly", async () => {
     for await (const e of extractClaudeCode(root, "test-extraction")) events.push(e);
 
     const prompts = events.filter((e) => e.eventKind === "ai_prompt_submitted");
-    const sessions = events.filter((e) => e.eventKind === "historical_ai_session");
-    const epochs = events.filter((e) => e.eventKind === "historical_epoch_marker");
+    const sessions = events.filter((e) => e.eventKind === "create_focus_session");
+    const epochs = events.filter((e) => e.eventKind === "extraction_epoch");
 
     // 2 human prompts — the tool-result user line must NOT be one.
     assert.equal(prompts.length, 2);
@@ -143,11 +143,11 @@ test("wire payload hashes refs, keeps counts, and is re-run stable", async () =>
   try {
     const events = [];
     for await (const e of extractClaudeCode(root, "test-extraction")) events.push(e);
-    const session = events.find((e) => e.eventKind === "historical_ai_session");
+    const session = events.find((e) => e.eventKind === "create_focus_session");
     const payload = toWirePayload(session, 7, "claude_code:test-install");
 
     assert.equal(payload.source, "claude_code");
-    assert.equal(payload.eventType, "historical_ai_session");
+    assert.equal(payload.eventType, "create_focus_session");
     assert.equal(payload.consentScope, "historical_import");
     assert.equal(payload.provenance, "historical_derived");
     assert.equal(payload.privacyMode, "metadata_only");
@@ -338,8 +338,8 @@ test("extractClaudeCode surfaces compaction, failure, context-peak, edit and cad
     const events = [];
     for await (const e of extractClaudeCode(root, "test-extraction")) events.push(e);
 
-    const session = events.find((e) => e.eventKind === "historical_ai_session");
-    assert.ok(session, "expected a historical_ai_session event");
+    const session = events.find((e) => e.eventKind === "create_focus_session");
+    assert.ok(session, "expected a create_focus_session event");
     const m = session.metrics;
 
     assert.equal(m.promptCount, 3);
@@ -569,7 +569,7 @@ test("extractClaudeCode walks nested subagent transcripts without inflating huma
     const events = [];
     for await (const e of extractClaudeCode(root, "test-extraction")) events.push(e);
 
-    const sessions = events.filter((e) => e.eventKind === "historical_ai_session");
+    const sessions = events.filter((e) => e.eventKind === "create_focus_session");
     const parent = sessions.find((e) => e.sessionRef === PARENT_SESSION);
     const orphan = sessions.find((e) => e.sessionRef === ORPHAN_SESSION);
     assert.ok(parent, "expected the parent session to be extracted");

@@ -14,9 +14,19 @@
  *   import and a shrug.
  * - **Stable `importKey` per event.** sha256 over
  *   (store|sessionRef|eventKind|occurredAt|ordinal) — identical on every
- *   re-run of the same store. The backend has no dedup yet; when it grows
- *   one, this key is what it dedups on, and until then a re-run can at least
- *   be detected after the fact.
+ *   re-run of the same store. Since 19 Aug 2026 this is what the backend
+ *   dedups on: `(pairedUser, toolInstallation, importKey)` is unique, a
+ *   replayed event is reported as `duplicate` and writes nothing, and the
+ *   key is *required* on anything carrying a historical provenance. Note it
+ *   dedups on this key alone, NOT on `(extractionId, importKey)` — an
+ *   extraction id is fresh per run, so including it would dedup nothing.
+ *
+ *   The one soft spot is `ordinal`: it is the event's index in the whole
+ *   shipped array, so if a later run extracts a different *set* — Claude
+ *   Code's 30-day purge having eaten the oldest days, say — the ordinals
+ *   shift and the same source record hashes differently. Re-running over a
+ *   shrunken store can therefore still double the overlap. Fixing that means
+ *   a per-(store, session) ordinal here, not a backend change.
  * - **Raw local refs are hashed at the wire, not before.** The normalized
  *   file in staging keeps the real cwd (local, never leaves the machine);
  *   `workspaceHash`/`projectHash` go out as the same machine-salted 16-hex
@@ -26,7 +36,12 @@
 import { createHash } from "node:crypto";
 import { hashWithMachineSalt, readTokenFile, defaultTokenFilePath } from "@ascenda-one/tool-kit";
 import type { AscendaEventPayload, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
-import { HISTORICAL_CONSENT_SCOPE, NormalizedHistoricalEvent, STORE_SOURCE } from "./types.js";
+import {
+  EXTRACTION_EPOCH_KIND,
+  HISTORICAL_CONSENT_SCOPE,
+  NormalizedHistoricalEvent,
+  STORE_SOURCE
+} from "./types.js";
 
 export interface ShipConfig {
   apiBaseUrl: string;
@@ -67,7 +82,7 @@ export function importKeyOf(event: NormalizedHistoricalEvent, ordinal: number): 
 }
 
 export function toWirePayload(
-  event: NormalizedHistoricalEvent,
+  event: NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] },
   ordinal: number,
   toolInstallationId: string
 ): AscendaEventPayload {
@@ -90,20 +105,22 @@ export function toWirePayload(
   return {
     toolInstallationId,
     source: STORE_SOURCE[event.store] as AscendaTelemetrySource,
-    // Canonical kinds (ai_prompt_submitted, after_hours_ai_session) land in
-    // the catalog and power existing views; historical_* kinds store as
-    // unclassified until the catalog learns them. Both are intended.
-    eventType: event.eventKind as AscendaEventPayload["eventType"],
+    // Always a canonical catalog type. `eventKind` is typed against the
+    // contract union and the epoch marker is filtered out upstream in
+    // `shippableEvents`, so no cast is needed here — and an off-catalog name
+    // cannot reach the wire to be silently bucketed as `unclassified`.
+    eventType: event.eventKind,
     occurredAt: event.occurredAt,
     severity: "low",
     sessionId: event.sessionRef,
     workspaceHash,
     projectHash: workspaceHash,
-    // Not yet a contract ToolConsentScope — the backend maps unknown scopes
-    // to its default consent type today and stores the scope string verbatim,
-    // which is exactly the seam a dedicated retrospective consent will
-    // tighten. Deliberate, documented in the README gap list.
-    consentScope: HISTORICAL_CONSENT_SCOPE as AscendaEventPayload["consentScope"],
+    // A real contract ToolConsentScope now, and a real gate: the backend
+    // requires an active historical-import consent lease for anything carrying
+    // one of the provenance classes below, and decides that on the provenance
+    // rather than on this string — sending `ide_telemetry` here would not buy
+    // the event a way in.
+    consentScope: HISTORICAL_CONSENT_SCOPE,
     provenance: event.provenance,
     privacyMode: "metadata_only",
     metadata
@@ -113,13 +130,75 @@ export function toWirePayload(
 export interface ShipResult {
   sent: number;
   accepted: number;
+  /**
+   * Events the backend already held for this installation — a re-run over
+   * source records it has seen before. Neither accepted nor rejected: nothing
+   * was stored and nothing failed. Counted separately because the two wrong
+   * answers are both actively misleading. Folding these into `accepted` would
+   * tell someone their second run added another 8,720 events to their
+   * baseline; folding them into `rejected` would tell them their import broke.
+   */
+  duplicate: number;
   rejected: number;
   /** reason -> count, from the batch response's per-item results. */
   rejectionReasons: Record<string, number>;
   httpFailures: number;
+  /** Per-store outcome, so a caller can read "vscode shipped 0" instead of
+   * inferring it from a total. See `attributionComplete`. */
+  perStore: Record<string, StoreShipCounts>;
+  /**
+   * The run stopped because the backend refused a whole batch on consent
+   * grounds — there is no lease for a retrospective import on this account, or
+   * the scope this build sends is not one the server knows.
+   *
+   * Not a transport failure and not a per-event problem: it is the one refusal
+   * that will not change while the run is in progress, so the shipper stops
+   * instead of sending the rest. `sent` and `rejected` then describe only what
+   * was tried before the stop, which is the point — a report of 28,158 refusals
+   * and a report of 100 describe the same situation, and only one of them costs
+   * a person their afternoon.
+   */
+  consentBlocked?: boolean;
+
+  /**
+   * False when at least one batch response could not be attributed back to
+   * individual events — the response omitted `results`, or returned a
+   * different number of them than we sent. The per-store `sent` figures are
+   * still exact (we know what we put in each batch); the accepted/duplicate/
+   * rejected splits for those batches are not, and are left OUT of `perStore`
+   * rather than spread across stores by assumption. A caller that prints a
+   * per-store table must say so when this is false.
+   */
+  attributionComplete: boolean;
+}
+
+export interface StoreShipCounts {
+  sent: number;
+  accepted: number;
+  duplicate: number;
+  rejected: number;
+}
+
+function storeCounts(result: ShipResult, store: string): StoreShipCounts {
+  return (result.perStore[store] ??= { sent: 0, accepted: 0, duplicate: 0, rejected: 0 });
 }
 
 const BATCH_SIZE = 200;
+
+/**
+ * The events that belong on the wire: everything except the extraction epoch
+ * marker, which is local bookkeeping about the read itself rather than an
+ * observation of anyone's work (see `EXTRACTION_EPOCH_KIND`). Exported so the
+ * CLI can report the same count it is about to send.
+ */
+export function shippableEvents(
+  events: NormalizedHistoricalEvent[]
+): (NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] })[] {
+  return events.filter(
+    (e): e is NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] } =>
+      e.eventKind !== EXTRACTION_EPOCH_KIND
+  );
+}
 
 export async function shipEvents(
   events: NormalizedHistoricalEvent[],
@@ -129,12 +208,16 @@ export async function shipEvents(
   const result: ShipResult = {
     sent: 0,
     accepted: 0,
+    duplicate: 0,
     rejected: 0,
     rejectionReasons: {},
-    httpFailures: 0
+    httpFailures: 0,
+    perStore: {},
+    attributionComplete: true
   };
-  for (let offset = 0; offset < events.length; offset += BATCH_SIZE) {
-    const chunk = events.slice(offset, offset + BATCH_SIZE);
+  const wireEvents = shippableEvents(events);
+  for (let offset = 0; offset < wireEvents.length; offset += BATCH_SIZE) {
+    const chunk = wireEvents.slice(offset, offset + BATCH_SIZE);
     const payloads = chunk.map((event, i) => toWirePayload(event, offset + i, config.toolInstallationId));
     let response: Response;
     try {
@@ -148,15 +231,18 @@ export async function shipEvents(
       });
     } catch {
       result.httpFailures += 1;
+      result.attributionComplete = false;
       continue; // Transport failure: skip this chunk, keep going — the stable
       // importKey makes a later re-run of just the gaps safe to reconcile.
     }
     result.sent += chunk.length;
+    for (const event of chunk) storeCounts(result, event.store).sent += 1;
     if (!response.ok) {
       result.httpFailures += 1;
+      result.attributionComplete = false;
       if (response.status === 401 || response.status === 403) {
         throw new Error(
-          `Ingest refused (${response.status}) — token invalid/revoked or consent missing; aborting rather than burning ${events.length - offset} more events`
+          `Ingest refused (${response.status}) — token invalid/revoked or consent missing; aborting rather than burning ${wireEvents.length - offset} more events`
         );
       }
       continue;
@@ -164,21 +250,76 @@ export async function shipEvents(
     try {
       const body = (await response.json()) as {
         accepted?: number;
+        duplicate?: number;
         rejected?: number;
         results?: { status?: string; reason?: string }[];
       };
       result.accepted += body.accepted ?? 0;
+      result.duplicate += body.duplicate ?? 0;
       result.rejected += body.rejected ?? 0;
-      for (const item of body.results ?? []) {
-        if (item.status !== "accepted") {
+      const items = body.results ?? [];
+      // Per-item results are positional against the batch we sent. Only
+      // attribute when the response returns exactly as many as we sent —
+      // anything else and the mapping is a guess, and a guessed per-store
+      // table is worse than an absent one.
+      const attributable = items.length === chunk.length;
+      if (!attributable && (body.accepted ?? body.duplicate ?? body.rejected) !== undefined) {
+        result.attributionComplete = false;
+      }
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i];
+        if (attributable) {
+          const counts = storeCounts(result, chunk[i].store);
+          if (item.status === "accepted") counts.accepted += 1;
+          else if (item.status === "duplicate") counts.duplicate += 1;
+          else counts.rejected += 1;
+        }
+        // Duplicates have their own counter; bucketing them as rejection
+        // reasons too would report the same events twice under two headings.
+        if (item.status !== "accepted" && item.status !== "duplicate") {
           const reason = item.reason ?? "unknown";
           result.rejectionReasons[reason] = (result.rejectionReasons[reason] ?? 0) + 1;
         }
       }
+
+      // **Stop on a wall, rather than walking into it 28,158 times.**
+      //
+      // The abort above only catches a 401/403, and the batch door does not
+      // answer with either: a missing consent lease is a 200 whose every item
+      // is `rejected: consent_missing_or_expired`. So on 25 Aug 2026 a real run
+      // sent every event it had, one full batch at a time, and reported
+      // `accepted=0 rejected=28158` at the end — the right refusal discovered
+      // in the most expensive possible order.
+      //
+      // A consent lease does not appear halfway through a run: the person is in
+      // a terminal, not a consent screen. So if a whole batch came back refused
+      // for the lease, every remaining batch will be too, and continuing only
+      // costs time and writes audit rows for a decision already made.
+      //
+      // Keyed on the *whole* batch, not on any single item, and only on the
+      // consent reasons — a mixed batch is a per-event problem (an off-catalog
+      // type, a missing importKey) and must keep going so the events that are
+      // fine still land.
+      if (items.length === chunk.length && items.length > 0) {
+        const blocked = items.every(
+          (item) =>
+            item.status !== "accepted" &&
+            item.status !== "duplicate" &&
+            (item.reason === "consent_missing_or_expired" ||
+              item.reason === "unknown_consent_scope")
+        );
+        if (blocked) {
+          result.consentBlocked = true;
+          result.attributionComplete = false;
+          onProgress?.(Math.min(offset + BATCH_SIZE, wireEvents.length), wireEvents.length);
+          return result;
+        }
+      }
     } catch {
       result.httpFailures += 1;
+      result.attributionComplete = false;
     }
-    onProgress?.(Math.min(offset + BATCH_SIZE, events.length), events.length);
+    onProgress?.(Math.min(offset + BATCH_SIZE, wireEvents.length), wireEvents.length);
   }
   return result;
 }
