@@ -43,7 +43,8 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 |---|---|
 | `scan` (per-store inventory, content never opened) | implemented |
 | `fix-retention` (Claude `cleanupPeriodDays`, merge-not-clobber) | implemented |
-| Staging/snapshot (copy-then-parse, WAL-aware, APFS clone-on-write) | implemented |
+| Staging/snapshot (copy-then-parse, WAL-aware, **torn down by the run that makes it**) | implemented |
+| `archive` (durable content-addressed copy, dedup, verify, restore, prune) | **implemented, verified on a real 4.1 GB store** |
 | **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented, verified live** |
 | **Batch shipper** (`POST /v1/tool-events/batch`, salted hashes, stable importKey) | **implemented, verified live** |
 | **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, epoch marker) | **implemented, verified live** |
@@ -105,4 +106,37 @@ ascenda-history-import scan            # human-readable inventory
 ascenda-history-import scan --json     # what the app's consent surface renders
 ascenda-history-import fix-retention   # dry-run; --apply to write
 ascenda-history-import import          # Claude Code + Cursor + VS Code, dry run; --ship to send
+ascenda-history-import archive         # the durable copy; --verify / --list / --restore <dir> / --prune
 ```
+
+### Staging is scaffolding; `archive` is the copy
+
+`import` snapshots each store, extracts, and **deletes the snapshot in a
+`finally`** — success or failure — keeping only the ~10 MB `events.jsonl`.
+It also sweeps snapshots left by earlier runs. This is not tidiness: nineteen
+runs once left 254 GB on a 926 GB disk and took free space to 279 MB, and the
+first thing to notice was unrelated tooling failing with `ENOSPC`.
+
+The comment that made it possible claimed APFS clone-on-write made a snapshot
+free. Measured on macOS 15 / APFS / Node 24, it is not — `fs.copyFile` with
+`COPYFILE_FICLONE` costs exactly as much as a plain copy (450 MB source,
+464 MB consumed), while `/bin/cp -c` on the same file costs zero. Node's copy
+path does not use reflinks here. Never assume a Node copy is cheap.
+
+`fix-retention` is the other half, and is also **not a backup**: it stops
+Claude Code trimming itself *in place* and does nothing if that store is lost.
+`archive` is the durable copy:
+
+- lives outside `staging/`, so no sweep can reach it;
+- content-addressed, so re-archiving an unchanged 4 GB store costs ~0
+  (measured: first generation 4.1 GB in 20 s, second 48 MB in 2.8 s);
+- keeps every generation, so a transcript that grew is recoverable at both
+  states;
+- `--verify` re-hashes every blob, and **exits non-zero** if any is missing or
+  corrupted;
+- `--restore <dir>` never writes to the live store;
+- `--prune --keep N` bounds it, because storage that only grows is the same
+  defect wearing a different hat.
+
+VS Code chat sessions (15 GB, which VS Code is not deleting) are skipped by
+default; `--include-vscode-sessions` opts in.

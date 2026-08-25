@@ -6,6 +6,16 @@
  *   scan --json     same, machine-readable — what the app's consent surface renders
  *   import          snapshot + extract + ship
  *   fix-retention   show the Claude Code retention plan; --apply to write it
+ *   archive         the durable copy — see `archive.ts`
+ *
+ * `archive` flags:
+ *   --verify                  re-hash every blob the generation names
+ *   --list                    list generations, newest last
+ *   --restore <dir>           materialise a generation into <dir>, never in place
+ *   --prune                   drop old generations and unreferenced blobs
+ *   --keep <n>                generations to keep when pruning (default 10)
+ *   --generation <id>         target a specific generation (default: latest)
+ *   --include-vscode-sessions add the 15 GB of Copilot sessions VS Code is not deleting
  *
  * `import` flags:
  *   --ship               send the extracted events over the batch wire
@@ -49,6 +59,18 @@ import {
 import { extractClaudeCode } from "./extractors/claudeCode.js";
 import { extractCursor } from "./extractors/cursor.js";
 import { extractVsCode } from "./extractors/vscode.js";
+import {
+  archiveSizeBytes,
+  archiveStores,
+  defaultArchiveRoot,
+  defaultArchiveSources,
+  listManifests,
+  pruneArchive,
+  readLatestManifest,
+  readManifest,
+  restoreArchive,
+  verifyArchive
+} from "./archive.js";
 import { loadShipConfig, shipEvents, shippableEvents } from "./ship.js";
 import type { ShipResult } from "./ship.js";
 import { buildHandoff, buildCursorHandoff, buildVsCodeHandoff, writeHandoff } from "./localHandoff.js";
@@ -485,6 +507,144 @@ async function main(): Promise<number> {
         }
       }
     }
+    case "archive": {
+      const archiveRoot = defaultArchiveRoot(paths.home);
+      const flagValue = (name: string): string | null => {
+        const at = rest.indexOf(name);
+        return at >= 0 && rest[at + 1] ? rest[at + 1] : null;
+      };
+      const generationFlag = flagValue("--generation");
+
+      if (rest.includes("--list")) {
+        const generations = await listManifests(archiveRoot);
+        if (generations.length === 0) {
+          process.stdout.write(`no archive at ${archiveRoot} — run \`archive\` to create one\n`);
+          return 0;
+        }
+        for (const generation of generations) {
+          const manifest = await readManifest(archiveRoot, generation);
+          if (!manifest) {
+            // A manifest we cannot read is not an absence. Saying so is the
+            // whole point of this package's recent history.
+            process.stdout.write(`  ${generation}  UNREADABLE\n`);
+            continue;
+          }
+          const bytes = manifest.files.reduce((sum, f) => sum + f.size, 0);
+          process.stdout.write(
+            `  ${generation}  ${manifest.files.length.toLocaleString("en-US")} files  ${formatBytes(bytes)} logical\n`
+          );
+        }
+        process.stdout.write(`\narchive on disk: ${formatBytes(await archiveSizeBytes(archiveRoot))}\n`);
+        return 0;
+      }
+
+      if (rest.includes("--verify")) {
+        const manifest = generationFlag
+          ? await readManifest(archiveRoot, generationFlag)
+          : await readLatestManifest(archiveRoot);
+        if (!manifest) {
+          process.stderr.write(`no readable generation to verify in ${archiveRoot}\n`);
+          return 2;
+        }
+        const verified = await verifyArchive(archiveRoot, manifest);
+        process.stdout.write(
+          `generation ${verified.generation}: ${verified.checked.toLocaleString("en-US")} files checked, ` +
+            `${verified.missing.length} missing, ${verified.corrupted.length} corrupted\n`
+        );
+        for (const file of verified.missing.slice(0, 10)) process.stdout.write(`  missing: ${file}\n`);
+        for (const file of verified.corrupted.slice(0, 10)) process.stdout.write(`  corrupted: ${file}\n`);
+        // A backup that fails verification must fail the command. Reporting
+        // "checked 12,000 files" and exiting 0 while some of them are gone is
+        // the defect class this package keeps finding.
+        return verified.missing.length + verified.corrupted.length > 0 ? 1 : 0;
+      }
+
+      const restoreTo = flagValue("--restore");
+      if (rest.includes("--restore")) {
+        if (!restoreTo) {
+          process.stderr.write("--restore needs a destination directory\n");
+          return 2;
+        }
+        const manifest = generationFlag
+          ? await readManifest(archiveRoot, generationFlag)
+          : await readLatestManifest(archiveRoot);
+        if (!manifest) {
+          process.stderr.write(`no readable generation to restore in ${archiveRoot}\n`);
+          return 2;
+        }
+        const restored = await restoreArchive(archiveRoot, manifest, restoreTo);
+        process.stdout.write(
+          `restored ${restored.restored.toLocaleString("en-US")} files from ${manifest.generation} → ${restored.destination}\n`
+        );
+        if (restored.skipped > 0) {
+          process.stdout.write(`  ${restored.skipped} could not be written\n`);
+        }
+        process.stdout.write(
+          "\nnothing was written to the live stores — copy back by hand once you have looked at this.\n"
+        );
+        return restored.skipped > 0 ? 1 : 0;
+      }
+
+      if (rest.includes("--prune")) {
+        const keep = Number(flagValue("--keep") ?? 10);
+        if (!Number.isInteger(keep) || keep < 1) {
+          process.stderr.write("--keep needs a positive integer\n");
+          return 2;
+        }
+        const pruned = await pruneArchive(archiveRoot, keep);
+        process.stdout.write(
+          `pruned ${pruned.generationsRemoved.length} generation(s) and ${pruned.blobsRemoved} unreferenced blob(s), ` +
+            `freed ${formatBytes(pruned.freedBytes)}\n`
+        );
+        process.stdout.write(`archive on disk: ${formatBytes(await archiveSizeBytes(archiveRoot))}\n`);
+        return 0;
+      }
+
+      // Default: take a generation.
+      const includeSessions = rest.includes("--include-vscode-sessions");
+      const sources = defaultArchiveSources(paths, includeSessions);
+      const generation = new Date().toISOString().replace(/[:.]/g, "-");
+
+      process.stdout.write(`archiving to ${archiveRoot}\n`);
+      for (const source of sources) process.stdout.write(`  ${source.store}/${source.label}: ${source.root}\n`);
+      if (!includeSessions) {
+        process.stdout.write(
+          "  vscode/workspaceStorage: skipped — 15 GB that VS Code is not deleting (--include-vscode-sessions to add)\n"
+        );
+      }
+      process.stdout.write("\n");
+
+      const result = await archiveStores({
+        archiveRoot,
+        sources,
+        generation,
+        now: new Date().toISOString()
+      });
+
+      process.stdout.write("─".repeat(60) + `\ngeneration ${result.generation}\n`);
+      for (const [store, counts] of Object.entries(result.perStore)) {
+        process.stdout.write(
+          `  ${store.padEnd(12)} ${counts.files.toLocaleString("en-US")} files, ${formatBytes(counts.newBytes)} new\n`
+        );
+      }
+      process.stdout.write(
+        `  ${"total".padEnd(12)} ${result.filesArchived.toLocaleString("en-US")} files ` +
+          `(${result.filesDeduplicated.toLocaleString("en-US")} already held), ${formatBytes(result.newBytes)} new\n`
+      );
+      if (result.unreadable > 0) {
+        process.stdout.write(
+          `  ⚠ ${result.unreadable} file(s) could not be read — this generation is short by an unknown amount\n`
+        );
+      }
+      const onDisk = await archiveSizeBytes(archiveRoot);
+      process.stdout.write(`  archive on disk: ${formatBytes(onDisk)} across ${(await listManifests(archiveRoot)).length} generation(s)\n`);
+      process.stdout.write(`  manifest: ${result.manifestPath}\n`);
+      process.stdout.write("\nverify it: ascenda-history-import archive --verify\n");
+
+      // An archive run that could not read part of a store has not made the
+      // copy it was asked for.
+      return result.unreadable > 0 ? 1 : 0;
+    }
     case "fix-retention": {
       const plan = await planClaudeRetentionFix(paths);
       if (!plan.changeNeeded) {
@@ -508,7 +668,7 @@ async function main(): Promise<number> {
     }
     default: {
       process.stderr.write(
-        "usage: ascenda-history-import <scan [--json] | import [--ship] | fix-retention [--apply]>\n"
+        "usage: ascenda-history-import <scan [--json] | import [--ship] | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
       );
       return command === undefined || command === "--help" ? 0 : 2;
     }

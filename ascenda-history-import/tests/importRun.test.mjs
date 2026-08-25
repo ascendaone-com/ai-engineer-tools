@@ -263,3 +263,113 @@ test("the 25 Aug shape: a source that scans fine and dies mid-copy", async () =>
     await fs.chmod(locked, 0o755).catch(() => {});
   }
 });
+
+/* ---------------------------------------------------------------------- *
+ * The archive, end to end — and its one non-negotiable property
+ * ---------------------------------------------------------------------- */
+
+test("the archive survives an import, and every sweep an import performs", async () => {
+  // Rule 1 of archive.ts. The archive exists because abandoned staging
+  // snapshots were accidentally acting as the only second copy; an archive
+  // that the staging cleanup can reach would be that same accident with a
+  // better name.
+  const home = await makeHome();
+  const { code } = await runCli(["archive"], home);
+  assert.equal(code, 0);
+
+  const archiveRoot = path.join(home, ".ascenda", "history-import", "archive");
+  const before = await fs.readdir(path.join(archiveRoot, "manifests"));
+  assert.equal(before.length, 1);
+
+  // Two imports: the first leaves a staging run, the second sweeps it.
+  await runCli(["import", "--keep-staging"], home);
+  const { stdout } = await runCli(["import"], home);
+  assert.match(stdout, /swept 1 stale staging run/, "the sweep must actually have run");
+
+  assert.deepEqual(
+    await fs.readdir(path.join(archiveRoot, "manifests")),
+    before,
+    "nothing a cleanup does may touch the archive"
+  );
+  const { code: verifyCode, stdout: verifyOut } = await runCli(["archive", "--verify"], home);
+  assert.equal(verifyCode, 0, verifyOut);
+  assert.match(verifyOut, /0 missing, 0 corrupted/);
+});
+
+test("archive --verify fails loudly when the archive is damaged", async () => {
+  const home = await makeHome();
+  await runCli(["archive"], home);
+  const objects = path.join(home, ".ascenda", "history-import", "archive", "objects");
+  const shard = (await fs.readdir(objects))[0];
+  const blob = (await fs.readdir(path.join(objects, shard)))[0];
+  await fs.rm(path.join(objects, shard, blob));
+
+  const { code, stdout } = await runCli(["archive", "--verify"], home);
+  assert.notEqual(code, 0, "a backup that cannot prove itself must not exit 0");
+  assert.match(stdout, /missing/);
+});
+
+test("archive skips the 15 GB of VS Code sessions unless asked, and says so", async () => {
+  const home = await makeHome();
+  const { stdout } = await runCli(["archive"], home);
+  assert.match(stdout, /workspaceStorage: skipped/);
+
+  const { stdout: opted } = await runCli(["archive", "--include-vscode-sessions"], home);
+  assert.doesNotMatch(opted, /workspaceStorage: skipped/);
+});
+
+test("a second archive of an unchanged machine adds no bytes", async () => {
+  const home = await makeHome();
+  await runCli(["archive"], home);
+  const { stdout } = await runCli(["archive"], home);
+  assert.match(stdout, /already held/);
+  assert.match(stdout, /0 B new/, "dedup is what makes this affordable to run often");
+});
+
+test("archive --list reports generations and the size on disk", async () => {
+  const home = await makeHome();
+  await runCli(["archive"], home);
+  const { code, stdout } = await runCli(["archive", "--list"], home);
+  assert.equal(code, 0);
+  assert.match(stdout, /files/);
+  assert.match(stdout, /archive on disk:/);
+});
+
+test("archive --restore writes to the destination and never to the live store", async () => {
+  const home = await makeHome();
+  await runCli(["archive"], home);
+  const destination = path.join(home, "restored");
+  const liveBefore = await fs.readdir(path.join(home, ".claude", "projects"));
+
+  const { code, stdout } = await runCli(["archive", "--restore", destination], home);
+  assert.equal(code, 0, stdout);
+  assert.match(stdout, /nothing was written to the live stores/);
+
+  const restored = await fs.readFile(
+    path.join(destination, "claude_code", "projects", "-Users-x-proj", "s1.jsonl"),
+    "utf8"
+  );
+  assert.match(restored, /"sessionId":"s1"/);
+  assert.deepEqual(
+    await fs.readdir(path.join(home, ".claude", "projects")),
+    liveBefore,
+    "the live store must be untouched by a restore"
+  );
+});
+
+test("archive --prune bounds the archive rather than letting it grow forever", async () => {
+  const home = await makeHome();
+  await runCli(["archive"], home);
+  await fs.writeFile(
+    path.join(home, ".claude", "projects", "-Users-x-proj", "s1.jsonl"),
+    JSON.stringify({ type: "user", uuid: "u2", sessionId: "s2", timestamp: "2026-08-02T10:00:00.000Z", cwd: "/Users/x/proj", message: { role: "user", content: "changed" } }) + "\n"
+  );
+  await runCli(["archive"], home);
+
+  const { code, stdout } = await runCli(["archive", "--prune", "--keep", "1"], home);
+  assert.equal(code, 0);
+  assert.match(stdout, /pruned 1 generation/);
+
+  const { code: verifyCode } = await runCli(["archive", "--verify"], home);
+  assert.equal(verifyCode, 0, "pruning must never damage the generation it keeps");
+});
