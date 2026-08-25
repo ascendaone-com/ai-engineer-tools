@@ -4,8 +4,28 @@
  *
  *   scan            inventory the stores (read-only, content never opened)
  *   scan --json     same, machine-readable — what the app's consent surface renders
- *   import          snapshot + extract + ship (NOT IMPLEMENTED in the scaffold)
+ *   import          snapshot + extract + ship
  *   fix-retention   show the Claude Code retention plan; --apply to write it
+ *
+ * `import` flags:
+ *   --ship               send the extracted events over the batch wire
+ *   --keep-staging       leave the run's snapshot on disk (debugging only)
+ *   --snapshot-sessions  copy VS Code chat sessions before reading them
+ *
+ * Two rules this command is built around, both of them learned the hard way
+ * on 25 Aug 2026:
+ *
+ *  1. A RUN CLEANS UP AFTER ITSELF. Staging is scaffolding. Nineteen runs had
+ *     left 254 GB behind and filled a 926 GB disk, at which point unrelated
+ *     tooling started failing with ENOSPC — the importer never said a word.
+ *     Teardown lives in a `finally` here rather than in a `fix-retention`-style
+ *     command precisely because the thing that failed was remembering.
+ *  2. THE EXIT CODE AND THE SUMMARY ARE THE PRODUCT. A caller cannot see the
+ *     scrollback. Every source reports extracted-or-failed by name, the run
+ *     exits non-zero if any of them failed, and `--ship` closes with what
+ *     actually landed. This import backfills the work-demand rail; a quietly
+ *     short series is worse than a loud failure, because the surface reading
+ *     it downstream has no way to tell the difference.
  *
  * The macOS Flow app cannot read any of these stores (sandboxed, and child
  * processes inherit the sandbox), so this CLI is the thing the app hands the
@@ -17,17 +37,22 @@ import { resolveStorePaths } from "./stores.js";
 import { scanAll, scanClaudeCode, scanCursor, scanVsCode } from "./scan.js";
 import { applyClaudeRetentionFix, planClaudeRetentionFix } from "./retention.js";
 import {
+  checkSpaceForSnapshot,
   createStagingArea,
   defaultStagingRoot,
+  disposeStagingArea,
+  formatBytes,
   snapshotPath,
-  snapshotVsCodeWorkspaceStorage
+  snapshotVsCodeWorkspaceStorage,
+  sweepStagingRoot
 } from "./staging.js";
 import { extractClaudeCode } from "./extractors/claudeCode.js";
 import { extractCursor } from "./extractors/cursor.js";
 import { extractVsCode } from "./extractors/vscode.js";
-import { loadShipConfig, shipEvents } from "./ship.js";
+import { loadShipConfig, shipEvents, shippableEvents } from "./ship.js";
+import type { ShipResult } from "./ship.js";
 import { buildHandoff, buildCursorHandoff, buildVsCodeHandoff, writeHandoff } from "./localHandoff.js";
-import { NormalizedHistoricalEvent, StoreInventory } from "./types.js";
+import { HistoryStore, NormalizedHistoricalEvent, StoreInventory } from "./types.js";
 
 function formatInventory(inv: StoreInventory): string {
   const lines: string[] = [];
@@ -45,6 +70,257 @@ function formatInventory(inv: StoreInventory): string {
     for (const note of inv.notes) lines.push(`  note: ${note}`);
   }
   return lines.join("\n");
+}
+
+/* ------------------------------------------------------------------------ *
+ * Per-source outcome, summary and exit code
+ *
+ * The defect this replaces: a run in which VS Code — the source carrying the
+ * great majority of the usable window — failed outright, while the process
+ * printed per-source counts for the two sources that HAD worked and then
+ * stopped. Nothing named the failure, nothing summed it up, and the only
+ * signal a caller could read was an exit code that did not reflect it.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * A scan that throws must not take the whole import with it.
+ *
+ * One unreadable directory under `~/.claude/projects` was enough to kill the
+ * run before it printed a single line — no inventory, no summary, not even
+ * which store was being scanned. That is the same defect as the one below,
+ * one phase earlier: the failure was real, and the report of it was a bare
+ * errno on stderr with the store's name nowhere in sight.
+ */
+async function safeScan(
+  store: HistoryStore,
+  rootPath: string,
+  scan: () => Promise<StoreInventory>
+): Promise<{ inventory: StoreInventory; scanError: string | null }> {
+  try {
+    return { inventory: await scan(), scanError: null };
+  } catch (error) {
+    return {
+      inventory: { store, rootPath, present: false, counts: {}, notes: [] },
+      scanError: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+type SourceStatus = "extracted" | "absent" | "failed";
+
+interface SourceOutcome {
+  store: string;
+  status: SourceStatus;
+  events: number;
+  /** Present only on `failed` — the reason, verbatim. */
+  error?: string;
+  /** From the store's extraction_epoch: files it meant to read and could not.
+   * A source can succeed and still be incomplete, and that is worth saying. */
+  readFailures: number;
+}
+
+/** Counters an extraction_epoch carries that mean "we did not read this". */
+const READ_FAILURE_METRICS = [
+  "unparsedFiles",
+  "unreadableFiles",
+  "unparsedHistoryFiles",
+  "unreadableHistoryFiles",
+  "malformedHistoryEntries",
+  "unparsedChatSessionFiles",
+  "unreadableChatSessionFiles",
+  "unrecognisedChatSessionFiles",
+  "malformedChatSessionLines",
+  "unparsedLines",
+  "unparsedTranscripts"
+];
+
+function readFailuresOf(events: NormalizedHistoricalEvent[]): number {
+  let total = 0;
+  for (const event of events) {
+    if (event.eventKind !== "extraction_epoch") continue;
+    for (const metric of READ_FAILURE_METRICS) {
+      const value = event.metrics[metric];
+      if (typeof value === "number") total += value;
+    }
+  }
+  return total;
+}
+
+/**
+ * Run one store's snapshot+extract, and record what happened either way.
+ *
+ * A throw here is contained: it becomes a `failed` outcome that the summary
+ * names and the exit code honours, and the sources after it still run. What
+ * it must never do is disappear.
+ */
+async function runSource(
+  outcomes: SourceOutcome[],
+  store: string,
+  inventory: StoreInventory,
+  allEvents: NormalizedHistoricalEvent[],
+  extract: (collect: (event: NormalizedHistoricalEvent) => void) => Promise<void>,
+  buildStoreHandoff: (events: NormalizedHistoricalEvent[]) => Parameters<typeof writeHandoff>[0],
+  scanError: string | null = null
+): Promise<void> {
+  if (scanError !== null) {
+    process.stdout.write(`${inventory.store} FAILED to scan: ${scanError}\n\n`);
+    outcomes.push({ store, status: "failed", events: 0, error: scanError, readFailures: 0 });
+    return;
+  }
+  process.stdout.write(formatInventory(inventory) + "\n\n");
+  if (!inventory.present) {
+    outcomes.push({ store, status: "absent", events: 0, readFailures: 0 });
+    return;
+  }
+
+  const events: NormalizedHistoricalEvent[] = [];
+  const kindCounts: Record<string, number> = {};
+  try {
+    await extract((event) => {
+      events.push(event);
+      kindCounts[event.eventKind] = (kindCounts[event.eventKind] ?? 0) + 1;
+    });
+  } catch (error) {
+    // Whatever was extracted before the failure is still real and still
+    // shipped — but the store is reported as FAILED, never as a small number.
+    allEvents.push(...events);
+    outcomes.push({
+      store,
+      status: "failed",
+      events: events.length,
+      error: error instanceof Error ? error.message : String(error),
+      readFailures: readFailuresOf(events)
+    });
+    process.stdout.write(`${store} FAILED after ${events.length.toLocaleString("en-US")} events\n\n`);
+    return;
+  }
+
+  allEvents.push(...events);
+  process.stdout.write(`${store} extracted: ${events.length.toLocaleString("en-US")} events\n`);
+  for (const [kind, n] of Object.entries(kindCounts)) {
+    process.stdout.write(`  ${kind}: ${n.toLocaleString("en-US")}\n`);
+  }
+  const epoch = events.find((e) => e.eventKind === "extraction_epoch");
+  if (epoch) {
+    process.stdout.write(`  window: ${epoch.metrics.windowOldest} → ${epoch.metrics.windowNewest}\n`);
+  }
+
+  const handoffPath = await writeHandoff(buildStoreHandoff(events));
+  process.stdout.write(
+    handoffPath
+      ? `  handoff: → ${handoffPath}\n\n`
+      : "  handoff: desktop app container not found — skipped\n\n"
+  );
+
+  outcomes.push({
+    store,
+    status: "extracted",
+    events: events.length,
+    readFailures: readFailuresOf(events)
+  });
+}
+
+interface SummaryInput {
+  outcomes: SourceOutcome[];
+  eventsFile: string;
+  totalExtracted: number;
+  shippable: number;
+  ship: boolean;
+  shipResult: ShipResult | null;
+  shipError: string | null;
+}
+
+/**
+ * The closing summary. Printed on every path, success or failure, because it
+ * is the thing a caller reads instead of inferring an outcome from the
+ * absence of an error.
+ */
+function writeSummary(input: SummaryInput): void {
+  const { outcomes, shipResult, ship } = input;
+  const out = process.stdout;
+  out.write("\n" + "─".repeat(60) + "\nsummary\n");
+
+  for (const outcome of outcomes) {
+    const name = outcome.store.padEnd(12);
+    if (outcome.status === "absent") {
+      out.write(`  ${name} not present on this machine\n`);
+      continue;
+    }
+    if (outcome.status === "failed") {
+      out.write(`  ${name} FAILED — ${outcome.error}\n`);
+      out.write(`  ${" ".repeat(12)} ${outcome.events.toLocaleString("en-US")} events salvaged before the failure\n`);
+      continue;
+    }
+    const counts = shipResult?.perStore[outcome.store];
+    let line = `  ${name} ${outcome.events.toLocaleString("en-US")} extracted`;
+    if (counts) {
+      line += `, ${counts.sent.toLocaleString("en-US")} sent`;
+      line += ` (accepted ${counts.accepted.toLocaleString("en-US")}`;
+      line += `, duplicate ${counts.duplicate.toLocaleString("en-US")}`;
+      line += `, rejected ${counts.rejected.toLocaleString("en-US")})`;
+    }
+    out.write(line + "\n");
+    if (outcome.readFailures > 0) {
+      out.write(
+        `  ${" ".repeat(12)} ⚠ ${outcome.readFailures.toLocaleString("en-US")} file(s)/record(s) this store could not read — the window is short by an unknown amount\n`
+      );
+    }
+  }
+
+  out.write(`  ${"total".padEnd(12)} ${input.totalExtracted.toLocaleString("en-US")} extracted`);
+  out.write(ship ? `, ${input.shippable.toLocaleString("en-US")} eligible for the wire\n` : "\n");
+  out.write(`  events file: ${input.eventsFile}\n`);
+
+  if (!ship) {
+    out.write("\ndry run — pass --ship to send these over the batch wire.\n");
+    return;
+  }
+  if (input.shipError) {
+    out.write(`\nship FAILED: ${input.shipError}\n`);
+    return;
+  }
+  if (!shipResult) {
+    out.write("\nship did not run.\n");
+    return;
+  }
+  out.write(
+    `\nshipped: sent=${shipResult.sent} accepted=${shipResult.accepted} duplicate=${shipResult.duplicate} rejected=${shipResult.rejected} httpFailures=${shipResult.httpFailures}\n`
+  );
+  if (shipResult.duplicate > 0) {
+    out.write(
+      `  ${shipResult.duplicate.toLocaleString("en-US")} already imported — the backend kept its existing copy and stored nothing new.\n`
+    );
+  }
+  for (const [reason, n] of Object.entries(shipResult.rejectionReasons)) {
+    out.write(`  rejected ${reason}: ${n}\n`);
+  }
+  if (!shipResult.attributionComplete) {
+    out.write(
+      "  note: at least one batch could not be attributed per source — the per-source accept/reject splits above are incomplete.\n"
+    );
+  }
+}
+
+/**
+ * Non-zero whenever the caller would be wrong to treat this run as a
+ * complete import: any source that failed, any transport failure, any
+ * rejection, or a ship that landed nothing at all.
+ */
+function exitCodeFor(
+  outcomes: SourceOutcome[],
+  ship: boolean,
+  shipResult: ShipResult | null,
+  shipError: string | null
+): number {
+  if (outcomes.some((o) => o.status === "failed")) return 1;
+  if (!ship) return 0;
+  if (shipError || !shipResult) return 1;
+  if (shipResult.rejected > 0 || shipResult.httpFailures > 0) return 1;
+  // A re-run over records the backend already holds is a success, not a
+  // failure: everything the user asked to be there is there. Gating on
+  // `accepted > 0` alone would make the second run of a working importer
+  // report failure precisely because dedup did its job.
+  return shipResult.accepted + shipResult.duplicate > 0 ? 0 : 1;
 }
 
 async function main(): Promise<number> {
@@ -65,165 +341,149 @@ async function main(): Promise<number> {
       // Evaporation order: Claude Code first (its 30-day rolling purge is
       // deleting a day of baseline per day this hasn't run), then Cursor (no
       // purge observed, but the richest per-message structure), then VS Code
-      // (stable, ~9-month baseline — safe to run in this same background
-      // pass rather than needing its own onboarding moment). git still slots
-      // in behind the same staging/extract/ship flow. Each store is
-      // independently optional — a machine missing any of them still gets a
-      // real import of the rest, not an all-or-nothing failure.
+      // (stable, ~9-month baseline). Each store is independently optional AND
+      // independently fallible — a machine missing any of them, or a store
+      // that blows up mid-read, still gets a real import of the rest. That
+      // isolation is new: before it, VS Code failing on the last source threw
+      // away the Claude Code and Cursor events already extracted above it.
       const ship = rest.includes("--ship");
+      const keepStaging = rest.includes("--keep-staging");
+      const snapshotSessions = rest.includes("--snapshot-sessions");
 
-      const claudeInventory = await scanClaudeCode(paths);
-      const cursorInventory = await scanCursor(paths);
-      const vsCodeInventory = await scanVsCode(paths);
-      if (!claudeInventory.present && !cursorInventory.present && !vsCodeInventory.present) {
+      const claudeScan = await safeScan("claude_code", paths.claudeProjects, () => scanClaudeCode(paths));
+      const cursorScan = await safeScan("cursor", paths.cursorStateDb, () => scanCursor(paths));
+      const vsCodeScan = await safeScan("vscode", paths.vscodeHistory, () => scanVsCode(paths));
+      const claudeInventory = claudeScan.inventory;
+      const cursorInventory = cursorScan.inventory;
+      const vsCodeInventory = vsCodeScan.inventory;
+      const anyScanFailed = [claudeScan, cursorScan, vsCodeScan].some((r) => r.scanError !== null);
+      // "Nothing to import" and "we could not look" are different answers, and
+      // only the first of them is a clean exit.
+      if (!claudeInventory.present && !cursorInventory.present && !vsCodeInventory.present && !anyScanFailed) {
         process.stderr.write(
           `no Claude Code store at ${claudeInventory.rootPath}, no Cursor store at ${cursorInventory.rootPath}, and no VS Code store at ${vsCodeInventory.rootPath} — nothing to import\n`
         );
         return 2;
       }
 
-      const area = await createStagingArea(defaultStagingRoot(paths.home));
+      const stagingRoot = defaultStagingRoot(paths.home);
+
+      // Drain any backlog first: it frees the space the pre-flight check is
+      // about to measure, so a machine already full of old snapshots heals
+      // itself instead of refusing to run.
+      const swept = await sweepStagingRoot(stagingRoot);
+      if (swept.runsSwept > 0) {
+        process.stdout.write(
+          `swept ${swept.runsSwept} stale staging run(s), freed ${formatBytes(swept.freedBytes)}\n`
+        );
+      }
+
+      // What this run will actually copy. VS Code chat sessions are read in
+      // place unless --snapshot-sessions, so they are not in this list.
+      const willCopy = [paths.claudeProjects, paths.cursorStateDb, paths.vscodeHistory].filter(
+        (_, i) => [claudeInventory.present, cursorInventory.present, vsCodeInventory.present][i]
+      );
+      if (snapshotSessions && vsCodeInventory.present) willCopy.push(paths.vscodeWorkspaceStorage);
+
+      const space = await checkSpaceForSnapshot(stagingRoot, willCopy);
+      if (!space.sufficient) {
+        process.stderr.write(
+          `not enough space to stage this import: need ~${formatBytes(space.requiredBytes)}, ` +
+            `${formatBytes(space.freeBytes ?? 0)} free on the volume holding ${stagingRoot}\n` +
+            `refusing to start rather than failing halfway through the copy\n`
+        );
+        return 2;
+      }
+
+      const area = await createStagingArea(stagingRoot);
       process.stdout.write(`staging: ${area.root}\n\n`);
 
       const allEvents: NormalizedHistoricalEvent[] = [];
+      const outcomes: SourceOutcome[] = [];
 
-      if (claudeInventory.present) {
-        process.stdout.write(formatInventory(claudeInventory) + "\n\n");
-        const snapshotRoot = path.join(area.root, "claude_code");
-        await snapshotPath(area, paths.claudeProjects, path.join("claude_code", "projects"));
+      try {
+        await runSource(outcomes, "claude_code", claudeInventory, allEvents, async (collect) => {
+          const snapshotRoot = path.join(area.root, "claude_code");
+          await snapshotPath(area, paths.claudeProjects, path.join("claude_code", "projects"));
+          for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) collect(event);
+        }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError);
 
-        const claudeEvents: NormalizedHistoricalEvent[] = [];
-        const kindCounts: Record<string, number> = {};
-        for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) {
-          claudeEvents.push(event);
-          kindCounts[event.eventKind] = (kindCounts[event.eventKind] ?? 0) + 1;
+        await runSource(outcomes, "cursor", cursorInventory, allEvents, async (collect) => {
+          const cursorSnapshotRoot = path.join(area.root, "cursor");
+          await snapshotPath(area, paths.cursorStateDb, path.join("cursor", "state.vscdb"));
+          for await (const event of extractCursor(cursorSnapshotRoot, area.extractionId)) collect(event);
+        }, (events) => buildCursorHandoff(events, area.extractionId, new Date().toISOString()), cursorScan.scanError);
+
+        await runSource(outcomes, "vscode", vsCodeInventory, allEvents, async (collect) => {
+          // Timeline history is small (~280 MB) and cheap to snapshot. Chat
+          // sessions are not: they were 15 GB of the ~20 GB per run on the
+          // machine that filled up, and the bulk of them are months-old closed
+          // sessions that nothing is writing. Copying them bought a
+          // consistency guarantee against a risk the readers already handle —
+          // a truncated `.jsonl` tail counts as malformed lines, an unreadable
+          // file now counts as unreadable — so they are read in place.
+          await snapshotPath(area, paths.vscodeHistory, path.join("vscode", "history"));
+          let workspaceStorageDir = paths.vscodeWorkspaceStorage;
+          if (snapshotSessions) {
+            workspaceStorageDir = await snapshotVsCodeWorkspaceStorage(
+              area,
+              paths.vscodeWorkspaceStorage,
+              path.join("vscode", "workspaceStorage")
+            );
+          }
+          const source = {
+            historyDir: path.join(area.root, "vscode", "history"),
+            workspaceStorageDir
+          };
+          for await (const event of extractVsCode(source, area.extractionId)) collect(event);
+        }, (events) => buildVsCodeHandoff(events, area.extractionId, new Date().toISOString()), vsCodeScan.scanError);
+
+        // The normalized record set stays in staging — raw refs local-only.
+        const eventsFile = path.join(area.root, "events.jsonl");
+        await fs.writeFile(eventsFile, allEvents.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+
+        let shipResult: Awaited<ReturnType<typeof shipEvents>> | null = null;
+        let shipError: string | null = null;
+        if (ship) {
+          const config = loadShipConfig();
+          process.stdout.write(`\nshipping to ${config.apiBaseUrl} as ${config.toolInstallationId}…\n`);
+          try {
+            shipResult = await shipEvents(allEvents, config, (done, total) => {
+              process.stdout.write(`  ${done.toLocaleString("en-US")}/${total.toLocaleString("en-US")}\r`);
+            });
+            process.stdout.write("\n");
+          } catch (error) {
+            process.stdout.write("\n");
+            shipError = error instanceof Error ? error.message : String(error);
+          }
         }
-        allEvents.push(...claudeEvents);
 
-        const epoch = claudeEvents.find((e) => e.eventKind === "extraction_epoch");
-        process.stdout.write(`claude_code extracted: ${claudeEvents.length.toLocaleString("en-US")} events\n`);
-        for (const [kind, n] of Object.entries(kindCounts)) {
-          process.stdout.write(`  ${kind}: ${n.toLocaleString("en-US")}\n`);
-        }
-        if (epoch) {
-          process.stdout.write(`  window: ${epoch.metrics.windowOldest} → ${epoch.metrics.windowNewest}\n`);
-        }
+        writeSummary({
+          outcomes,
+          eventsFile,
+          totalExtracted: allEvents.length,
+          shippable: shippableEvents(allEvents).length,
+          ship,
+          shipResult,
+          shipError
+        });
 
-        const handoff = buildHandoff(claudeEvents, area.extractionId, new Date().toISOString());
-        const handoffPath = await writeHandoff(handoff);
-        if (handoffPath) {
-          process.stdout.write(`  handoff: ${handoff.sessions.length} sessions → ${handoffPath}\n\n`);
+        return exitCodeFor(outcomes, ship, shipResult, shipError);
+      } finally {
+        // Teardown runs on the success path and on the way out of a throw
+        // alike: the failure that started all this left ~20 GB behind
+        // precisely because it died before any cleanup could run.
+        if (keepStaging) {
+          process.stdout.write(`\nstaging kept at ${area.root} (--keep-staging)\n`);
         } else {
-          process.stdout.write("  handoff: desktop app container not found — skipped\n\n");
+          const disposed = await disposeStagingArea(area);
+          if (disposed.freedBytes > 0) {
+            process.stdout.write(
+              `\nstaging cleaned: freed ${formatBytes(disposed.freedBytes)}, kept ${disposed.kept.join(", ") || "nothing"}\n`
+            );
+          }
         }
-      } else {
-        process.stdout.write(formatInventory(claudeInventory) + "\n\n");
       }
-
-      if (cursorInventory.present) {
-        process.stdout.write(formatInventory(cursorInventory) + "\n\n");
-        const cursorSnapshotRoot = path.join(area.root, "cursor");
-        await snapshotPath(area, paths.cursorStateDb, path.join("cursor", "state.vscdb"));
-
-        const cursorEvents: NormalizedHistoricalEvent[] = [];
-        const kindCounts: Record<string, number> = {};
-        for await (const event of extractCursor(cursorSnapshotRoot, area.extractionId)) {
-          cursorEvents.push(event);
-          kindCounts[event.eventKind] = (kindCounts[event.eventKind] ?? 0) + 1;
-        }
-        allEvents.push(...cursorEvents);
-
-        const epoch = cursorEvents.find((e) => e.eventKind === "extraction_epoch");
-        process.stdout.write(`cursor extracted: ${cursorEvents.length.toLocaleString("en-US")} events\n`);
-        for (const [kind, n] of Object.entries(kindCounts)) {
-          process.stdout.write(`  ${kind}: ${n.toLocaleString("en-US")}\n`);
-        }
-        if (epoch) {
-          process.stdout.write(`  window: ${epoch.metrics.windowOldest} → ${epoch.metrics.windowNewest}\n`);
-        }
-
-        const handoff = buildCursorHandoff(cursorEvents, area.extractionId, new Date().toISOString());
-        const handoffPath = await writeHandoff(handoff);
-        if (handoffPath) {
-          process.stdout.write(`  handoff: ${handoff.sessions.length} sessions → ${handoffPath}\n\n`);
-        } else {
-          process.stdout.write("  handoff: desktop app container not found — skipped\n\n");
-        }
-      } else {
-        process.stdout.write(formatInventory(cursorInventory) + "\n\n");
-      }
-
-      if (vsCodeInventory.present) {
-        process.stdout.write(formatInventory(vsCodeInventory) + "\n\n");
-        const vsCodeSnapshotRoot = path.join(area.root, "vscode");
-        await snapshotPath(area, paths.vscodeHistory, path.join("vscode", "history"));
-        await snapshotVsCodeWorkspaceStorage(area, paths.vscodeWorkspaceStorage, path.join("vscode", "workspaceStorage"));
-
-        const vsCodeEvents: NormalizedHistoricalEvent[] = [];
-        const kindCounts: Record<string, number> = {};
-        for await (const event of extractVsCode(vsCodeSnapshotRoot, area.extractionId)) {
-          vsCodeEvents.push(event);
-          kindCounts[event.eventKind] = (kindCounts[event.eventKind] ?? 0) + 1;
-        }
-        allEvents.push(...vsCodeEvents);
-
-        const epoch = vsCodeEvents.find((e) => e.eventKind === "extraction_epoch");
-        process.stdout.write(`vscode extracted: ${vsCodeEvents.length.toLocaleString("en-US")} events\n`);
-        for (const [kind, n] of Object.entries(kindCounts)) {
-          process.stdout.write(`  ${kind}: ${n.toLocaleString("en-US")}\n`);
-        }
-        if (epoch) {
-          process.stdout.write(`  window: ${epoch.metrics.windowOldest} → ${epoch.metrics.windowNewest}\n`);
-        }
-
-        const handoff = buildVsCodeHandoff(vsCodeEvents, area.extractionId, new Date().toISOString());
-        const handoffPath = await writeHandoff(handoff);
-        if (handoffPath) {
-          process.stdout.write(
-            `  handoff: ${handoff.editDays.length} edit-days, ${handoff.chatSessions.length} chat sessions → ${handoffPath}\n\n`
-          );
-        } else {
-          process.stdout.write("  handoff: desktop app container not found — skipped\n\n");
-        }
-      } else {
-        process.stdout.write(formatInventory(vsCodeInventory) + "\n\n");
-      }
-
-      // The normalized record set stays in staging — raw refs local-only.
-      const eventsFile = path.join(area.root, "events.jsonl");
-      await fs.writeFile(eventsFile, allEvents.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
-      process.stdout.write(`total extracted: ${allEvents.length.toLocaleString("en-US")} events\n`);
-      process.stdout.write(`events file: ${eventsFile}\n`);
-
-      if (!ship) {
-        process.stdout.write("dry run — pass --ship to send these over the batch wire.\n");
-        return 0;
-      }
-
-      const config = loadShipConfig();
-      process.stdout.write(`shipping to ${config.apiBaseUrl} as ${config.toolInstallationId}…\n`);
-      const result = await shipEvents(allEvents, config, (done, total) => {
-        process.stdout.write(`  ${done.toLocaleString("en-US")}/${total.toLocaleString("en-US")}\r`);
-      });
-      process.stdout.write("\n");
-      process.stdout.write(
-        `shipped: sent=${result.sent} accepted=${result.accepted} duplicate=${result.duplicate} rejected=${result.rejected} httpFailures=${result.httpFailures}\n`
-      );
-      if (result.duplicate > 0) {
-        process.stdout.write(
-          `  ${result.duplicate.toLocaleString("en-US")} already imported — the backend kept its existing copy and stored nothing new.\n`
-        );
-      }
-      for (const [reason, n] of Object.entries(result.rejectionReasons)) {
-        process.stdout.write(`  rejected ${reason}: ${n}\n`);
-      }
-      // A re-run over records the backend already holds is a success, not a
-      // failure: everything the user asked to be there is there. Gating the exit
-      // code on `accepted > 0` alone would make the second run of a working
-      // importer report failure precisely because dedup did its job.
-      return result.accepted + result.duplicate > 0 && result.rejected === 0 && result.httpFailures === 0
-        ? 0
-        : 1;
     }
     case "fix-retention": {
       const plan = await planClaudeRetentionFix(paths);

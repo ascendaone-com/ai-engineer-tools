@@ -143,6 +143,30 @@ export interface ShipResult {
   /** reason -> count, from the batch response's per-item results. */
   rejectionReasons: Record<string, number>;
   httpFailures: number;
+  /** Per-store outcome, so a caller can read "vscode shipped 0" instead of
+   * inferring it from a total. See `attributionComplete`. */
+  perStore: Record<string, StoreShipCounts>;
+  /**
+   * False when at least one batch response could not be attributed back to
+   * individual events — the response omitted `results`, or returned a
+   * different number of them than we sent. The per-store `sent` figures are
+   * still exact (we know what we put in each batch); the accepted/duplicate/
+   * rejected splits for those batches are not, and are left OUT of `perStore`
+   * rather than spread across stores by assumption. A caller that prints a
+   * per-store table must say so when this is false.
+   */
+  attributionComplete: boolean;
+}
+
+export interface StoreShipCounts {
+  sent: number;
+  accepted: number;
+  duplicate: number;
+  rejected: number;
+}
+
+function storeCounts(result: ShipResult, store: string): StoreShipCounts {
+  return (result.perStore[store] ??= { sent: 0, accepted: 0, duplicate: 0, rejected: 0 });
 }
 
 const BATCH_SIZE = 200;
@@ -173,7 +197,9 @@ export async function shipEvents(
     duplicate: 0,
     rejected: 0,
     rejectionReasons: {},
-    httpFailures: 0
+    httpFailures: 0,
+    perStore: {},
+    attributionComplete: true
   };
   const wireEvents = shippableEvents(events);
   for (let offset = 0; offset < wireEvents.length; offset += BATCH_SIZE) {
@@ -191,12 +217,15 @@ export async function shipEvents(
       });
     } catch {
       result.httpFailures += 1;
+      result.attributionComplete = false;
       continue; // Transport failure: skip this chunk, keep going — the stable
       // importKey makes a later re-run of just the gaps safe to reconcile.
     }
     result.sent += chunk.length;
+    for (const event of chunk) storeCounts(result, event.store).sent += 1;
     if (!response.ok) {
       result.httpFailures += 1;
+      result.attributionComplete = false;
       if (response.status === 401 || response.status === 403) {
         throw new Error(
           `Ingest refused (${response.status}) — token invalid/revoked or consent missing; aborting rather than burning ${wireEvents.length - offset} more events`
@@ -214,7 +243,23 @@ export async function shipEvents(
       result.accepted += body.accepted ?? 0;
       result.duplicate += body.duplicate ?? 0;
       result.rejected += body.rejected ?? 0;
-      for (const item of body.results ?? []) {
+      const items = body.results ?? [];
+      // Per-item results are positional against the batch we sent. Only
+      // attribute when the response returns exactly as many as we sent —
+      // anything else and the mapping is a guess, and a guessed per-store
+      // table is worse than an absent one.
+      const attributable = items.length === chunk.length;
+      if (!attributable && (body.accepted ?? body.duplicate ?? body.rejected) !== undefined) {
+        result.attributionComplete = false;
+      }
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i];
+        if (attributable) {
+          const counts = storeCounts(result, chunk[i].store);
+          if (item.status === "accepted") counts.accepted += 1;
+          else if (item.status === "duplicate") counts.duplicate += 1;
+          else counts.rejected += 1;
+        }
         // Duplicates have their own counter; bucketing them as rejection
         // reasons too would report the same events twice under two headings.
         if (item.status !== "accepted" && item.status !== "duplicate") {
@@ -224,6 +269,7 @@ export async function shipEvents(
       }
     } catch {
       result.httpFailures += 1;
+      result.attributionComplete = false;
     }
     onProgress?.(Math.min(offset + BATCH_SIZE, wireEvents.length), wireEvents.length);
   }
