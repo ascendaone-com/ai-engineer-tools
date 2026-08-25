@@ -2,7 +2,7 @@
 
 The skill/rule content that teaches an agent host **when and how** to report semantic (agent-observed) work-friction patterns through [`ascenda-agent-mcp`](../ascenda-agent-mcp/)'s `ascenda_emit_work_signal` tool. That package is the transport; this package is the judgement.
 
-Referenced by `asc-core-be`'s `PERSONALISED_INTERVENTION_ENGINE_SPEC.md` as `ai-engineer-tools/ascenda-agent-skills/copy/banned-vocabulary.txt` — this is that file.
+The backend cites this package's `copy/banned-vocabulary.txt` as the canonical list — this is that file.
 
 ## What's here
 
@@ -16,7 +16,7 @@ This package is both the skill/rule content *and* — since `.claude-plugin/plug
 | [`.mcp.json`](./.mcp.json) | Wires [`ascenda-agent-mcp`](../ascenda-agent-mcp/)'s CLI in as an MCP server, via `npx` |
 | [`cursor/ascenda-work-signals.mdc`](./cursor/ascenda-work-signals.mdc) | The equivalent Cursor project rule (Cursor doesn't use this plugin system, so it's still installed separately — see below) |
 | [`docs/EMISSION_CRITERIA.md`](./docs/EMISSION_CRITERIA.md) | Versioned, per-event trigger thresholds and required evidence — the actual judgement logic both files above summarise |
-| [`copy/banned-vocabulary.txt`](./copy/banned-vocabulary.txt) | Phrases that must never appear in Flow-facing copy or reasoning — the canonical list `asc-core-be`'s `WorkDemandProjection` test mirrors |
+| [`copy/banned-vocabulary.txt`](./copy/banned-vocabulary.txt) | Phrases that must never appear in Flow-facing copy or reasoning — the canonical list the backend's own test mirrors |
 
 `tests/skillContent.test.mjs` keeps these in sync mechanically: every event type in `SEMANTIC_WORK_SIGNAL_EVENT_TYPES` (`@ascenda-one/tool-contract`) must be documented in `EMISSION_CRITERIA.md` and mentioned in both the skill and the rule, and neither may go stale silently.
 

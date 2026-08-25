@@ -13,10 +13,10 @@ import { extractVsCode } from "../dist/extractors/vscode.js";
  * `.jsonl` log. Both the staging copier and the extractor globbed `*.json`, so
  * from Feb 2026 the sessions were never read — and because the filter excluded
  * them before any parse was attempted, `unparsedChatSessionFiles` stayed 0 and
- * the import reported clean. On the reference machine that hid 1,020 sessions
- * and 6,869 prompts behind a successful-looking run.
+ * the import reported clean, hiding a large share of real sessions and
+ * prompts behind a successful-looking run.
  *
- * Delta shape, as observed on the real store: line 1 is `{kind:0, v:<session>}`
+ * Delta shape: line 1 is `{kind:0, v:<session>}`
  * and later lines are `{kind:1, k:[...path], v}` (set) or
  * `{kind:2, k:[...path], v:[...], i?}` (splice, appending when `i` is absent).
  */
@@ -71,8 +71,8 @@ test("a .jsonl session folds its deltas — reading only the header would underc
 
   await writeWorkspaceFolder(wsDir, "hash-c", REPO_A);
   // The header carries ONE request and the other two arrive as appends, which
-  // is the real distribution: headers alone held 579 of 6,869 requests on the
-  // reference machine, so a header-only reader looks correct and is not.
+  // is the real distribution: headers alone hold a small fraction of requests,
+  // so a header-only reader looks correct and is not.
   await writeSessionFile(
     wsDir,
     "hash-c",

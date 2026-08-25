@@ -8,11 +8,10 @@ import { extractVsCode } from "../dist/extractors/vscode.js";
 import { toWirePayload } from "../dist/ship.js";
 import { buildVsCodeHandoff } from "../dist/localHandoff.js";
 
-// Fixtures shaped like a real VS Code store (verified 2026-08-18): Timeline
-// history self-labels `{"version":1,"resource","entries"}`, entries carry
-// `source: "Chat Edit: '<prompt>'"` for AI-driven edits (13,780 of 14,928 on
-// the reference machine) and no `source` at all for a manual save (1,128
-// observed). Copilot chat sessions self-label `"version":3`, each
+// Fixtures shaped like a real VS Code store: Timeline history self-labels
+// `{"version":1,"resource","entries"}`, entries carry
+// `source: "Chat Edit: '<prompt>'"` for AI-driven edits and no `source` at all
+// for a manual save. Copilot chat sessions self-label `"version":3`, each
 // `requests[]` item carries `message`/`response` (content, never read past
 // existence checks here) plus `modelId`/`timestamp`/`isCanceled`/
 // `result.errorDetails` (metrics). Workspace identity for both stores comes

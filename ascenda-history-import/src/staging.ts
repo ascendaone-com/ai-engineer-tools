@@ -14,10 +14,23 @@ import { constants } from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 
-/** Clone-on-write when the filesystem supports it (APFS does): a 2.3 GB
- * store snapshots in milliseconds and costs no disk until the live files
- * diverge. NOT `FICLONE_FORCE` — on filesystems without reflinks this must
- * degrade to a real copy, not an error. */
+/**
+ * Ask for a reflink, but DO NOT believe you got one.
+ *
+ * This flag used to carry a comment claiming a snapshot "costs no disk until
+ * the live files diverge". Measured on macOS 15 / APFS / Node 24, that is
+ * false: `fs.copyFile` with `COPYFILE_FICLONE` costs exactly as much as a
+ * plain copy — 450 MB source, 464 MB consumed, byte-identical to omitting the
+ * flag. (`/bin/cp -c` on the same file costs 0, so the filesystem supports
+ * reflinks fine; Node's copy path simply does not use them here.)
+ *
+ * That false comment is the whole reason staging quietly grew to 254 GB
+ * across 19 runs: every "free" snapshot was a real ~20 GB copy. The flag is
+ * kept because it is a genuine win where the runtime honours it (btrfs/XFS on
+ * Linux), and NOT `FICLONE_FORCE` so it degrades to a real copy rather than an
+ * error. But nothing in this module may assume the copy was free — which is
+ * why every snapshot is torn down by the run that made it.
+ */
 const CLONE = constants.COPYFILE_FICLONE;
 
 export interface StagingArea {
@@ -136,4 +149,193 @@ export async function snapshotVsCodeWorkspaceStorage(
   }
 
   return dest;
+}
+
+
+/* ------------------------------------------------------------------------ *
+ * Teardown
+ *
+ * A snapshot is scaffolding: worth exactly as much as the extraction running
+ * against it, and worth nothing once that extraction has finished. The
+ * extracted `events.jsonl` is the part with lasting value (~10 MB against
+ * ~20 GB of sources), so teardown keeps that and removes the rest.
+ *
+ * Teardown belongs to the RUN, not to a separate `fix-retention`-style
+ * command: a run that cleans up after itself cannot be forgotten, and the
+ * failure mode being fixed here is precisely that nobody remembered. The
+ * sweep below exists only to drain the backlog left by runs that shipped
+ * before teardown did.
+ * ------------------------------------------------------------------------ */
+
+/** Kept when a staging run is disposed of — the extraction output, not its inputs. */
+export const STAGING_KEEP = ["events.jsonl"];
+
+export interface DisposeResult {
+  /** Bytes of snapshot removed, as reported by the directory walk. */
+  freedBytes: number;
+  /** Entries kept (see `STAGING_KEEP`). */
+  kept: string[];
+}
+
+async function entrySizeBytes(target: string): Promise<number> {
+  let st;
+  try {
+    st = await fs.lstat(target);
+  } catch {
+    return 0;
+  }
+  if (st.isSymbolicLink()) return 0;
+  if (!st.isDirectory()) return st.size;
+  let total = 0;
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(target);
+  } catch {
+    return total;
+  }
+  for (const entry of entries) {
+    total += await entrySizeBytes(path.join(target, entry));
+  }
+  return total;
+}
+
+/**
+ * Remove a run's snapshot payload, keeping `STAGING_KEEP`.
+ *
+ * Deliberately tolerant: teardown runs in a `finally`, so it must never be
+ * able to turn a successful run into a failed one, nor mask the real error
+ * from a failed one. A removal that fails is reported through the returned
+ * byte count (it simply frees less), never thrown.
+ */
+export async function disposeStagingArea(
+  area: StagingArea,
+  keep: readonly string[] = STAGING_KEEP
+): Promise<DisposeResult> {
+  const result: DisposeResult = { freedBytes: 0, kept: [] };
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(area.root);
+  } catch {
+    return result; // Never created, or already gone.
+  }
+  for (const entry of entries) {
+    if (keep.includes(entry)) {
+      result.kept.push(entry);
+      continue;
+    }
+    const target = path.join(area.root, entry);
+    const size = await entrySizeBytes(target);
+    try {
+      await fs.rm(target, { recursive: true, force: true });
+      result.freedBytes += size;
+    } catch {
+      // Left behind — the next run's sweep will try again.
+    }
+  }
+  return result;
+}
+
+export interface SweepResult {
+  runsSwept: number;
+  freedBytes: number;
+}
+
+/**
+ * Drain snapshot payloads left by earlier runs.
+ *
+ * `exceptRun` is the run currently executing — never swept, because its
+ * snapshot is live. Everything else keeps only `STAGING_KEEP`, so historical
+ * `events.jsonl` files survive a sweep: they are extraction output someone may
+ * still want to inspect, and they are ~10 MB, not ~20 GB.
+ */
+export async function sweepStagingRoot(
+  stagingRoot: string,
+  exceptRun?: string,
+  keep: readonly string[] = STAGING_KEEP
+): Promise<SweepResult> {
+  const result: SweepResult = { runsSwept: 0, freedBytes: 0 };
+  let runs: string[] = [];
+  try {
+    runs = (await fs.readdir(stagingRoot, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return result; // No staging root yet — nothing to sweep.
+  }
+  for (const run of runs) {
+    if (run === exceptRun) continue;
+    const disposed = await disposeStagingArea({ extractionId: run, root: path.join(stagingRoot, run) }, keep);
+    if (disposed.freedBytes > 0) {
+      result.runsSwept += 1;
+      result.freedBytes += disposed.freedBytes;
+    }
+  }
+  return result;
+}
+
+/* ------------------------------------------------------------------------ *
+ * Pre-flight space
+ * ------------------------------------------------------------------------ */
+
+/** Free bytes on the volume holding `dir` (walking up to the nearest existing
+ * ancestor, since the staging root may not exist yet). */
+export async function freeSpaceBytes(dir: string): Promise<number | null> {
+  let probe = path.resolve(dir);
+  for (;;) {
+    try {
+      const st = await fs.statfs(probe);
+      return Number(st.bsize) * Number(st.bavail);
+    } catch {
+      const parent = path.dirname(probe);
+      if (parent === probe) return null;
+      probe = parent;
+    }
+  }
+}
+
+/** What this run is about to copy, measured rather than guessed. */
+export async function estimateSnapshotBytes(sources: readonly string[]): Promise<number> {
+  let total = 0;
+  for (const source of sources) total += await entrySizeBytes(source);
+  return total;
+}
+
+export interface SpaceCheck {
+  requiredBytes: number;
+  freeBytes: number | null;
+  /** False only when free space is known AND insufficient — an unknown free
+   * figure must not block a run that would have worked. */
+  sufficient: boolean;
+}
+
+/**
+ * Headroom on top of the measured source size. The copy is the dominant cost,
+ * but the extractor also writes `events.jsonl` and reads whole session files
+ * into memory; refusing with a little room to spare beats an ENOSPC halfway
+ * through a 20 GB copy.
+ */
+export const SPACE_HEADROOM_BYTES = 2 * 1024 * 1024 * 1024;
+
+export async function checkSpaceForSnapshot(
+  stagingRoot: string,
+  sources: readonly string[]
+): Promise<SpaceCheck> {
+  const requiredBytes = (await estimateSnapshotBytes(sources)) + SPACE_HEADROOM_BYTES;
+  const freeBytes = await freeSpaceBytes(stagingRoot);
+  return {
+    requiredBytes,
+    freeBytes,
+    sufficient: freeBytes === null || freeBytes >= requiredBytes
+  };
+}
+
+export function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }

@@ -92,11 +92,25 @@ export interface HandoffSession {
    * fabricated "no friction at all" rather than "not collected"). */
   toolFailureCount: number;
   /** Peak (input + cache_read + cache_creation) tokens across the session's
-   * assistant turns, as a fraction of an assumed 200k-token window. */
+   * assistant turns, as a fraction of an assumed 200k-token window.
+   *
+   * No longer clamped at 1.0 — see `contextWindowPeakPctOf`. A session on a
+   * 1M-token context legitimately reports >1 here, which is the point: the
+   * old clamp collapsed 59% of a real store onto exactly 1.0 and destroyed
+   * the field's variance. Prefer [contextWindowPeakTokens]. */
   contextWindowPeakPct: number;
+  /** Peak (input + cache_read + cache_creation) tokens — the measured
+   * quantity, with no assumed denominator. This is what a within-person
+   * baseline should be computed against. */
+  contextWindowPeakTokens: number;
   /** `toolUseResult.userModified === true` count — edits the human corrected
-   * by hand after the AI proposed them. */
-  userModifiedEditCount: number;
+   * by hand after the AI proposed them.
+   *
+   * **Null means the store could not answer**, and on Claude Code today it
+   * always will be: the field is present 20,133 times in a real store and
+   * `false` every time. Never write 0 here — a fabricated "no corrections"
+   * is exactly the F1 finding this package's honesty audit raised. */
+  userModifiedEditCount: number | null;
   /** Subagent (Task-tool) transcripts folded into this session, so a session
    * that leaned on subagents doesn't look identical to one that didn't. */
   subagentTranscripts: number;
@@ -234,8 +248,8 @@ export interface VsCodeHandoffFile {
   chatSessions: VsCodeHandoffSession[];
 }
 
-/** Last path segment of a repo path — "asc-ascenda-app-workspace" from a
- * full cwd. Falls back to the raw ref when it is already a slug. */
+/** Last path segment of a repo path — "my-service" from a full cwd.
+ * Falls back to the raw ref when it is already a slug. */
 export function projectLabelOf(repoRef: string | null): string | null {
   if (!repoRef) return null;
   const trimmed = repoRef.replace(/\/+$/, "");
@@ -275,7 +289,18 @@ export function buildHandoff(
       compactionCount: Number(event.metrics.compactionCount ?? 0),
       toolFailureCount: Number(event.metrics.toolFailureCount ?? 0),
       contextWindowPeakPct: Number(event.metrics.contextWindowPeakPct ?? 0),
-      userModifiedEditCount: Number(event.metrics.userModifiedEditCount ?? 0),
+      contextWindowPeakTokens: Number(event.metrics.contextWindowPeakTokens ?? 0),
+      // Null, never 0. `toolUseResult.userModified` occurs 20,133 times
+      // across a real 363-session store and is `false` on every single one
+      // — Claude Code does not appear to set it true. Shipping 0 says "no
+      // AI edit was ever corrected by hand", which is a finding; the truth
+      // is that this store cannot answer the question. The extractor keeps
+      // counting it in case upstream starts populating it, and the handoff
+      // reports the count only when it is non-zero.
+      userModifiedEditCount:
+        Number(event.metrics.userModifiedEditCount ?? 0) > 0
+          ? Number(event.metrics.userModifiedEditCount)
+          : null,
       subagentTranscripts: Number(event.metrics.subagentTranscripts ?? 0),
       days: event.dayBreakdown ?? [],
       provenance: event.provenance

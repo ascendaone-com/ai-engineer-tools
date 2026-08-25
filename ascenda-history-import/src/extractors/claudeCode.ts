@@ -3,40 +3,33 @@
  *
  * Store: `<snapshot>/projects/<project-slug>/<sessionId>.jsonl`, one JSON
  * object per line, PLUS `<snapshot>/projects/<project-slug>/<sessionId>/**\/*.jsonl`
- * — subagent (`Task` tool) transcripts, verified nested three levels deep as
- * `<sessionId>/subagents/agent-<id>.jsonl` on a real store (115 of them
- * alongside 324 top-level sessions, 2026-08-18) but walked recursively here
- * rather than hardcoded to that one directory name, since nothing about the
- * nesting is documented. A store's `.last-cleanup` purge can also remove a
+ * — subagent (`Task` tool) transcripts. Nothing about that nesting is
+ * documented upstream, so the walk is recursive rather than hardcoded to any
+ * one directory name. A store's `.last-cleanup` purge can also remove a
  * top-level transcript while leaving its subagent directory behind, so a
  * session fold is seeded from whichever appears first and merged with
  * whichever appears second — never dropped for missing its sibling.
  *
- * Every subagent line carries the PARENT session's `sessionId` (confirmed:
- * `isSidechain: true`, `agentId` set, `sessionId` equal to the orchestrating
- * conversation's) — it is not a session of its own. Its `user` lines are the
- * orchestrator's task instructions and its own tool-result round-trips, never
- * something a human typed, so none of them may become an `ai_prompt_submitted`
- * event or count toward `promptCount` — that would double the load-bearing
- * human-prompt classifier's error rate for exactly the sessions that lean on
- * subagents most. Its token spend, tool failures and edits are still real
- * work done in service of the parent session, so those fold into the same
- * session totals with a `subagent*` breakdown alongside so the merge is
- * visible rather than silent.
+ * Subagent lines carry the PARENT session's `sessionId` (`isSidechain: true`,
+ * `agentId` set) — a subagent is not a session of its own. Its `user` lines
+ * are the orchestrator's task instructions and its own tool-result
+ * round-trips, never something a human typed, so none of them may become an
+ * `ai_prompt_submitted` event or count toward `promptCount`. Its token spend,
+ * tool failures and edits are still real work done in service of the parent
+ * session, so those fold into the same session totals with a `subagent*`
+ * breakdown alongside, so the merge is visible rather than silent.
  *
  * Key order varies per line type and `type` is often not the first key, so
  * nothing here greps — every line is JSON-parsed and dispatched on its
  * top-level `type`.
  *
- * The single most important classification: most `user` lines are NOT human
- * prompts. Tool results come back on user-role lines (a `toolUseResult` key,
- * or a content array of `tool_result` items). On the verified store ~108k
- * user lines reduce to a far smaller set of actual typed prompts — conflating
- * them would inflate every prompt metric by ~10x and poison the baseline.
+ * The classification everything else rests on: most `user` lines are NOT
+ * human prompts. Tool results come back on user-role lines (a `toolUseResult`
+ * key, or a content array of `tool_result` items). Conflating the two inflates
+ * every prompt metric by roughly an order of magnitude, so any change here
+ * needs the fixtures in `tests/claudeCode.test.mjs` to stay green.
  *
- * Beyond the prompt/session/after-hours signals already shipped, this file
- * also extracts (verified against a real 439-transcript store, 2026-08-18 —
- * counts land within the range a fresh snapshot would produce):
+ * Beyond the prompt/session/after-hours signals, this file also extracts:
  *  - **Compaction** (`system` lines, `subtype: "compact_boundary"`,
  *    `compactMetadata.trigger`): per-session counts, split manual/auto to
  *    match the live hooks' `context_compression_manual`/`_auto` vocabulary
@@ -44,10 +37,9 @@
  *  - **Failures**: `toolUseResult` tool-result content items with
  *    `is_error: true` (the authoritative marker — more reliable than
  *    string-sniffing `toolUseResult`'s text, which several tools skip) plus
- *    `system` lines with `subtype: "api_error"`. This is the direct fix for
- *    the historical-import honesty audit's F1: an imported baseline with zero
- *    failure/compaction evidence was reading as a fabricated "perfect" strain
- *    score rather than "no evidence collected".
+ *    `system` lines with `subtype: "api_error"`. Collecting these matters
+ *    because an imported baseline carrying no failure or compaction evidence
+ *    reads downstream as "nothing went wrong" rather than "not collected".
  *  - **Context pressure**: per-assistant-turn `input_tokens +
  *    cache_read_input_tokens + cache_creation_input_tokens`, peak per
  *    session, expressed as a fraction of an assumed 200k-token window (see
@@ -64,11 +56,10 @@
  *    something into the queue and then deleted it before it sent. The prompt
  *    text itself is read only to check that one prefix and is never retained.
  *  - **Active minutes**: every known-line timestamp (main thread and
- *    subagents, merged) is gap-split at 5 minutes — on this store 95.8% of
- *    consecutive-line gaps are under 30 seconds and the distribution falls
- *    off sharply past 5 minutes, so a gap past that point is someone stepping
- *    away, not thinking. Wall-clock `sessionMinutes` is idle-inflated for any
- *    session spanning hours; `activeMinutes` is the gap-split alternative.
+ *    subagents, merged) is gap-split at `ACTIVE_GAP_MS`, past which a gap is
+ *    taken to be someone stepping away rather than thinking. Wall-clock
+ *    `sessionMinutes` is idle-inflated for any session spanning hours;
+ *    `activeMinutes` is the gap-split alternative.
  *
  * Emission (aggregate before shipping — never one event per line):
  *  - `ai_prompt_submitted` per HUMAN prompt (canonical type, so the existing
@@ -91,7 +82,7 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { bucketDurationMs, bucketLinesChanged, isAfterHours } from "@ascenda-one/tool-kit";
+import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 
@@ -344,13 +335,13 @@ function durationBucketOf(fold: SessionFold): string {
 
 /**
  * Gap-split active time: sum only the gaps between consecutive known-line
- * timestamps that are 5 minutes or less. On a real store 95.8% of
- * consecutive-line gaps are under 30 seconds and the distribution thins out
- * sharply past 5 minutes (0.4% land 5-10m, 0.6% land past 30m) — a gap past
- * that point reads as "stepped away", not "reading the response". A session
- * spanning 8-24h wall-clock is mostly idle by this measure, which is the
- * point: `sessionMinutes` (wall clock) stays available for anyone who wants
- * it, `activeMinutes` is the honest alternative.
+ * timestamps that are 5 minutes or less. The vast majority of consecutive-line
+ * gaps are seconds long and the distribution thins out sharply past a few
+ * minutes, so a gap past this threshold reads as "stepped away", not "reading
+ * the response". A session spanning most of a day of wall clock is mostly idle
+ * by this measure, which is the point: `sessionMinutes` (wall clock) stays
+ * available for anyone who wants it, `activeMinutes` is the honest
+ * alternative. Treat the threshold as a tuned default, not a measurement.
  */
 const ACTIVE_GAP_MS = 5 * 60_000;
 
@@ -383,16 +374,27 @@ function rapidRepromptCountOf(fold: SessionFold): number {
 /**
  * Standard Claude API context window. A documented approximation, not a fact
  * the transcript records: a session running an extended/1M-token context
- * would read as a smaller-than-real peak fraction. Honest under-reporting
- * beats a silently wrong ceiling — the same "claim never outruns its
- * evidence" rule the rest of this package follows.
+ * has a larger real window than this.
+ *
+ * **The clamp this function used to apply was not honest under-reporting —
+ * it was signal destruction, and it was measured.** Clipping the ratio at
+ * 1.0 made a 600k-token session and a 200k-token session report the
+ * identical value, and on a real machine that collapsed 214 of 363 sessions
+ * (59%) onto exactly 1.0. A field with no variance across the majority of
+ * its observations carries no within-person information at all, which is
+ * why the state engine excludes `contextWindowPeakPct` as an input.
+ *
+ * The ratio is still emitted uncapped for anyone who wants a rough
+ * fraction, but `contextWindowPeakTokens` is the measured quantity and is
+ * now carried through to the handoff so consumers can baseline against the
+ * raw number instead of a ratio to an assumed denominator.
  */
 const ASSUMED_CONTEXT_WINDOW_TOKENS = 200_000;
 
 function contextWindowPeakPctOf(fold: SessionFold): number {
   if (fold.contextWindowPeakTokens <= 0) return 0;
   const pct = fold.contextWindowPeakTokens / ASSUMED_CONTEXT_WINDOW_TOKENS;
-  return Math.round(Math.min(1, pct) * 1000) / 1000;
+  return Math.round(pct * 1000) / 1000;
 }
 
 /**
@@ -461,7 +463,7 @@ async function foldLinesInto(
             fold.subagentPrompts += 1;
           } else {
             fold.humanPrompts += 1;
-            if (sniffed.occurredAt && isAfterHours(new Date(sniffed.occurredAt))) {
+            if (sniffed.occurredAt && isOutsideBusinessHours(new Date(sniffed.occurredAt))) {
               fold.afterHoursPrompts += 1;
             }
             fold.humanPromptTimestamps.push(sniffed.occurredAt);
@@ -611,9 +613,9 @@ export async function* extractClaudeCode(
   // shape-based rather than a guess at what the next format will be called,
   // so an entirely novel encoding trips it just as well as a known one.
   //
-  // On the reference machine this is 1 of 74: a session directory whose
-  // `tool-results/` sidecars outlived the transcript the 30-day purge took.
-  // That is a true positive, and the reason the counter is worth having.
+  // This fires on real stores: a session directory whose `tool-results/`
+  // sidecars outlived the transcript the 30-day purge took. That is a true
+  // positive, and the reason the counter is worth having.
   let projectsWithNoReadableTranscript = 0;
 
   for (const slug of projectSlugs.sort()) {

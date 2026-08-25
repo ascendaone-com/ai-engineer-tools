@@ -203,9 +203,9 @@ intention or scope change the user or agent declared) rather than a single
 deterministic host event. They require `consentScope: "semantic_work_signals"`
 and `metadata.skillVersion` — see Privacy and Metadata Rules. **As of this
 revision the client-side contract package defines these types; backend
-ingestion classification (asc-core-be's `WorkloadCategoryMap`) has not yet
-been extended to recognise them, so until that lands they accept but classify
-as `unclassified`, per the rule below.** That is the expected, tracked state
+ingestion classification has not yet been extended to recognise them, so
+until that lands they accept but classify as `unclassified`, per the rule
+below.** That is the expected, tracked state
 of an in-progress rollout, not drift to fix.
 
 Unknown `eventType` handling:
@@ -360,11 +360,10 @@ Scope mapping:
 - `workflow_telemetry` -> `DataSharing`
 - `subjective_checkins` -> `WeeklyCheckins`
 - `semantic_work_signals` -> `SemanticWorkSignals`
-- `historical_import` -> `HistoricalImport` — **not on `origin/main` yet.**
-  Implemented on asc-core-be `claude/historical-import-dedup-and-consent`;
-  verified absent from main 19 Aug 2026. Until it merges an unrecognised scope
-  takes the default arm below, so `historical_import` currently resolves to
-  `AiDataProcessing`. Everything in this subsection describes the branch.
+- `historical_import` -> `HistoricalImport` — **not yet live.** Until the
+  backend rollout lands, an unrecognised scope takes the default arm below,
+  so `historical_import` resolves to `AiDataProcessing`. Everything in this
+  subsection describes the target behaviour, not today's.
 
 **Provenance overrides the claimed scope for retrospective events.** An event
 whose `provenance` is `historical_direct`, `historical_derived` or
@@ -405,12 +404,10 @@ Semantic event rules (the six `*_detected`/`*_declared`/`progress_*` types):
 
 Retrospective import rules (events with a `historical_*` provenance):
 
-> **Status: specified, not live.** These rules are implemented on asc-core-be
-> `claude/historical-import-dedup-and-consent` and are **not** on `origin/main`
-> as of 19 Aug 2026. Against main, a `historical_*` event is gated as ordinary
-> telemetry under `AiDataProcessing`, `importKey` is not required, and no
-> dedup occurs. Write clients against this section, but do not rely on the
-> backend enforcing it until that branch merges.
+> **Status: specified, not live.** These rules describe the target behaviour
+> and the backend rollout has not completed. Write clients against this
+> section, but do not assume the backend enforces it yet — confirm current
+> enforcement before relying on it.
 
 
 - `provenance` must be `historical_direct`, `historical_derived` or
