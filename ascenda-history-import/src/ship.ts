@@ -14,7 +14,7 @@
  *   import and a shrug.
  * - **Stable `importKey` per event.** sha256 over
  *   (store|sessionRef|eventKind|occurredAt|ordinal) — identical on every
- *   re-run of the same store. Since 19 Aug 2026 this is what the backend
+ *   re-run of the same store. Since 20 Aug 2026 this is what the backend
  *   dedups on: `(pairedUser, toolInstallation, importKey)` is unique, a
  *   replayed event is reported as `duplicate` and writes nothing, and the
  *   key is *required* on anything carrying a historical provenance. Note it

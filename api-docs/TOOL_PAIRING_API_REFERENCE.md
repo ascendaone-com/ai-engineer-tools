@@ -366,10 +366,9 @@ Scope mapping:
 - `workflow_telemetry` -> `DataSharing`
 - `subjective_checkins` -> `WeeklyCheckins`
 - `semantic_work_signals` -> `SemanticWorkSignals`
-- `historical_import` -> `HistoricalImport` — **not yet live.** Until the
-  backend rollout lands, an unrecognised scope takes the default arm below,
-  so `historical_import` resolves to `AiDataProcessing`. Everything in this
-  subsection describes the target behaviour, not today's.
+- `historical_import` -> `HistoricalImport` — **live.** Enforced by the
+  deployed backend since 20 Aug 2026, and verified against a real backfill on
+  25 Aug 2026.
 
 **Provenance overrides the claimed scope for retrospective events.** An event
 whose `provenance` is `historical_direct`, `historical_derived` or
@@ -410,10 +409,13 @@ Semantic event rules (the six `*_detected`/`*_declared`/`progress_*` types):
 
 Retrospective import rules (events with a `historical_*` provenance):
 
-> **Status: specified, not live.** These rules describe the target behaviour
-> and the backend rollout has not completed. Write clients against this
-> section, but do not assume the backend enforces it yet — confirm current
-> enforcement before relying on it.
+> **Status: live.** The deployed backend has enforced these rules since
+> 20 Aug 2026. The one most likely to surprise a client author: with no
+> `HistoricalImport` lease on the account, every event of a backfill is
+> rejected `consent_missing_or_expired`, and **pairing does not grant that
+> lease** — it auto-grants `AiDataProcessing` only. Grant it through the
+> consent API before shipping backdated events; a whole batch coming back
+> rejected on that reason is the gate working, not a broken token.
 
 
 - `provenance` must be `historical_direct`, `historical_derived` or
