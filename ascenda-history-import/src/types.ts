@@ -49,16 +49,20 @@ export type HistoricalProvenance =
  * cannot drift): consenting to prospective `ide_telemetry` is not consenting
  * to a read of nine months of history.
  *
- * **Enforcement is server-side and still rolling out, so this package must
- * not ship as if the gate were already live.** The distinct consent type, the
- * `historical_import` scope mapping and the provenance-keyed override are
- * backend concerns; until they are deployed, a published client could backfill
- * history under the lease a user granted for ordinary live IDE telemetry —
- * the precise outcome the separate scope exists to prevent. Publishing this
- * package is gated on that rollout.
+ * **Enforcement is live in production, verified 25 August 2026** — a real run
+ * of 28,158 backdated events came back `accepted=0 rejected=28158
+ * consent_missing_or_expired`, having reached an account with no
+ * `HistoricalImport` lease. This comment previously said the gate was still
+ * rolling out and that this package must not ship as if it were live; that was
+ * accurate when written on 19 August and stopped being accurate when the
+ * backend merged, which is exactly the drift P-D30.1 rule 3 requires this line
+ * to be kept ahead of.
  *
- * Sending this scope is correct regardless: it is what the enforcing backend
- * keys on, and it makes the intent explicit in the audit record either way.
+ * **The gate does not read this string.** The backend decides on the event's
+ * *provenance* — the closed `historical_*` set — precisely so an importer that
+ * kept declaring `ide_telemetry` could not buy its way in with a label. Sending
+ * this scope is still correct: it makes the intent explicit in the audit
+ * record, and it is what the consent surface names.
  */
 export const HISTORICAL_CONSENT_SCOPE = ASCENDA_HISTORICAL_CONSENT_SCOPE;
 

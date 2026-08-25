@@ -147,6 +147,20 @@ export interface ShipResult {
    * inferring it from a total. See `attributionComplete`. */
   perStore: Record<string, StoreShipCounts>;
   /**
+   * The run stopped because the backend refused a whole batch on consent
+   * grounds — there is no lease for a retrospective import on this account, or
+   * the scope this build sends is not one the server knows.
+   *
+   * Not a transport failure and not a per-event problem: it is the one refusal
+   * that will not change while the run is in progress, so the shipper stops
+   * instead of sending the rest. `sent` and `rejected` then describe only what
+   * was tried before the stop, which is the point — a report of 28,158 refusals
+   * and a report of 100 describe the same situation, and only one of them costs
+   * a person their afternoon.
+   */
+  consentBlocked?: boolean;
+
+  /**
    * False when at least one batch response could not be attributed back to
    * individual events — the response omitted `results`, or returned a
    * different number of them than we sent. The per-store `sent` figures are
@@ -265,6 +279,40 @@ export async function shipEvents(
         if (item.status !== "accepted" && item.status !== "duplicate") {
           const reason = item.reason ?? "unknown";
           result.rejectionReasons[reason] = (result.rejectionReasons[reason] ?? 0) + 1;
+        }
+      }
+
+      // **Stop on a wall, rather than walking into it 28,158 times.**
+      //
+      // The abort above only catches a 401/403, and the batch door does not
+      // answer with either: a missing consent lease is a 200 whose every item
+      // is `rejected: consent_missing_or_expired`. So on 25 Aug 2026 a real run
+      // sent every event it had, one full batch at a time, and reported
+      // `accepted=0 rejected=28158` at the end — the right refusal discovered
+      // in the most expensive possible order.
+      //
+      // A consent lease does not appear halfway through a run: the person is in
+      // a terminal, not a consent screen. So if a whole batch came back refused
+      // for the lease, every remaining batch will be too, and continuing only
+      // costs time and writes audit rows for a decision already made.
+      //
+      // Keyed on the *whole* batch, not on any single item, and only on the
+      // consent reasons — a mixed batch is a per-event problem (an off-catalog
+      // type, a missing importKey) and must keep going so the events that are
+      // fine still land.
+      if (items.length === chunk.length && items.length > 0) {
+        const blocked = items.every(
+          (item) =>
+            item.status !== "accepted" &&
+            item.status !== "duplicate" &&
+            (item.reason === "consent_missing_or_expired" ||
+              item.reason === "unknown_consent_scope")
+        );
+        if (blocked) {
+          result.consentBlocked = true;
+          result.attributionComplete = false;
+          onProgress?.(Math.min(offset + BATCH_SIZE, wireEvents.length), wireEvents.length);
+          return result;
         }
       }
     } catch {

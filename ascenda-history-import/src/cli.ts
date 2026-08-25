@@ -313,6 +313,14 @@ function writeSummary(input: SummaryInput): void {
       `  ${shipResult.duplicate.toLocaleString("en-US")} already imported — the backend kept its existing copy and stored nothing new.\n`
     );
   }
+  if (shipResult.consentBlocked) {
+    out.write(
+      "\n  stopped early: this account has no consent for a retrospective import, so the\n" +
+        "  backend refused the whole batch and every remaining event would be refused too.\n" +
+        "  Nothing was stored. Grant it in Flow — Connections > Bring in daily tools — and\n" +
+        "  run this again; the import is idempotent, so nothing here is wasted.\n"
+    );
+  }
   for (const [reason, n] of Object.entries(shipResult.rejectionReasons)) {
     out.write(`  rejected ${reason}: ${n}\n`);
   }
