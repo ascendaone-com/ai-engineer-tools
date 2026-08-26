@@ -78,7 +78,12 @@ const fixtureLines = [
   line({ type: "attachment", timestamp: "2026-07-20T10:00:35.000Z", sessionId: SESSION, version: V }),
   line({ type: "last-prompt", timestamp: "2026-07-20T23:30:30.000Z", sessionId: SESSION, version: V }),
   line({ type: "custom-title", timestamp: "2026-07-20T23:30:45.000Z", sessionId: SESSION, version: V }),
+  // One recognised-and-ignored line and one genuinely new type, so the two
+  // counters stay distinguishable. Before META_CLAUDE_LINE_TYPES was wired up
+  // the "mode" line landed in `unknownLines`; asserting only that count would
+  // now pass with the meta split broken in either direction.
   line({ type: "mode", mode: "plan" }),
+  line({ type: "hologram", version: V }),
   "not json at all"
 ];
 
@@ -131,7 +136,8 @@ test("extractClaudeCode folds a session correctly", async () => {
     assert.equal(s.metrics.cacheReadTokens, 1500);
     assert.equal(s.metrics.primaryModel, "claude-opus-5");
     assert.equal(s.metrics.gitBranch, "main");
-    assert.equal(s.metrics.unknownLines, 1); // the "mode" line
+    assert.equal(s.metrics.unknownLines, 1); // the "hologram" line, and only it
+    assert.equal(s.metrics.metaLines, 1); // the "mode" line — recognised, not drift
     assert.equal(s.metrics.unparsedLines, 1); // the garbage line
     assert.equal(s.sourceVersion, V);
 

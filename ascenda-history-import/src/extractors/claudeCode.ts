@@ -97,8 +97,18 @@ export const KNOWN_CLAUDE_LINE_TYPES = [
 ] as const;
 export type ClaudeLineType = (typeof KNOWN_CLAUDE_LINE_TYPES)[number];
 
-/** Line types observed in real stores that carry nothing the import needs.
- * Recognised so they don't count as schema drift. */
+/**
+ * Line types observed in real stores that carry nothing the import needs.
+ * Recognised so they don't count as schema drift: they sniff as `meta` and
+ * land in `metaLines`, leaving `unknownLines` to mean a type nobody has
+ * classified yet — which is the only kind worth alerting on.
+ *
+ * This set was declared and exported for some time without ever being read,
+ * so the comment above described an intention rather than the code: every
+ * `mode` and `ai-title` line counted as drift. Adding a type here is a claim
+ * that the import needs nothing from it; a type NOT here that starts
+ * appearing is supposed to show up in `unknownLines` and be looked at.
+ */
 export const META_CLAUDE_LINE_TYPES = new Set([
   "ai-title",
   "mode",
@@ -121,8 +131,13 @@ export type SniffedClaudeLine =
       sessionId: string | null;
       model: string | null;
     }
-  /** Valid JSON, string `type`, but not a type this extractor reads — a
-   * known-meta line or a genuinely new one. Counted, never guessed at. */
+  /** A line type this extractor deliberately ignores: recognised, carrying
+   * nothing the import needs. Kept out of `unknownLines` so that number means
+   * what it claims — types nobody has classified yet — rather than being
+   * dominated by `mode` and `ai-title` lines every real store is full of. */
+  | { kind: "meta"; type: string }
+  /** Valid JSON, string `type`, but neither read nor recognised — a genuinely
+   * new type. This is the drift signal. Counted, never guessed at. */
   | { kind: "unknown"; type: string }
   /** Not JSON, not an object, or no string `type` — real schema drift. */
   | { kind: "unparsed"; raw: string };
@@ -143,7 +158,9 @@ export function sniffClaudeLine(line: string): SniffedClaudeLine {
   const type = record.type;
   if (typeof type !== "string") return { kind: "unparsed", raw: line };
   if (!(KNOWN_CLAUDE_LINE_TYPES as readonly string[]).includes(type)) {
-    return { kind: "unknown", type };
+    return META_CLAUDE_LINE_TYPES.has(type)
+      ? { kind: "meta", type }
+      : { kind: "unknown", type };
   }
   const message = record.message as Record<string, unknown> | undefined;
   return {
@@ -234,6 +251,7 @@ interface SessionFold {
   toolResults: number;
   queuedPrompts: number;
   unknownLines: number;
+  metaLines: number;
   unparsedLines: number;
   inputTokens: number;
   outputTokens: number;
@@ -278,6 +296,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     toolResults: 0,
     queuedPrompts: 0,
     unknownLines: 0,
+    metaLines: 0,
     unparsedLines: 0,
     inputTokens: 0,
     outputTokens: 0,
@@ -416,6 +435,14 @@ async function foldLinesInto(
       const sniffed = sniffClaudeLine(line);
       if (sniffed.kind === "unparsed") {
         if (line.trim() !== "") fold.unparsedLines += 1;
+        continue;
+      }
+      if (sniffed.kind === "meta") {
+        // Counted separately rather than not at all, so the line books still
+        // balance: known + meta + unknown + unparsed accounts for every line
+        // read. Folding these into silence would make a store full of
+        // `ai-title` lines indistinguishable from one that had none.
+        fold.metaLines += 1;
         continue;
       }
       if (sniffed.kind === "unknown") {
@@ -704,6 +731,7 @@ export async function* extractClaudeCode(
         durationBucket: durationBucketOf(fold),
         afterHoursPrompts: fold.afterHoursPrompts,
         unknownLines: fold.unknownLines,
+        metaLines: fold.metaLines,
         unparsedLines: fold.unparsedLines,
         modelCount: fold.models.size,
         modelSwitchCount: fold.modelSwitchCount,

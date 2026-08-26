@@ -6,6 +6,7 @@ import * as path from "node:path";
 import {
   sniffClaudeLine,
   KNOWN_CLAUDE_LINE_TYPES,
+  META_CLAUDE_LINE_TYPES,
   extractClaudeCode,
   isToolFailureLine
 } from "../dist/extractors/claudeCode.js";
@@ -92,10 +93,53 @@ test("unknown-but-valid line types sniff as unknown with the type named", () => 
   assert.equal(sniffed.type, "hologram");
 });
 
-test("observed meta types (mode, ai-title, pr-link) are unknown, not unparsed", () => {
+test("observed meta types (mode, ai-title, pr-link) are meta, not unknown", () => {
+  // These used to sniff as `unknown` and count toward `unknownLines`, because
+  // META_CLAUDE_LINE_TYPES was declared, exported, and never read. Every real
+  // store is full of these, so the drift signal was mostly them.
   for (const type of ["mode", "ai-title", "pr-link", "worktree-state"]) {
-    assert.equal(sniffClaudeLine(JSON.stringify({ type })).kind, "unknown");
+    assert.equal(sniffClaudeLine(JSON.stringify({ type })).kind, "meta");
   }
+});
+
+test("a meta line names its type, and a genuinely new type is still unknown", () => {
+  // The distinction the split exists for: recognised-and-ignored on one side,
+  // nobody-has-classified-this-yet on the other. Collapsing them in either
+  // direction is what this asserts against.
+  const meta = sniffClaudeLine(JSON.stringify({ type: "file-history-snapshot" }));
+  assert.equal(meta.kind, "meta");
+  assert.equal(meta.type, "file-history-snapshot");
+
+  const alien = sniffClaudeLine(JSON.stringify({ type: "hologram" }));
+  assert.equal(alien.kind, "unknown");
+  assert.equal(alien.type, "hologram");
+});
+
+test("every meta type is recognised as meta", () => {
+  // Pinned literal, not derived from META_CLAUDE_LINE_TYPES — same reason the
+  // known-type list is pinned: a loop over the constant it validates cannot
+  // fail when the constant loses an entry.
+  const DOCUMENTED_META_TYPES = [
+    "ai-title",
+    "mode",
+    "pr-link",
+    "worktree-state",
+    "relocated",
+    "create",
+    "file",
+    "directory",
+    "image",
+    "file-history-snapshot",
+    "summary"
+  ];
+  for (const type of DOCUMENTED_META_TYPES) {
+    assert.equal(
+      sniffClaudeLine(JSON.stringify({ type })).kind,
+      "meta",
+      `expected ${type} to be meta`
+    );
+  }
+  assert.deepEqual([...META_CLAUDE_LINE_TYPES].sort(), [...DOCUMENTED_META_TYPES].sort());
 });
 
 test("non-JSON and blank lines sniff as unparsed", () => {
