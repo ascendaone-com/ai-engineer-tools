@@ -169,6 +169,21 @@ function readFailuresOf(events: NormalizedHistoricalEvent[]): number {
 }
 
 /**
+ * Append one array onto another without spreading it.
+ *
+ * `target.push(...source)` passes every element as a separate argument, and
+ * a big enough source overflows the call stack. That is not theoretical:
+ * counting tool calls one event apiece takes a working store past the limit,
+ * and `push(...)` died with "Maximum call stack size exceeded" AFTER the
+ * extraction had finished and the per-source summary had printed — the whole
+ * run's work thrown away at the last step, with a message naming nothing
+ * that would lead anyone here. `tests/toolCalls.test.mjs` pins it.
+ */
+function appendAll<T>(target: T[], source: T[]): void {
+  for (const item of source) target.push(item);
+}
+
+/**
  * Run one store's snapshot+extract, and record what happened either way.
  *
  * A throw here is contained: it becomes a `failed` outcome that the summary
@@ -205,7 +220,7 @@ async function runSource(
   } catch (error) {
     // Whatever was extracted before the failure is still real and still
     // shipped — but the store is reported as FAILED, never as a small number.
-    allEvents.push(...events);
+    appendAll(allEvents, events);
     outcomes.push({
       store,
       status: "failed",
@@ -217,7 +232,7 @@ async function runSource(
     return;
   }
 
-  allEvents.push(...events);
+  appendAll(allEvents, events);
   process.stdout.write(`${store} extracted: ${events.length.toLocaleString("en-US")} events\n`);
   for (const [kind, n] of Object.entries(kindCounts)) {
     process.stdout.write(`  ${kind}: ${n.toLocaleString("en-US")}\n`);

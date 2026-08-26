@@ -45,6 +45,17 @@
  *    session, expressed as a fraction of an assumed 200k-token window (see
  *    `ASSUMED_CONTEXT_WINDOW_TOKENS` for why that number is a documented
  *    approximation, not a fact the transcript records).
+ *  - **Tool calls**: `tool_use` content items on `assistant` lines — the
+ *    ISSUED side, matched to the live hooks' `PreToolUse` →
+ *    `ai_tool_call_started` mapping rather than to the completed side this
+ *    file already counts as `toolResultCount`. Two reasons, both about the
+ *    rail these feed: the backend's tool-call count prefers
+ *    `ai_tool_call_started` and only falls back to completed/failed, so
+ *    counting the other side would put historical and live days on different
+ *    code paths; and the issuing line carries the instant the call was made,
+ *    which is the one an hourly demand rail wants. Emitted as one event per
+ *    call, not as a metric, because the rail counts rows of that type and
+ *    reads no `toolCallCount` key off anything.
  *  - **Human-corrected edits**: `toolUseResult.userModified === true`.
  *  - **Lines changed**: `toolUseResult.structuredPatch[].lines`, counted
  *    (`+`/`-` prefixes) and discarded immediately — never retained as text.
@@ -84,6 +95,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
+import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 
 /** Line types the extractor reads fields from. */
@@ -195,6 +207,29 @@ export function isToolFailureLine(record: Record<string, unknown>): boolean {
 }
 
 /**
+ * Tool names of the `tool_use` content items on one assistant line, in the
+ * order the model issued them. A line usually carries one; a parallel batch
+ * carries several and they share the line's single timestamp.
+ *
+ * Only the name is read. `input` holds the call's arguments — file paths,
+ * shell commands, prompt text — and is never touched, in keeping with the
+ * metrics-only rule the rest of this file follows.
+ */
+export function toolUseNamesOf(record: Record<string, unknown>): string[] {
+  const message = record.message as Record<string, unknown> | undefined;
+  const content = message?.content;
+  if (!Array.isArray(content)) return [];
+  const names: string[] = [];
+  for (const item of content) {
+    if (typeof item !== "object" || item === null) continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.type !== "tool_use") continue;
+    names.push(sanitizeToolName(typeof entry.name === "string" ? entry.name : undefined));
+  }
+  return names;
+}
+
+/**
  * Net lines added/removed across an Edit tool's `structuredPatch` hunks.
  * Reads each hunk's `lines` array only to count `+`/`-` prefixes — the diff
  * text itself is never retained past this loop, matching the metrics-only
@@ -251,10 +286,20 @@ interface SessionFold {
   userModifiedEditCount: number;
   linesChangedTotal: number;
   abandonedPromptCount: number;
+  toolCallCount: number;
   subagentTranscripts: number;
   subagentPrompts: number;
   subagentAssistantTurns: number;
   subagentTokensTotal: number;
+  subagentToolCallCount: number;
+  /**
+   * One entry per `tool_use` item, main thread and subagents merged — the
+   * raw material for the per-call events. Merged because the demand rail
+   * counts events and a subagent's `Bash` call is as real a demand on the
+   * machine as the orchestrator's; the split stays visible in the two
+   * counters above, exactly as `subagentAssistantTurns` splits turns.
+   */
+  toolCalls: { at: string; name: string }[];
   /** Epoch ms of every known-line timestamp, main thread and subagents
    * merged — the raw material for gap-split `activeMinutes`. Never shipped
    * itself, only the derived total. */
@@ -295,10 +340,13 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     userModifiedEditCount: 0,
     linesChangedTotal: 0,
     abandonedPromptCount: 0,
+    toolCallCount: 0,
     subagentTranscripts: 0,
     subagentPrompts: 0,
     subagentAssistantTurns: 0,
     subagentTokensTotal: 0,
+    subagentToolCallCount: 0,
+    toolCalls: [],
     timelinePoints: [],
     humanPromptTimestamps: []
   };
@@ -475,6 +523,22 @@ async function foldLinesInto(
           const usage = (record.message as Record<string, unknown> | undefined)?.usage as
             | Record<string, unknown>
             | undefined;
+          // Before the sidechain split: a tool call is a tool call whichever
+          // thread issued it, and the counters below keep the two apart.
+          // A line with no usable timestamp can still be counted but cannot
+          // be placed on a rail, so it contributes to the count and not to
+          // the event list — an undated event would have to invent an
+          // instant to exist at all.
+          const toolNames = toolUseNamesOf(record);
+          if (toolNames.length > 0) {
+            if (opts.isSidechain) fold.subagentToolCallCount += toolNames.length;
+            else fold.toolCallCount += toolNames.length;
+            if (sniffed.occurredAt) {
+              for (const name of toolNames) {
+                fold.toolCalls.push({ at: sniffed.occurredAt, name });
+              }
+            }
+          }
           if (opts.isSidechain) {
             fold.subagentAssistantTurns += 1;
             if (usage) {
@@ -692,11 +756,32 @@ export async function* extractClaudeCode(
         };
       }
 
+      // One event per issued call. This is the only thing in this file the
+      // backend's demand rail actually counts — its tool-call tally reads
+      // rows whose canonical type is `ai_tool_call_started` and never a
+      // `toolCallCount` key off metadata — so the counts on the session event
+      // below exist for the local handoff and for anyone reading the staged
+      // file, not for the rail.
+      for (const call of fold.toolCalls) {
+        yield {
+          occurredAt: call.at,
+          store: "claude_code",
+          sourceVersion: fold.sourceVersion,
+          sessionRef: fold.sessionId,
+          repoRef: fold.cwd ?? fold.projectSlug,
+          eventKind: "ai_tool_call_started",
+          metrics: { toolName: call.name },
+          provenance: HISTORICAL_PROVENANCE.direct,
+          extractionId
+        };
+      }
+
       const durationMs = sessionDurationMs(fold);
       const toolFailureCount = fold.toolResultErrorCount + fold.apiErrorCount;
       const sessionMetrics: NormalizedHistoricalEvent["metrics"] = {
         promptCount: fold.humanPrompts,
         assistantTurns: fold.assistantTurns,
+        toolCallCount: fold.toolCallCount,
         toolResultCount: fold.toolResults,
         queuedPrompts: fold.queuedPrompts,
         inputTokens: fold.inputTokens,
@@ -725,7 +810,8 @@ export async function* extractClaudeCode(
         subagentTranscripts: fold.subagentTranscripts,
         subagentPrompts: fold.subagentPrompts,
         subagentAssistantTurns: fold.subagentAssistantTurns,
-        subagentTokensTotal: fold.subagentTokensTotal
+        subagentTokensTotal: fold.subagentTokensTotal,
+        subagentToolCallCount: fold.subagentToolCallCount
       };
       // Exact minutes, not just the bucket — the backend's SessionMinutesPerDay
       // reader prefers an explicit `sessionMinutes` metric over deriving a

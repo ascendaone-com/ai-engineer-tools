@@ -30,8 +30,15 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 4. **Metrics only by default.** Prompt/response text, thinking blocks and
    file contents never leave the machine. Content-level ingestion, if it ever
    ships, is a separate explicit opt-in — not this package's default path.
-5. **Aggregate before shipping.** Per-session / per-day events, not one event
-   per bubble — a single machine's stores hold tens of thousands of them.
+5. **Aggregate before shipping, unless a reader counts the rows.** Per-session
+   / per-day events, not one event per bubble — a single machine's stores hold
+   tens of thousands of them. The one deliberate exception is
+   `ai_tool_call_started`: the backend's work-demand rail derives
+   `toolCallCount` by counting rows of that type and reads no `toolCallCount`
+   key off metadata, so a session-level aggregate would ship, store, and be
+   counted by nothing. Per-call events also place the work in the right hour,
+   which a session spanning six of them cannot. Expect an order of magnitude
+   more events than a session-only import, and an `events.jsonl` to match.
 6. **Provenance is data.** Every event carries `historical_direct`,
    `historical_derived` or `historical_unparsed` — never the live
    `ai_work_telemetry` provenance — so no chart can pass history off as
@@ -46,6 +53,7 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 | Staging/snapshot (copy-then-parse, WAL-aware, **torn down by the run that makes it**) | implemented |
 | `archive` (durable content-addressed copy, dedup, verify, restore, prune) | **implemented, verified on a real 4.1 GB store** |
 | **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented, verified live** |
+| **Tool-call counting, all three stores** (`tool_use` items / `toolFormerData` / `toolInvocationSerialized`, one `ai_tool_call_started` per call) | **implemented; exercised end to end against all three stores on a developer machine** |
 | **Batch shipper** (`POST /v1/tool-events/batch`, salted hashes, stable importKey) | **implemented, verified live** |
 | **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, epoch marker) | **implemented, verified live** |
 | **VS Code extractor** (Timeline-history Chat-Edit day×workspace aggregation, Copilot chatSessions folding, workspace identity via `workspace.json` longest-prefix match, epoch marker) | **implemented, verified live** |
@@ -119,7 +127,7 @@ ascenda-history-import archive         # the durable copy; --verify / --list / -
 ### Staging is scaffolding; `archive` is the copy
 
 `import` snapshots each store, extracts, and **deletes the snapshot in a
-`finally`** — success or failure — keeping only the ~10 MB `events.jsonl`.
+`finally`** — success or failure — keeping only `events.jsonl`.
 It also sweeps snapshots left by earlier runs. This is not tidiness: nineteen
 runs once left 254 GB on a 926 GB disk and took free space to 279 MB, and the
 first thing to notice was unrelated tooling failing with `ENOSPC`.

@@ -66,8 +66,16 @@
  *
  * Session-level events come from `composerHeaders` alone (outcome metrics
  * are already folded there); bubbles are aggregated per composer for
- * prompt-iteration counts, token totals, and human/AI attribution — NEVER
- * emitted as their own event (a single machine holds tens of thousands).
+ * prompt-iteration counts, token totals, and human/AI attribution — never
+ * emitted as their own event, because a single machine holds tens of
+ * thousands of them and nothing downstream reads a bubble.
+ *
+ * The one thing bubbles do emit per record is TOOL CALLS. A bubble carrying
+ * `toolFormerData` is a record of one tool call, and the backend's demand
+ * rail derives its `toolCallCount` by counting `ai_tool_call_started` rows —
+ * it reads no `toolCallCount` key off metadata, so a per-session aggregate
+ * would ship and be counted by nothing. The unit is the `toolCallId`, not
+ * the bubble: see `toolCallFirstSeen`.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -75,6 +83,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { bucketDurationMs, isAfterHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
+import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 
 const execFileAsync = promisify(execFile);
@@ -156,7 +165,9 @@ SELECT
   json_extract(value,'$.tokenCount.outputTokens') AS outputTokens,
   coalesce(json_array_length(value,'$.humanChanges'),0) AS humanChangesCount,
   coalesce(json_array_length(value,'$.approximateLintErrors'),0) AS lintErrorsCount,
-  json_extract(value,'$.modelInfo.modelName') AS modelName
+  json_extract(value,'$.modelInfo.modelName') AS modelName,
+  json_extract(value,'$.toolFormerData.toolCallId') AS toolCallId,
+  json_extract(value,'$.toolFormerData.name') AS toolName
 FROM cursorDiskKV WHERE key LIKE 'bubbleId:%';
 `;
 
@@ -188,6 +199,8 @@ interface RawBubbleRow {
   humanChangesCount: number | null;
   lintErrorsCount: number | null;
   modelName: string | null;
+  toolCallId: string | null;
+  toolName: string | null;
 }
 
 /** Pulled out of `trackedGitRepos`/`workspaceIdentifier` — the repo path and
@@ -266,6 +279,19 @@ export type SniffedCursorBubble =
       lintErrorsCount: number;
       modelName: string | null;
       sourceVersion: string;
+      /**
+       * `toolFormerData` — Cursor's per-tool-call record, on roughly two
+       * thirds of bubbles. Null on a bubble that is not a tool call.
+       *
+       * **A tool call spans several bubbles.** Cursor rewrites the bubble as
+       * the call moves through loading → completed/error/cancelled, and every
+       * copy keeps the same `toolCallId`, so tool bubbles outnumber distinct
+       * ids by better than two to one. Counting bubbles would therefore
+       * report more than twice the tool calls that happened: the id is the
+       * unit, and the fold dedups on it.
+       */
+      toolCallId: string | null;
+      toolName: string | null;
     }
   /** Known `_v`, but `type` is neither the human-message nor assistant-turn
    * value this extractor assigns meaning to. */
@@ -293,8 +319,30 @@ export function sniffCursorBubbleRow(row: RawBubbleRow): SniffedCursorBubble {
     humanChangesCount: asNumber(row.humanChangesCount),
     lintErrorsCount: asNumber(row.lintErrorsCount),
     modelName: row.modelName,
-    sourceVersion: String(row.v)
+    sourceVersion: String(row.v),
+    toolCallId: row.toolCallId,
+    toolName: row.toolName
   };
+}
+
+/**
+ * Fold one bubble's tool-call record into a composer, if it has one.
+ *
+ * Idempotent per `toolCallId` by construction: a second bubble for the same
+ * call only ever moves the recorded instant earlier or fills in a name the
+ * first copy lacked. That is what makes the count a count of calls rather
+ * than of the rows Cursor happened to write about them.
+ */
+function foldToolCall(fold: ComposerFold, sniffed: Extract<SniffedCursorBubble, { kind: "user" | "assistant" }>): void {
+  const id = sniffed.toolCallId;
+  if (!id) return;
+  const at = sniffed.createdAt && sniffed.createdAt.length > 0 ? sniffed.createdAt : null;
+  const known = fold.toolCallFirstSeen.get(id);
+  if (known === undefined) fold.toolCallFirstSeen.set(id, at);
+  else if (at !== null && (known === null || at < known)) fold.toolCallFirstSeen.set(id, at);
+  if (sniffed.toolName && !fold.toolCallNames.has(id)) {
+    fold.toolCallNames.set(id, sanitizeToolName(sniffed.toolName));
+  }
 }
 
 interface ComposerFold {
@@ -330,6 +378,35 @@ interface ComposerFold {
   /** Timestamps of the composer's OWN human-message bubbles only — never a
    * subagent's task instruction. Timestamps, never text. */
   humanPromptTimestamps: (string | null)[];
+  /**
+   * Tool calls, keyed by `toolFormerData.toolCallId` so the several bubbles
+   * that record one call collapse to one entry. The value is the EARLIEST
+   * instant any of those bubbles carries, because the event these become is
+   * `ai_tool_call_started` and a call starts once — a later copy is the same
+   * call reaching a later state. Null where every copy was undated: a large
+   * minority of tool bubbles carry `createdAt: ""`, but because the copies
+   * are coalesced here rather than counted separately, all but a handful of
+   * calls end up with an instant from one of their other copies.
+   *
+   * Subagent tool calls land in the parent's map, and their ids collapse
+   * against the parent's own — Cursor duplicates a subagent's tool bubbles
+   * into the parent composer, and counting both copies would inflate the
+   * parent by the whole subagent.
+   *
+   * **Dedup is per fold, not global, and that leaves a small residual.**
+   * After subagents fold into parents, low single-digit percentages of tool
+   * calls still carry an id that also appears under a second, independent
+   * composer — a conversation forked, taking its history with it. Those are
+   * counted twice. Collapsing them would need a rule for which composer owns
+   * the
+   * call, and every such rule is unstable: `importKey` is
+   * (store|session|kind|instant|ordinal), so an owner that moves when the
+   * other composer is deleted re-keys the event and the backend stores it
+   * again on the next run. A 1.6% overcount is the smaller error than a
+   * dedup that stops working on exactly the re-run it exists for.
+   */
+  toolCallFirstSeen: Map<string, string | null>;
+  toolCallNames: Map<string, string>;
   /** Distinct subagent composerIds whose work folded into this one. */
   subagentComposerIds: Set<string>;
   subagentPromptCount: number;
@@ -365,6 +442,8 @@ function newFold(row: RawHeaderRow, sniffed: Extract<SniffedCursorHeader, { kind
     models: new Map(),
     bubbleVersions: new Map(),
     humanPromptTimestamps: [],
+    toolCallFirstSeen: new Map(),
+    toolCallNames: new Map(),
     subagentComposerIds: new Set(),
     subagentPromptCount: 0,
     subagentAssistantTurns: 0,
@@ -545,6 +624,7 @@ export async function* extractCursor(
           ownFold.lastBubbleMs = ms;
         }
       }
+      foldToolCall(ownFold, sniffed);
       if (sniffed.kind === "user") {
         ownFold.humanPrompts += 1;
         if (sniffed.createdAt && isAfterHours(new Date(sniffed.createdAt))) {
@@ -570,6 +650,10 @@ export async function* extractCursor(
     }
     parentFold.subagentComposerIds.add(sniffed.composerId);
     parentFold.subagentTokensTotal += sniffed.inputTokens + sniffed.outputTokens;
+    // Into the SAME map as the parent's own calls, not a parallel one: the
+    // dedup by id is exactly what stops a subagent's tool bubbles — which
+    // Cursor also copies into the parent composer — from being counted twice.
+    foldToolCall(parentFold, sniffed);
     if (sniffed.kind === "user") {
       // A subagent's task instruction, not a human prompt — counted for
       // visibility, never an ai_prompt_submitted, never promptCount.
@@ -633,8 +717,38 @@ export async function* extractCursor(
       };
     }
 
+    // One event per distinct tool call the store could place in time. The
+    // backend's demand rail counts rows of this type and reads no
+    // `toolCallCount` key, so this loop — not the metric below — is what
+    // makes an imported Cursor day visible to it.
+    let toolCallsUndated = 0;
+    for (const [id, at] of [...fold.toolCallFirstSeen].sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (at === null) {
+        // Counted, never invented. Every bubble recording this call carried
+        // an empty `createdAt`; there is no instant to put it at, and the
+        // composer's own start would be a guess wearing a timestamp.
+        toolCallsUndated += 1;
+        continue;
+      }
+      yield {
+        occurredAt: at,
+        store: "cursor",
+        sourceVersion,
+        sessionRef: fold.composerId,
+        repoRef: fold.repoRef,
+        eventKind: "ai_tool_call_started",
+        metrics: { toolName: fold.toolCallNames.get(id) ?? "unknown" },
+        provenance: HISTORICAL_PROVENANCE.direct,
+        extractionId
+      };
+    }
+
     const durationMs = sessionDurationMs(fold);
     const sessionMetrics: NormalizedHistoricalEvent["metrics"] = {
+      toolCallCount: fold.toolCallFirstSeen.size,
+      // The gap between the count and the events above, stated rather than
+      // left to be inferred from a shortfall.
+      toolCallsUndated,
       promptCount: fold.humanPrompts,
       assistantTurns: fold.assistantTurns,
       inputTokens: fold.inputTokens,

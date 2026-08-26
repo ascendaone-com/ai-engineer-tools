@@ -42,8 +42,17 @@ const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
  * a reader has to be able to tell a handoff that omits `days` from one whose
  * sessions genuinely span no extra day, because the fallback for the first
  * (place the session on its end day) would be wrong for the second.
+ *
+ * Bumped to 3 for `toolCallCount` on all three stores' session shapes (plus
+ * `subagentToolCallCount` on Claude Code's and `toolCallsUndated` on
+ * Cursor's). Additive on the same terms, and the same reason for the bump:
+ * a schema-2 handoff omits the field entirely, which is "not collected", and
+ * a schema-3 handoff writing 0 means the session genuinely made no tool
+ * call. A reader that could not tell those apart would render the first as
+ * the second — the absent-not-zero rule this package applies to every other
+ * uncollectable field.
  */
-export const HANDOFF_SCHEMA = 2;
+export const HANDOFF_SCHEMA = 3;
 
 export function handoffDir(home: string = os.homedir()): string {
   return path.join(home, "Library", "Containers", APP_BUNDLE_ID, "Data", ".ascenda", "history-import");
@@ -111,6 +120,16 @@ export interface HandoffSession {
    * `false` every time. Never write 0 here — a fabricated "no corrections"
    * is exactly the F1 finding this package's honesty audit raised. */
   userModifiedEditCount: number | null;
+  /** `tool_use` items the main thread issued — the same quantity the backend's
+   * demand rail derives by counting `ai_tool_call_started` rows, carried here
+   * because the local timeline has no event stream to count. */
+  toolCallCount: number;
+  /** The same, for calls issued inside this session's subagent transcripts.
+   * Kept apart the way `subagentTranscripts` is: a session that spent its
+   * tool budget through subagents did something visibly different from one
+   * that made every call on the main thread. Sum the two for the session's
+   * real total. */
+  subagentToolCallCount: number;
   /** Subagent (Task-tool) transcripts folded into this session, so a session
    * that leaned on subagents doesn't look identical to one that didn't. */
   subagentTranscripts: number;
@@ -169,6 +188,14 @@ export interface CursorHandoffSession {
   humanChangesCount: number;
   /** Sum of `approximateLintErrors` array lengths — post-AI-edit quality. */
   approximateLintErrorsCount: number;
+  /** Distinct `toolFormerData.toolCallId`s under this composer, subagents
+   * folded in. Distinct, not bubbles: Cursor writes several bubbles per call. */
+  toolCallCount: number;
+  /** Of those, the ones every recording bubble left undated — counted here
+   * and absent from the shipped event stream, because there is no instant to
+   * place them at. A non-zero value means this session's rail contribution is
+   * smaller than its `toolCallCount`. */
+  toolCallsUndated: number;
   /** Distinct Cursor "explore" subagent composers folded into this session. */
   subagentComposers: number;
   provenance: string;
@@ -227,6 +254,9 @@ export interface VsCodeHandoffSession {
   primaryModel: string | null;
   canceledCount: number;
   errorCount: number;
+  /** `toolInvocationSerialized` response parts across the session's requests
+   * — Copilot's own per-call records, not a turn count standing in for one. */
+  toolCallCount: number;
   provenance: string;
 }
 
@@ -301,6 +331,8 @@ export function buildHandoff(
         Number(event.metrics.userModifiedEditCount ?? 0) > 0
           ? Number(event.metrics.userModifiedEditCount)
           : null,
+      toolCallCount: Number(event.metrics.toolCallCount ?? 0),
+      subagentToolCallCount: Number(event.metrics.subagentToolCallCount ?? 0),
       subagentTranscripts: Number(event.metrics.subagentTranscripts ?? 0),
       days: event.dayBreakdown ?? [],
       provenance: event.provenance
@@ -355,6 +387,8 @@ export function buildCursorHandoff(
         typeof event.metrics.contextUsagePercent === "number" ? event.metrics.contextUsagePercent : null,
       humanChangesCount: Number(event.metrics.humanChangesCount ?? 0),
       approximateLintErrorsCount: Number(event.metrics.approximateLintErrorsCount ?? 0),
+      toolCallCount: Number(event.metrics.toolCallCount ?? 0),
+      toolCallsUndated: Number(event.metrics.toolCallsUndated ?? 0),
       subagentComposers: Number(event.metrics.subagentComposers ?? 0),
       days: event.dayBreakdown ?? [],
       provenance: event.provenance
@@ -414,6 +448,7 @@ export function buildVsCodeHandoff(
       primaryModel: typeof event.metrics.primaryModel === "string" ? event.metrics.primaryModel : null,
       canceledCount: Number(event.metrics.canceledCount ?? 0),
       errorCount: Number(event.metrics.errorCount ?? 0),
+      toolCallCount: Number(event.metrics.toolCallCount ?? 0),
       days: event.dayBreakdown ?? [],
       provenance: event.provenance
     });
