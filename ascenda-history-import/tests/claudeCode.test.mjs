@@ -51,11 +51,38 @@ test("sniffs the model id off an assistant line", () => {
   assert.equal(sniffed.model, "claude-opus-5");
 });
 
+// Pinned literal, deliberately NOT derived from KNOWN_CLAUDE_LINE_TYPES. The
+// loop below used to iterate the constant it was validating, which made it a
+// tautology: deleting a type from the extractor deleted the assertion that
+// covered it, and the suite stayed green. Verified by removing "attachment"
+// and "last-prompt" from the constant — all 108 tests passed. A dropped type
+// stops being parsed and starts counting as `unknownLines`, i.e. the drift
+// signal itself becomes the drift, so this list must be updated by hand and
+// on purpose.
+const DOCUMENTED_CLAUDE_LINE_TYPES = [
+  "user",
+  "assistant",
+  "attachment",
+  "system",
+  "queue-operation",
+  "last-prompt",
+  "custom-title"
+];
+
 test("every documented line type is recognised", () => {
-  for (const type of KNOWN_CLAUDE_LINE_TYPES) {
+  for (const type of DOCUMENTED_CLAUDE_LINE_TYPES) {
     const sniffed = sniffClaudeLine(JSON.stringify({ type, version: "2.1.227" }));
     assert.equal(sniffed.kind, type, `expected ${type} to be known`);
   }
+});
+
+test("the extractor's known-type list matches the documented one", () => {
+  // Fails in both directions: a type quietly dropped from the extractor, and a
+  // type added without a fixture or a decision about what it should fold into.
+  assert.deepEqual(
+    [...KNOWN_CLAUDE_LINE_TYPES].sort(),
+    [...DOCUMENTED_CLAUDE_LINE_TYPES].sort()
+  );
 });
 
 test("unknown-but-valid line types sniff as unknown with the type named", () => {

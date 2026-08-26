@@ -8,9 +8,10 @@ import { toWirePayload, importKeyOf } from "../dist/ship.js";
 
 // Fixture: one project, one session, shaped like a real 2.1.x transcript —
 // two human prompts (one after-hours), one tool-result user line, two
-// assistant turns with usage, one queue enqueue, one meta line, one garbage
-// line. The session-level assertions below are the contract-per-version test
-// the research note calls for.
+// assistant turns with usage, one queue enqueue, one attachment, one
+// last-prompt, one custom-title, one meta line, one garbage line. The
+// session-level assertions below are the contract-per-version test the
+// research note calls for.
 
 const SESSION = "aaaaaaaa-bbbb-cccc-dddd-eeeeffff0001";
 const V = "2.1.227";
@@ -67,6 +68,16 @@ const fixtureLines = [
     message: { role: "user", content: "late prompt (redacted)" }
   }),
   line({ type: "queue-operation", operation: "enqueue", timestamp: "2026-07-20T23:31:00.000Z", sessionId: SESSION }),
+  // The three window-only known types (`default:` in the fold switch). They
+  // contribute their timestamp to the session window and nothing else — no
+  // prompt, no turn, no token. They are here because nothing else exercised
+  // them: before this, a type silently dropped from KNOWN_CLAUDE_LINE_TYPES
+  // would reclassify real lines as `unknownLines` with no test objecting.
+  // Timestamps sit inside the existing 10:00:00–23:31:00 window on purpose,
+  // so the counts and `windowOldest` asserted below still mean what they did.
+  line({ type: "attachment", timestamp: "2026-07-20T10:00:35.000Z", sessionId: SESSION, version: V }),
+  line({ type: "last-prompt", timestamp: "2026-07-20T23:30:30.000Z", sessionId: SESSION, version: V }),
+  line({ type: "custom-title", timestamp: "2026-07-20T23:30:45.000Z", sessionId: SESSION, version: V }),
   line({ type: "mode", mode: "plan" }),
   "not json at all"
 ];
