@@ -17,6 +17,36 @@
  *    they exist) and `modelId`/`timestamp`/`isCanceled`/`result.errorDetails`
  *    (metrics).
  *
+ *    `response[]` also holds the request's TOOL CALLS, one part per call with
+ *    `kind: "toolInvocationSerialized"`, a `toolCallId` and a `toolId`. That
+ *    is a real per-call record, not a proxy inferred from turn counts. That
+ *    is what makes this store countable at all, and why the "VS Code holds
+ *    only chat turns" reading of it is wrong: the turns are in `requests[]`,
+ *    but the calls are in each turn's `response[]`. Only `toolId` is read;
+ *    `invocationMessage` and `toolSpecificData` hold the call's arguments
+ *    (file URIs, shell commands) and are content.
+ *
+ *    The sibling `kind: "prepareToolInvocation"` part announces a call the
+ *    model is about to make and is deliberately NOT counted. It accompanies
+ *    the large majority of invocations, so counting both would come close to
+ *    doubling the total.
+ *
+ *    **`toolCallId`, not parts, is the unit.** A `.jsonl` session is a delta
+ *    log (see `parseJsonlChatSession`) and its splices append a streaming
+ *    turn's response parts repeatedly, so one request's `response[]` ends up
+ *    holding the same invocation many times over. Measured on a working
+ *    store, well over a third of the serialized parts in delta-log sessions
+ *    repeat an id already present in their own request, and a much smaller
+ *    number reappear in a later request when a turn was resumed. Counting
+ *    parts rather than ids inflated the total by roughly 40% — an error that
+ *    would have arrived on the demand rail looking exactly like real work.
+ *
+ *    A serialized invocation carries no instant of its own, so its event
+ *    borrows the enclosing request's `timestamp` — the nearest thing the
+ *    store records to when the call happened, and the reason these events
+ *    ship as `historical_derived` while Claude Code's and Cursor's, read off
+ *    a record of the call itself, ship as `historical_direct`.
+ *
  * Workspace identity for BOTH stores comes from the same source:
  * `workspaceStorage/<hash>/workspace.json`'s `folder` field is the real path
  * VS Code itself resolved for that workspace hash — not a guess at path
@@ -32,7 +62,7 @@
  * this extractor was not handed.
  *
  * Emission (aggregate before shipping — never one event per Timeline entry
- * or per bubble):
+ * or per response part, with the one exception noted below):
  *  - `editor_activity` per (day, workspace) with ≥1 Timeline-history
  *    entry: chat-edit count vs. total entry count. This alone reproduces a
  *    machine's AI-adoption arc once rolled up to months downstream —
@@ -45,6 +75,10 @@
  *    provenance historical_derived.
  *  - `after_hours_ai_session` / `tool_failure` per session with ≥1 of that
  *    signal (canonical types, aggregate — same shape claudeCode.ts uses).
+ *  - `ai_tool_call_started` per DISTINCT `toolCallId` in a session — the one
+ *    per-record emission here, because the demand rail counts rows of this
+ *    type and reads no aggregate. Provenance historical_derived: the instant
+ *    is the enclosing request's, borrowed.
  *  - one `extraction_epoch` (local only — filtered before the wire) for
  *    the store's observed window, folding
  *    in unparsed/malformed counts from both sub-stores so a partial import
@@ -57,6 +91,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bucketDurationMs, isAfterHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
+import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 
 /** Self-labelled schema versions this extractor has a fixture for. Anything
@@ -290,6 +325,44 @@ interface ChatSessionFold {
   /** Timestamps only — the source for one `ai_prompt_submitted` per human
    * message, never the message/response text itself. */
   requestTimestamps: string[];
+  /**
+   * Tool calls keyed by `toolCallId`, so the many serialized parts recording
+   * one call collapse to one entry. Insertion order is first-seen order, and
+   * the recorded instant is the FIRST request that carried the call — these
+   * become `ai_tool_call_started`, and a call starts once.
+   */
+  toolCalls: Map<string, { at: string; name: string }>;
+}
+
+/**
+ * The `toolInvocationSerialized` parts of one request, as `[toolCallId,
+ * toolName]` pairs in the order Copilot recorded them — repeats included,
+ * because dedup needs the whole session, not one request (see the module
+ * doc: a resumed turn repeats ids across requests too).
+ *
+ * `prepareToolInvocation` is skipped on purpose. Only `toolCallId` and
+ * `toolId` are read; every other field on the part is the call's arguments
+ * or its rendered message, both content.
+ *
+ * A part with no `toolCallId` is skipped rather than counted under a
+ * synthesised key: without an id there is no way to tell a second record of
+ * one call from a second call, and inventing one would pick an answer.
+ */
+export function toolInvocationsOf(request: Record<string, unknown>): { id: string; name: string }[] {
+  const response = request.response;
+  if (!Array.isArray(response)) return [];
+  const calls: { id: string; name: string }[] = [];
+  for (const part of response) {
+    if (typeof part !== "object" || part === null) continue;
+    const entry = part as Record<string, unknown>;
+    if (entry.kind !== "toolInvocationSerialized") continue;
+    if (typeof entry.toolCallId !== "string" || entry.toolCallId.length === 0) continue;
+    calls.push({
+      id: entry.toolCallId,
+      name: sanitizeToolName(typeof entry.toolId === "string" ? entry.toolId : undefined)
+    });
+  }
+  return calls;
 }
 
 interface ChatSessionsResult {
@@ -536,7 +609,8 @@ async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessio
         canceledCount: 0,
         errorCount: 0,
         models: new Map(),
-        requestTimestamps: []
+        requestTimestamps: [],
+        toolCalls: new Map()
       };
 
       for (const r of requests) {
@@ -556,6 +630,11 @@ async function foldChatSessions(workspaceStorageDir: string): Promise<ChatSessio
         if (requestResult && requestResult.errorDetails) fold.errorCount += 1;
         if (typeof req.modelId === "string") {
           fold.models.set(req.modelId, (fold.models.get(req.modelId) ?? 0) + 1);
+        }
+        // First-seen wins: a later part for the same id is the same call
+        // recorded again, not a second call.
+        for (const call of toolInvocationsOf(req)) {
+          if (!fold.toolCalls.has(call.id)) fold.toolCalls.set(call.id, { at: iso, name: call.name });
         }
       }
 
@@ -646,8 +725,26 @@ export async function* extractVsCode(
       };
     }
 
+    // The rail counts rows of this type; the metric below is for the local
+    // handoff. Derived, not direct: the instant is the request's, borrowed —
+    // a serialized invocation records no time of its own.
+    for (const call of fold.toolCalls.values()) {
+      yield {
+        occurredAt: call.at,
+        store: "vscode",
+        sourceVersion: String(KNOWN_CHAT_SESSION_VERSION),
+        sessionRef: fold.sessionId,
+        repoRef: fold.workspaceRoot,
+        eventKind: "ai_tool_call_started",
+        metrics: { toolName: call.name },
+        provenance: HISTORICAL_PROVENANCE.derived,
+        extractionId
+      };
+    }
+
     const durationMs = Date.parse(fold.lastTs) - Date.parse(fold.firstTs);
     const sessionMetrics: NormalizedHistoricalEvent["metrics"] = {
+      toolCallCount: fold.toolCalls.size,
       requestCount: fold.requestCount,
       afterHoursRequests: fold.afterHoursRequests,
       canceledCount: fold.canceledCount,
