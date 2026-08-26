@@ -78,10 +78,9 @@ export interface LiveBusSignal {
 const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
 
 /**
- * The screen saver host's bundle id. Third-party savers (the Ascenda
- * Waterline saver included) run inside Apple's `legacyScreenSaver` appex,
- * whose sandbox redirects HOME into this container — so when the saver
- * binds "~/.ascenda/live.sock", the socket really lives here.
+ * Apple's screen saver host. Third-party screen savers run inside this
+ * appex, whose sandbox redirects HOME into its container — so a listener
+ * there binds inside the container rather than at the real home.
  */
 const SAVER_HOST_BUNDLE_ID = "com.apple.ScreenSaver.Engine.legacyScreenSaver";
 
@@ -100,16 +99,16 @@ const SAVER_HOST_BUNDLE_ID = "com.apple.ScreenSaver.Engine.legacyScreenSaver";
  *
  *  1. The real `~/.ascenda` — the unsandboxed desktop app, the product.
  *  2. The app's own container — legacy sandboxed app builds.
- *  3. The `legacyScreenSaver` container — the Waterline screen saver's
- *     standalone "live" mode, for machines running hooks and the saver
- *     with no desktop app at all. The saver binds only while the screen
- *     is actually saving and releases the socket the moment it stops, so
- *     this candidate is naturally absent whenever the app could claim
- *     its own. **`l.sock` at the container root, not `.ascenda/live.sock`**:
+ *  3. The screen-saver host's container — a listener running inside
+ *     Apple's screen saver appex, for machines with the hooks but no
+ *     desktop app. Such a listener binds only while the screen is
+ *     actually saving and releases on stop, so this candidate is
+ *     naturally absent whenever the app could claim its own.
+ *     **`l.sock` at the container root, not `.ascenda/live.sock`**:
  *     `sockaddr_un` caps socket paths at ~104 bytes and the container
  *     prefix alone is ~80 plus the username — the conventional name
  *     simply does not fit down there, so the shortest workable spelling
- *     is the contract (apps/waterline_saver/STATE_CONTRACT.md).
+ *     is the contract.
  *
  * The tidier long-term fix is an App Group container shared by all three,
  * but that needs the entitlement provisioned against the signing identity —
