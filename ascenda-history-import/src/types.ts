@@ -10,7 +10,12 @@ import type { SessionDaySlice } from "./daySlice.js";
  * bars distinctly from LIVE ones.
  */
 import { ASCENDA_HISTORICAL_CONSENT_SCOPE } from "@ascenda-one/tool-contract";
-import type { AscendaTelemetrySource, AscendaTelemetryEventType } from "@ascenda-one/tool-contract";
+import type {
+  AscendaTelemetrySource,
+  AscendaTelemetryEventType,
+  MetricKey,
+  MetricValue
+} from "@ascenda-one/tool-contract";
 
 /** The stores this importer knows how to read. Ordered by evaporation risk:
  * Claude Code's 30-day rolling purge deletes a day of baseline every day the
@@ -126,8 +131,16 @@ export interface NormalizedHistoricalEvent {
   repoRef: string | null;
   eventKind: HistoricalEventKind;
   /** Bucketed/counted metrics only — never prompt or response text. Content
-   * stays on the machine; see the doc's privacy line. */
-  metrics: Record<string, number | string | boolean>;
+   * stays on the machine; see the doc's privacy line.
+   *
+   * Keyed by {@link MetricKey}, not `string`. It was `Record<string, ...>`
+   * until an extractor emitted `contextUsagePercent` where every reader looked
+   * up `contextWindowPeakPct`; that shipped, was accepted, and read as "not
+   * collected" for roughly 8,720 rows without anything raising. An
+   * unregistered key is now a compile error — declare it in `METRIC_KEYS`,
+   * saying who reads it, and it stops being possible to ship a metric nothing
+   * can consume. */
+  metrics: Partial<Record<MetricKey, MetricValue>>;
   /**
    * Per-local-day slices of a session, oldest first. Local-only: `metrics` is
    * flat by contract because it becomes wire metadata, and this is nested, so

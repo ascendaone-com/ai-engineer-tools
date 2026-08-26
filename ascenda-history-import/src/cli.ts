@@ -72,6 +72,7 @@ import {
   verifyArchive
 } from "./archive.js";
 import { loadShipConfig, shipEvents, shippableEvents } from "./ship.js";
+import type { MetricKey } from "@ascenda-one/tool-contract";
 import type { ShipResult } from "./ship.js";
 import { buildHandoff, buildCursorHandoff, buildVsCodeHandoff, writeHandoff } from "./localHandoff.js";
 import { HistoryStore, NormalizedHistoricalEvent, StoreInventory } from "./types.js";
@@ -142,9 +143,22 @@ interface SourceOutcome {
 }
 
 /** Counters an extraction_epoch carries that mean "we did not read this". */
-const READ_FAILURE_METRICS = [
-  "unparsedFiles",
-  "unreadableFiles",
+// Typed against the metric vocabulary rather than loose strings.
+//
+// Three of the names here were never emitted by anything: "unparsedFiles" and
+// "unreadableFiles" are fields of vscode.ts's internal folds (the emitted keys
+// are `unparsedHistoryFiles`/`unparsedChatSessionFiles`), and
+// "unparsedTranscripts" matches nothing at all. Each contributed 0 to every
+// total while reading like coverage. `MetricKey` makes that a compile error
+// rather than a silent zero.
+//
+// Not fixed here, and worth a decision: `projectsWithNoReadableTranscript` is
+// a read failure by any plain reading of the words, is emitted on the Claude
+// Code epoch marker, and is absent from this list — so a Claude Code import
+// reports 0 read failures however many projects it could not open. Adding it
+// would change a number this CLI already prints, which is a call to make
+// deliberately rather than fold into a typing change.
+const READ_FAILURE_METRICS: readonly MetricKey[] = [
   "unparsedHistoryFiles",
   "unreadableHistoryFiles",
   "malformedHistoryEntries",
@@ -152,8 +166,7 @@ const READ_FAILURE_METRICS = [
   "unreadableChatSessionFiles",
   "unrecognisedChatSessionFiles",
   "malformedChatSessionLines",
-  "unparsedLines",
-  "unparsedTranscripts"
+  "unparsedLines"
 ];
 
 function readFailuresOf(events: NormalizedHistoricalEvent[]): number {
