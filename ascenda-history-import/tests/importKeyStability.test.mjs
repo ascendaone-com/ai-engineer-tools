@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { importOrdinals, importKeyOf, shippableEvents } from "../dist/ship.js";
 
 // The backend dedups a replay on importKey alone, so the key has to name the
@@ -116,6 +117,24 @@ test("kind and session are part of the identity, not just the instant", () => {
   ];
   assert.deepEqual(importOrdinals(sameInstant), [0, 0, 0], "different identities never share a group");
   assert.equal(new Set(keysOf(sameInstant)).size, 3);
+});
+
+test("the key is the FULL sha256 hex of the identity preimage — no truncation", () => {
+  // The in-app Dart pipeline (asc-ascenda-app-workspace, wire_event.dart's
+  // assignImportKeys) ships all 64 hex chars of the same preimage, and the
+  // backend dedups on the verbatim key string. Both pipelines ship as the
+  // same tool installation, so a truncated CLI key can never match an
+  // app-shipped key for the same record: a mixed-pipeline re-run would land
+  // everything twice. This pins the CLI to the app's convention,
+  // character for character.
+  const fixed = event({ sessionRef: "s-parity", occurredAt: AUG(9, 0) });
+  const expected = createHash("sha256")
+    .update(["claude_code", "s-parity", "ai_prompt_submitted", AUG(9, 0), "3"].join("|"))
+    .digest("hex");
+
+  const key = importKeyOf(fixed, 3);
+  assert.equal(key.length, 64, "full digest, not a prefix of it");
+  assert.equal(key, expected);
 });
 
 test("an event with no session still keys stably", () => {
