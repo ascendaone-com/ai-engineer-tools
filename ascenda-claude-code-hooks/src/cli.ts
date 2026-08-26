@@ -7,6 +7,8 @@ import {
   buildEventPayload,
   createPairingSession,
   defaultTokenFilePath,
+  deriveWorkContext,
+  recordWorkContext,
   emitLiveSignal,
   getPairingStatus,
   getString,
@@ -17,9 +19,9 @@ import {
   resolveEventLogPath,
   shouldAnnounceFailure
 } from "@ascenda-one/tool-kit";
-import type { CollectorState, LiveBusEvent } from "@ascenda-one/tool-kit";
+import type { CollectorState, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
-import { loadConfigFromEnv, normalizeToolInstallationId, resolveStateFilePath } from "./config.js";
+import { envHashOverride, loadConfigFromEnv, normalizeToolInstallationId, resolveStateFilePath } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 
@@ -180,6 +182,13 @@ async function main(): Promise<void> {
   const mappedEvents = mapClaudeEvent(hookName, input);
   if (!mappedEvents.length) return;
 
+  // Where this work happened, from the payload's own cwd. Derived here rather
+  // than trusted to the environment: every hook payload names its working
+  // directory, and events without a context hash are unattributable forever.
+  // Env overrides (ASCENDA_WORKSPACE_HASH / ASCENDA_PROJECT_HASH) still win.
+  const workContext = deriveWorkContext(getString(input, ["cwd"]) ?? process.cwd());
+  if (workContext) recordWorkContext(workContext);
+
   let config;
   try {
     config = loadConfigFromEnv();
@@ -189,9 +198,12 @@ async function main(): Promise<void> {
     // deciding to pair. Without one there is nowhere for the event to go.
     const logFile = resolveEventLogPath();
     if (!logFile) throw error;
-    for (const event of mappedEvents) logUnsent(logFile, event);
+    for (const event of mappedEvents) logUnsent(logFile, event, workContext);
     return;
   }
+
+  config.workspaceHash ??= workContext?.workspaceHash ?? null;
+  config.projectHash ??= workContext?.projectHash ?? null;
 
   const client = new AscendaClient(config);
 
@@ -425,12 +437,13 @@ function describeToken(tokenFilePath: string): string {
  * The id is a placeholder because there is no pairing to name — `not_sent`
  * plus this value is what distinguishes these lines from delivered ones.
  */
-function logUnsent(logFile: string, event: MappedAscendaEvent): void {
+function logUnsent(logFile: string, event: MappedAscendaEvent, workContext: WorkContext | null): void {
   const payload = buildEventPayload({
     toolInstallationId: `${ASCENDA_TOOL_TYPE}:unpaired`,
     source: "claude_code",
     sessionId: process.env.ASCENDA_SESSION_ID ?? null,
-    workspaceHash: process.env.ASCENDA_WORKSPACE_HASH ?? null
+    workspaceHash: envHashOverride("ASCENDA_WORKSPACE_HASH") ?? workContext?.workspaceHash ?? null,
+    projectHash: envHashOverride("ASCENDA_PROJECT_HASH") ?? workContext?.projectHash ?? null
   }, event);
   appendEventLog(logFile, { loggedAt: new Date().toISOString(), delivery: "not_sent", payload });
 }

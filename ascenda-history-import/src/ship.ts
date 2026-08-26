@@ -32,17 +32,25 @@
  *   a session, or an entire store leaves every surviving key untouched.
  * - **Raw local refs are hashed at the wire, not before.** The normalized
  *   file in staging keeps the real cwd (local, never leaves the machine);
- *   `workspaceHash`/`projectHash` go out as the same machine-salted 16-hex
- *   hashes the live hooks send, so historical and live events for the same
- *   repo correlate server-side without the server ever learning the path.
+ *   `workspaceHash`/`projectHash` go out through tool-kit's shared
+ *   `deriveWorkContext` — the SAME derivation the live hooks use (basename
+ *   of the folder / of its canonical repo), so historical and live events
+ *   for the same repo carry the same digests and correlate server-side
+ *   without the server ever learning the path. Early imports hashed the
+ *   full cwd instead; that digest is registered as a local alias so rows
+ *   already stored under it stay nameable (see contextRegistry.ts).
  */
 import { createHash } from "node:crypto";
 import {
+  deriveWorkContext,
   hashWithMachineSalt,
   readTokenFile,
+  recordWorkContext,
+  recordWorkContextAlias,
   defaultTokenFilePath,
   utcOffsetMinutesAt
 } from "@ascenda-one/tool-kit";
+import type { WorkContext } from "@ascenda-one/tool-kit";
 import type { AscendaEventPayload, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
 import {
   EXTRACTION_EPOCH_KIND,
@@ -117,6 +125,37 @@ export function importKeyOf(event: NormalizedHistoricalEvent, ordinal: number): 
     .slice(0, 16);
 }
 
+/**
+ * Context derivation for a historical repo ref, memoized per run — an import
+ * replays tens of thousands of events over a handful of repos, and the
+ * derivation may touch the filesystem (a still-existing checkout resolves to
+ * its canonical repo; a deleted one degrades to basenames).
+ *
+ * Two side effects per unique ref, both local-only registry writes: the
+ * canonical labels, and the LEGACY digest — `hash(full cwd)`, which is what
+ * imports before this derivation existed put on the wire. Rows stored under
+ * that digest can never be re-keyed (the import is immutable by design), so
+ * the alias is what keeps them nameable on this machine.
+ */
+const workContextMemo = new Map<string, WorkContext | null>();
+
+function workContextOf(repoRef: string | null): WorkContext | null {
+  if (!repoRef) return null;
+  const hit = workContextMemo.get(repoRef);
+  if (hit !== undefined) return hit;
+
+  const context = deriveWorkContext(repoRef);
+  if (context) {
+    recordWorkContext(context);
+    const legacyHash = hashWithMachineSalt(repoRef);
+    if (legacyHash && legacyHash !== context.workspaceHash && legacyHash !== context.projectHash) {
+      recordWorkContextAlias(legacyHash, context.workspaceLabel ?? repoRef, context.workspacePath);
+    }
+  }
+  workContextMemo.set(repoRef, context);
+  return context;
+}
+
 export function toWirePayload(
   event: NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] },
   ordinal: number,
@@ -137,7 +176,7 @@ export function toWirePayload(
     metadata.gitBranchHash = hashWithMachineSalt(metadata.gitBranch) ?? "";
     delete metadata.gitBranch;
   }
-  const workspaceHash = event.repoRef ? hashWithMachineSalt(event.repoRef) : null;
+  const context = workContextOf(event.repoRef);
   return {
     toolInstallationId,
     source: STORE_SOURCE[event.store] as AscendaTelemetrySource,
@@ -153,8 +192,8 @@ export function toWirePayload(
     utcOffsetMinutes: utcOffsetMinutesAt(new Date(event.occurredAt)),
     severity: "low",
     sessionId: event.sessionRef,
-    workspaceHash,
-    projectHash: workspaceHash,
+    workspaceHash: context?.workspaceHash ?? null,
+    projectHash: context?.projectHash ?? null,
     // A real contract ToolConsentScope now, and a real gate: the backend
     // requires an active historical-import consent lease for anything carrying
     // one of the provenance classes below, and decides that on the provenance

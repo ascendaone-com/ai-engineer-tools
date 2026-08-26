@@ -16,7 +16,8 @@ export class AscendaClient {
       tokenFilePath: config.tokenFilePath,
       stateFilePath: config.stateFilePath,
       sessionId: config.sessionId,
-      workspaceHash: config.workspaceHash
+      workspaceHash: config.workspaceHash,
+      projectHash: config.projectHash
     });
   }
 

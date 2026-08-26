@@ -51,6 +51,7 @@ export type EventSenderConfig = {
   tokenFilePath: string;
   sessionId?: string | null;
   workspaceHash?: string | null;
+  projectHash?: string | null;
   /** Hard cap per HTTP call. Hook-path telemetry must fail fast, never stall the agent. */
   timeoutMs?: number;
   /** Send journal location. Defaults to ~/.ascenda/state/<installationId>.json. */
@@ -65,6 +66,7 @@ export type EventIdentity = {
   source: AscendaTelemetrySource;
   sessionId?: string | null;
   workspaceHash?: string | null;
+  projectHash?: string | null;
 };
 
 /**
@@ -86,6 +88,7 @@ export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent):
     utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
     sessionId: identity.sessionId ?? undefined,
     workspaceHash: identity.workspaceHash ?? undefined,
+    projectHash: identity.projectHash ?? undefined,
     consentScope: ASCENDA_CONSENT_SCOPE,
     provenance: ASCENDA_PROVENANCE,
     privacyMode: "metadata_only",
@@ -163,6 +166,7 @@ export class AscendaEventSender {
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
       workspaceHash: this.config.workspaceHash ?? undefined,
+      projectHash: this.config.projectHash ?? undefined,
       consentScope: ASCENDA_SEMANTIC_CONSENT_SCOPE,
       provenance: ASCENDA_SEMANTIC_PROVENANCE,
       privacyMode: "metadata_only",
@@ -196,6 +200,7 @@ export class AscendaEventSender {
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
       workspaceHash: this.config.workspaceHash ?? undefined,
+      projectHash: this.config.projectHash ?? undefined,
       consentScope: ASCENDA_COLLABORATION_CONSENT_SCOPE,
       provenance: ASCENDA_PROVENANCE,
       privacyMode: "metadata_only",
