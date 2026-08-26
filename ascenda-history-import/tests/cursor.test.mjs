@@ -424,3 +424,76 @@ test("extractCursor yields nothing for a snapshot with no staged Cursor db", asy
     await fs.rm(emptyDir, { recursive: true, force: true });
   }
 });
+
+/**
+ * The wire's own name for context occupancy is `contextWindowPeakPct`, and it
+ * is the only spelling the backend was built to read. This extractor emitted
+ * `contextUsagePercent` — Cursor's own column name — so every Cursor session
+ * it shipped carried a context reading that no consumer resolved, and the
+ * demand band's BUDGET gauge showed "—" over a value Cursor had recorded.
+ *
+ * Nothing fails when this is wrong: an unrecognised metrics key ships, is
+ * accepted, and is never read. The same silence as the `eventKind` drift the
+ * wire-vocabulary guard exists for, one level down in the payload.
+ *
+ * Unit matters as much as name here. Cursor stores a percent (0–100; a real
+ * store ranges 8.22–90.62), while the canonical key means a *fraction* —
+ * `contextWindowPeakPct` on the Claude Code side is tokens over an assumed
+ * 200k window. Emitting Cursor's percent under the canonical name would put
+ * two different units behind one key and leave the backend's
+ * percent-or-fraction heuristic to guess between them; that heuristic reads
+ * anything <= 1.0 as already-a-fraction, so a genuine 0.8%-of-window session
+ * would come back as 80%. Converting here means the value is in the key's own
+ * unit and no heuristic has to run.
+ *
+ * `contextUsagePercent` stays on the payload alongside it: the local handoff
+ * reads that key by name, and the backend keeps it as an alias so the rows
+ * already shipped stay readable. Both spellings therefore describe the same
+ * occupancy, which is what the backend's reader assumes when it takes the
+ * first one that resolves.
+ */
+test("a Cursor session ships context occupancy under the canonical wire key, as a fraction", async () => {
+  const snapshotDir = await makeFixtureStore();
+  try {
+    const events = [];
+    for await (const e of extractCursor(snapshotDir, "test-extraction")) events.push(e);
+
+    const s = events.find((e) => e.eventKind === "create_focus_session" && e.sessionRef === C1);
+    assert.ok(s, "expected a focus session for the normal composer");
+
+    // The canonical key the backend reads first, in the canonical unit.
+    assert.equal(s.metrics.contextWindowPeakPct, 0.5525);
+
+    // Cursor's own spelling is still carried, unchanged and still a percent.
+    assert.equal(s.metrics.contextUsagePercent, 55.25);
+
+    // The two must agree, or the backend's first-key-wins reader would return
+    // a different answer for old rows than for new ones.
+    assert.equal(
+      Math.round(s.metrics.contextWindowPeakPct * 100 * 100) / 100,
+      s.metrics.contextUsagePercent
+    );
+  } finally {
+    await fs.rm(snapshotDir, { recursive: true, force: true });
+  }
+});
+
+test("a Cursor session with no context reading ships neither spelling", async () => {
+  const snapshotDir = await makeFixtureStore();
+  try {
+    const events = [];
+    for await (const e of extractCursor(snapshotDir, "test-extraction")) events.push(e);
+
+    // Absent, never zero. A session whose store recorded no reading must omit
+    // both keys rather than send 0, which reads downstream as a measured "no
+    // context pressure at all" — a claim the store never made.
+    const withoutReading = events.filter(
+      (e) => e.eventKind === "create_focus_session" && e.metrics.contextUsagePercent === undefined
+    );
+    for (const e of withoutReading) {
+      assert.equal(e.metrics.contextWindowPeakPct, undefined);
+    }
+  } finally {
+    await fs.rm(snapshotDir, { recursive: true, force: true });
+  }
+});
