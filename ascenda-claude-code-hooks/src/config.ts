@@ -9,6 +9,7 @@ export type AscendaHookConfig = {
   stateFilePath: string;
   sessionId?: string | null;
   workspaceHash?: string | null;
+  projectHash?: string | null;
 };
 
 /**
@@ -44,8 +45,18 @@ export function loadConfigFromEnv(): AscendaHookConfig {
     tokenFilePath,
     stateFilePath: resolveStateFilePath(toolInstallationId),
     sessionId: process.env.ASCENDA_SESSION_ID ?? null,
-    workspaceHash: process.env.ASCENDA_WORKSPACE_HASH ?? null
+    // Overrides only. When unset, main() fills these from the hook payload's
+    // own cwd — the payload knows where the work happened; the environment
+    // this hook inherits does not have to.
+    workspaceHash: envHashOverride("ASCENDA_WORKSPACE_HASH"),
+    projectHash: envHashOverride("ASCENDA_PROJECT_HASH")
   };
+}
+
+/** An empty or whitespace variable is "unset", not "override with nothing". */
+export function envHashOverride(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value ? value : null;
 }
 
 export function normalizeToolInstallationId(value: string): string {

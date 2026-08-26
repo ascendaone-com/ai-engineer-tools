@@ -14,7 +14,7 @@ export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent } from "./eventSender";
 export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";
 export type { EventLogEntry } from "./eventLog";
-export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig } from "./hookAdapter";
+export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig, resolveContextHashes } from "./hookAdapter";
 export type { CliAgentConfig, HookDeliveryOptions } from "./hookAdapter";
 export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
 export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
@@ -27,6 +27,15 @@ export {
 } from "./stateStore";
 export type { CollectorState, OutcomeDetail } from "./stateStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
+export { deriveWorkContext } from "./workContext";
+export type { WorkContext } from "./workContext";
+export {
+  recordWorkContext,
+  recordWorkContextAlias,
+  readWorkContextRegistry,
+  workContextRegistryFilePath
+} from "./contextRegistry";
+export type { WorkContextRegistry, WorkContextRegistryEntry } from "./contextRegistry";
 export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates } from "./liveBus";
 export type { LiveBusEvent, LiveBusSignal, PromptSizeBucket } from "./liveBus";
 export {
