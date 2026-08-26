@@ -21,6 +21,13 @@
  *   dedups on this key alone, NOT on `(extractionId, importKey)` — an
  *   extraction id is fresh per run, so including it would dedup nothing.
  *
+ *   The key is the FULL hex digest, kept deliberately at 64 chars for parity
+ *   with the in-app Dart pipeline (`assignImportKeys` in the macOS app's
+ *   wire_event.dart), which hashes the same preimage and is the product path.
+ *   The backend compares key strings verbatim, and both pipelines ship as the
+ *   same tool installation — so only byte-identical keys let a record shipped
+ *   by either pipeline dedup against the other instead of double-counting.
+ *
  *   `ordinal` used to be the event's index in the whole shipped array, which
  *   made the key stable only while the store was. A later run extracting a
  *   different *set* — Claude Code's 30-day purge having eaten the oldest
@@ -114,6 +121,16 @@ export function importOrdinals(events: NormalizedHistoricalEvent[]): number[] {
   });
 }
 
+/**
+ * The FULL 64-char sha256 hex, never a prefix. The in-app Dart importer
+ * (`assignImportKeys` in wire_event.dart) hashes the identical preimage and
+ * ships all 64 chars, and the backend dedups on the verbatim key string per
+ * (pairedUser, toolInstallation) — so a truncated key here could never match
+ * an app-shipped key for the same record, and a mixed-pipeline re-run would
+ * land the whole corpus twice. Until 26 Aug 2026 this sliced to 16 chars;
+ * those rows all predate the identity-scoped ordinal, so no later run would
+ * have matched them under either width and nothing real is stranded.
+ */
 export function importKeyOf(event: NormalizedHistoricalEvent, ordinal: number): string {
   return createHash("sha256")
     .update(
@@ -121,8 +138,7 @@ export function importKeyOf(event: NormalizedHistoricalEvent, ordinal: number): 
         "|"
       )
     )
-    .digest("hex")
-    .slice(0, 16);
+    .digest("hex");
 }
 
 /**
