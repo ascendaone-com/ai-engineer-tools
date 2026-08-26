@@ -6,6 +6,7 @@ import * as path from "node:path";
 import {
   sniffClaudeLine,
   KNOWN_CLAUDE_LINE_TYPES,
+  META_CLAUDE_LINE_TYPES,
   extractClaudeCode,
   isToolFailureLine
 } from "../dist/extractors/claudeCode.js";
@@ -51,11 +52,38 @@ test("sniffs the model id off an assistant line", () => {
   assert.equal(sniffed.model, "claude-opus-5");
 });
 
+// Pinned literal, deliberately NOT derived from KNOWN_CLAUDE_LINE_TYPES. The
+// loop below used to iterate the constant it was validating, which made it a
+// tautology: deleting a type from the extractor deleted the assertion that
+// covered it, and the suite stayed green. Verified by removing "attachment"
+// and "last-prompt" from the constant — all 108 tests passed. A dropped type
+// stops being parsed and starts counting as `unknownLines`, i.e. the drift
+// signal itself becomes the drift, so this list must be updated by hand and
+// on purpose.
+const DOCUMENTED_CLAUDE_LINE_TYPES = [
+  "user",
+  "assistant",
+  "attachment",
+  "system",
+  "queue-operation",
+  "last-prompt",
+  "custom-title"
+];
+
 test("every documented line type is recognised", () => {
-  for (const type of KNOWN_CLAUDE_LINE_TYPES) {
+  for (const type of DOCUMENTED_CLAUDE_LINE_TYPES) {
     const sniffed = sniffClaudeLine(JSON.stringify({ type, version: "2.1.227" }));
     assert.equal(sniffed.kind, type, `expected ${type} to be known`);
   }
+});
+
+test("the extractor's known-type list matches the documented one", () => {
+  // Fails in both directions: a type quietly dropped from the extractor, and a
+  // type added without a fixture or a decision about what it should fold into.
+  assert.deepEqual(
+    [...KNOWN_CLAUDE_LINE_TYPES].sort(),
+    [...DOCUMENTED_CLAUDE_LINE_TYPES].sort()
+  );
 });
 
 test("unknown-but-valid line types sniff as unknown with the type named", () => {
@@ -65,10 +93,53 @@ test("unknown-but-valid line types sniff as unknown with the type named", () => 
   assert.equal(sniffed.type, "hologram");
 });
 
-test("observed meta types (mode, ai-title, pr-link) are unknown, not unparsed", () => {
+test("observed meta types (mode, ai-title, pr-link) are meta, not unknown", () => {
+  // These used to sniff as `unknown` and count toward `unknownLines`, because
+  // META_CLAUDE_LINE_TYPES was declared, exported, and never read. Every real
+  // store is full of these, so the drift signal was mostly them.
   for (const type of ["mode", "ai-title", "pr-link", "worktree-state"]) {
-    assert.equal(sniffClaudeLine(JSON.stringify({ type })).kind, "unknown");
+    assert.equal(sniffClaudeLine(JSON.stringify({ type })).kind, "meta");
   }
+});
+
+test("a meta line names its type, and a genuinely new type is still unknown", () => {
+  // The distinction the split exists for: recognised-and-ignored on one side,
+  // nobody-has-classified-this-yet on the other. Collapsing them in either
+  // direction is what this asserts against.
+  const meta = sniffClaudeLine(JSON.stringify({ type: "file-history-snapshot" }));
+  assert.equal(meta.kind, "meta");
+  assert.equal(meta.type, "file-history-snapshot");
+
+  const alien = sniffClaudeLine(JSON.stringify({ type: "hologram" }));
+  assert.equal(alien.kind, "unknown");
+  assert.equal(alien.type, "hologram");
+});
+
+test("every meta type is recognised as meta", () => {
+  // Pinned literal, not derived from META_CLAUDE_LINE_TYPES — same reason the
+  // known-type list is pinned: a loop over the constant it validates cannot
+  // fail when the constant loses an entry.
+  const DOCUMENTED_META_TYPES = [
+    "ai-title",
+    "mode",
+    "pr-link",
+    "worktree-state",
+    "relocated",
+    "create",
+    "file",
+    "directory",
+    "image",
+    "file-history-snapshot",
+    "summary"
+  ];
+  for (const type of DOCUMENTED_META_TYPES) {
+    assert.equal(
+      sniffClaudeLine(JSON.stringify({ type })).kind,
+      "meta",
+      `expected ${type} to be meta`
+    );
+  }
+  assert.deepEqual([...META_CLAUDE_LINE_TYPES].sort(), [...DOCUMENTED_META_TYPES].sort());
 });
 
 test("non-JSON and blank lines sniff as unparsed", () => {

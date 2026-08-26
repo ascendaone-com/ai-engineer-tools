@@ -773,6 +773,28 @@ export async function* extractCursor(
     if (fold.mode) sessionMetrics.mode = fold.mode;
     if (fold.contextUsagePercent !== null) {
       sessionMetrics.contextUsagePercent = Math.round(fold.contextUsagePercent * 100) / 100;
+      // The same occupancy under the name the wire actually reads.
+      // `contextUsagePercent` is Cursor's column name, not the vocabulary's,
+      // and no consumer resolved it — the demand band's BUDGET gauge and the
+      // TLX subscales both look up `contextWindowPeakPct` — so every Cursor
+      // session shipped a context reading that read as "not collected".
+      //
+      // Divided, not just renamed. Cursor stores a percent (0–100; a real
+      // store ranges 8.22–90.62) while the canonical key means a fraction of
+      // the window, as the Claude Code extractor emits. Two units under one
+      // key would leave the reader's `> 1.0` heuristic to tell them apart,
+      // and that heuristic reads anything <= 1.0 as already a fraction — so a
+      // session at 0.8% of its window would come back as 80%.
+      //
+      // Named a peak because that is the field it feeds, but Cursor records
+      // one figure per composer: the conversation's last known occupancy, not
+      // a maximum observed across it. Not the same measurement as Claude
+      // Code's true per-session peak, and worth remembering before the two
+      // are compared.
+      //
+      // Four decimal places, matching what the backend rounds its own answer
+      // to; the percent above keeps its two.
+      sessionMetrics.contextWindowPeakPct = Math.round(fold.contextUsagePercent * 100) / 10_000;
     }
     const primaryModel = pickTop(fold.models);
     if (primaryModel) sessionMetrics.primaryModel = primaryModel;

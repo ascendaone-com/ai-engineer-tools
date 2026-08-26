@@ -372,3 +372,14 @@ export const ASCENDA_COLLABORATION_CONSENT_SCOPE: ToolConsentScope = "workflow_t
  */
 export const ASCENDA_HISTORICAL_CONSENT_SCOPE: ToolConsentScope = "historical_import";
 export const ASCENDA_SEMANTIC_PROVENANCE = "semantic_work_signals";
+
+// The metric-key vocabulary — the `metrics{}` counterpart to
+// EVENT_WORKLOAD_CATEGORY above. See ./metricKeys.ts.
+export {
+  METRIC_KEYS,
+  backendMetricKeys,
+  type MetricKey,
+  type MetricKeySpec,
+  type MetricReader,
+  type MetricValue
+} from "./metricKeys";

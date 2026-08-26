@@ -92,3 +92,63 @@ test("a shipped payload's eventType is a catalog type the backend will classify"
   );
   assert.equal(EVENT_WORKLOAD_CATEGORY[payload.eventType], "neutral");
 });
+
+/**
+ * The duration-bucket half of the same guard.
+ *
+ * This package once minted its own duration vocabulary — `"0-5m" | "5-30m" |
+ * "30m-2h" | "2-8h" | "8-24h" | "24h+"` — a third dialect matching neither the
+ * live collectors' tool-contract buckets nor the backend's reader. Every
+ * imported session therefore carried a `durationBucket` no one could read.
+ * The extractors now route through `bucketDurationMs` from `@ascenda-one/tool-kit`,
+ * which is the single producer of the field and is itself pinned against the
+ * backend's reader in `packages/tool-kit/tests/buckets.test.cjs`.
+ *
+ * Reusing the shared function is what makes the drift structurally impossible;
+ * this test is what stops someone hand-rolling a bucket again, because the
+ * failure mode is silent — a bucket the reader cannot spell resolves to 0
+ * minutes and presents as "not collected".
+ */
+const SUPERSEDED_DIALECT = ["0-5m", "5-30m", "30m-2h", "2-8h", "8-24h", "24h+"];
+
+function stripComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+test("no extractor mints its own duration vocabulary", () => {
+  const offenders = [];
+  for (const file of sourceFiles(SRC)) {
+    // Comments are stripped first. The names appear in prose that explains
+    // precisely why they are gone — that history is worth keeping, and it is
+    // not what would ship.
+    const text = stripComments(fs.readFileSync(file, "utf8"));
+    for (const bucket of SUPERSEDED_DIALECT) {
+      if (text.includes(`"${bucket}"`) || text.includes(`'${bucket}'`)) {
+        offenders.push(`${path.relative(SRC, file)}: ${bucket}`);
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `superseded duration buckets would ship and read as 0 minutes:\n  ${offenders.join("\n  ")}`
+  );
+});
+
+test("every extractor that sets durationBucket routes through the shared bucketer", () => {
+  const offenders = [];
+  let checked = 0;
+  // Extractors only: they are what derive a bucket from a duration. Everything
+  // downstream (localHandoff, ship) relays whatever an extractor produced and
+  // never mints one, so scanning those would flag a pass-through.
+  for (const file of sourceFiles(path.join(SRC, "extractors"))) {
+    const text = fs.readFileSync(file, "utf8");
+    if (!/durationBucket[:\s]/.test(text)) continue;
+    checked++;
+    if (!text.includes("bucketDurationMs")) {
+      offenders.push(path.relative(SRC, file));
+    }
+  }
+  assert.ok(checked > 0, "found no durationBucket producers — did the scan path break?");
+  assert.deepEqual(offenders, [], `these set durationBucket without the shared bucketer:\n  ${offenders.join("\n  ")}`);
+});
