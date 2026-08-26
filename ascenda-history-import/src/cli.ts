@@ -72,6 +72,7 @@ import {
   verifyArchive
 } from "./archive.js";
 import { loadShipConfig, shipEvents, shippableEvents } from "./ship.js";
+import type { MetricKey } from "@ascenda-one/tool-contract";
 import type { ShipResult } from "./ship.js";
 import { buildHandoff, buildCursorHandoff, buildVsCodeHandoff, writeHandoff } from "./localHandoff.js";
 import { HistoryStore, NormalizedHistoricalEvent, StoreInventory } from "./types.js";
@@ -142,9 +143,23 @@ interface SourceOutcome {
 }
 
 /** Counters an extraction_epoch carries that mean "we did not read this". */
-const READ_FAILURE_METRICS = [
-  "unparsedFiles",
-  "unreadableFiles",
+// Typed against the metric vocabulary rather than loose strings.
+//
+// Three of the names here were never emitted by anything: "unparsedFiles" and
+// "unreadableFiles" are fields of vscode.ts's internal folds (the emitted keys
+// are `unparsedHistoryFiles`/`unparsedChatSessionFiles`), and
+// "unparsedTranscripts" matches nothing at all. Each contributed 0 to every
+// total while reading like coverage. `MetricKey` makes that a compile error
+// rather than a silent zero.
+//
+// `projectsWithNoReadableTranscript` is counted here. It had always been
+// emitted on the Claude Code epoch marker and never summed, so a Claude Code
+// import reported 0 read failures however many projects it could not open —
+// the store's diagnostic was right and nothing read it. Including it raises
+// the printed total on stores that have such projects, which is the point:
+// the warning says the window is short by an unknown amount, and staying
+// silent claimed the opposite.
+const READ_FAILURE_METRICS: readonly MetricKey[] = [
   "unparsedHistoryFiles",
   "unreadableHistoryFiles",
   "malformedHistoryEntries",
@@ -153,7 +168,10 @@ const READ_FAILURE_METRICS = [
   "unrecognisedChatSessionFiles",
   "malformedChatSessionLines",
   "unparsedLines",
-  "unparsedTranscripts"
+  // Projects, not files — the total is a count of things this run could not
+  // read, and the warning wording ("file(s)/record(s)") is looser than the
+  // set it sums.
+  "projectsWithNoReadableTranscript"
 ];
 
 function readFailuresOf(events: NormalizedHistoricalEvent[]): number {
