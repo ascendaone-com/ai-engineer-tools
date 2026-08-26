@@ -78,20 +78,41 @@ export interface LiveBusSignal {
 const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
 
 /**
- * Every place the app might be listening, in preference order.
+ * The screen saver host's bundle id. Third-party savers (the Ascenda
+ * Waterline saver included) run inside Apple's `legacyScreenSaver` appex,
+ * whose sandbox redirects HOME into this container — so when the saver
+ * binds "~/.ascenda/live.sock", the socket really lives here.
+ */
+const SAVER_HOST_BUNDLE_ID = "com.apple.ScreenSaver.Engine.legacyScreenSaver";
+
+/**
+ * Every place a listener might be, in preference order.
  *
- * The wrinkle: **the macOS app is sandboxed**, so its `HOME` is redirected
- * into `~/Library/Containers/<bundle-id>/Data/` and it cannot create a
- * socket at the real `~/.ascenda/` at all. Hooks are ordinary unsandboxed
- * processes, so they see the true home and would never find it.
+ * The wrinkle: **sandboxed listeners have their HOME redirected** into
+ * `~/Library/Containers/<bundle-id>/Data/`, so "~/.ascenda/live.sock"
+ * means a different directory to each of them. Hooks are ordinary
+ * unsandboxed processes, so they see the true home and would never find a
+ * container socket on their own. The sandbox constrains the *sandboxed*
+ * process, not everyone else: a hook can happily connect into a container,
+ * which is owned by the same user.
  *
- * The sandbox constrains the *sandboxed* process, not everyone else: a hook
- * can happily connect into the container, which is owned by the same user.
- * So we look in the plain location first (an unsandboxed or future build,
- * and the nicer home) and fall back to the container.
+ * Preference order is authority order:
  *
- * The tidier long-term fix is an App Group container shared by both, but
- * that needs the entitlement provisioned against the signing identity —
+ *  1. The real `~/.ascenda` — the unsandboxed desktop app, the product.
+ *  2. The app's own container — legacy sandboxed app builds.
+ *  3. The `legacyScreenSaver` container — the Waterline screen saver's
+ *     standalone "live" mode, for machines running hooks and the saver
+ *     with no desktop app at all. The saver binds only while the screen
+ *     is actually saving and releases the socket the moment it stops, so
+ *     this candidate is naturally absent whenever the app could claim
+ *     its own. **`l.sock` at the container root, not `.ascenda/live.sock`**:
+ *     `sockaddr_un` caps socket paths at ~104 bytes and the container
+ *     prefix alone is ~80 plus the username — the conventional name
+ *     simply does not fit down there, so the shortest workable spelling
+ *     is the contract (apps/waterline_saver/STATE_CONTRACT.md).
+ *
+ * The tidier long-term fix is an App Group container shared by all three,
+ * but that needs the entitlement provisioned against the signing identity —
  * a deployment change, not a code one.
  */
 export function liveBusSocketCandidates(): string[] {
@@ -100,7 +121,8 @@ export function liveBusSocketCandidates(): string[] {
   const home = os.homedir();
   return [
     path.join(home, ".ascenda", "live.sock"),
-    path.join(home, "Library", "Containers", APP_BUNDLE_ID, "Data", ".ascenda", "live.sock")
+    path.join(home, "Library", "Containers", APP_BUNDLE_ID, "Data", ".ascenda", "live.sock"),
+    path.join(home, "Library", "Containers", SAVER_HOST_BUNDLE_ID, "Data", "l.sock")
   ];
 }
 
