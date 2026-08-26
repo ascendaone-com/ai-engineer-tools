@@ -191,6 +191,10 @@ export const METRIC_KEYS = {
   subagentAssistantTurns: { readBy: ["diagnostic"] },
   subagentPrompts: { readBy: ["diagnostic"] },
   subagentTokensTotal: { readBy: ["diagnostic"] },
+  toolName: {
+    readBy: ["diagnostic"],
+    note: "Set per ai_tool_call_started event by #43's extractors and shipped in wire metadata, but no reader resolves it server-side yet (the backend's ToolName column is MCP audit, not telemetry). Registered after the fact: #38 and #43 merged past each other, and the union caught it on the next compile — metaLines all over again."
+  },
   toolResultCount: { readBy: ["diagnostic"] },
   toolResultErrorCount: { readBy: ["diagnostic"] },
   unknownBubbles: { readBy: ["diagnostic"] },
