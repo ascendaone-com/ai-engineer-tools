@@ -152,12 +152,13 @@ interface SourceOutcome {
 // total while reading like coverage. `MetricKey` makes that a compile error
 // rather than a silent zero.
 //
-// Not fixed here, and worth a decision: `projectsWithNoReadableTranscript` is
-// a read failure by any plain reading of the words, is emitted on the Claude
-// Code epoch marker, and is absent from this list — so a Claude Code import
-// reports 0 read failures however many projects it could not open. Adding it
-// would change a number this CLI already prints, which is a call to make
-// deliberately rather than fold into a typing change.
+// `projectsWithNoReadableTranscript` is counted here. It had always been
+// emitted on the Claude Code epoch marker and never summed, so a Claude Code
+// import reported 0 read failures however many projects it could not open —
+// the store's diagnostic was right and nothing read it. Including it raises
+// the printed total on stores that have such projects, which is the point:
+// the warning says the window is short by an unknown amount, and staying
+// silent claimed the opposite.
 const READ_FAILURE_METRICS: readonly MetricKey[] = [
   "unparsedHistoryFiles",
   "unreadableHistoryFiles",
@@ -166,7 +167,11 @@ const READ_FAILURE_METRICS: readonly MetricKey[] = [
   "unreadableChatSessionFiles",
   "unrecognisedChatSessionFiles",
   "malformedChatSessionLines",
-  "unparsedLines"
+  "unparsedLines",
+  // Projects, not files — the total is a count of things this run could not
+  // read, and the warning wording ("file(s)/record(s)") is looser than the
+  // set it sums.
+  "projectsWithNoReadableTranscript"
 ];
 
 function readFailuresOf(events: NormalizedHistoricalEvent[]): number {
