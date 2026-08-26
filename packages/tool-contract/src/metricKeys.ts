@@ -68,29 +68,37 @@ export interface MetricKeySpec {
   readonly note?: string;
 }
 
-const CONTEXT_WINDOW_ALIASES = [
+// Two groups, not one list, mirroring the backend's
+// `TelemetryMetadataKeys.ResolveContextOccupancy`: the canonical spellings
+// share an ambiguous unit (fraction or percent, told apart by a > 1.0
+// heuristic), while `contextUsagePercent` is unit-explicit — Cursor stores a
+// percent, so the backend divides it by 100 unconditionally. The canonical
+// group is tried first, so an event carrying both resolves on the canonical.
+const CONTEXT_WINDOW_CANONICAL_ALIASES = [
   "contextWindowPeakPct",
   "context_window_peak_pct",
   "contextWindowPct",
-  "context_window_pct",
-  // The Cursor importer's original spelling, kept so already-imported rows
-  // stay readable. Last, so an event carrying both resolves on the canonical.
-  "contextUsagePercent"
+  "context_window_pct"
 ] as const;
+
+// Kept so already-imported rows stay readable; never merged into the
+// canonical group, because sharing that group's heuristic would read a
+// sub-1% session as 100× its true occupancy.
+const CONTEXT_WINDOW_CURSOR_PERCENT_ALIASES = ["contextUsagePercent"] as const;
 
 export const METRIC_KEYS = {
   // ── Read by a backend reader ────────────────────────────────────────────
   contextWindowPeakPct: {
     readBy: ["backend", "handoff"],
-    backendAliases: CONTEXT_WINDOW_ALIASES,
+    backendAliases: CONTEXT_WINDOW_CANONICAL_ALIASES,
     unit: "fraction of the context window (0–1; uncapped for >200k contexts)",
     note: "Claude Code reports a true per-session peak. Cursor reports its composer's last known occupancy under the same key — the closest its store can answer, and not the same measurement."
   },
   contextUsagePercent: {
     readBy: ["backend", "handoff"],
-    backendAliases: CONTEXT_WINDOW_ALIASES,
+    backendAliases: CONTEXT_WINDOW_CURSOR_PERCENT_ALIASES,
     unit: "percent (0–100)",
-    note: "Cursor's own column name. Superseded by contextWindowPeakPct on the wire; kept because the handoff reads it and imported rows carry it."
+    note: "Cursor's own column name. Superseded by contextWindowPeakPct on the wire; kept because the handoff reads it and imported rows carry it. Unit-explicit on the backend: always divided by 100, never put through the fraction-or-percent heuristic."
   },
   promptCount: { readBy: ["backend", "handoff"], backendAliases: ["promptCount", "prompt_count"] },
   sessionMinutes: { readBy: ["backend"], backendAliases: ["sessionMinutes", "session_minutes"], unit: "minutes" },
@@ -175,6 +183,10 @@ export const METRIC_KEYS = {
   toolResultErrorCount: { readBy: ["diagnostic"] },
   unknownBubbles: { readBy: ["diagnostic"] },
   unknownLines: { readBy: ["diagnostic"] },
+  metaLines: {
+    readBy: ["diagnostic"],
+    note: "Recognised-but-skipped transcript machinery (file-history-snapshot, queued-command, …). Split out of unknownLines by #43 so that number keeps meaning \"a type nobody has looked at\". Registered here after the fact: #41 and #43 merged past each other, and the union caught it on the next compile — which is this module doing its job."
+  },
   unparsedBubbles: { readBy: ["diagnostic"] },
   unparsedChatSessionFiles: { readBy: ["diagnostic"] },
   unparsedHistoryFiles: { readBy: ["diagnostic"] },
