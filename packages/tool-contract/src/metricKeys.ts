@@ -135,7 +135,19 @@ export const METRIC_KEYS = {
   requestCount: { readBy: ["handoff"] },
   sessionStartedAt: { readBy: ["handoff"] },
   subagentComposers: { readBy: ["handoff"] },
+  subagentToolCallCount: {
+    readBy: ["handoff"],
+    note: "Claude Code only: calls made inside subagent transcripts, kept out of toolCallCount so the main-loop count matches what the wire events carry."
+  },
   subagentTranscripts: { readBy: ["handoff"] },
+  toolCallCount: {
+    readBy: ["handoff"],
+    note: "The backend counts ai_tool_call_started event rows, not this key — same split as compactionCount. Deduplicated on the tool-call id; see each extractor for what one call means in its store."
+  },
+  toolCallsUndated: {
+    readBy: ["handoff"],
+    note: "Cursor only: calls whose every record carries an empty createdAt. Counted in toolCallCount, but no event exists for them — the wire total is smaller than this session count by exactly this number."
+  },
   toolFailureCount: { readBy: ["handoff"] },
   totalEntryCount: { readBy: ["handoff"] },
   userModifiedEditCount: {
