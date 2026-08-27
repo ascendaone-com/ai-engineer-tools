@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isNewSessionStart, mapClaudeEvent } from "../dist/mapClaudeEvent.js";
+import { classifyAutonomyMode, classifyModelClass, isNewSessionStart, mapClaudeEvent } from "../dist/mapClaudeEvent.js";
 
 // ── Real payload shapes ────────────────────────────────────────────────────
 //
@@ -275,4 +275,233 @@ test("PostToolUse: an ordinary command carries no gitAction key at all", () => {
   // Absent, not null: the field is omitted when there is nothing to say,
   // matching every other optional metadata key.
   assert.ok(!("gitAction" in events[0].metadata));
+});
+
+// ── The three signals the payload already carried and the mapper dropped ───
+//
+// `permission_mode`, `model` and `tool_response.userModified` all arrive in
+// Claude Code's own payloads — `permission_mode` and `userModified` are in
+// this package's captured fixtures — and until now none of them was read.
+// `ClaudeHookInput` is a loose Record, so they arrived and were discarded
+// without anything raising anywhere: the ingest path is a denylist, so a key a
+// collector sends is a key that gets stored, and a key it does not send is
+// simply history that was never recorded and cannot be recovered.
+
+test("autonomyMode: every documented permission_mode maps onto the posture ladder", () => {
+  // The six values Claude Code documents (hooks reference, 28 Aug 2026).
+  // `default` is the mode the UI labels *Manual* — it never arrives as
+  // "manual", and a mapping written from the UI's vocabulary would have
+  // missed the single most common posture entirely.
+  const expected = {
+    plan: "planning",
+    default: "supervised",
+    acceptEdits: "edits_auto",
+    auto: "delegated",
+    dontAsk: "delegated",
+    bypassPermissions: "unsupervised"
+  };
+
+  for (const [permissionMode, autonomyMode] of Object.entries(expected)) {
+    const events = mapClaudeEvent("PostToolUse", {
+      tool_name: "Grep",
+      permission_mode: permissionMode,
+      tool_response: okResponse()
+    });
+    assert.equal(events[0].metadata.autonomyMode, autonomyMode, `permission_mode "${permissionMode}"`);
+  }
+});
+
+test("autonomyMode: a mode Anthropic has not shipped yet becomes unknown and is still sent", () => {
+  // The whole point of a coarse enum that is *ours*: Anthropic's vocabulary
+  // may grow, and a new mode must show up as a rising `unknown` count. A
+  // dropped field would look exactly like nothing having changed.
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Grep",
+    permission_mode: "someFutureMode",
+    tool_response: okResponse()
+  });
+  assert.equal(events[0].metadata.autonomyMode, "unknown");
+});
+
+test("autonomyMode: the classifier is total — non-strings do not crash and do not vanish", () => {
+  for (const raw of [7, true, null, {}, [], "", "   "]) {
+    assert.equal(classifyAutonomyMode(raw), "unknown", `raw ${JSON.stringify(raw)}`);
+  }
+});
+
+test("autonomyMode: absent is not unknown — the key is omitted entirely", () => {
+  // Two different facts. "This runtime reports no posture" (SessionStart,
+  // Codex, the VS Code extension) must stay distinguishable from "this
+  // runtime reported a posture we failed to map", or the second is invisible.
+  const events = mapClaudeEvent("PostToolUse", { tool_name: "Grep", tool_response: okResponse() });
+  assert.ok(!("autonomyMode" in events[0].metadata));
+});
+
+test("autonomyMode: posture is NOT gated on success — a failure and an interrupt keep it", () => {
+  // Unlike gitAction/milestoneKind. A call that failed still happened under a
+  // posture, and an interrupt is the most interesting posture datum there is:
+  // it is a person stepping in. Gating would erase exactly those moments.
+  const failed = mapClaudeEvent("PostToolUseFailure", failurePayload({ permission_mode: "bypassPermissions" }));
+  assert.equal(failed[0].metadata.outcome, "failure");
+  assert.equal(failed[0].metadata.autonomyMode, "unsupervised");
+
+  const interrupted = mapClaudeEvent("PostToolUseFailure", failurePayload({ permission_mode: "acceptEdits", is_interrupt: true }));
+  assert.equal(interrupted[0].metadata.outcome, "cancelled");
+  assert.equal(interrupted[0].metadata.autonomyMode, "edits_auto");
+});
+
+test("autonomyMode: rides file, verification and prompt events too", () => {
+  const edit = mapClaudeEvent("PostToolUse", {
+    tool_name: "Edit",
+    permission_mode: "acceptEdits",
+    tool_input: { old_string: "a", new_string: "a\nb" },
+    tool_response: okResponse()
+  });
+  assert.equal(edit[0].eventType, "ai_file_edit");
+  assert.equal(edit[0].metadata.autonomyMode, "edits_auto");
+
+  const verification = mapClaudeEvent("PostToolUse", {
+    tool_name: "Bash",
+    permission_mode: "plan",
+    tool_input: { command: "npm test" },
+    tool_response: okResponse()
+  });
+  assert.equal(verification[0].eventType, "editor_verification_activity");
+  assert.equal(verification[0].metadata.autonomyMode, "planning");
+
+  const prompt = mapClaudeEvent("UserPromptSubmit", { prompt: "no, that's wrong - try again", permission_mode: "default" });
+  assert.equal(prompt.length, 2);
+  assert.equal(prompt[0].metadata.autonomyMode, "supervised");
+  assert.equal(prompt[1].metadata.autonomyMode, "supervised", "the correction event carries the posture too");
+});
+
+test("autonomyMode: a long agent loop records whether anyone was watching it", () => {
+  // A 90-minute loop under `supervised` is 90 minutes of a person approving
+  // every step; the same 90 minutes under `unsupervised` is a person who
+  // walked away. The event has never been able to tell those apart.
+  const events = mapClaudeEvent("Stop", { durationMs: 90 * 60000, permission_mode: "bypassPermissions" });
+  assert.equal(events[0].eventType, "agent_loop_long");
+  assert.equal(events[0].metadata.autonomyMode, "unsupervised");
+});
+
+test("modelClass: SessionStart with a model attaches the coarse vendor:tier", () => {
+  // Real identifiers from Claude Code's own store, not invented ones.
+  const expected = {
+    "claude-opus-5": "anthropic:opus",
+    "claude-sonnet-5": "anthropic:sonnet",
+    "claude-fable-5": "anthropic:fable",
+    "claude-haiku-4-5-20251001": "anthropic:haiku",
+    "fable": "anthropic:fable"
+  };
+
+  for (const [model, modelClass] of Object.entries(expected)) {
+    const events = mapClaudeEvent("SessionStart", { source: "startup", model });
+    assert.equal(events[0].eventType, "create_focus_session");
+    assert.equal(events[0].metadata.modelClass, modelClass, `model "${model}"`);
+    // The raw id — dated build, deployment surface — never reaches the wire.
+    // The raw id's vendor prefix and dated build never reach the wire — only
+    // the tier word survives, which is the whole point of the coarsening.
+    const serialized = JSON.stringify(events);
+    assert.ok(!serialized.includes("claude-"), `raw id must not travel: ${model}`);
+    assert.ok(!serialized.includes("2025"), `dated build must not travel: ${model}`);
+  }
+});
+
+test("modelClass: an unrecognised identifier is unknown, not absent", () => {
+  // `<synthetic>` is a real value in the store and is not a model at all.
+  const events = mapClaudeEvent("SessionStart", { source: "startup", model: "<synthetic>" });
+  assert.equal(events[0].metadata.modelClass, "unknown");
+});
+
+test("modelClass: absent model is the normal case, not an error", () => {
+  // The docs do not guarantee `model` on SessionStart — it is omitted after
+  // /clear and on conversation recovery. No other live hook carries it at
+  // all, and there is no $CLAUDE_MODEL. So the null path is the common path.
+  const events = mapClaudeEvent("SessionStart", { source: "startup" });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "create_focus_session");
+  assert.ok(!("modelClass" in events[0].metadata));
+});
+
+test("modelClass: object-shaped model payloads are read too", () => {
+  // The SessionStart shape has not been captured from a live run the way the
+  // PostToolUse shapes were, so both the bare string and the object forms are
+  // probed rather than assumed.
+  assert.equal(mapClaudeEvent("SessionStart", { source: "startup", model: { id: "claude-opus-5" } })[0].metadata.modelClass, "anthropic:opus");
+  assert.equal(mapClaudeEvent("SessionStart", { source: "startup", model: { display_name: "Sonnet 5" } })[0].metadata.modelClass, "anthropic:sonnet");
+});
+
+test("modelClass: the clear/compact gate is unchanged — no event, so no model", () => {
+  // Not a new rule: mapSessionStart already skipped these as mid-work resets,
+  // which happens to be exactly when Claude omits `model` anyway.
+  assert.deepEqual(mapClaudeEvent("SessionStart", { source: "clear", model: "claude-opus-5" }), []);
+  assert.deepEqual(mapClaudeEvent("SessionStart", { source: "compact", model: "claude-opus-5" }), []);
+});
+
+test("modelClass: the classifier keeps absent and unplaceable apart", () => {
+  assert.equal(classifyModelClass(undefined), undefined);
+  assert.equal(classifyModelClass(""), undefined);
+  assert.equal(classifyModelClass("   "), undefined);
+  assert.equal(classifyModelClass("some-model-nobody-has-heard-of"), "unknown");
+  assert.equal(classifyModelClass("us.anthropic.claude-opus-4-5-v1:0"), "anthropic:opus");
+  assert.equal(classifyModelClass("gpt-5-codex"), "openai:gpt");
+  assert.equal(classifyModelClass("gemini-3-pro"), "google:gemini");
+});
+
+test("userModified: true rides the existing file event, no new event type", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Edit",
+    tool_input: { old_string: "a", new_string: "a\nb" },
+    tool_response: { ...okResponse(), userModified: true }
+  });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "ai_file_edit");
+  assert.equal(events[0].metadata.userModified, true);
+});
+
+test("userModified: false is sent, not suppressed — a rate needs its denominator", () => {
+  // Without the negatives there is a numerator and nothing to divide by.
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Write",
+    tool_input: { content: "a\nb" },
+    tool_response: { ...okResponse(), userModified: false }
+  });
+  assert.equal(events[0].eventType, "ai_file_write");
+  assert.equal(events[0].metadata.userModified, false);
+});
+
+test("userModified: absent, and non-boolean, both mean the payload said nothing", () => {
+  const absent = mapClaudeEvent("PostToolUse", {
+    tool_name: "Edit",
+    tool_input: { old_string: "a", new_string: "a\nb" },
+    tool_response: okResponse()
+  });
+  assert.ok(!("userModified" in absent[0].metadata));
+
+  // Payload drift degrades to "not collected" rather than a guessed boolean.
+  const drifted = mapClaudeEvent("PostToolUse", {
+    tool_name: "Edit",
+    tool_input: { old_string: "a", new_string: "a\nb" },
+    tool_response: { ...okResponse(), userModified: "yes" }
+  });
+  assert.ok(!("userModified" in drifted[0].metadata));
+});
+
+test("captured fixtures: the shipped examples now produce all three signals they carry", async () => {
+  // The fixtures are captured payloads, not written ones. Asserting against
+  // them is the closest this suite gets to the real wire: if Claude Code's
+  // field names drift, the fixture is what gets recaptured and this fails.
+  const { readFile } = await import("node:fs/promises");
+  const examples = new URL("../examples/", import.meta.url);
+
+  const edit = JSON.parse(await readFile(new URL("sample-post-tool-use-edit.json", examples), "utf8"));
+  const editEvents = mapClaudeEvent("PostToolUse", edit);
+  assert.equal(editEvents[0].eventType, "ai_file_edit");
+  assert.equal(editEvents[0].metadata.autonomyMode, "supervised");
+  assert.equal(editEvents[0].metadata.userModified, false);
+
+  const bash = JSON.parse(await readFile(new URL("sample-post-tool-use-bash-test-ok.json", examples), "utf8"));
+  const bashEvents = mapClaudeEvent("PostToolUse", bash);
+  assert.equal(bashEvents[0].eventType, "editor_verification_activity");
+  assert.equal(bashEvents[0].metadata.autonomyMode, "supervised");
 });

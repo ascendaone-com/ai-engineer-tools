@@ -1,4 +1,5 @@
 import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief } from "@ascenda-one/tool-kit";
+import type { AutonomyMode, ModelClass } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
 
@@ -66,14 +67,35 @@ export function milestoneInviting(input: ClaudeHookInput): boolean {
 
 function mapSessionStart(input: ClaudeHookInput): MappedAscendaEvent[] {
   if (!isNewSessionStart(input)) return [];
-  return [{ eventType: "create_focus_session", severity: "low", metadata: { activity: "session_started" } }];
+  // `SessionStart` is the ONLY live hook that can carry a model — no other
+  // event has it, and there is no `$CLAUDE_MODEL` in the environment. It is
+  // also not guaranteed here (the docs say it is omitted after `/clear` and on
+  // conversation recovery), so the absent path is the normal one, not an
+  // error. `transcript_path` is on every event and the model is technically
+  // recoverable from it — deliberately not done: that would put file I/O on a
+  // per-tool-call hot path, against a format the docs say can lag the live
+  // conversation.
+  //
+  // The `startup`/`resume` gate above is unchanged and happens to align with
+  // when a model is present at all; `clear`/`compact` are the resets where it
+  // is dropped, and they were already skipped for their own reasons.
+  const modelClass = classifyModelClass(readModelIdentifier(input));
+  return [{
+    eventType: "create_focus_session",
+    severity: "low",
+    metadata: {
+      activity: "session_started",
+      ...(modelClass !== undefined ? { modelClass } : {})
+    }
+  }];
 }
 
 function mapUserPromptSubmit(input: ClaudeHookInput): MappedAscendaEvent[] {
   const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]]);
-  const events: MappedAscendaEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: { promptClass: "unknown" } }];
+  const autonomy = autonomyModeMetadata(input);
+  const events: MappedAscendaEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: { promptClass: "unknown", ...autonomy } }];
   if (looksLikeCorrection(prompt)) {
-    events.push({ eventType: "ai_correction_prompt", severity: "medium", metadata: { reason: "repeated_reprompting", trigger: "inferred" } });
+    events.push({ eventType: "ai_correction_prompt", severity: "medium", metadata: { reason: "repeated_reprompting", trigger: "inferred", ...autonomy } });
   }
   return events;
 }
@@ -104,23 +126,37 @@ function mapPostToolUse(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
   // A failed `gh pr merge` did not complete anything, so — like gitAction — a
   // milestone is only read off a command that actually succeeded.
   const milestoneKind = outcome === "success" ? classifyWorkMilestone(command) : undefined;
+  // Unlike gitAction/milestoneKind, the posture is NOT gated on success. A
+  // call that failed or was interrupted still happened under a supervision
+  // posture, and an interrupt is in fact the most interesting posture datum
+  // there is — it is a person stepping in. Gating it would erase exactly the
+  // moments the signal exists to see.
+  const autonomy = autonomyModeMetadata(input);
 
   if (outcome === "cancelled") {
     // Stopped work is not wrong work: an interrupted test run is not a
     // compile_error (it proved nothing either way), and severity stays low —
     // the user pressing escape is routine, not risk.
-    return [{ eventType: "ai_tool_call_failed", severity: "low", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), reason: "manual_interrupt" } }];
+    return [{ eventType: "ai_tool_call_failed", severity: "low", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), reason: "manual_interrupt", ...autonomy } }];
   }
 
   if (outcome === "failure") {
     if (toolName?.toLowerCase() === "bash" && isVerificationCommand(commandClass)) {
-      return [{ eventType: "compile_error", severity: "medium", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), reason: "test_failure" } }];
+      return [{ eventType: "compile_error", severity: "medium", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), reason: "test_failure", ...autonomy } }];
     }
-    return [{ eventType: "ai_tool_call_failed", severity: "medium", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), reason: "tool_failure" } }];
+    return [{ eventType: "ai_tool_call_failed", severity: "medium", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), reason: "tool_failure", ...autonomy } }];
   }
 
   if (isWriteTool(toolName)) {
     const linesChanged = computeLinesChanged(toolName, input);
+    // Whether the human had already changed this file by hand since the agent
+    // last wrote it. Every other fact on this event counts what the agent
+    // produced; this is the only live one that says a person had to correct
+    // it. It rides the existing creation event rather than minting a type —
+    // the same reasoning that keeps gitAction and milestoneKind off event
+    // types of their own: a correction is a fact about the write that just
+    // happened, not a different kind of thing happening.
+    const userModified = getNested(input, ["tool_response", "userModified"]);
     return [{
       eventType: toolName?.toLowerCase() === "write" ? "ai_file_write" : "ai_file_edit",
       severity: "low",
@@ -128,6 +164,13 @@ function mapPostToolUse(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
         toolName: safeToolName,
         outcome,
         durationBucket: bucketDurationMs(durationMs),
+        ...autonomy,
+        // `false` is kept, not suppressed: without the negatives there is a
+        // numerator and no denominator, and no correction *rate* can be
+        // computed. Absence still means the payload said nothing — a
+        // non-boolean value is treated as saying nothing rather than guessed
+        // at, so payload drift degrades to "not collected".
+        ...(typeof userModified === "boolean" ? { userModified } : {}),
         // The boundary C2/the macOS work-self-report card triggers on: at
         // "200+" this is the "substantial accepted change" moment. No
         // second event type exists for this — the bucket on the existing
@@ -139,7 +182,7 @@ function mapPostToolUse(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
   }
 
   if (toolName?.toLowerCase() === "bash" && isVerificationCommand(commandClass)) {
-    return [{ eventType: "editor_verification_activity", severity: "low", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), activity: "ai_test_or_build_run" } }];
+    return [{ eventType: "editor_verification_activity", severity: "low", metadata: { toolName: safeToolName, commandClass, outcome, durationBucket: bucketDurationMs(durationMs), activity: "ai_test_or_build_run", ...autonomy } }];
   }
 
   return [{
@@ -150,6 +193,7 @@ function mapPostToolUse(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       commandClass,
       outcome,
       durationBucket: bucketDurationMs(durationMs),
+      ...autonomy,
       // The boundary and rework signal both ride this existing event rather
       // than minting a type: the backend already reads `gitAction` off any
       // event, and a commit is not a different *kind* of thing happening, it
@@ -176,10 +220,136 @@ function mapStop(input: ClaudeHookInput): MappedAscendaEvent[] {
   const durationBucket = bucketDurationMs(durationMs);
   // Catalog only includes agent_loop_long (risk), not agent_loop_completed.
   if (durationBucket === "30-60m" || durationBucket === "60m+") {
-    return [{ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: { durationBucket, reason: "long_session", trigger: "inferred" } }];
+    // The posture matters most here of anywhere: a 90-minute loop under
+    // `supervised` is 90 minutes of a person approving every step, and the
+    // same 90 minutes under `unsupervised` is a person who walked away. The
+    // event has never been able to tell those apart.
+    return [{ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: { durationBucket, reason: "long_session", trigger: "inferred", ...autonomyModeMetadata(input) } }];
   }
   return [];
 }
+
+/**
+ * The supervision posture as a metadata fragment, ready to spread.
+ *
+ * Two states are deliberately different:
+ *
+ * - **The payload carries no posture at all** → `{}`, so the key is absent.
+ *   `SessionStart` is genuinely like this (Claude never sends
+ *   `permission_mode` there), as is any future collector without the concept.
+ *   Emitting `"unknown"` for these would drown the signal that matters.
+ * - **The payload carries a posture we do not recognise** → `{ autonomyMode:
+ *   "unknown" }`, sent, never dropped. Anthropic's six documented values may
+ *   grow, and a new mode showing up as a rising `unknown` count is how we find
+ *   out; a dropped field would look exactly like nothing having changed.
+ */
+function autonomyModeMetadata(input: ClaudeHookInput): { autonomyMode?: AutonomyMode } {
+  const raw = readPermissionMode(input);
+  return raw === undefined ? {} : { autonomyMode: classifyAutonomyMode(raw) };
+}
+
+/**
+ * The raw posture value, at whatever spelling and nesting it arrives in, or
+ * `undefined` when the payload has none.
+ *
+ * Returns `unknown` (the type) rather than `string | undefined` on purpose: a
+ * present-but-wrong-typed value must reach the classifier so it becomes
+ * `"unknown"`, and using `getString` here would have collapsed it back into
+ * absence — the one distinction this pair exists to preserve.
+ */
+function readPermissionMode(input: ClaudeHookInput): unknown {
+  const candidates: unknown[] = [
+    input["permission_mode"],
+    input["permissionMode"],
+    getNested(input, ["payload", "permission_mode"])
+  ];
+  for (const value of candidates) {
+    if (value !== undefined && value !== null) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Claude Code's `permission_mode` onto our own posture ladder. **Total by
+ * contract** — every input, including a number, an object, or a mode Anthropic
+ * ships next month, produces a value. Exported so the totality is testable
+ * directly rather than only through a hook payload.
+ *
+ * The six documented values (checked against Claude Code's hooks reference, 28
+ * Aug 2026) are `default`, `plan`, `acceptEdits`, `auto`, `dontAsk` and
+ * `bypassPermissions`. Note that `default` is the mode the UI labels *Manual*:
+ * it never arrives as `"manual"`, and a mapping written from the UI's
+ * vocabulary would have missed the single most common posture entirely.
+ *
+ * `auto` and `dontAsk` both coarsen to `delegated`. They differ in how the
+ * user got there, not in how much the agent may do without asking, and the
+ * ladder measures the latter.
+ *
+ * Matching is case-insensitive and trimmed — cheap insurance against a
+ * spelling drift that would otherwise turn a known mode into `unknown` and
+ * quietly corrupt a trend line.
+ */
+export function classifyAutonomyMode(raw: unknown): AutonomyMode {
+  if (typeof raw !== "string") return "unknown";
+  return AUTONOMY_BY_PERMISSION_MODE[raw.trim().toLowerCase()] ?? "unknown";
+}
+
+const AUTONOMY_BY_PERMISSION_MODE: Record<string, AutonomyMode> = {
+  plan: "planning",
+  default: "supervised",
+  acceptedits: "edits_auto",
+  auto: "delegated",
+  dontask: "delegated",
+  bypasspermissions: "unsupervised"
+};
+
+/**
+ * The model identifier from a `SessionStart` payload, or `undefined` when the
+ * hook did not carry one — which the docs say is a normal, expected state
+ * (omitted after `/clear` and on conversation recovery), not an error.
+ *
+ * Probes both a bare string and the object forms, because the payload shape
+ * here has not been captured from a live run the way the PostToolUse shapes
+ * were; the same defensive posture as every other reader in this file.
+ */
+function readModelIdentifier(input: ClaudeHookInput): string | undefined {
+  return getString(input, ["model", "model_id", "modelId"])
+    ?? getNestedString(input, [["model", "id"], ["model", "display_name"], ["model", "name"], ["payload", "model"]]);
+}
+
+/**
+ * A raw model identifier onto the coarse vendor:tier vocabulary. Total for any
+ * string; `undefined` only for a genuinely absent one, keeping "no model was
+ * reported" distinct from "a model was reported that we could not place".
+ *
+ * Matched against real identifiers seen in Claude Code's own store:
+ * `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`, `claude-haiku-4-5-20251001`,
+ * a bare `fable`, and `<synthetic>` (which is not a model and correctly lands
+ * on `unknown`). The tier word is the stable part across all of them, and it
+ * survives the dated, Bedrock- and Vertex-prefixed forms too — matching on the
+ * word rather than on a full id means a point release does not silently
+ * re-bucket a person's whole norm table.
+ */
+export function classifyModelClass(raw: string | undefined): ModelClass | undefined {
+  if (!raw) return undefined;
+  const value = raw.trim().toLowerCase();
+  if (!value) return undefined;
+
+  for (const [pattern, modelClass] of MODEL_CLASS_PATTERNS) {
+    if (pattern.test(value)) return modelClass;
+  }
+  return "unknown";
+}
+
+const MODEL_CLASS_PATTERNS: readonly (readonly [RegExp, ModelClass])[] = [
+  [/\bopus\b/, "anthropic:opus"],
+  [/\bsonnet\b/, "anthropic:sonnet"],
+  [/\bhaiku\b/, "anthropic:haiku"],
+  [/\bfable\b/, "anthropic:fable"],
+  [/\bgpt\b/, "openai:gpt"],
+  [/\bgemini\b/, "google:gemini"],
+  [/\b(ollama|llamacpp|on[-_]?device)\b/, "local:on_device"]
+];
 
 function getToolName(input: ClaudeHookInput): string | undefined {
   return getString(input, ["toolName", "tool_name", "name"]) ?? getNestedString(input, [["tool", "name"], ["tool_use", "name"], ["payload", "toolName"]]);

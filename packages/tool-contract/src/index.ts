@@ -186,6 +186,81 @@ export type GitAction = "commit" | "push" | "amend" | "revert" | "reset_hard" | 
 export type WorkMilestoneKind = "pr_merged" | "pr_opened" | "issue_closed";
 export type PromptClass = "creation" | "verification" | "correction" | "debugging" | "planning" | "unknown";
 
+/**
+ * How much of the agent's work the human was approving when an event
+ * happened — the supervision posture, coarsened from whatever permission
+ * vocabulary the runtime happens to use.
+ *
+ * **This vocabulary is ours, not the runtime's, and that is the point.**
+ * Claude Code's own `permission_mode` has six documented values (`default`,
+ * `plan`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, checked 28
+ * Aug 2026) and Anthropic may add more without telling us; Codex and the VS
+ * Code extension will name their equivalents differently or not at all. A
+ * ladder of postures is the thing every collector can map onto, and the thing
+ * a cross-agent query can compare. Consequently **every mapping onto this type
+ * must be a total function**: an unrecognised runtime value becomes `unknown`
+ * and is still sent, because "a posture we have not seen before" is a fact
+ * worth having and a dropped field is not.
+ *
+ * The rungs, most supervised first:
+ *
+ * - `planning`     — nothing executes; the human is deciding before work
+ *                    starts (Claude's `plan`).
+ * - `supervised`   — every action is approved one at a time (Claude's
+ *                    `default`, which the UI labels *Manual* — it never
+ *                    arrives on the wire as `"manual"`).
+ * - `edits_auto`   — file edits apply without asking; commands still ask
+ *                    (Claude's `acceptEdits`).
+ * - `delegated`    — actions proceed without per-action approval, with the
+ *                    permission rules still applying (Claude's `auto` and
+ *                    `dontAsk`).
+ * - `unsupervised` — permission checks bypassed entirely (Claude's
+ *                    `bypassPermissions`).
+ * - `unknown`      — a value the collector did not recognise.
+ *
+ * Absence is not `unknown`: a collector that cannot see a posture at all omits
+ * the key, so "this runtime has no such concept" stays distinguishable from
+ * "this runtime grew a mode we have not mapped yet".
+ *
+ * Live-only by nature. Transcripts do not reliably record permission state, so
+ * unlike model mix or token counts this cannot be recovered by a later import
+ * — every day it is uncaptured is a day that is simply gone.
+ */
+export type AutonomyMode = "planning" | "supervised" | "edits_auto" | "delegated" | "unsupervised" | "unknown";
+
+/**
+ * Which model did the work, at vendor:tier grain and never as a raw id.
+ *
+ * Coarse on purpose. A raw model string (`claude-opus-5`,
+ * `claude-haiku-4-5-20251001`, `us.anthropic.claude-…-v1:0`) carries a dated
+ * build and a deployment surface, changes on Anthropic's release cadence
+ * rather than ours, and would make every norm table re-bucket itself on a
+ * point release. The tier is the part that predicts behaviour, and it is the
+ * part a norm table needs: pooling an autocomplete user with an agent-fleet
+ * user is wrong for both, and 10.6 tool-calls-per-prompt is a model-dependent
+ * number being reported as a universal one.
+ *
+ * As with {@link AutonomyMode}, the mapping must be total — an unrecognised
+ * identifier becomes `unknown` rather than vanishing, so a new tier shows up
+ * as a visible bump in `unknown` instead of as a quiet hole in the mix.
+ *
+ * Claude-Code-first, not uniform. `SessionStart` is the only live hook that
+ * can carry a model at all, and even there the docs do not guarantee it (it is
+ * omitted after `/clear` and on conversation recovery). The Codex hooks and
+ * the VS Code extension know no model whatsoever. So absence is the normal
+ * case everywhere else, and no surface may treat a missing `modelClass` as an
+ * anomaly.
+ */
+export type ModelClass =
+  | "anthropic:opus"
+  | "anthropic:sonnet"
+  | "anthropic:haiku"
+  | "anthropic:fable"
+  | "openai:gpt"
+  | "google:gemini"
+  | "local:on_device"
+  | "unknown";
+
 export type AscendaEventMetadata = Record<string, string | number | boolean | null | undefined> & {
   language?: string | null;
   fileType?: string | null;
@@ -204,6 +279,60 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
 
   /** Set on a bash event whose command completed a piece of work (H1). */
   milestoneKind?: WorkMilestoneKind;
+
+  /**
+   * The supervision posture in force when this event happened. Per event, not
+   * per session, because it is: the mode is switched mid-session, and a
+   * session summarised by one posture would average away the very transition
+   * this exists to see — supervised babysitting and delegated review are
+   * different qualities of demand, and until now the record could not tell
+   * them apart at all.
+   *
+   * Sent on every event whose payload carries a posture. Omitted — never
+   * `unknown` — where the runtime does not report one, so a collector without
+   * the concept stays distinguishable from a value we failed to map. See
+   * {@link AutonomyMode} for why an unmapped value must still be sent.
+   */
+  autonomyMode?: AutonomyMode;
+
+  /**
+   * Which model was in use, at vendor:tier grain. Session-grain in practice:
+   * only `create_focus_session` carries it, because `SessionStart` is the only
+   * live hook that can see a model — and even there it is optional, so the
+   * absent case is normal rather than an error.
+   *
+   * Without it, every per-person norm derived from live events pools models
+   * that behave nothing alike and is wrong for each of them. The imported
+   * corpus has carried the raw `primaryModel` since the first extractor; the
+   * live stream, which costs roughly twenty times the storage, has carried
+   * nothing. See {@link ModelClass}.
+   */
+  modelClass?: ModelClass;
+
+  /**
+   * Whether the human had edited the file since the agent last wrote it, as
+   * reported by an Edit-family `tool_response.userModified`. The one live
+   * signal of *correction* rather than production: everything else on a file
+   * event counts what the agent did, and none of it says whether a person then
+   * had to go and fix it.
+   *
+   * Rides the existing `ai_file_edit` / `ai_file_write` events on purpose. A
+   * correction is not a different kind of thing happening — it is a fact about
+   * the write that just happened, the same reasoning that keeps `gitAction`
+   * and `milestoneKind` off event types of their own.
+   *
+   * `false` is sent, not suppressed: without the negatives there is a
+   * numerator and no denominator, and no rate can be computed. Absence still
+   * means the payload said nothing.
+   *
+   * **Read the corpus before trusting a zero.** The import side records this
+   * as `userModifiedEditCount` and had to document that Claude Code never sets
+   * it true in transcripts, so a 0 there would have asserted "no AI edit was
+   * ever corrected by hand" when it only meant the store never says so. If the
+   * live field turns out to be inert in the same way, an all-`false` corpus is
+   * evidence about the field, not about the work.
+   */
+  userModified?: boolean;
   outcome?: CommandOutcome;
   trigger?: "manual" | "auto" | "inferred";
   promptClass?: PromptClass;
