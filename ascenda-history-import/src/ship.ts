@@ -49,6 +49,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+  classifyModelClass,
   deriveWorkContext,
   hashWithMachineSalt,
   readTokenFile,
@@ -192,6 +193,33 @@ export function toWirePayload(
     metadata.gitBranchHash = hashWithMachineSalt(metadata.gitBranch) ?? "";
     delete metadata.gitBranch;
   }
+  // The coarse companion to primaryModel, ADDED beside it and never in place
+  // of it. Two reasons it is derived here rather than in each extractor:
+  //
+  //  - One derivation covers Claude Code, Cursor and VS Code, and covers the
+  //    next extractor without anyone remembering to add it. Three copies of a
+  //    one-line fold is how `contextUsagePercent` happened.
+  //  - It applies to staging files written before this existed. The stage
+  //    holds `primaryModel`; the class is computed on the way out, so a
+  //    resumed or re-sent corpus is classified without re-extracting.
+  //
+  // `classifyModelClass` is the SAME function the live Claude Code hooks call
+  // for `SessionStart` — imported from tool-kit, not reimplemented — which is
+  // the entire point of the exercise: a historical session and a live one from
+  // the same model land in the same bucket, so a norm table can pool them.
+  // The raw string stays: it is the only record of exactly which build ran,
+  // and a class cannot be un-coarsened later — which matters more now that the
+  // class degrades to `<vendor>:unknown`, since an unmapped tier is precisely
+  // the case where somebody will want to know what the string actually said.
+  //
+  // It stays under `primaryModel` and must NOT be moved to the live path's
+  // `modelId`. They are two different measurements: `primaryModel` is this
+  // session's dominant model, folded across the whole transcript, while
+  // `modelId` is the model a live session opened with. Same derived class, two
+  // different underlying facts — fusing them would make the column
+  // uninterpretable in exactly the way P-D28 exists to prevent one level up.
+  const modelClass = classifyModelClass(metadata.primaryModel as string | undefined);
+  if (modelClass !== undefined) metadata.modelClass = modelClass;
   const context = workContextOf(event.repoRef);
   return {
     toolInstallationId,
