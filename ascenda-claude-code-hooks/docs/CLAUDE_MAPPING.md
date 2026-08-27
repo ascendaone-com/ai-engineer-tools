@@ -229,8 +229,11 @@ vendor.
 `modelClass` is a reading; `modelId` is the record. Charts group by the class,
 and anything that needs to know exactly which build ran reads the slug.
 
-Claude-Code-first, not uniform: the Codex hooks and the VS Code extension know
-no model at all, so this must never be promised as a cross-collector field.
+Claude-Code-first, not uniform: the VS Code extension knows no model at all,
+and while Codex payloads do carry an active model slug on every hook, that
+adapter does not read it yet (see
+[CODEX_MAPPING.md](../../ascenda-codex-hooks/docs/CODEX_MAPPING.md#still-on-the-wire-and-not-read)).
+So this must never be promised as a cross-collector field.
 
 ### `userModified` — the human correction signal
 

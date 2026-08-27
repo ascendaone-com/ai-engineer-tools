@@ -39,6 +39,40 @@ hooks](../ascenda-claude-code-hooks/). Deeper agent-level capture
 surface — see [CURSOR_ADAPTER_PLAN.md](../docs/CURSOR_ADAPTER_PLAN.md) — not
 a second editor extension.
 
+### No permission posture (`autonomyMode`) — on purpose
+
+The hook adapters send an `autonomyMode` on their events: the posture an agent
+was working under — `default`, `accept_edits`, `dont_ask`, `bypass_permissions`
+and so on, each mirroring the runtime's own word — read from
+[Claude Code's](../ascenda-claude-code-hooks/docs/CLAUDE_MAPPING.md#autonomymode--the-permission-posture-mirrored)
+and [Codex's](../ascenda-codex-hooks/docs/CODEX_MAPPING.md#autonomymode--the-permission-posture-mirrored)
+`permission_mode`. **This extension deliberately sends no such key, and its
+absence is not an oversight.** Checked 28 Aug 2026:
+
+- **Its events are not agent actions.** A file save, an active-editor change
+  and a terminal command are things a *person* did, or things that appeared in
+  a terminal with no record of who started them. There is no per-action
+  approval to be in a posture about, so no value would be true of the row it
+  rode on.
+- **The API surface exposes no posture.** The extension targets the VS Code API
+  baseline in `engines.vscode` and uses `onDidChangeTextDocument`,
+  `onDidSaveTextDocument`, `onDidChangeActiveTextEditor` and the terminal shell
+  integration events. None of them reports an approval mode, and there is no
+  event for "an agent was allowed to do this without asking".
+- **A chat auto-approve setting would be the wrong thing.** A host's agent
+  settings are readable through `workspace.getConfiguration`, and reading one
+  would be a mistake: it describes the configuration of a *different* agent
+  whose actions this extension never observes. Attaching it to a human's file
+  save would manufacture a link that does not exist, and would then pollute the
+  cross-collector cohort comparison the field exists to enable.
+
+Absence is the correct wire state and is already meaningful: `autonomyMode`
+distinguishes **absent** ("this runtime has no such concept") from `"unknown"`
+("a posture arrived that we could not read"). If agent-level capture lands —
+[CURSOR_ADAPTER_PLAN.md](../docs/CURSOR_ADAPTER_PLAN.md) — the events it adds
+would be agent actions, and the question becomes live again for those events
+only.
+
 ## What this version provides
 
 - Common Ascenda telemetry event types

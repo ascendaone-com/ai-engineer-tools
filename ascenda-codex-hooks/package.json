@@ -18,7 +18,7 @@
     "build": "tsc -p ./ && npm run bundle",
     "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
     "watch": "tsc -w -p ./",
-    "test": "node --test",
+    "test": "node --test --require ./tests/isolateHome.cjs",
     "test:sample": "npm run build && cat examples/sample-post-tool-use-bash.json | node dist/cli.js PostToolUse"
   },
   "engines": {
