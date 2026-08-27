@@ -17,7 +17,7 @@ export type { EventLogEntry } from "./eventLog";
 export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig, resolveContextHashes } from "./hookAdapter";
 export type { CliAgentConfig, HookDeliveryOptions } from "./hookAdapter";
 export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
-export { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 export {
   defaultStateFilePath,
   readCollectorState,

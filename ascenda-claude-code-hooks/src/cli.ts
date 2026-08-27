@@ -111,9 +111,20 @@ async function runPair(): Promise<void> {
   process.exitCode = 1;
 }
 
+/**
+ * Two modes on one binary. Hook events are the hot path (Claude Code spawns
+ * this per prompt and per tool call); the lowercase management commands are
+ * what a human types. Hook names are capitalised, so the two cannot collide.
+ */
+const MANAGEMENT_COMMANDS = new Set(["setup", "install", "status", "uninstall", "-h", "--help"]);
+
 async function main(): Promise<void> {
   const command = process.argv[2];
-  if (!command) throw new Error("Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | doctor");
+  if (!command) {
+    throw new Error(
+      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | doctor | setup | status | uninstall"
+    );
+  }
 
   // Both of these run before the stdin read below, and must stay there: they
   // carry no hook payload, so reading stdin first hangs them forever on a pipe
@@ -126,8 +137,15 @@ async function main(): Promise<void> {
     await runDoctor();
     return;
   }
+  if (MANAGEMENT_COMMANDS.has(command)) {
+    const { runSetup } = await import("./setup.js");
+    setupExitCode = await runSetup(process.argv.slice(2));
+    return;
+  }
   if (!isClaudeHookEventName(command)) {
-    throw new Error(`Unknown command "${command}". Expected a Claude Code hook name, "pair" or "doctor".`);
+    throw new Error(
+      `Unknown command "${command}". Expected a Claude Code hook name, "pair", "doctor", "setup", "status" or "uninstall".`
+    );
   }
   const hookName: ClaudeHookEventName = command;
 
@@ -462,6 +480,12 @@ async function readJsonFromStdin(): Promise<ClaudeHookInput> {
   return parsed as ClaudeHookInput;
 }
 
+/**
+ * Only the management commands set this. Hook invocations always exit 0 —
+ * see the comment below.
+ */
+let setupExitCode: number | undefined;
+
 main()
   .catch((error) => {
     // Never exit non-zero *on a hook path*: Claude Code treats exit 2 as a
@@ -471,8 +495,9 @@ main()
     // `doctor` is the place to diagnose them.
     console.error(error instanceof Error ? error.message : String(error));
   })
-  // Reads `exitCode` rather than forcing 0, so `pair` can still report that it
-  // timed out or was declined — it is a command a person runs and reads, not a
-  // hook, and it previously set an exit code that this line discarded. No hook
-  // path sets `exitCode`, so their guarantee is unchanged.
-  .finally(() => process.exit(process.exitCode ?? 0));
+  // Two independent sources, and neither may swallow the other. `setup` and
+  // `status` return a code directly (which is what lets `status` gate a
+  // devcontainer or CI step); `pair` reports a timeout or a decline through
+  // `process.exitCode`. No hook path sets either, so the hooks' always-zero
+  // guarantee is unchanged.
+  .finally(() => process.exit(setupExitCode ?? process.exitCode ?? 0));
