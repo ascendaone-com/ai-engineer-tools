@@ -29,6 +29,12 @@ async function main(): Promise<void> {
     sessionId,
     onNotice: emitSystemMessage
   });
+  // Delivery, including the notices above, is `deliverHookEvents` in tool-kit.
+  // Every outcome it sees is also written to the shared send journal at
+  // ~/.ascenda/state/<installationId>.json by the sender underneath it, so a
+  // Codex collector that stops delivering leaves the same readable trail a
+  // Claude Code one does — successes included, which is what makes a stale
+  // journal mean "never ran" rather than "healthy".
 }
 
 function emitSystemMessage(message: string): void {

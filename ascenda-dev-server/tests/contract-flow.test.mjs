@@ -7,6 +7,13 @@ import { createDevServer } from "../dist/server.js";
 import kit from "@ascenda-one/tool-kit";
 const { createPairingSession, getPairingStatus, postToolEvent, postToolEventsBatch, renewToolToken } = kit;
 
+// The ingest calls return a verdict plus its evidence (status, error code) so
+// the collector can journal *why* it failed. These assertions are about the
+// verdict alone, so they unwrap it here rather than restating the shape
+// everywhere.
+const ingest = async (...args) => (await postToolEvent(...args)).result;
+const ingestBatch = async (...args) => (await postToolEventsBatch(...args)).result;
+
 let base;
 let devServer;
 const silent = () => {};
@@ -45,21 +52,21 @@ test("full contract flow: pair -> ingest -> renew -> revoke -> 401", async () =>
   const token = status1.eventWriteToken;
 
   // single + batch ingest
-  assert.equal(await postToolEvent(base, token, event()), "accepted");
-  assert.equal(await postToolEventsBatch(base, token, [event(), event({ eventType: "compile_error", severity: "medium" })]), "accepted");
+  assert.equal(await ingest(base, token, event()), "accepted");
+  assert.equal(await ingestBatch(base, token, [event(), event({ eventType: "compile_error", severity: "medium" })]), "accepted");
   assert.equal(devServer.state.events.length, 3);
   assert.equal(devServer.state.events[2].category, "risk", "category derived from the contract map");
 
   // renew rotates; old token now rejected, new accepted
   const renewed = await renewToolToken(base, token);
   assert.ok(renewed.eventWriteToken.startsWith("devtok_"));
-  assert.equal(await postToolEvent(base, token, event()), "auth_failed", "old token rejected after rotation");
-  assert.equal(await postToolEvent(base, renewed.eventWriteToken, event()), "accepted");
+  assert.equal(await ingest(base, token, event()), "auth_failed", "old token rejected after rotation");
+  assert.equal(await ingest(base, renewed.eventWriteToken, event()), "accepted");
 
   // revoke: ingest and renew both 401 (renewToolToken returns null per contract)
   const res = await fetch(`${base}/v1/connected-tools/${encodeURIComponent("cli_agent:it-test")}`, { method: "DELETE" });
   assert.equal(res.status, 200);
-  assert.equal(await postToolEvent(base, renewed.eventWriteToken, event()), "auth_failed");
+  assert.equal(await ingest(base, renewed.eventWriteToken, event()), "auth_failed");
   assert.equal(await renewToolToken(base, renewed.eventWriteToken), null);
 });
 
@@ -68,16 +75,16 @@ test("consent lease: expiry pauses ingest with consent_missing, renewal resumes"
   const token = (await getPairingStatus(base, session.pairingSessionId)).eventWriteToken;
 
   await fetch(`${base}/_dev/consent`, { method: "POST", body: JSON.stringify({ active: false }) });
-  assert.equal(await postToolEvent(base, token, event({ toolInstallationId: "cli_agent:consent-test" })), "consent_missing");
+  assert.equal(await ingest(base, token, event({ toolInstallationId: "cli_agent:consent-test" })), "consent_missing");
   await fetch(`${base}/_dev/consent`, { method: "POST", body: JSON.stringify({ active: true }) });
-  assert.equal(await postToolEvent(base, token, event({ toolInstallationId: "cli_agent:consent-test" })), "accepted");
+  assert.equal(await ingest(base, token, event({ toolInstallationId: "cli_agent:consent-test" })), "accepted");
 });
 
 test("unknown event types are accepted but tagged unclassified", async () => {
   const session = await createPairingSession(base, "cli_agent:drift-test", "cli_agent", null);
   const token = (await getPairingStatus(base, session.pairingSessionId)).eventWriteToken;
   const before = devServer.state.unclassified;
-  assert.equal(await postToolEvent(base, token, event({ toolInstallationId: "cli_agent:drift-test", eventType: "made_up_event" })), "accepted");
+  assert.equal(await ingest(base, token, event({ toolInstallationId: "cli_agent:drift-test", eventType: "made_up_event" })), "accepted");
   assert.equal(devServer.state.unclassified, before + 1, "drift is visible, not rejected");
 });
 

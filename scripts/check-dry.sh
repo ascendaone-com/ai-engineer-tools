@@ -16,6 +16,7 @@ consumer_dirs=(
   ascenda-agent-mcp/src
   ascenda-pairing-sim/src
   ascenda-dev-server/src
+  ascenda-history-import/src
   packages/ide-extension-core/src
 )
 existing_dirs=()

@@ -42,7 +42,19 @@ export type ConnectedTool = {
  * lifecycle events (tool calls, file writes, compaction) never require.
  * Default off; a user consenting to `ide_telemetry` has not consented to this.
  */
-export type ToolConsentScope = "ide_telemetry" | "workflow_telemetry" | "subjective_checkins" | "semantic_work_signals";
+/**
+ * `historical_import` is its own scope for the same reason, one step further out.
+ * Every other scope here is prospective — from now on, as you work, this tool
+ * reports what it sees. A retrospective import is a different act on a different
+ * corpus: months of past sessions the person already lived, written before they
+ * had heard of us, in stores they may have assumed nobody would ever read.
+ * Agreeing that a tool may watch you going forward is not agreeing it may go
+ * back. Default off, and the backend enforces it on the event's *provenance*
+ * (`historical_direct` / `historical_derived` / `historical_unparsed`), not on
+ * this string — a client that keeps sending `ide_telemetry` over backdated
+ * events is rejected regardless of what it claims.
+ */
+export type ToolConsentScope = "ide_telemetry" | "workflow_telemetry" | "subjective_checkins" | "semantic_work_signals" | "historical_import";
 
 export type AscendaTelemetrySource =
   | "vscode_extension"
@@ -217,6 +229,26 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
 
   /** Hashed, local-only task identifier — never raw task content. */
   taskFingerprint?: string;
+
+  /**
+   * Required whenever `provenance` is one of the historical classes. The stable
+   * reference to the source record this event was reconstructed from — identical
+   * on every re-run of the importer over the same records, and therefore the key
+   * backend ingestion dedups on. Without it a second import run is
+   * indistinguishable from a second span of work, and doubles the person's whole
+   * historical baseline; ingestion rejects a historical event that omits it.
+   *
+   * Deliberately not `extractionId`, and not a composite with it: an extraction
+   * id is minted per run, so a key including it would be unique on every run and
+   * would dedup exactly nothing.
+   */
+  importKey?: string;
+
+  /** Which import run produced this event. Provenance, never identity — see {@link importKey}. */
+  extractionId?: string;
+
+  /** Version of the normalized historical event shape the importer emitted. */
+  importSchema?: number;
 };
 
 export type AscendaEventPayload = {
@@ -224,6 +256,29 @@ export type AscendaEventPayload = {
   source: AscendaTelemetrySource;
   eventType: AscendaTelemetryEventType;
   occurredAt: string;
+  /**
+   * Minutes the emitter's local clock is AHEAD of UTC at `occurredAt`
+   * (Brisbane = 600, Los Angeles = -420). Optional only so an older
+   * collector's payload still validates; every collector in this repo sends
+   * it.
+   *
+   * It exists because `occurredAt` is UTC and carries no offset, so a
+   * consumer had no way to recover the person's own clock — and the backend
+   * was reading UTC hours as if they were local. On the reference machine
+   * (UTC+10) that flagged the working day as after-hours and missed the
+   * actual evenings: 83% of prompts marked after-hours against a true 15%,
+   * the two rules agreeing on 14% of 22,535 prompts.
+   *
+   * An offset rather than an IANA zone, deliberately. It answers every
+   * question a consumer actually has — after-hours, which local day, which
+   * local week — while naming only a rough longitude band, where
+   * "Australia/Brisbane" narrows a person considerably. Sending less that
+   * still answers the question is the cheaper privacy position.
+   *
+   * Per event, not per install: an offset is a property of an instant, so a
+   * DST boundary inside a backfill is captured rather than flattened.
+   */
+  utcOffsetMinutes?: number | null;
   /**
    * For a type in {@link SEMANTIC_WORK_SIGNAL_EVENT_TYPES}, always send `"low"`.
    * Severity is a judgement against the person's own baseline, which the
@@ -286,7 +341,16 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   scope_change_declared: "neutral"
 };
 
-export type IngestResult = "accepted" | "auth_failed" | "consent_missing" | "validation_failed" | "other";
+/**
+ * `transport_error` covers everything that stopped the event reaching a verdict
+ * — DNS failure, connection reset, timeout, and every HTTP status the ingest
+ * door does not spell out (429, 5xx, a proxy's 502). It exists because the
+ * alternative was a thrown `AscendaApiError`, and on the hook path a throw is
+ * indistinguishable from silence: it unwound to a top-level catch that wrote to
+ * a stderr the host discards. A named outcome can be recorded, retried and
+ * reported; an exception could only be swallowed.
+ */
+export type IngestResult = "accepted" | "auth_failed" | "consent_missing" | "validation_failed" | "transport_error" | "other";
 
 export const ASCENDA_CONSENT_SCOPE: ToolConsentScope = "ide_telemetry";
 export const ASCENDA_PROVENANCE = "ai_work_telemetry";
@@ -301,4 +365,21 @@ export const ASCENDA_SEMANTIC_CONSENT_SCOPE: ToolConsentScope = "semantic_work_s
  * they work with their team.
  */
 export const ASCENDA_COLLABORATION_CONSENT_SCOPE: ToolConsentScope = "workflow_telemetry";
+
+/**
+ * The consent scope every retrospectively imported event must carry — see
+ * `@ascenda-one/history-import`, which is the only thing that emits them.
+ */
+export const ASCENDA_HISTORICAL_CONSENT_SCOPE: ToolConsentScope = "historical_import";
 export const ASCENDA_SEMANTIC_PROVENANCE = "semantic_work_signals";
+
+// The metric-key vocabulary — the `metrics{}` counterpart to
+// EVENT_WORKLOAD_CATEGORY above. See ./metricKeys.ts.
+export {
+  METRIC_KEYS,
+  backendMetricKeys,
+  type MetricKey,
+  type MetricKeySpec,
+  type MetricReader,
+  type MetricValue
+} from "./metricKeys";

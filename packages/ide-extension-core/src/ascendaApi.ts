@@ -32,12 +32,16 @@ export class AscendaApi {
     return renewToolToken(AscendaConfig.apiBaseUrl, eventWriteToken);
   }
 
+  // The transport now returns the status and error code alongside the verdict.
+  // This surface keeps returning the bare verdict because the extension holds
+  // its own token in the editor's SecretStorage and reports through the editor
+  // UI, not the file journal — nothing here consumes the extra fields yet.
   async sendEvent(payload: AscendaEventPayload, eventWriteToken: string): Promise<IngestResult> {
-    return this.logging([payload], () => postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload));
+    return this.logging([payload], async () => (await postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload)).result);
   }
 
   async sendEventsBatch(payloads: AscendaEventPayload[], eventWriteToken: string): Promise<IngestResult> {
-    return this.logging(payloads, () => postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads));
+    return this.logging(payloads, async () => (await postToolEventsBatch(AscendaConfig.apiBaseUrl, eventWriteToken, payloads)).result);
   }
 
   /**
@@ -45,7 +49,9 @@ export class AscendaApi {
    * ascenda.eventLogFile setting). The extension batches, so one HTTP result
    * covers several payloads — each gets its own line carrying that shared
    * result. An unreachable backend is logged too: that is when reading the log
-   * is most useful.
+   * is most useful — and it now arrives as `transport_error` rather than as a
+   * thrown error caught by the `other` default, because the transport returns
+   * that outcome instead of throwing.
    */
   private async logging(payloads: AscendaEventPayload[], send: () => Promise<IngestResult>): Promise<IngestResult> {
     const logFile = AscendaConfig.eventLogFile;

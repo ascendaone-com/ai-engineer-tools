@@ -1,4 +1,4 @@
-import { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "@ascenda-one/tool-kit";
+import { defaultStateFilePath, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "@ascenda-one/tool-kit";
 import { readCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
 
@@ -9,9 +9,21 @@ export type AscendaHookConfig = {
   toolInstallationId: string;
   eventWriteToken: string;
   tokenFilePath: string;
+  stateFilePath: string;
   sessionId?: string | null;
   workspaceHash?: string | null;
+  projectHash?: string | null;
 };
+
+/**
+ * Where the send journal lives for a given installation, resolved the same way
+ * whether or not a token exists. `doctor` and the failure notice both need this
+ * path when {@link loadConfigFromEnv} would throw — an unpaired or rejected
+ * installation is precisely when someone wants to read the journal.
+ */
+export function resolveStateFilePath(toolInstallationId: string): string {
+  return process.env.ASCENDA_STATE_FILE ?? defaultStateFilePath(toolInstallationId);
+}
 
 /**
  * Resolution order, most specific first: environment, then the machine
@@ -42,12 +54,23 @@ export function loadConfigFromEnv(): AscendaHookConfig {
     toolInstallationId,
     eventWriteToken,
     tokenFilePath,
+    stateFilePath: resolveStateFilePath(toolInstallationId),
     sessionId: process.env.ASCENDA_SESSION_ID ?? null,
-    workspaceHash: process.env.ASCENDA_WORKSPACE_HASH ?? null
+    // Overrides only. When unset, main() fills these from the hook payload's
+    // own cwd — the payload knows where the work happened; the environment
+    // this hook inherits does not have to.
+    workspaceHash: envHashOverride("ASCENDA_WORKSPACE_HASH"),
+    projectHash: envHashOverride("ASCENDA_PROJECT_HASH")
   };
 }
 
-function normalizeToolInstallationId(value: string): string {
+/** An empty or whitespace variable is "unset", not "override with nothing". */
+export function envHashOverride(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value ? value : null;
+}
+
+export function normalizeToolInstallationId(value: string): string {
   const trimmed = value.trim();
   if (trimmed.includes(":")) return trimmed;
   if (trimmed.startsWith("claude_tool_")) return `${ASCENDA_TOOL_TYPE}:${trimmed.slice("claude_tool_".length)}`;

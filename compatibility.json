@@ -1,0 +1,27 @@
+{
+  "$comment": [
+    "Hand-authored compatibility floors for the release manifest. Every field here MUST name a consumer that acts on it, and that consumer must exist. A declared dependency nothing enforces is decoration, and decoration in a health surface is the exact defect this repo spent 17-18 Aug 2026 removing: a true fact nobody can act on reads as noise and trains people to ignore the surface.",
+    "Deliberately absent: contractVersion, which scripts/release-artifacts.mjs derives from packages/tool-contract/package.json. Restating it here would create two sources of truth for one fact, and the drift would be invisible.",
+    "Also deliberately absent: any floor on the backend. api.ascenda.one is continuously deployed and is always the newest build, so a minimum backend version is a number that can never be false — which makes it worthless as a check."
+  ],
+
+  "minCollectorVersion": "0.1.9",
+  "$minCollectorVersion": {
+    "means": "Oldest collector release still considered current. Below this, a running installation is out of date.",
+    "consumers": [
+      "doctor — prints 'update available' when the running version is below this",
+      "apps/macos Connections row — states the version alongside 'last seen', without colour or reproach"
+    ],
+    "why 0.1.9": "First release whose sends are journalled (~/.ascenda/state). Below it, a failing collector is undiagnosable, which is the floor's whole purpose."
+  },
+
+  "minMacosAppVersion": "0.1.2",
+  "$minMacosAppVersion": {
+    "means": "Oldest Ascenda Flow build for macOS that can render what these collectors emit.",
+    "consumers": [
+      "apps/macos/tools/appcast-requires.mjs — emits it into the Sparkle appcast item as <ascendaRequires>",
+      "the app's SPUUpdaterDelegate — reads that element to tell a user their app is behind its tools"
+    ],
+    "why 0.1.2": "Current shipping build; no collector field yet requires more. Raise this only when a collector emits something an older app renders wrongly — never merely because a newer app exists."
+  }
+}

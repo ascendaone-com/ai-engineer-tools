@@ -152,7 +152,7 @@ export class PairingService {
 
   private getDisplayName(): string {
     // An editor-wide pairing gets an editor-wide name. The old label froze
-    // whichever workspace was open at pairing time ("asc-core-be on VS
+    // whichever workspace was open at pairing time ("some-repo on VS
     // Code"), which misread the scope as per-project — one pairing covers
     // every project this editor opens — and sent a repository name to the
     // backend, the exact thing the privacy defaults promise never leaves

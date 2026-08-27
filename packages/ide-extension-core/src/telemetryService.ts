@@ -14,7 +14,7 @@ import {
   AscendaTelemetryEventType
 } from "@ascenda-one/tool-contract";
 import { emitLiveSignal, isAfterHours } from "@ascenda-one/tool-kit";
-import { getWorkspaceHash } from "./privacy";
+import { getProjectHash, getWorkspaceHash } from "./privacy";
 
 export class TelemetryService implements vscode.Disposable {
   private readonly queue: AscendaEventPayload[] = [];
@@ -144,6 +144,7 @@ export class TelemetryService implements vscode.Disposable {
       severity,
       sessionId: this.sessionId,
       workspaceHash: getWorkspaceHash(),
+      projectHash: getProjectHash(),
       consentScope: ASCENDA_CONSENT_SCOPE,
       provenance: ASCENDA_PROVENANCE,
       privacyMode: "metadata_only",

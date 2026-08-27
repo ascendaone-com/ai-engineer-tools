@@ -11,6 +11,22 @@ export type ClaudeHookEventName =
   | "PostToolUse" | "PostToolUseFailure"
   | "PreCompact" | "PostCompact" | "Stop" | "Notification";
 
+/**
+ * The same names as a value, so an unrecognised argument can be rejected
+ * *before* the CLI blocks on stdin. Without this check `--version` (or any
+ * typo) waits forever on a pipe that will never carry a hook payload —
+ * measured at over three minutes before the caller gave up.
+ */
+export const CLAUDE_HOOK_EVENT_NAMES: readonly ClaudeHookEventName[] = [
+  "SessionStart", "UserPromptSubmit", "PreToolUse",
+  "PostToolUse", "PostToolUseFailure",
+  "PreCompact", "PostCompact", "Stop", "Notification"
+];
+
+export function isClaudeHookEventName(value: string): value is ClaudeHookEventName {
+  return (CLAUDE_HOOK_EVENT_NAMES as readonly string[]).includes(value);
+}
+
 export type MappedAscendaEvent = Omit<AscendaEventPayload, "toolInstallationId" | "source" | "occurredAt" | "consentScope" | "provenance" | "privacyMode">;
 export type ClaudeHookInput = Record<string, unknown>;
 

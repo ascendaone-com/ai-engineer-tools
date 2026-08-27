@@ -1,3 +1,4 @@
+import { utcOffsetMinutesAt } from "./afterHours";
 import {
   ASCENDA_CONSENT_SCOPE,
   ASCENDA_PROVENANCE,
@@ -14,8 +15,9 @@ import {
   SEMANTIC_WORK_SIGNAL_EVENT_TYPES
 } from "@ascenda-one/tool-contract";
 import { appendEventLog, resolveEventLogPath } from "./eventLog";
-import { postToolEvent, renewToolToken } from "./http";
+import { IngestOutcome, isRetryableStatus, postToolEvent, renewToolToken } from "./http";
 import { persistEventWriteToken } from "./tokenStore";
+import { CollectorState, defaultStateFilePath, recordSendOutcome } from "./stateStore";
 
 export type MappedEvent = {
   eventType: AscendaTelemetryEventType;
@@ -49,8 +51,11 @@ export type EventSenderConfig = {
   tokenFilePath: string;
   sessionId?: string | null;
   workspaceHash?: string | null;
+  projectHash?: string | null;
   /** Hard cap per HTTP call. Hook-path telemetry must fail fast, never stall the agent. */
   timeoutMs?: number;
+  /** Send journal location. Defaults to ~/.ascenda/state/<installationId>.json. */
+  stateFilePath?: string;
   /** Local JSONL sink. Defaults to ASCENDA_EVENT_LOG_FILE; absent means no logging. */
   eventLogFile?: string | null;
 };
@@ -61,6 +66,7 @@ export type EventIdentity = {
   source: AscendaTelemetrySource;
   sessionId?: string | null;
   workspaceHash?: string | null;
+  projectHash?: string | null;
 };
 
 /**
@@ -79,8 +85,10 @@ export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent):
     toolInstallationId: identity.toolInstallationId,
     source: identity.source,
     occurredAt: new Date().toISOString(),
+    utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
     sessionId: identity.sessionId ?? undefined,
     workspaceHash: identity.workspaceHash ?? undefined,
+    projectHash: identity.projectHash ?? undefined,
     consentScope: ASCENDA_CONSENT_SCOPE,
     provenance: ASCENDA_PROVENANCE,
     privacyMode: "metadata_only",
@@ -90,12 +98,25 @@ export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent):
 }
 
 /**
+ * Applied when a caller sets no `timeoutMs`. Previously the absence of one
+ * meant no timeout at all: a hung connection stalled the hook until the host's
+ * own hook timeout killed it, dropping the event with nothing written anywhere.
+ * Telemetry is never worth making a user wait, so the cap is short and the
+ * failure is recorded rather than raised.
+ */
+const DEFAULT_TIMEOUT_MS = 5_000;
+
+/** One retry only, and a short pause — this runs between a user and their agent. */
+const RETRY_DELAY_MS = 250;
+
+/**
  * Shared one-shot event sender for agent hook adapters (Claude Code, Codex).
  * Sends metadata-only events with the standard consent scope and provenance,
  * renews the event write token once on auth failure, and persists rotations.
  */
 export class AscendaEventSender {
   private eventWriteToken: string;
+  private lastState: CollectorState | undefined;
 
   constructor(private readonly config: EventSenderConfig) {
     this.eventWriteToken = config.eventWriteToken;
@@ -141,9 +162,11 @@ export class AscendaEventSender {
       source: this.config.source,
       eventType: mapped.eventType,
       occurredAt: new Date().toISOString(),
+      utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
       workspaceHash: this.config.workspaceHash ?? undefined,
+      projectHash: this.config.projectHash ?? undefined,
       consentScope: ASCENDA_SEMANTIC_CONSENT_SCOPE,
       provenance: ASCENDA_SEMANTIC_PROVENANCE,
       privacyMode: "metadata_only",
@@ -173,9 +196,11 @@ export class AscendaEventSender {
       source: this.config.source,
       eventType: mapped.eventType,
       occurredAt: new Date().toISOString(),
+      utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
       workspaceHash: this.config.workspaceHash ?? undefined,
+      projectHash: this.config.projectHash ?? undefined,
       consentScope: ASCENDA_COLLABORATION_CONSENT_SCOPE,
       provenance: ASCENDA_PROVENANCE,
       privacyMode: "metadata_only",
@@ -184,31 +209,73 @@ export class AscendaEventSender {
     return this.post(payload);
   }
 
+  /**
+   * The single choke point every event passes through, and therefore the only
+   * honest place to journal one. Recording here rather than in each adapter is
+   * deliberate: Claude Code, Codex, the GitHub collector and the MCP server all
+   * send through this method, and the defect being fixed showed up in three
+   * separate components because each was left to notice its own failures.
+   */
   private async post(payload: AscendaEventPayload): Promise<IngestResult> {
-    let result: IngestResult;
-    try {
-      result = await postToolEvent(this.config.apiBaseUrl, this.eventWriteToken, payload, this.signal());
-      if (result === "auth_failed") {
-        const renewed = await this.renewEventToken();
-        result = renewed
-          ? await postToolEvent(this.config.apiBaseUrl, this.eventWriteToken, payload, this.signal())
-          : "auth_failed";
-      }
-    } catch (error) {
-      // An unreachable backend is exactly when the local log earns its keep, so
-      // record the event before letting the caller see the failure.
-      this.log(payload, "other");
-      throw error;
-    }
-
-    this.log(payload, result);
-    return result;
+    const outcome = await this.attempt(payload);
+    this.lastState = recordSendOutcome(this.stateFilePath(), this.config.toolInstallationId, outcome.result, {
+      httpStatus: outcome.httpStatus,
+      errorCode: outcome.errorCode,
+      detail: outcome.detail
+    });
+    // The two sinks answer different questions and both are written here: the
+    // journal is an always-on summary of whether this collector is healthy, the
+    // event log is an opt-in record of what individual events left the machine.
+    this.log(payload, outcome.result);
+    return outcome.result;
   }
 
+  /**
+   * Two recoveries, each tried once. A rejected token gets a renewal and one
+   * replay — rotation is expected and should heal unattended. A transport
+   * error gets one retry, because the common cases (a restarting instance, a
+   * proxy blip, a 429) clear in well under a second and the alternative is
+   * losing the event outright.
+   */
+  private async attempt(payload: AscendaEventPayload): Promise<IngestOutcome> {
+    const outcome = await postToolEvent(this.config.apiBaseUrl, this.eventWriteToken, payload, this.signal());
+
+    if (outcome.result === "auth_failed") {
+      if (!(await this.renewEventToken())) return outcome;
+      return postToolEvent(this.config.apiBaseUrl, this.eventWriteToken, payload, this.signal());
+    }
+
+    // `httpStatus === undefined` is a network-level failure (DNS, reset,
+    // timeout) — retryable for the same reason a 503 is.
+    if (outcome.result === "transport_error" && (outcome.httpStatus === undefined || isRetryableStatus(outcome.httpStatus))) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      return postToolEvent(this.config.apiBaseUrl, this.eventWriteToken, payload, this.signal());
+    }
+
+    return outcome;
+  }
+
+  /**
+   * The state written by the most recent send, so a caller can decide whether
+   * to surface a one-time notice without re-reading the journal it just wrote.
+   */
+  get state(): CollectorState | undefined {
+    return this.lastState;
+  }
+
+  stateFilePath(): string {
+    return this.config.stateFilePath ?? defaultStateFilePath(this.config.toolInstallationId);
+  }
+
+  /** Never throws: a renewal that errors is a failed renewal, not a failed turn. */
   /**
    * Every send path funnels through {@link post}, so semantic and
    * collaboration signals are logged on the same terms as host events — the
    * log would be misleading as an audit of what left the machine otherwise.
+   *
+   * An unreachable backend used to be logged as `other` from a catch block.
+   * It is now `transport_error` through the ordinary path, because the
+   * transport returns that outcome instead of throwing.
    */
   private log(payload: AscendaEventPayload, delivery: IngestResult): void {
     const logFile = this.config.eventLogFile === undefined ? resolveEventLogPath() : this.config.eventLogFile;
@@ -217,14 +284,18 @@ export class AscendaEventSender {
   }
 
   async renewEventToken(): Promise<boolean> {
-    const renewed = await renewToolToken(this.config.apiBaseUrl, this.eventWriteToken, this.signal());
-    if (!renewed) return false;
-    this.eventWriteToken = renewed.eventWriteToken;
-    persistEventWriteToken(this.config.tokenFilePath, renewed.eventWriteToken);
-    return true;
+    try {
+      const renewed = await renewToolToken(this.config.apiBaseUrl, this.eventWriteToken, this.signal());
+      if (!renewed) return false;
+      this.eventWriteToken = renewed.eventWriteToken;
+      persistEventWriteToken(this.config.tokenFilePath, renewed.eventWriteToken);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
-  private signal(): AbortSignal | undefined {
-    return this.config.timeoutMs ? AbortSignal.timeout(this.config.timeoutMs) : undefined;
+  private signal(): AbortSignal {
+    return AbortSignal.timeout(this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   }
 }

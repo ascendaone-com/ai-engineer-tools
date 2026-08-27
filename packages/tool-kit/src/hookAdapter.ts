@@ -1,7 +1,9 @@
 import { AscendaTelemetrySource } from "@ascenda-one/tool-contract";
+import { recordWorkContext } from "./contextRegistry";
 import { appendEventLog, resolveEventLogPath } from "./eventLog";
 import { AscendaEventSender, MappedEvent, buildEventPayload } from "./eventSender";
 import { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+import { deriveWorkContext } from "./workContext";
 
 /**
  * Shared runtime for CLI agent hook adapters (Codex, Cursor, Windsurf, Gemini).
@@ -21,10 +23,33 @@ export type CliAgentConfig = {
   tokenFilePath: string;
   sessionId?: string | null;
   workspaceHash?: string | null;
+  projectHash?: string | null;
   timeoutMs: number;
 };
 
-export function loadCliAgentConfig(toolType: string, sessionIdFromHook?: string): CliAgentConfig {
+/**
+ * Where this work happened, as wire-ready hashes. Env overrides win (a CI or
+ * privacy-conscious setup can pin or suppress the identity); otherwise both
+ * are derived from the working directory by the shared rule in workContext.ts,
+ * and the labels land in the local registry so the digests stay nameable on
+ * this machine. Hook adapters run IN the project directory, so the process cwd
+ * is the honest default.
+ */
+export function resolveContextHashes(cwd?: string | null): { workspaceHash: string | null; projectHash: string | null } {
+  // An empty or whitespace variable is "unset", not "override with nothing".
+  const workspaceOverride = process.env.ASCENDA_WORKSPACE_HASH?.trim() || null;
+  const projectOverride = process.env.ASCENDA_PROJECT_HASH?.trim() || null;
+  if (workspaceOverride && projectOverride) return { workspaceHash: workspaceOverride, projectHash: projectOverride };
+
+  const context = deriveWorkContext(cwd ?? process.cwd());
+  if (context) recordWorkContext(context);
+  return {
+    workspaceHash: workspaceOverride ?? context?.workspaceHash ?? null,
+    projectHash: projectOverride ?? context?.projectHash ?? null
+  };
+}
+
+export function loadCliAgentConfig(toolType: string, sessionIdFromHook?: string, cwd?: string | null): CliAgentConfig {
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
   const toolInstallationIdRaw = process.env.ASCENDA_TOOL_INSTALLATION_ID;
   if (!toolInstallationIdRaw) throw new Error("Missing ASCENDA_TOOL_INSTALLATION_ID");
@@ -41,13 +66,16 @@ export function loadCliAgentConfig(toolType: string, sessionIdFromHook?: string)
   // Seed token file so tool-scoped renew can persist rotations unattended.
   if (!fileToken) persistEventWriteToken(tokenFilePath, eventWriteToken);
 
+  const contextHashes = resolveContextHashes(cwd);
+
   return {
     apiBaseUrl,
     toolInstallationId,
     eventWriteToken,
     tokenFilePath,
     sessionId: process.env.ASCENDA_SESSION_ID ?? sessionIdFromHook ?? null,
-    workspaceHash: process.env.ASCENDA_WORKSPACE_HASH ?? null,
+    workspaceHash: contextHashes.workspaceHash,
+    projectHash: contextHashes.projectHash,
     // Agents await command hooks; fail fast rather than stall the user's turn.
     timeoutMs: parsePositiveInt(process.env.ASCENDA_HTTP_TIMEOUT_MS) ?? 3000
   };
@@ -57,6 +85,8 @@ export type HookDeliveryOptions = {
   toolType: string;
   source: AscendaTelemetrySource;
   sessionId?: string;
+  /** Working directory of the observed work. Defaults to the hook process's own cwd. */
+  cwd?: string | null;
   /** Surfaced to the user by agents that render hook stdout; defaults to stderr. */
   onNotice?: (message: string) => void;
 };
@@ -72,10 +102,11 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
 
   let config: CliAgentConfig;
   try {
-    config = loadCliAgentConfig(options.toolType, options.sessionId);
+    config = loadCliAgentConfig(options.toolType, options.sessionId, options.cwd);
   } catch (error) {
     const logFile = resolveEventLogPath();
     if (!logFile) throw error;
+    const contextHashes = resolveContextHashes(options.cwd);
     for (const event of events) {
       appendEventLog(logFile, {
         loggedAt: new Date().toISOString(),
@@ -84,7 +115,8 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
           toolInstallationId: `${options.toolType}:unpaired`,
           source: options.source,
           sessionId: options.sessionId ?? null,
-          workspaceHash: process.env.ASCENDA_WORKSPACE_HASH ?? null
+          workspaceHash: contextHashes.workspaceHash,
+          projectHash: contextHashes.projectHash
         }, event)
       });
     }
@@ -99,6 +131,7 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
     tokenFilePath: config.tokenFilePath,
     sessionId: config.sessionId,
     workspaceHash: config.workspaceHash,
+    projectHash: config.projectHash,
     timeoutMs: config.timeoutMs
   });
 
@@ -109,6 +142,8 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
       notice("Ascenda telemetry paused: renew IDE telemetry consent in the Ascenda app.");
     } else if (result === "auth_failed") {
       notice("Ascenda telemetry paused: connection revoked or expired. Re-pair via an Ascenda IDE extension or pairing-sim.");
+    } else if (result === "transport_error") {
+      notice("Ascenda telemetry paused: the ingest endpoint could not be reached. Your work is unaffected.");
     } else {
       notice(`Ascenda telemetry rejected: ${result}`);
     }

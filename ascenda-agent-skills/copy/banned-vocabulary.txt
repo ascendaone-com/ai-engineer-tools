@@ -1,13 +1,11 @@
 # Ascenda banned vocabulary — terms that must never appear in a Flow-facing
 # (member-visible) DTO, MCP payload, event value, or piece of rendered copy.
 #
-# This is the canonical list cited by asc-core-be's WorkDemandProjection
-# (Program.cs / Services/WorkDemandProjection.cs doc comments) and by this
-# package's own skill/rule content. asc-core-be maintains its own mirrored
-# copy in its unit test (a cross-repo import isn't available), so if you
-# change this file, open a matching change there — search
-# "ai-engineer-tools/ascenda-agent-skills/copy/banned-vocabulary.txt" in
-# that repo for the citing test.
+# This is the canonical list, cited by the backend's projection code and by
+# this package's own skill/rule content. The backend maintains a mirrored
+# copy in its unit tests (a cross-repo import isn't available), so if you
+# change this file, open a matching change there — search the backend repo
+# for this file's path to find the citing test.
 #
 # Scope: this bans what the PRODUCT SAYS TO OR ABOUT A USER (a claim, a
 # label, a field value) — not discussion of these concepts in internal
@@ -15,8 +13,7 @@
 # ban is on assertion, not on the words existing anywhere in the codebase.
 #
 # Rule of thumb behind every line: report the pattern, never the diagnosis
-# (dark-flow-gap-analysis §2.1; asc-core-be PERSONALISED_INTERVENTION_
-# ENGINE_SPEC.md Phase 0; register D19/D20/D26 rule 8).
+# (see the backend's intervention-engine spec and the decision register).
 #
 # One term or exact phrase per line. Matching is case-insensitive substring
 # matching by convention (see tests/bannedVocabulary.test.mjs for this

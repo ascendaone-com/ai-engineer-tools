@@ -2,17 +2,40 @@ export { classifyCommand, isVerificationCommand } from "./commandClassifier";
 export { classifyGitAction, isReworkGitAction } from "./gitActionClassifier";
 export { classifyWorkMilestone, invitesDebrief } from "./workMilestoneClassifier";
 export { bucketLinesChanged, bucketDurationMs } from "./buckets";
-export { isAfterHours } from "./afterHours";
+export {
+  isAfterHours,
+  isOutsideBusinessHours,
+  BUSINESS_DAY,
+  utcOffsetMinutesAt,
+  localHourAt,
+} from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection } from "./payload";
 export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent } from "./eventSender";
 export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";
 export type { EventLogEntry } from "./eventLog";
-export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig } from "./hookAdapter";
+export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig, resolveContextHashes } from "./hookAdapter";
 export type { CliAgentConfig, HookDeliveryOptions } from "./hookAdapter";
 export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
 export { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export {
+  defaultStateFilePath,
+  readCollectorState,
+  recordSendOutcome,
+  shouldAnnounceFailure,
+  markFailureNotified
+} from "./stateStore";
+export type { CollectorState, OutcomeDetail } from "./stateStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
+export { deriveWorkContext } from "./workContext";
+export type { WorkContext } from "./workContext";
+export {
+  recordWorkContext,
+  recordWorkContextAlias,
+  readWorkContextRegistry,
+  workContextRegistryFilePath
+} from "./contextRegistry";
+export type { WorkContextRegistry, WorkContextRegistryEntry } from "./contextRegistry";
 export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates } from "./liveBus";
 export type { LiveBusEvent, LiveBusSignal, PromptSizeBucket } from "./liveBus";
 export {
@@ -22,5 +45,7 @@ export {
   renewToolToken,
   postToolEvent,
   postToolEventsBatch,
-  parseIngestResponse
+  parseIngestResponse,
+  isRetryableStatus
 } from "./http";
+export type { IngestOutcome } from "./http";

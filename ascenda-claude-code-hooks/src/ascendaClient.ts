@@ -14,9 +14,16 @@ export class AscendaClient {
       source: "claude_code",
       eventWriteToken: config.eventWriteToken,
       tokenFilePath: config.tokenFilePath,
+      stateFilePath: config.stateFilePath,
       sessionId: config.sessionId,
-      workspaceHash: config.workspaceHash
+      workspaceHash: config.workspaceHash,
+      projectHash: config.projectHash
     });
+  }
+
+  /** The journal entry written by the most recent {@link send}. */
+  get state() {
+    return this.sender.state;
   }
 
   async send(mapped: MappedAscendaEvent): Promise<IngestResult> {

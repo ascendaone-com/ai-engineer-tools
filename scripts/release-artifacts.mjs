@@ -21,6 +21,7 @@ export const RELEASE_PACKAGES = [
   { dir: "ascenda-codex-hooks", name: "ascenda-codex-hooks", kind: "cli", npm: "@ascenda-one/codex-hooks" },
   { dir: "ascenda-agent-mcp", name: "ascenda-agent-mcp", kind: "cli", npm: "@ascenda-one/agent-mcp" },
   { dir: "ascenda-github-collector", name: "ascenda-github-collector", kind: "cli", npm: "@ascenda-one/github-collector" },
+  { dir: "ascenda-history-import", name: "ascenda-history-import", kind: "cli", npm: "@ascenda-one/history-import" },
 ];
 
 /**
@@ -32,6 +33,39 @@ export function minNode(root = REPO_ROOT) {
   const major = /(\d+)/.exec(engines?.node ?? "");
   if (!major) throw new Error("root package.json has no numeric engines.node");
   return Number(major[1]);
+}
+
+/**
+ * The compatibility floors a release declares, for consumers that cannot see
+ * this repo: `doctor`, the macOS Connections row, and the Sparkle appcast.
+ *
+ * `contractVersion` is **derived** from packages/tool-contract rather than
+ * restated in compatibility.json, because two hand-authored copies of one fact
+ * drift, and the drift is invisible precisely where it matters. The floors that
+ * cannot be derived — they encode a judgement about what is still supported —
+ * are read from compatibility.json, where each carries the consumer that acts
+ * on it.
+ *
+ * Throws rather than defaulting. A manifest that silently ships without its
+ * compatibility block is the failure this whole line of work exists to stop:
+ * the consumer reads "no floor declared" as "everything is fine".
+ */
+export function compatibility(root = REPO_ROOT) {
+  const contractPath = path.join(root, "packages", "tool-contract", "package.json");
+  const { version: contractVersion } = JSON.parse(fs.readFileSync(contractPath, "utf8"));
+  if (!contractVersion) throw new Error(`no version in ${contractPath}`);
+
+  const declared = JSON.parse(fs.readFileSync(path.join(root, "compatibility.json"), "utf8"));
+  const floors = ["minCollectorVersion", "minMacosAppVersion"];
+  for (const key of floors) {
+    if (!declared[key]) throw new Error(`compatibility.json is missing ${key}`);
+    normaliseVersion(declared[key]); // rejects a typo'd floor at build time, not at a user's
+  }
+
+  return {
+    contractVersion,
+    ...Object.fromEntries(floors.map((key) => [key, declared[key]])),
+  };
 }
 
 /** `v1.2.3` and `1.2.3` both normalise to `1.2.3`. */

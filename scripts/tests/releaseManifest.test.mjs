@@ -10,15 +10,24 @@ import { minNode, normaliseVersion } from "../release-artifacts.mjs";
 
 const REPO = "ascendaone-com/ai-engineer-tools";
 
-/** A staging dir holding `files` plus a fake repo root declaring engines.node. */
-function fixture(files, engines = ">=20") {
+/**
+ * A staging dir holding `files` plus a fake repo root declaring engines.node,
+ * a tool-contract version to derive from, and the compatibility floors.
+ */
+function fixture(files, engines = ">=20", compat = COMPAT) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-manifest-"));
   const dir = path.join(base, "release");
   fs.mkdirSync(dir);
   for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), body);
   fs.writeFileSync(path.join(base, "package.json"), JSON.stringify({ engines: { node: engines } }));
+  const contractDir = path.join(base, "packages", "tool-contract");
+  fs.mkdirSync(contractDir, { recursive: true });
+  fs.writeFileSync(path.join(contractDir, "package.json"), JSON.stringify({ version: "0.1.0" }));
+  if (compat !== null) fs.writeFileSync(path.join(base, "compatibility.json"), JSON.stringify(compat));
   return { base, dir };
 }
+
+const COMPAT = { minCollectorVersion: "0.1.9", minMacosAppVersion: "0.1.2" };
 
 test("describes every artifact with a pinned url and checksum", () => {
   const { base, dir } = fixture({ "ascenda-vscode.vsix": "vsix-bytes", "cli.js": "cli-bytes" });
@@ -72,4 +81,47 @@ test("normalises tags with and without the v prefix", () => {
   assert.equal(normaliseVersion("1.2.3"), "1.2.3");
   assert.equal(normaliseVersion("v1.2.3-rc.1"), "1.2.3-rc.1");
   assert.throws(() => normaliseVersion("v1.2"), /semver/);
+});
+
+
+test("the manifest carries the compatibility floors a consumer cannot otherwise see", () => {
+  const { base, dir } = fixture({ "cli.js": "bytes" });
+  const { compatibility } = buildManifest({ tag: "v1.2.3", dir, repo: REPO, root: base });
+
+  assert.deepEqual(compatibility, {
+    contractVersion: "0.1.0",
+    minCollectorVersion: "0.1.9",
+    minMacosAppVersion: "0.1.2"
+  });
+});
+
+test("contractVersion is derived, so it cannot drift from tool-contract", () => {
+  // The point of deriving rather than restating: bumping the package is the
+  // only way to change the manifest's claim about it.
+  const { base, dir } = fixture({ "cli.js": "bytes" });
+  fs.writeFileSync(
+    path.join(base, "packages", "tool-contract", "package.json"),
+    JSON.stringify({ version: "0.2.0" })
+  );
+  assert.equal(buildManifest({ tag: "v1.2.3", dir, repo: REPO, root: base }).compatibility.contractVersion, "0.2.0");
+});
+
+test("a missing or malformed floor fails the release rather than shipping a silent manifest", () => {
+  // A manifest without its compatibility block is worse than no manifest: the
+  // consumer reads "no floor declared" as "nothing to worry about".
+  const missing = fixture({ "cli.js": "bytes" }, ">=20", null);
+  assert.throws(() => buildManifest({ tag: "v1.2.3", dir: missing.dir, repo: REPO, root: missing.base }), /compatibility/);
+
+  const partial = fixture({ "cli.js": "bytes" }, ">=20", { minCollectorVersion: "0.1.9" });
+  assert.throws(
+    () => buildManifest({ tag: "v1.2.3", dir: partial.dir, repo: REPO, root: partial.base }),
+    /missing minMacosAppVersion/
+  );
+
+  const typo = fixture({ "cli.js": "bytes" }, ">=20", { ...COMPAT, minMacosAppVersion: "0.1" });
+  assert.throws(
+    () => buildManifest({ tag: "v1.2.3", dir: typo.dir, repo: REPO, root: typo.base }),
+    /semver/,
+    "a typo'd floor must fail at build time, not silently at a user's"
+  );
 });
