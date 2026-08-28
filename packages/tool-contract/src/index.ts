@@ -187,46 +187,82 @@ export type WorkMilestoneKind = "pr_merged" | "pr_opened" | "issue_closed";
 export type PromptClass = "creation" | "verification" | "correction" | "debugging" | "planning" | "unknown";
 
 /**
- * How much of the agent's work the human was approving when an event
- * happened — the supervision posture, coarsened from whatever permission
- * vocabulary the runtime happens to use.
+ * The permission posture the runtime reported when an event happened —
+ * **upstream's own word, snake-cased, and nothing else**.
  *
- * **This vocabulary is ours, not the runtime's, and that is the point.**
- * Claude Code's own `permission_mode` has six documented values (`default`,
+ * **This vocabulary mirrors the runtime's; it is deliberately not ours.**
+ * Claude Code's `permission_mode` has six documented values (`default`,
  * `plan`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, checked 28
- * Aug 2026) and Anthropic may add more without telling us; Codex and the VS
- * Code extension will name their equivalents differently or not at all. A
- * ladder of postures is the thing every collector can map onto, and the thing
- * a cross-agent query can compare. Consequently **every mapping onto this type
- * must be a total function**: an unrecognised runtime value becomes `unknown`
- * and is still sent, because "a posture we have not seen before" is a fact
- * worth having and a dropped field is not.
+ * Aug 2026). Each takes exactly one token here, and the only transformation
+ * applied is snake-casing — so the wire vocabulary is auditable against
+ * Anthropic's published reference with no translation table in between, and
+ * nobody has to defend a word upstream does not use.
  *
- * The rungs, most supervised first:
+ * **Granular at capture, coarse at read — never the reverse.** An earlier
+ * draft of this type was a five-rung posture ladder
+ * (`planning`/`supervised`/`edits_auto`/`delegated`/`unsupervised`) that
+ * collapsed `auto` and `dontAsk` into one token. That coarsening is not
+ * injective, and this corpus is effectively immutable — `ToolTelemetryEvents`
+ * has no retention window and no erasure pathway, and imported rows are never
+ * rewritten — so collapsing at capture is indistinguishable from discarding,
+ * and it is the one decision here that cannot be revisited. A reader can
+ * always coarsen; no reader can un-collapse. The ladder survives as
+ * `autonomyBand` in `@ascenda-one/tool-kit`, derived from the stored token at
+ * read time, where changing our mind costs a query rewrite rather than a lost
+ * year.
  *
- * - `planning`     — nothing executes; the human is deciding before work
- *                    starts (Claude's `plan`).
- * - `supervised`   — every action is approved one at a time (Claude's
- *                    `default`, which the UI labels *Manual* — it never
- *                    arrives on the wire as `"manual"`).
- * - `edits_auto`   — file edits apply without asking; commands still ask
- *                    (Claude's `acceptEdits`).
- * - `delegated`    — actions proceed without per-action approval, with the
- *                    permission rules still applying (Claude's `auto` and
- *                    `dontAsk`).
- * - `unsupervised` — permission checks bypassed entirely (Claude's
- *                    `bypassPermissions`).
- * - `unknown`      — a value the collector did not recognise.
+ * The values, most supervised first:
+ *
+ * - `plan`               — nothing executes; the human is deciding before
+ *                          work starts.
+ * - `default`            — every action is approved one at a time. This is
+ *                          the mode the UI labels *Manual*; it never arrives
+ *                          on the wire as `"manual"`, and a mapping written
+ *                          from the UI's vocabulary would miss the single
+ *                          most common posture entirely.
+ * - `accept_edits`       — file edits apply without asking; commands still
+ *                          ask (upstream `acceptEdits`).
+ * - `auto`               — actions proceed without per-action approval, with
+ *                          the permission rules still applying.
+ * - `dont_ask`           — as `auto`, reached by the user declining to be
+ *                          asked again (upstream `dontAsk`). Whether these
+ *                          two are one posture or two is a *reader's*
+ *                          question, and it stays answerable because both
+ *                          tokens are on the wire.
+ * - `bypass_permissions` — permission checks bypassed entirely (upstream
+ *                          `bypassPermissions`).
+ * - `unknown`            — a value the collector did not recognise.
+ *
+ * **Every mapping onto this type must be a total function**: an unrecognised
+ * runtime value becomes `unknown` and is still sent, because "a posture we
+ * have not seen before" is a fact worth having and a dropped field is not.
+ * Note what that buys `default`: since the fallback is `unknown`, `default`
+ * cannot appear on the wire unless upstream actually sent it, so a reader can
+ * never mistake a recorded posture for a fallback that ran. That is the whole
+ * reason the token is safe to mirror.
  *
  * Absence is not `unknown`: a collector that cannot see a posture at all omits
  * the key, so "this runtime has no such concept" stays distinguishable from
  * "this runtime grew a mode we have not mapped yet".
  *
+ * `auto` also appears in `trigger`, with a different meaning (*what initiated
+ * this event*). Accepted, not accidental: the keys are namespaced, meaning is
+ * per key, and the alternative was inventing a word upstream does not use. It
+ * is a trap only for a query that reads values rather than pairs, and it is
+ * named here rather than discovered in a dashboard.
+ *
  * Live-only by nature. Transcripts do not reliably record permission state, so
  * unlike model mix or token counts this cannot be recovered by a later import
  * — every day it is uncaptured is a day that is simply gone.
  */
-export type AutonomyMode = "planning" | "supervised" | "edits_auto" | "delegated" | "unsupervised" | "unknown";
+export type AutonomyMode =
+  | "default"
+  | "plan"
+  | "accept_edits"
+  | "auto"
+  | "dont_ask"
+  | "bypass_permissions"
+  | "unknown";
 
 /**
  * Which model did the work, at vendor:tier grain and never as a raw id.
@@ -240,9 +276,24 @@ export type AutonomyMode = "planning" | "supervised" | "edits_auto" | "delegated
  * user is wrong for both, and 10.6 tool-calls-per-prompt is a model-dependent
  * number being reported as a universal one.
  *
+ * Coarse, but never coarser than the string allowed. The raw identifier
+ * travels beside this on {@link AscendaEventMetadata.modelId}, so the
+ * coarsening is recoverable rather than destructive — a class is a reading
+ * convenience, not the record.
+ *
  * As with {@link AutonomyMode}, the mapping must be total — an unrecognised
- * identifier becomes `unknown` rather than vanishing, so a new tier shows up
- * as a visible bump in `unknown` instead of as a quiet hole in the mix.
+ * identifier becomes an `unknown` rather than vanishing, so a new tier shows
+ * up as a visible bump instead of a quiet hole in the mix.
+ *
+ * **Partial recognition degrades to the vendor, not to nothing.** An
+ * Anthropic model whose tier we have not mapped is `anthropic:unknown`, never
+ * bare `unknown`. Bare `unknown` is reserved for a string whose *vendor* could
+ * not be read either — `<synthetic>`, a number from an unityped store, a
+ * genuine surprise. The classifier therefore reads vendor and tier as two
+ * separate steps: coarsening `anthropic:unknown` to `unknown` later is free,
+ * and inventing the vendor back is impossible. Tiers churn on a release
+ * cadence; vendors persist, and vendor-mix-over-time is the reading this field
+ * exists to serve.
  *
  * Claude-Code-first, not uniform. `SessionStart` is the only live hook that
  * can carry a model at all, and even there the docs do not guarantee it (it is
@@ -256,9 +307,13 @@ export type ModelClass =
   | "anthropic:sonnet"
   | "anthropic:haiku"
   | "anthropic:fable"
+  | "anthropic:unknown"
   | "openai:gpt"
+  | "openai:unknown"
   | "google:gemini"
+  | "google:unknown"
   | "local:on_device"
+  | "local:unknown"
   | "unknown";
 
 export type AscendaEventMetadata = Record<string, string | number | boolean | null | undefined> & {
@@ -281,17 +336,18 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   milestoneKind?: WorkMilestoneKind;
 
   /**
-   * The supervision posture in force when this event happened. Per event, not
-   * per session, because it is: the mode is switched mid-session, and a
-   * session summarised by one posture would average away the very transition
-   * this exists to see — supervised babysitting and delegated review are
-   * different qualities of demand, and until now the record could not tell
-   * them apart at all.
+   * The permission posture in force when this event happened, in upstream's
+   * own vocabulary. Per event, not per session, because it is: the mode is
+   * switched mid-session, and a session summarised by one posture would
+   * average away the very transition this exists to see — approving every
+   * step and reviewing after the fact are different qualities of demand, and
+   * until now the record could not tell them apart at all.
    *
    * Sent on every event whose payload carries a posture. Omitted — never
    * `unknown` — where the runtime does not report one, so a collector without
    * the concept stays distinguishable from a value we failed to map. See
-   * {@link AutonomyMode} for why an unmapped value must still be sent.
+   * {@link AutonomyMode} for why an unmapped value must still be sent, and for
+   * why no posture *band* is ever computed here rather than in a reader.
    */
   autonomyMode?: AutonomyMode;
 
@@ -306,8 +362,39 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * corpus has carried the raw `primaryModel` since the first extractor; the
    * live stream, which costs roughly twenty times the storage, has carried
    * nothing. See {@link ModelClass}.
+   *
+   * Never sent alone. {@link AscendaEventMetadata.modelId} carries the raw
+   * string it was derived from on the same row, so the class can always be
+   * re-derived if the vocabulary changes.
    */
   modelClass?: ModelClass;
+
+  /**
+   * The raw model identifier exactly as the payload reported it, trimmed and
+   * not otherwise altered — `claude-opus-5`, `claude-haiku-4-5-20251001`,
+   * `us.anthropic.claude-…-v1:0`, `<synthetic>`.
+   *
+   * Sent beside {@link AscendaEventMetadata.modelClass}, never instead of it,
+   * and for the reason the class alone was not enough: a class is a lossy
+   * derivation, and this corpus is append-only. When a vendor ships a tier we
+   * have not mapped, a row holding only `anthropic:unknown` has lost which
+   * model actually ran, permanently. Holding the slug makes the coarsening
+   * injective in practice — the reading can be recomputed, so it can be
+   * revised.
+   *
+   * **Not the same measurement as the importer's `primaryModel`, and
+   * deliberately not the same key.** `primaryModel` is the *dominant* model
+   * across a whole imported session, folded out of a transcript after the
+   * fact. This is the model at *session open* — read off `SessionStart`, the
+   * only live hook that can see one — and a mid-session model switch is
+   * invisible to it. Two derivations under one key would fuse two different
+   * things into one column, the same error as fusing provenances into one
+   * rollup row, and no reader downstream could tell which it had.
+   *
+   * Session-grain, so the cost is one field per session rather than per
+   * event. Omitted when the payload reported no model at all.
+   */
+  modelId?: string;
 
   /**
    * Whether the human had edited the file since the agent last wrote it, as

@@ -83,7 +83,7 @@ the part of that gap the live payloads can actually answer.
 | Field | Read from | Rides | Grain |
 | --- | --- | --- | --- |
 | `autonomyMode` | `permission_mode` | `ai_file_*`, `ai_tool_call_*`, `compile_error`, `editor_verification_activity`, `ai_prompt_submitted`, `ai_correction_prompt`, `agent_loop_long` | per event |
-| `modelClass` | `model` (optional) | `create_focus_session` | per session |
+| `modelClass` + `modelId` | `model` (optional) | `create_focus_session` | per session |
 | `userModified` | `tool_response.userModified` | `ai_file_edit`, `ai_file_write` | per write |
 
 Measured wire cost: 29 B on a tool-call, prompt or stop row; 31 B on a session
@@ -95,24 +95,58 @@ same reason `gitAction` and `milestoneKind` do: a posture, a model and a
 correction are facts *about* the call that just happened, not different kinds
 of thing happening.
 
-### `autonomyMode` — supervision posture
+### `autonomyMode` — the permission posture, mirrored
 
 Six documented `permission_mode` values (checked against Claude Code's hooks
-reference, 28 Aug 2026), coarsened onto a posture ladder that is **ours**:
+reference, 28 Aug 2026). **Each takes its own token, and snake-casing is the
+only transformation applied:**
 
 | `permission_mode` | `autonomyMode` |
 | --- | --- |
-| `plan` | `planning` |
-| `default` | `supervised` |
-| `acceptEdits` | `edits_auto` |
-| `auto` | `delegated` |
-| `dontAsk` | `delegated` |
-| `bypassPermissions` | `unsupervised` |
+| `default` | `default` |
+| `plan` | `plan` |
+| `acceptEdits` | `accept_edits` |
+| `auto` | `auto` |
+| `dontAsk` | `dont_ask` |
+| `bypassPermissions` | `bypass_permissions` |
 | *anything else* | `unknown` |
+| *field not in the payload* | *key omitted* |
 
 `default` is the mode the UI labels **Manual** — it never arrives on the wire
 as `"manual"`, and a mapping written from the UI's vocabulary would have missed
-the most common posture entirely.
+the most common posture entirely. Keeping it as `default` rather than renaming
+it to `manual` is safe because the fallback is `unknown`: a `default` on the
+wire is always a posture Anthropic reported, never one this mapper invented.
+
+Mirroring buys three things a rename cannot: the vocabulary is auditable
+against Anthropic's published reference with no translation table, nobody has
+to defend a word upstream does not use, and there is no second vocabulary to
+keep in step as upstream's grows.
+
+`auto` collides with `trigger`'s `auto`, which means *what initiated this
+event*. Accepted and documented rather than dodged: the keys are namespaced and
+meaning is per key, so it is legal and readable — but it is a trap for a query
+that reads values rather than pairs.
+
+#### Granular at capture, coarse at read
+
+The five-rung ladder this field first shipped with —
+`planning`/`supervised`/`edits_auto`/`delegated`/`unsupervised` — **is gone
+from the wire.** It mapped both `auto` and `dontAsk` onto `delegated`, and that
+collapse is not injective.
+
+That matters because the corpus is effectively immutable: `ToolTelemetryEvents`
+has no retention window and no erasure pathway, and imported rows are never
+rewritten. Coarsening at capture is therefore indistinguishable from
+discarding, and it is the one decision here that cannot be revisited. A reader
+can always pool two tokens; no reader can un-collapse one.
+
+The test for any transformation applied at capture is **whether it is
+injective**. Snake-casing is (`accept_edits` recovers `acceptEdits`), so it is
+safe. Fusing two modes into one rung is not, so it moved to the reader:
+`autonomyBand` in `@ascenda-one/tool-kit` derives the same ladder from the
+stored token, and those bands are explicitly **not frozen** — changing our mind
+there costs a query rewrite rather than a lost year of rows.
 
 - **The mapping is total.** Anthropic's list may grow; an unrecognised value
   becomes `unknown` and is still sent, so a new mode shows up as a rising
@@ -135,10 +169,39 @@ the most common posture entirely.
   the honest grain: the mode is switched mid-session, and a session summarised
   by one posture would average away the transition this exists to see.
 
-### `modelClass` — coarse vendor:tier
+### `modelClass` + `modelId` — the reading, and the record it came from
 
 `anthropic:opus` | `anthropic:sonnet` | `anthropic:haiku` | `anthropic:fable` |
-`openai:gpt` | `google:gemini` | `local:on_device` | `unknown`.
+`anthropic:unknown` | `openai:gpt` | `openai:unknown` | `google:gemini` |
+`google:unknown` | `local:on_device` | `local:unknown` | `unknown`.
+
+**Partial recognition degrades to the vendor, not to nothing.** The classifier
+reads vendor and tier as two separate steps, so an Anthropic model whose tier
+we have not mapped is `anthropic:unknown`. The day a vendor ships an unmapped
+tier name is certain — it is the reason this rule exists — and flat `unknown`
+would make those rows indistinguishable from a garbage string, losing the
+vendor. Tiers churn on a release cadence; vendors persist, and
+vendor-mix-over-time is the reading this field exists to serve. Coarsening
+`anthropic:unknown` down to `unknown` later costs a query; inventing the vendor
+back costs the rows.
+
+Bare `unknown` therefore means exactly one thing: **the vendor could not be
+read either.** `<synthetic>` is a real value in the store, is not a model, and
+correctly lands there.
+
+**`modelId` carries the raw slug on the same row, on its own key.** A class is
+a lossy derivation written into an append-only corpus, so on its own it cannot
+be revised: a row holding only `anthropic:unknown` has lost which model
+actually ran. With the slug beside it the coarsening is recoverable, and the
+vocabulary can be improved against history rather than only against new rows.
+Both keys ship together or neither does.
+
+`modelId` is deliberately **not** the importer's `primaryModel`, and must never
+be merged with it. `primaryModel` is the *dominant* model across a whole
+imported session; `modelId` is the model at *session open*, and a mid-session
+switch is invisible to it. Two different measurements under one key is a column
+no reader can interpret — the same error as fusing two provenances into one
+rollup row.
 
 Session-grain by necessity. **`SessionStart` is the only live hook that can
 carry a model**, and even there the docs do not guarantee it — it is omitted
@@ -153,13 +216,18 @@ reading the transcript. Deliberately not done: that puts file I/O on a
 per-tool-call hot path, against a format the docs say can lag the live
 conversation.
 
-Coarse, never the raw id. Matching is on the tier word, which survives every
-form seen in Claude Code's own store — `claude-opus-5`, `claude-sonnet-5`,
+Matching is on words, not on whole ids. The tier word survives every form seen
+in Claude Code's own store — `claude-opus-5`, `claude-sonnet-5`,
 `claude-fable-5`, `claude-haiku-4-5-20251001`, a bare `fable`, and the dated,
-Bedrock- and Vertex-prefixed variants. A raw id carries a dated build and a
-deployment surface and changes on Anthropic's cadence, so norm tables would
-re-bucket themselves on a point release. `<synthetic>` is a real value in the
-store, is not a model, and correctly lands on `unknown`.
+Bedrock- and Vertex-prefixed variants — so a point release cannot silently
+re-bucket a person's norm table. The vendor is read from more than its tier
+words: the family name, the corporate prefix a Bedrock or Vertex id carries,
+and, for OpenAI's reasoning line, the bare `o1`/`o3` form that carries no
+family word at all. That is what lets an unmapped tier still land under its
+vendor.
+
+`modelClass` is a reading; `modelId` is the record. Charts group by the class,
+and anything that needs to know exactly which build ran reads the slug.
 
 Claude-Code-first, not uniform: the Codex hooks and the VS Code extension know
 no model at all, so this must never be promised as a cross-collector field.

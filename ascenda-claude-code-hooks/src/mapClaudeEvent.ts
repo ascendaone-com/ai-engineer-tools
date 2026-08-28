@@ -79,13 +79,32 @@ function mapSessionStart(input: ClaudeHookInput): MappedAscendaEvent[] {
   // The `startup`/`resume` gate above is unchanged and happens to align with
   // when a model is present at all; `clear`/`compact` are the resets where it
   // is dropped, and they were already skipped for their own reasons.
-  const modelClass = classifyModelClass(readModelIdentifier(input));
+  //
+  // Both keys or neither. `modelId` is the raw slug and `modelClass` the
+  // reading of it, and they ship together because a class alone is a lossy
+  // derivation written into an append-only corpus: the day Anthropic ships a
+  // tier we have not mapped, a row holding only `anthropic:unknown` has lost
+  // which model actually ran, permanently. With the slug beside it the
+  // coarsening stays recoverable, so the vocabulary can be revised later
+  // against history rather than only against new rows.
+  //
+  // It is `modelId`, not `primaryModel`, and the two must not be fused: the
+  // importer's `primaryModel` is the dominant model across a whole session,
+  // while this is the model at session open — a mid-session switch is
+  // invisible to it. One key holding two different measurements is a column no
+  // reader can interpret.
+  //
+  // Session-grain, so this is one extra field per session, not per event.
+  const modelId = readModelIdentifier(input)?.trim();
+  const modelClass = classifyModelClass(modelId);
   return [{
     eventType: "create_focus_session",
     severity: "low",
     metadata: {
       activity: "session_started",
-      ...(modelClass !== undefined ? { modelClass } : {})
+      // `classifyModelClass` returns undefined exactly when nothing was
+      // reported (absent, empty, whitespace), so this one guard governs both.
+      ...(modelClass !== undefined && modelId ? { modelClass, modelId } : {})
     }
   }];
 }
@@ -221,8 +240,8 @@ function mapStop(input: ClaudeHookInput): MappedAscendaEvent[] {
   // Catalog only includes agent_loop_long (risk), not agent_loop_completed.
   if (durationBucket === "30-60m" || durationBucket === "60m+") {
     // The posture matters most here of anywhere: a 90-minute loop under
-    // `supervised` is 90 minutes of a person approving every step, and the
-    // same 90 minutes under `unsupervised` is a person who walked away. The
+    // `default` is 90 minutes of a person approving every step, and the same
+    // 90 minutes under `bypass_permissions` is a person who walked away. The
     // event has never been able to tell those apart.
     return [{ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: { durationBucket, reason: "long_session", trigger: "inferred", ...autonomyModeMetadata(input) } }];
   }
@@ -270,20 +289,29 @@ function readPermissionMode(input: ClaudeHookInput): unknown {
 }
 
 /**
- * Claude Code's `permission_mode` onto our own posture ladder. **Total by
- * contract** — every input, including a number, an object, or a mode Anthropic
- * ships next month, produces a value. Exported so the totality is testable
- * directly rather than only through a hook payload.
+ * Claude Code's `permission_mode` onto `AutonomyMode`. **Total by contract** —
+ * every input, including a number, an object, or a mode Anthropic ships next
+ * month, produces a value. Exported so the totality is testable directly
+ * rather than only through a hook payload.
  *
+ * **A 1:1 mirror of upstream, snake-cased, and that is the entire mapping.**
  * The six documented values (checked against Claude Code's hooks reference, 28
  * Aug 2026) are `default`, `plan`, `acceptEdits`, `auto`, `dontAsk` and
- * `bypassPermissions`. Note that `default` is the mode the UI labels *Manual*:
- * it never arrives as `"manual"`, and a mapping written from the UI's
- * vocabulary would have missed the single most common posture entirely.
+ * `bypassPermissions`, and each gets its own token. Note that `default` is the
+ * mode the UI labels *Manual*: it never arrives as `"manual"`, and a mapping
+ * written from the UI's vocabulary would have missed the single most common
+ * posture entirely. Keeping it as `default` is safe precisely because the
+ * fallback below is `unknown` — a `default` on the wire is always a posture
+ * Anthropic reported, never one this function invented.
  *
- * `auto` and `dontAsk` both coarsen to `delegated`. They differ in how the
- * user got there, not in how much the agent may do without asking, and the
- * ladder measures the latter.
+ * **`auto` and `dontAsk` are two tokens, not one.** They previously both
+ * coarsened to a `delegated` rung, on the reasoning that they differ in how
+ * the user got there rather than in how much the agent may do without asking.
+ * That reasoning may well be right — but it is a *reader's* judgement, and
+ * coarsening it here is not injective. The corpus is append-only, so a
+ * collapsed pair can never be separated again; a separated pair can be pooled
+ * by any query, any time. `autonomyBand` in `@ascenda-one/tool-kit` is where
+ * that judgement now lives, applied to the stored token at read time.
  *
  * Matching is case-insensitive and trimmed — cheap insurance against a
  * spelling drift that would otherwise turn a known mode into `unknown` and
@@ -295,12 +323,12 @@ export function classifyAutonomyMode(raw: unknown): AutonomyMode {
 }
 
 const AUTONOMY_BY_PERMISSION_MODE: Record<string, AutonomyMode> = {
-  plan: "planning",
-  default: "supervised",
-  acceptedits: "edits_auto",
-  auto: "delegated",
-  dontask: "delegated",
-  bypasspermissions: "unsupervised"
+  default: "default",
+  plan: "plan",
+  acceptedits: "accept_edits",
+  auto: "auto",
+  dontask: "dont_ask",
+  bypasspermissions: "bypass_permissions"
 };
 
 /**
@@ -322,34 +350,92 @@ function readModelIdentifier(input: ClaudeHookInput): string | undefined {
  * string; `undefined` only for a genuinely absent one, keeping "no model was
  * reported" distinct from "a model was reported that we could not place".
  *
- * Matched against real identifiers seen in Claude Code's own store:
- * `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`, `claude-haiku-4-5-20251001`,
- * a bare `fable`, and `<synthetic>` (which is not a model and correctly lands
- * on `unknown`). The tier word is the stable part across all of them, and it
- * survives the dated, Bedrock- and Vertex-prefixed forms too — matching on the
- * word rather than on a full id means a point release does not silently
- * re-bucket a person's whole norm table.
+ * **Two steps, not one, and the split is the whole design.** Vendor is read
+ * first, tier second, so partial recognition degrades to `<vendor>:unknown`
+ * rather than to bare `unknown`. The day a vendor ships a tier name we have
+ * not mapped is certain, and on that day a flat `unknown` would make those
+ * rows indistinguishable from a garbage string — losing the vendor, which is
+ * the half that persists and the half vendor-mix-over-time is read from.
+ * Coarsening `anthropic:unknown` down to `unknown` later costs a query;
+ * inventing the vendor back costs the year of rows.
+ *
+ * Bare `unknown` therefore means exactly one thing: the *vendor* could not be
+ * read either. `<synthetic>` is a real value in Claude Code's store, is not a
+ * model, and correctly lands there.
+ *
+ * Matched on words rather than on whole ids — real identifiers from the store
+ * are `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`,
+ * `claude-haiku-4-5-20251001` and a bare `fable`, and the same words survive
+ * the dated, Bedrock- and Vertex-prefixed forms. A point release therefore
+ * cannot silently re-bucket a person's whole norm table.
+ *
+ * Lossy either way, which is why {@link readModelIdentifier}'s raw string
+ * rides the same row under `modelId`. A class is a reading of the record, not
+ * the record.
  */
 export function classifyModelClass(raw: string | undefined): ModelClass | undefined {
   if (!raw) return undefined;
   const value = raw.trim().toLowerCase();
   if (!value) return undefined;
 
-  for (const [pattern, modelClass] of MODEL_CLASS_PATTERNS) {
+  const vendor = readModelVendor(value);
+  if (vendor === undefined) return "unknown";
+
+  for (const [pattern, modelClass] of TIER_PATTERNS_BY_VENDOR[vendor]) {
     if (pattern.test(value)) return modelClass;
   }
-  return "unknown";
+  return UNKNOWN_TIER_BY_VENDOR[vendor];
 }
 
-const MODEL_CLASS_PATTERNS: readonly (readonly [RegExp, ModelClass])[] = [
-  [/\bopus\b/, "anthropic:opus"],
-  [/\bsonnet\b/, "anthropic:sonnet"],
-  [/\bhaiku\b/, "anthropic:haiku"],
-  [/\bfable\b/, "anthropic:fable"],
-  [/\bgpt\b/, "openai:gpt"],
-  [/\bgemini\b/, "google:gemini"],
-  [/\b(ollama|llamacpp|on[-_]?device)\b/, "local:on_device"]
+type ModelVendor = "anthropic" | "openai" | "google" | "local";
+
+/**
+ * The vendor from the shape of the identifier alone. Ordered: the first match
+ * wins, and the lists are disjoint on every id shape seen so far.
+ *
+ * Each vendor is recognisable by more than its tier words, which is what lets
+ * an unmapped tier still land under its vendor: the family name (`claude`,
+ * `gemini`), the corporate prefix that Bedrock and Vertex ids carry
+ * (`us.anthropic.…`, `publishers/google/…`), and — for OpenAI's reasoning
+ * line, which carries no family word at all — the bare `o1`/`o3`/`o4` form.
+ */
+function readModelVendor(value: string): ModelVendor | undefined {
+  for (const [pattern, vendor] of VENDOR_PATTERNS) {
+    if (pattern.test(value)) return vendor;
+  }
+  return undefined;
+}
+
+const VENDOR_PATTERNS: readonly (readonly [RegExp, ModelVendor])[] = [
+  [/\b(anthropic|claude|opus|sonnet|haiku|fable)\b/, "anthropic"],
+  [/\b(openai|gpt|o[1-9])\b/, "openai"],
+  [/\b(google|gemini|vertex)\b/, "google"],
+  [/\b(ollama|llamacpp|on[-_]?device|local)\b/, "local"]
 ];
+
+/**
+ * Tier patterns scoped to the vendor that was already read, so the two halves
+ * of a `vendor:tier` value can never disagree — a tier is only ever reachable
+ * from its own vendor.
+ */
+const TIER_PATTERNS_BY_VENDOR: Record<ModelVendor, readonly (readonly [RegExp, ModelClass])[]> = {
+  anthropic: [
+    [/\bopus\b/, "anthropic:opus"],
+    [/\bsonnet\b/, "anthropic:sonnet"],
+    [/\bhaiku\b/, "anthropic:haiku"],
+    [/\bfable\b/, "anthropic:fable"]
+  ],
+  openai: [[/\bgpt\b/, "openai:gpt"]],
+  google: [[/\bgemini\b/, "google:gemini"]],
+  local: [[/\b(ollama|llamacpp|on[-_]?device)\b/, "local:on_device"]]
+};
+
+const UNKNOWN_TIER_BY_VENDOR: Record<ModelVendor, ModelClass> = {
+  anthropic: "anthropic:unknown",
+  openai: "openai:unknown",
+  google: "google:unknown",
+  local: "local:unknown"
+};
 
 function getToolName(input: ClaudeHookInput): string | undefined {
   return getString(input, ["toolName", "tool_name", "name"]) ?? getNestedString(input, [["tool", "name"], ["tool_use", "name"], ["payload", "toolName"]]);
