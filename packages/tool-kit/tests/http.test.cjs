@@ -75,7 +75,7 @@ test("isRetryableStatus covers the no-verdict statuses only", () => {
   }
 });
 
-// --- idempotencyKey replays (issues #50 / #51; backend asc-core-be#141) ---
+// --- idempotencyKey replays (issues #50 / #51) ---
 //
 // A replayed event is answered `status: "duplicate"` — the whole response on
 // the single door, per item (with `reason: "already_delivered"`) on the batch

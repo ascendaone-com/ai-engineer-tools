@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 
 /**
  * TelemetryService is the IDE's queue, and the idempotencyKey (issues #50 /
- * #51; backend asc-core-be#141) only works for that queue if it is minted in
+ * #51) only works for that queue if it is minted in
  * track() — when the payload enters `queue` — and never in flush(). Every
  * failure path in flush() unshifts the same objects back, so a key minted at
  * track time survives every re-queue unchanged; a key minted at flush time
