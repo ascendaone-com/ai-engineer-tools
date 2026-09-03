@@ -29,7 +29,7 @@ The vocabulary list used to govern only the model's reasoning — the skill told
 
 `ascenda-work-signals` **writes**: it reports observable patterns through `ascenda_emit_work_signal`, and nothing comes back. `ascenda-work-checkpoints` **reads**: it asks the Flow app's own local MCP server for today's work-demand context, keyed to the project the agent is sitting in, and offers a green run and a commit when that project has run a long stretch with nothing standing as a return point. They share the vocabulary line and nothing else — different tools, different directions, installable apart.
 
-The read skill needs the Flow macOS app running and an agent paired in **Flow › Connections** with the *Demand & workload* scope ticked. It never learns a repository name: it passes its own working directory in and gets back an opaque digest for the project it is already sitting in, and the other projects in the payload are digests it holds no key to.
+The read skill needs the Flow macOS app running and an agent paired in **Flow › Connections** with the *Demand & workload* scope ticked. It never learns a repository name: it passes its own working directory in and gets back an opaque digest for the project it is already sitting in, and the other entries in the payload are digests it holds no key to. Entries are keyed by origin as well as context, and the skill reads only the row a collector actually watched — a day rebuilt afterwards from a transcript is a separate finding, never something to add on top.
 
 ## Installing the Claude Code plugin (recommended)
 

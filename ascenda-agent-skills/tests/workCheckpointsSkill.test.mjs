@@ -54,7 +54,7 @@ test("it passes its own cwd and reads only its own entry", () => {
   assert.match(skill, /"cwd"/);
   assert.match(skill, /projects\.thisProject/);
   assert.match(skill, /projectDigest/);
-  assert.match(skill, /must not try to/i);
+  assert.match(skill, /must not try\s+to/i);
 });
 
 test("it forbids adding the two minute figures", () => {
@@ -66,9 +66,30 @@ test("it forbids adding the two minute figures", () => {
 test("it treats notCollected as unmeasured rather than zero", () => {
   assert.match(skill, /notCollected/);
   assert.match(skill, /unmeasured, not zero/i);
-  // The one dimension that is always absent, and the reason: a transcript
-  // records a tool's name and never its arguments.
+  // The two dimensions that are always absent, and a third whose absence is
+  // the easiest to misread as a calm day.
   assert.match(skill, /verificationPass/);
+  assert.match(skill, /compactionCount/);
+  assert.match(skill, /nothing was watching for a storm/i);
+});
+
+test("it never adds a live row to a retrospective one", () => {
+  // One context with two origins is two findings, not one bigger day.
+  assert.match(skill, /provenance/);
+  assert.match(skill, /retrospective/);
+  assert.match(skill, /Read the\s+`live` row for your digest and nothing else/);
+});
+
+test("it works from a dated bucket rather than the folded window", () => {
+  assert.match(skill, /buckets/);
+  assert.match(skill, /newest bucket/);
+  assert.match(skill, /name its\s+date/);
+});
+
+test("a refused or missing read is silence, not an empty week", () => {
+  assert.match(skill, /proEntitlementRequired/);
+  assert.match(skill, /noRead/);
+  assert.match(skill, /don't tell the person their week looks empty/i);
 });
 
 test("the trigger states real thresholds rather than a vague sense of 'a lot'", () => {
@@ -78,6 +99,7 @@ test("the trigger states real thresholds rather than a vague sense of 'a lot'", 
   assert.ok(ninetyMentions.length >= 3, "expected the minute thresholds to be stated");
   assert.match(skill, /minutesSinceLastVerificationPass/);
   assert.match(skill, /lastCommitAt/);
+  assert.match(skill, /gapMinutes/);
 });
 
 test("it defers to the app's interference budget rather than reasoning around it", () => {
