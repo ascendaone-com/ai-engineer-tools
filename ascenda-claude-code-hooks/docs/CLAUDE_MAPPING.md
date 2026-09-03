@@ -174,7 +174,15 @@ there costs a query rewrite rather than a lost year of rows.
 `anthropic:opus` | `anthropic:sonnet` | `anthropic:haiku` | `anthropic:fable` |
 `anthropic:unknown` | `openai:gpt` | `openai:unknown` | `google:gemini` |
 `google:unknown` | `xai:grok` | `xai:unknown` | `local:on_device` |
-`local:unknown` | `unknown`.
+`local:unknown` | `router:auto` | `unknown`.
+
+**A delegated choice is its own answer.** `copilot/auto` and Cursor's
+`default` record a person handing the model choice to a router; the store then
+never writes down which model actually served the turn. A real model ran, so
+this is not absence, and no vendor is named, so `<vendor>:unknown` is not
+available either — `router:auto` says the true thing rather than dropping the
+row into bare `unknown` beside the garbage strings. Matched on the whole id, so
+a model whose name merely contains `auto` is unaffected.
 
 **Partial recognition degrades to the vendor, not to nothing.** The classifier
 reads vendor and tier as two separate steps, so an Anthropic model whose tier

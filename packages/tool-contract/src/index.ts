@@ -300,7 +300,16 @@ export type AutonomyMode =
  * Anthropic model whose tier we have not mapped is `anthropic:unknown`, never
  * bare `unknown`. Bare `unknown` is reserved for a string whose *vendor* could
  * not be read either — `<synthetic>`, a number from an unityped store, a
- * genuine surprise. The classifier therefore reads vendor and tier as two
+ * genuine surprise.
+ *
+ * **`router:auto` is a fourth state, and it is a positive fact.** Copilot and
+ * Cursor both let a person delegate the choice, and their stores then record
+ * the delegation (`copilot/auto`, `default`) instead of whichever model served
+ * the turn. A real model ran; its identity was never written down. That is not
+ * a vendor we failed to read, so it is not bare `unknown` — reporting it there
+ * would put a quarter of the VS Code corpus in the same bucket as a garbage
+ * string. It is not absence either: something WAS selected. `router` sits in
+ * the vendor slot because the router is the only party the id names. The classifier therefore reads vendor and tier as two
  * separate steps: coarsening `anthropic:unknown` to `unknown` later is free,
  * and inventing the vendor back is impossible. Tiers churn on a release
  * cadence; vendors persist, and vendor-mix-over-time is the reading this field
@@ -329,6 +338,7 @@ export type ModelClass =
   | "xai:unknown"
   | "local:on_device"
   | "local:unknown"
+  | "router:auto"
   | "unknown";
 
 export type AscendaEventMetadata = Record<string, string | number | boolean | null | undefined> & {

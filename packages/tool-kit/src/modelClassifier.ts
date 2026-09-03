@@ -39,6 +39,18 @@ import { ModelClass } from "@ascenda-one/tool-contract";
  * model, and correctly lands there — as does `octopus-1`, which the word
  * boundaries keep out of `anthropic:opus`.
  *
+ * **An auto-router is read before any vendor is.** `copilot/auto` and Cursor's
+ * `default` are not models and not vendors: they are the record of a person
+ * delegating the choice, and the store then never writes down which model
+ * served the turn. A real model ran, so this is not absence; no vendor is
+ * named, so `<vendor>:unknown` is unavailable; and bare `unknown` would put a
+ * quarter of one store's sessions in the same bucket as a garbage string.
+ * `router:auto` says the true thing instead. It is matched on the WHOLE id
+ * rather than on a word, so a model whose name merely contains `auto` or
+ * `default` is untouched — the same conservatism that keeps `octopus-1` out of
+ * `anthropic:opus`, applied to a token far more likely to appear inside a real
+ * name.
+ *
  * Matched on words rather than whole ids. Real identifiers from the store are
  * `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`,
  * `claude-haiku-4-5-20251001` and a bare `fable`, and the same words survive
@@ -77,6 +89,10 @@ export function classifyModelClass(raw: string | undefined): ModelClass | undefi
   const value = candidate.trim().toLowerCase();
   if (!value) return undefined;
 
+  // Before the vendor read, because a delegated choice is not a vendor claim:
+  // the only party `copilot/auto` names is the router.
+  if (ROUTER_SENTINEL.test(value)) return "router:auto";
+
   const vendor = readModelVendor(value);
   if (vendor === undefined) return "unknown";
 
@@ -98,6 +114,20 @@ function readModelVendor(value: string): ModelVendor | undefined {
   }
   return undefined;
 }
+
+/**
+ * The whole id is a router's "let it choose" setting, optionally behind the
+ * product prefix the store writes: `copilot/auto`, `default`, `auto`,
+ * `openrouter/auto`. Anchored at both ends on purpose — `auto` and `default`
+ * are ordinary English words and a real model called `auto-coder-9` must stay
+ * a model, so nothing but the sentinel alone can match.
+ *
+ * If a router prefix ever names a real model vendor (`google/auto`, say), the
+ * honest answer changes: the vendor IS known there and only the tier is not.
+ * No store has emitted that shape, so it is left for the day one does rather
+ * than guessed at now.
+ */
+const ROUTER_SENTINEL = /^(?:[a-z0-9][a-z0-9._-]*\/)?(?:auto|default)$/;
 
 const VENDOR_PATTERNS: readonly (readonly [RegExp, ModelVendor])[] = [
   [/\b(anthropic|claude|opus|sonnet|haiku|fable)\b/, "anthropic"],
