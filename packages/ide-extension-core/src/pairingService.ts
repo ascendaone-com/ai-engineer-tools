@@ -14,7 +14,20 @@ export const EVENT_WRITE_TOKEN_KEY = "ascenda.eventWriteToken";
 export const EVENT_TOKEN_EXPIRES_AT_KEY = "ascenda.eventTokenExpiresAt";
 
 export class PairingService {
+  private readonly pairedListeners: Array<() => void> = [];
+
   constructor(private readonly context: vscode.ExtensionContext, private readonly api: AscendaApi) {}
+
+  /** Fires once a pairing completes with credentials in hand — the moment a queue that failed on auth can try again. */
+  onPaired(listener: () => void): vscode.Disposable {
+    this.pairedListeners.push(listener);
+    return {
+      dispose: () => {
+        const index = this.pairedListeners.indexOf(listener);
+        if (index >= 0) this.pairedListeners.splice(index, 1);
+      }
+    };
+  }
 
   async connect(): Promise<void> {
     const toolInstallationId = await this.getOrCreateToolInstallationId();
@@ -114,6 +127,7 @@ export class PairingService {
           await this.context.globalState.update(PAIRED_KEY, true);
           panel.showPaired();
           vscode.window.showInformationMessage("Ascenda is connected. Workload telemetry can now be routed to your app.");
+          for (const listener of this.pairedListeners) listener();
         }
       } catch (error) {
         clearInterval(interval);

@@ -80,7 +80,7 @@ only.
 - Terminal command classification where VS Code shell integration exposes execution events
 - Session start/end events
 - After-hours AI session signalling
-- Event queue + periodic flush
+- Event queue + periodic flush, with the undelivered backlog kept on disk across reloads, crashes and a failed final flush (re-sent only when `ascenda.telemetry.drainPersistedQueue` is on)
 - Loose-coupled pairing model:
   - extension stores only `toolInstallationId`
   - extension stores scoped `eventWriteToken`
@@ -177,6 +177,19 @@ in the editor's private secret storage and is not shared with them. See the
 changing to reach a development backend — `http://localhost:5002` for a local
 build, or the Azure Dev host. Every collection toggle is listed under the same
 search; all default to on and all are per-user.
+
+Events the backend could not take — it was unreachable, the token had lapsed,
+consent was paused — are kept in the extension's global storage as
+`telemetry-queue.json`, so a window reload, a crash or a shutdown while
+offline no longer discards them. Each payload carries the `idempotencyKey`
+minted when it was queued, so re-sending a backlog that overlaps what did get
+through is answered `duplicate` rather than counted twice. Re-sending is
+behind `ascenda.telemetry.drainPersistedQueue` (default off, until the
+deployed backend is confirmed to dedupe on that key); while off the backlog is
+kept and bounded but never sent. The file is bounded by
+`ascenda.telemetry.queueMaxEntries` and `ascenda.telemetry.queueMaxAgeDays`,
+and every discard is written into the file's own record and to the
+**Ascenda Telemetry** output channel, so a truncation is never silent.
 
 ## Commands
 

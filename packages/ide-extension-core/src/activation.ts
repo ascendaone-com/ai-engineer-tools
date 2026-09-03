@@ -4,12 +4,23 @@ import { AscendaConfig } from "./config";
 import { EditorTelemetry } from "./editorTelemetry";
 import { detectHostKind, getHostDisplayName } from "./host";
 import { PairingService } from "./pairingService";
+import { FileQueueStorage, persistedQueueFilePath } from "./queueStore";
 import { TelemetryService } from "./telemetryService";
 import { TerminalTelemetry } from "./terminalTelemetry";
 let telemetryService: TelemetryService | undefined;
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const api = new AscendaApi(); const pairingService = new PairingService(context, api);
-  telemetryService = new TelemetryService(api, pairingService); telemetryService.start(); context.subscriptions.push(telemetryService);
+  // The undelivered backlog lives under the extension's global storage, so a
+  // reload, a crash or a failed final flush no longer discards it (#51). The
+  // output channel is where a bounded-away truncation is written down.
+  const output = vscode.window.createOutputChannel("Ascenda Telemetry"); context.subscriptions.push(output);
+  telemetryService = new TelemetryService(api, pairingService, {
+    store: new FileQueueStorage(persistedQueueFilePath(context.globalStorageUri.fsPath)),
+    log: (line) => output.appendLine(`${new Date().toISOString()} ${line}`)
+  });
+  telemetryService.start(); context.subscriptions.push(telemetryService);
+  // A flush that failed for want of credentials need not wait for the timer once pairing lands.
+  context.subscriptions.push(pairingService.onPaired(() => void telemetryService?.flush()));
   const editorTelemetry = new EditorTelemetry(telemetryService); editorTelemetry.start(); context.subscriptions.push(editorTelemetry);
   const terminalTelemetry = new TerminalTelemetry(telemetryService); terminalTelemetry.start(); context.subscriptions.push(terminalTelemetry);
   context.subscriptions.push(vscode.commands.registerCommand("ascenda.connect", async () => { await pairingService.connect(); }));
