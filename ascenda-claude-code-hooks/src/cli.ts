@@ -16,12 +16,21 @@ import {
   markFailureNotified,
   persistEventWriteToken,
   readCollectorState,
+  recordSendOutcome,
   resolveEventLogPath,
-  shouldAnnounceFailure
+  shouldAnnounceFailure,
+  unresolvedToolInstallationId
 } from "@ascenda-one/tool-kit";
 import type { CollectorState, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
-import { envHashOverride, loadConfigFromEnv, normalizeToolInstallationId, resolveStateFilePath } from "./config.js";
+import {
+  MissingInstallationIdError,
+  envHashOverride,
+  loadConfigFromEnv,
+  resolveStateFilePath,
+  resolveToolInstallationId
+} from "./config.js";
+import type { ResolvedInstallationId } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 
@@ -211,6 +220,11 @@ async function main(): Promise<void> {
   try {
     config = loadConfigFromEnv();
   } catch (error) {
+    // A skipped send must leave a trace. Without this line the journal's last
+    // entry stays the last *successful* ship, and `doctor` reports a healthy
+    // collector while every event is lost — twelve hours' worth on 26 Aug 2026.
+    if (error instanceof MissingInstallationIdError) journalSkippedSend(error);
+
     // With a log file configured, an unpaired install is a supported mode, not
     // a failure: you can watch exactly what this tool would transmit before
     // deciding to pair. Without one there is nowhere for the event to go.
@@ -237,6 +251,20 @@ async function main(): Promise<void> {
     console.error(explainRejection(result));
     return;
   }
+}
+
+/**
+ * Journals an attempt that could not name its installation, under the tool
+ * type's placeholder id — the one journal that needs no id to locate.
+ * `consecutiveFailures` and `failingSince` then read as "how many, since
+ * when", which is what `doctor` prints.
+ */
+function journalSkippedSend(error: MissingInstallationIdError): void {
+  recordSendOutcome(resolveStateFilePath(), unresolvedToolInstallationId(ASCENDA_TOOL_TYPE), "skipped_no_installation_id", {
+    detail: error.candidates.length === 0
+      ? "no ASCENDA_TOOL_INSTALLATION_ID, no credentials.json pairing, no claude_code token file"
+      : `no ASCENDA_TOOL_INSTALLATION_ID, no credentials.json pairing, ${error.candidates.length} claude_code token files (${error.candidates.join(", ")})`
+  });
 }
 
 function explainRejection(result: IngestResult): string {
@@ -323,10 +351,16 @@ function pendingFailureNotice(hookName: ClaudeHookEventName): { text: string; st
   if (hookName !== "SessionStart" && hookName !== "PostToolUse") return undefined;
   if (process.env.ASCENDA_DISABLE_FAILURE_NOTICE === "true") return undefined;
 
-  const rawId = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim();
-  if (!rawId) return undefined;
+  // The same resolution the send itself uses, so a notice is never read from
+  // a different installation's journal than the one being written to.
+  let toolInstallationId: string;
+  try {
+    toolInstallationId = resolveToolInstallationId().toolInstallationId;
+  } catch {
+    return undefined;
+  }
 
-  const stateFilePath = resolveStateFilePath(normalizeToolInstallationId(rawId));
+  const stateFilePath = resolveStateFilePath(toolInstallationId);
   const state = readCollectorState(stateFilePath);
   if (!shouldAnnounceFailure(state) || !state) return undefined;
 
@@ -380,19 +414,27 @@ function writeStdout(text: string): Promise<void> {
  */
 async function runDoctor(): Promise<void> {
   const lines: string[] = ["Ascenda collector doctor", ""];
-  const rawId = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim();
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
 
   lines.push(`  API base URL          ${apiBaseUrl}`);
-  lines.push(`  Installation id       ${rawId || "(unset — ASCENDA_TOOL_INSTALLATION_ID is empty)"}`);
 
-  if (!rawId) {
+  // Resolved exactly as a hook would, so `doctor` reports the installation the
+  // hooks actually use — and says where it came from, because "the id is set
+  // in my shell" and "the id reaches a Dock-launched app" are different facts.
+  let resolved: ResolvedInstallationId;
+  try {
+    resolved = resolveToolInstallationId();
+  } catch (error) {
+    lines.push(`  Installation id       (unresolved — ${error instanceof Error ? error.message : String(error)})`);
+    lines.push(...skippedSendLines(undefined));
     lines.push("", "  Not paired on this machine. Run:", "    npx @ascenda-one/claude-code-hooks pair");
     await writeStdout(`${lines.join("\n")}\n`);
     return;
   }
 
-  const toolInstallationId = normalizeToolInstallationId(rawId);
+  const { toolInstallationId } = resolved;
+  lines.push(`  Installation id       ${toolInstallationId}`);
+  lines.push(`  Id source             ${describeIdSource(resolved)}`);
   const tokenFilePath = process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(toolInstallationId);
   lines.push(`  Token file            ${tokenFilePath}`);
   lines.push(`  Token                 ${describeToken(tokenFilePath)}`);
@@ -413,6 +455,7 @@ async function runDoctor(): Promise<void> {
     lines.push(`  Consecutive failures  ${state.consecutiveFailures}`);
     if (state.failingSince) lines.push(`  Failing since         ${state.failingSince}`);
   }
+  lines.push(...skippedSendLines(stateFilePath));
 
   lines.push("", "  Live round trip...");
   lines.push(`  ${await liveRoundTrip()}`);
@@ -433,6 +476,35 @@ async function liveRoundTrip(): Promise<string> {
   const result = await new AscendaClient(config).send({ eventType: "editor_activity", severity: "low", metadata: {} });
   if (result === "accepted") return "OK — event accepted by the ingest endpoint.";
   return `FAILED — ${explainRejection(result)}`;
+}
+
+function describeIdSource(resolved: ResolvedInstallationId): string {
+  switch (resolved.source) {
+    case "env": return "env (ASCENDA_TOOL_INSTALLATION_ID)";
+    case "credentials": return "credentials file (~/.ascenda/credentials.json)";
+    case "disk": return `disk (token file ${defaultTokenFilePath(resolved.toolInstallationId)})`;
+  }
+}
+
+/**
+ * The attempts that were skipped because no installation id could be
+ * resolved. Read from the unresolved-installation journal, which is where
+ * {@link journalSkippedSend} writes; shown whenever it exists, resolved id or
+ * not, because a gap that has since been fixed is still a gap in the data.
+ * Skipped when it is the very file already printed above.
+ */
+function skippedSendLines(alreadyShown: string | undefined): string[] {
+  const stateFilePath = resolveStateFilePath();
+  if (stateFilePath === alreadyShown) return [];
+  const state = readCollectorState(stateFilePath);
+  if (!state) return [];
+
+  const since = state.failingSince ? ` since ${state.failingSince}` : "";
+  return [
+    `  Skipped sends         ${state.consecutiveFailures}${since} — no installation id could be resolved (last ${state.lastAttemptAt})`,
+    ...(state.detail ? [`  Skipped because       ${state.detail}`] : []),
+    `  Skipped-send journal  ${stateFilePath}`
+  ];
 }
 
 function describeToken(tokenFilePath: string): string {
