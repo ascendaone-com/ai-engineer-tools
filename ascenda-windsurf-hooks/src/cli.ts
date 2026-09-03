@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, recordTurnStart } from "@ascenda-one/tool-kit";
+import { consumeTurnDurationMs, deliverHookEvents, isCliAgentManagementCommand, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapWindsurfEvent } from "./mapWindsurfEvent.js";
+import { SETUP } from "./setup.js";
 import { ASCENDA_TOOL_TYPE, WINDSURF_HOST, WindsurfHookEventName, WindsurfHookInput } from "./types.js";
 
 /**
@@ -10,12 +11,21 @@ import { ASCENDA_TOOL_TYPE, WINDSURF_HOST, WindsurfHookEventName, WindsurfHookIn
  *
  * Cascade passes the event name in `agent_action_name`, so unlike the other
  * adapters the argv hook name is optional and only used as a fallback.
+ *
+ * The management commands (`setup`, `status`, `uninstall`) are checked
+ * before stdin is read: they carry no payload, and reading first would hang
+ * on a pipe nothing will ever write to.
  */
 async function main(): Promise<void> {
+  if (isCliAgentManagementCommand(process.argv[2])) {
+    managementExitCode = await runCliAgentSetup(process.argv.slice(2), SETUP);
+    return;
+  }
+
   const input = await readJsonFromStdin();
   const hookName = (typeof input.agent_action_name === "string" ? input.agent_action_name : process.argv[2]) as WindsurfHookEventName | undefined;
   if (!hookName) {
-    console.error("Usage: ascenda-windsurf-hook <hook_event_name>  (or supply agent_action_name on stdin)");
+    console.error("Usage: ascenda-windsurf-hook <hook_event_name> | setup | status | uninstall  (hooks may supply agent_action_name on stdin instead)");
     return;
   }
 
@@ -28,10 +38,15 @@ async function main(): Promise<void> {
 
   await deliverHookEvents(mapWindsurfEvent(hookName, input, turnDurationMs), {
     toolType: ASCENDA_TOOL_TYPE,
+    host: WINDSURF_HOST,
+    setupCommand: `npx ${SETUP.packageName} setup`,
     source: "cli_agent",
     sessionId
   });
 }
+
+/** Only the management commands set this. Hook invocations always exit 0. */
+let managementExitCode: number | undefined;
 
 async function readJsonFromStdin(): Promise<WindsurfHookInput> {
   const chunks: Buffer[] = [];
@@ -53,4 +68,4 @@ main()
   .catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
   })
-  .finally(() => process.exit(0));
+  .finally(() => process.exit(managementExitCode ?? 0));

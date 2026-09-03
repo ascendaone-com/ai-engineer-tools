@@ -25,6 +25,7 @@ async function main(): Promise<void> {
 
   await deliverHookEvents(mapCodexEvent(hookName, input, turnDurationMs), {
     toolType: ASCENDA_TOOL_TYPE,
+    host: CODEX_HOST,
     source: "cli_agent",
     sessionId,
     onNotice: emitSystemMessage

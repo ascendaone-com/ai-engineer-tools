@@ -54,6 +54,18 @@ npx @ascenda-one/codex-hooks --help
 Then register the hooks per
 [ascenda-codex-hooks](./ascenda-codex-hooks/#3-register-hooks-in-codex).
 
+### Cursor, Windsurf, Gemini CLI
+
+```bash
+npx @ascenda-one/cursor-hooks setup
+npx @ascenda-one/windsurf-hooks setup
+npx @ascenda-one/gemini-hooks setup
+```
+
+Each one pairs, installs its hook bundle and registers the hooks in the
+agent's own config — no exports, nothing to hand-edit. `status` reports
+whether everything is wired; `uninstall` reverses it.
+
 > **Pairing.** Every tool needs one pairing with the Ascenda app before it
 > sends anything. Pair once in VS Code/Cursor (**Ascenda: Connect App**), and
 > the CLI tools reuse that installation — see
@@ -93,6 +105,9 @@ Wire contract: [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENC
 | [ascenda-agent-skills](./ascenda-agent-skills/) | `ascenda@ascenda-one` (Claude Code plugin) | The Claude Code plugin — bundles the work-signals skill, hooks, and MCP server into one install. Also holds the Cursor rule and the emission criteria both share |
 | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | `@ascenda-one/claude-code-hooks` (npm) | Claude Code agent hooks — prompts, tool calls, compaction, agent loops |
 | [ascenda-codex-hooks](./ascenda-codex-hooks/) | `@ascenda-one/codex-hooks` (npm) | OpenAI Codex lifecycle hooks — same agent signals as Claude hooks, via Codex's hooks.json |
+| [ascenda-cursor-hooks](./ascenda-cursor-hooks/) | `@ascenda-one/cursor-hooks` (npm) | Cursor agent hooks — same signals via Cursor's hooks.json, with `setup`/`status`/`uninstall` |
+| [ascenda-windsurf-hooks](./ascenda-windsurf-hooks/) | `@ascenda-one/windsurf-hooks` (npm) | Windsurf Cascade hooks — partial upstream coverage, documented rather than faked |
+| [ascenda-gemini-hooks](./ascenda-gemini-hooks/) | `@ascenda-one/gemini-hooks` (npm) | Gemini CLI hooks — per-inference hooks deliberately left unregistered |
 | [ascenda-agent-mcp](./ascenda-agent-mcp/) | `@ascenda-one/agent-mcp` (npm) | MCP server exposing `ascenda_emit_work_signal` — the one interface for agent-observed *semantic* patterns the deterministic hooks cannot see |
 | [ascenda-github-collector](./ascenda-github-collector/) | `@ascenda-one/github-collector` (npm) | Collaboration signals from a code forge — your own review load and PR activity, never anyone else's |
 | [ascenda-pairing-sim](./ascenda-pairing-sim/) | not published | Console app that simulates the mobile app for pairing tests (confirm / list / revoke / e2e) |
@@ -193,7 +208,7 @@ The extension is on both the VS Code Marketplace and Open VSX, so installing
 from there is preferred — you get auto-updates. The VSIX is the universal
 fallback, not the recommended path.
 
-**2. Hook CLIs (Claude Code / Codex).** Published to npm, so the shortest path is:
+**2. Hook CLIs (Claude Code / Codex / Cursor / Windsurf / Gemini CLI).** Published to npm, so the shortest path is:
 
 ```bash
 npx @ascenda-one/codex-hooks --help
@@ -240,6 +255,9 @@ Per-package development notes:
 | VS Code / Cursor | [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/README.md) |
 | Claude Code | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/README.md) · [ascenda-agent-skills](./ascenda-agent-skills/README.md) |
 | Codex | [ascenda-codex-hooks](./ascenda-codex-hooks/README.md) |
+| Cursor agent | [ascenda-cursor-hooks](./ascenda-cursor-hooks/README.md) |
+| Windsurf | [ascenda-windsurf-hooks](./ascenda-windsurf-hooks/README.md) |
+| Gemini CLI | [ascenda-gemini-hooks](./ascenda-gemini-hooks/README.md) |
 | Semantic signals (MCP) | [ascenda-agent-mcp](./ascenda-agent-mcp/README.md) |
 | Pairing sim (app stand-in) | [ascenda-pairing-sim](./ascenda-pairing-sim/README.md) |
 
