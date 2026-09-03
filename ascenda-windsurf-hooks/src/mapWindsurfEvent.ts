@@ -6,6 +6,7 @@ import {
   isVerificationCommand,
   looksLikeCorrection
 } from "@ascenda-one/tool-kit";
+import type { AscendaEventMetadata, CommandClass } from "@ascenda-one/tool-contract";
 import { MappedWindsurfEvent, WINDSURF_HOST, WindsurfHookEventName, WindsurfHookInput } from "./types.js";
 
 /**
@@ -74,7 +75,7 @@ function mapTurnEnd(turnDurationMs: number | undefined): MappedWindsurfEvent[] {
   return [];
 }
 
-function started(toolName: string, commandClass?: string): MappedWindsurfEvent {
+function started(toolName: string, commandClass?: CommandClass): MappedWindsurfEvent {
   return { eventType: "ai_tool_call_started", severity: "low", metadata: withHost(commandClass ? { toolName, commandClass } : { toolName }) };
 }
 
@@ -103,6 +104,11 @@ function sanitiseToolName(toolName: string): string {
   return toolName.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "unknown";
 }
 
-function withHost(metadata: Record<string, unknown>): MappedWindsurfEvent["metadata"] {
-  return { host: WINDSURF_HOST, ...metadata } as MappedWindsurfEvent["metadata"];
+/**
+ * Typed against the wire's metadata shape rather than cast to it, so a value
+ * outside the contract's vocabulary — an outcome or reason the catalog does
+ * not spell — is a compile error here, not an unclassified row later.
+ */
+function withHost(metadata: AscendaEventMetadata): AscendaEventMetadata {
+  return { host: WINDSURF_HOST, ...metadata };
 }

@@ -7,6 +7,7 @@ import {
   isVerificationCommand,
   looksLikeCorrection
 } from "@ascenda-one/tool-kit";
+import type { AscendaEventMetadata } from "@ascenda-one/tool-contract";
 import { GEMINI_HOST, GeminiHookEventName, GeminiHookInput, MappedGeminiEvent } from "./types.js";
 
 /**
@@ -98,6 +99,11 @@ function sanitiseToolName(toolName: string | undefined): string {
   return toolName.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "unknown";
 }
 
-function withHost(metadata: Record<string, unknown>): MappedGeminiEvent["metadata"] {
-  return { host: GEMINI_HOST, ...metadata } as MappedGeminiEvent["metadata"];
+/**
+ * Typed against the wire's metadata shape rather than cast to it, so a value
+ * outside the contract's vocabulary — an outcome or reason the catalog does
+ * not spell — is a compile error here, not an unclassified row later.
+ */
+function withHost(metadata: AscendaEventMetadata): AscendaEventMetadata {
+  return { host: GEMINI_HOST, ...metadata };
 }

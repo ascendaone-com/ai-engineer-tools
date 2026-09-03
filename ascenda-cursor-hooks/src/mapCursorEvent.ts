@@ -8,6 +8,7 @@ import {
   isVerificationCommand,
   looksLikeCorrection
 } from "@ascenda-one/tool-kit";
+import type { AscendaEventMetadata } from "@ascenda-one/tool-contract";
 import { CURSOR_HOST, CursorHookEventName, CursorHookInput, MappedCursorEvent } from "./types.js";
 
 /**
@@ -97,8 +98,23 @@ function mapPreCompact(input: CursorHookInput): MappedCursorEvent[] {
   return [{
     eventType: isManual ? "context_compression_manual" : "context_compression_auto",
     severity: isManual ? "medium" : "high",
-    metadata: withHost({ trigger: isManual ? "manual" : "auto", reason: "context_limit" })
+    metadata: withHost({ trigger: isManual ? "manual" : "auto", reason: "context_limit", ...contextOccupancy(input) })
   }];
+}
+
+/**
+ * Cursor's compaction payload carries the composer's context occupancy as a
+ * percent. It leaves under `contextWindowPeakPct`, the canonical fraction key
+ * every reader resolves — never under an improvised spelling, and never under
+ * Cursor's own column name: `contextUsagePercent` is registered only so rows
+ * already imported under it stay readable. Compaction fires at the high-water
+ * mark, so the reading is the peak that key names. An absent field is an
+ * absent key: no reading must never arrive as 0.
+ */
+function contextOccupancy(input: CursorHookInput): { contextWindowPeakPct?: number } {
+  const percent = getNumber(input, ["context_usage_percent", "contextUsagePercent"]);
+  if (percent === undefined || percent < 0) return {};
+  return { contextWindowPeakPct: percent / 100 };
 }
 
 function mapStop(turnDurationMs: number | undefined): MappedCursorEvent[] {
@@ -149,6 +165,11 @@ function sanitiseToolName(toolName: string | undefined): string {
   return toolName.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "unknown";
 }
 
-function withHost(metadata: Record<string, unknown>): MappedCursorEvent["metadata"] {
-  return { host: CURSOR_HOST, ...metadata } as MappedCursorEvent["metadata"];
+/**
+ * Typed against the wire's metadata shape rather than cast to it, so a value
+ * outside the contract's vocabulary — an outcome or reason the catalog does
+ * not spell — is a compile error here, not an unclassified row later.
+ */
+function withHost(metadata: AscendaEventMetadata): AscendaEventMetadata {
+  return { host: CURSOR_HOST, ...metadata };
 }
