@@ -297,8 +297,9 @@ export type AscendaEventPayload = {
   metadata?: AscendaEventMetadata;
   /**
    * Client-minted replay guard, accepted on both `POST /v1/tool-events` and
-   * `POST /v1/tool-events/batch` (backend: asc-core-be#141, live since
-   * 2 Sep 2026). A v4 UUID is enough — it needs no meaning, only stability.
+   * `POST /v1/tool-events/batch`. Dedupe is enforced server-side; confirm the
+   * deployed backend answers a replay `duplicate` before relying on it. A v4
+   * UUID is enough — it needs no meaning, only stability.
    *
    * Top-level, deliberately not inside `metadata`: `importKey` lives there,
    * is a different column with different semantics, and the two do not

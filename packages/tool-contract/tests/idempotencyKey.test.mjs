@@ -4,7 +4,7 @@ import { IDEMPOTENCY_KEY_MAX_LENGTH, TOOL_EVENT_DELIVERED_STATUSES } from "../ou
 
 /**
  * Pins the two constants the ingest doors define for the idempotencyKey
- * contract (issues #50 / #51; backend asc-core-be#141). Neither is derivable
+ * contract (issues #50 / #51). Neither is derivable
  * from anything in this repo — both are the backend's numbers, and a change
  * here that the backend did not make is a bug, not a decision.
  *

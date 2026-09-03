@@ -12,7 +12,7 @@ const path = require("node:path");
 const { IDEMPOTENCY_KEY_MAX_LENGTH } = require("@ascenda-one/tool-contract");
 const { AscendaEventSender, buildEventPayload, mintIdempotencyKey } = require("../out/index.js");
 
-// The idempotencyKey (issues #50 / #51; backend asc-core-be#141) only does its
+// The idempotencyKey (issues #50 / #51) only does its
 // job if one event carries one key for its whole life. These tests pin the two
 // halves of that: the key is minted where the payload is constructed, and every
 // in-process resend — the 250 ms transport retry and the post-renewal replay —
