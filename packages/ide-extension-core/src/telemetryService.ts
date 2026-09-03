@@ -13,7 +13,7 @@ import {
   AscendaSeverity,
   AscendaTelemetryEventType
 } from "@ascenda-one/tool-contract";
-import { emitLiveSignal, isAfterHours } from "@ascenda-one/tool-kit";
+import { emitLiveSignal, isAfterHours, mintIdempotencyKey } from "@ascenda-one/tool-kit";
 import { getProjectHash, getWorkspaceHash } from "./privacy";
 
 export class TelemetryService implements vscode.Disposable {
@@ -117,6 +117,12 @@ export class TelemetryService implements vscode.Disposable {
           break;
         }
 
+        // `accepted` covers a server-side `duplicate` too — the transport
+        // collapses them, see AscendaApi. Every unshift above and below puts
+        // the SAME payload objects back, so a re-sent batch carries the
+        // idempotencyKeys minted in track(); that is what makes a retry of
+        // something the server already has answer `duplicate` rather than
+        // count twice.
         if (result !== "accepted") {
           this.queue.unshift(...batch);
           console.error("Ascenda telemetry ingest failed", result);
@@ -130,6 +136,15 @@ export class TelemetryService implements vscode.Disposable {
     }
   }
 
+  /**
+   * Called from track(), which is the moment an event enters `queue` — and
+   * therefore the only correct place to mint its `idempotencyKey`. Minting in
+   * flush() would stamp a fresh key on every attempt: each failure path there
+   * unshifts the same object back, so a flush-time key would change on every
+   * retry and dedupe nothing. Minted here, the key travels with the object
+   * through every re-queue (and, once the queue is persisted, across a
+   * reload) unchanged.
+   */
   private buildPayload(
     toolInstallationId: string,
     eventType: AscendaTelemetryEventType,
@@ -141,6 +156,7 @@ export class TelemetryService implements vscode.Disposable {
       source: resolveTelemetrySource(toolInstallationId),
       eventType,
       occurredAt: new Date().toISOString(),
+      idempotencyKey: mintIdempotencyKey(),
       severity,
       sessionId: this.sessionId,
       workspaceHash: getWorkspaceHash(),

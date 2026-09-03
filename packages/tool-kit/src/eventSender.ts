@@ -18,6 +18,7 @@ import { appendEventLog, resolveEventLogPath } from "./eventLog";
 import { IngestOutcome, isRetryableStatus, postToolEvent, renewToolToken } from "./http";
 import { persistEventWriteToken } from "./tokenStore";
 import { CollectorState, defaultStateFilePath, recordSendOutcome } from "./stateStore";
+import { mintIdempotencyKey } from "./payload";
 
 export type MappedEvent = {
   eventType: AscendaTelemetryEventType;
@@ -79,12 +80,18 @@ export type EventIdentity = {
  * consent scope, provenance and severity are properties of what the event is,
  * and folding them in here would mean an options bag that lets the wrong pair
  * be passed by accident.
+ *
+ * The `idempotencyKey` is minted here, at construction, for the same reason
+ * `occurredAt` is: both are properties of the event, not of any one attempt
+ * to deliver it. `post`/`attempt` below resend this same object, so a retry
+ * carries the key the first attempt carried.
  */
 export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent): AscendaEventPayload {
   return {
     toolInstallationId: identity.toolInstallationId,
     source: identity.source,
     occurredAt: new Date().toISOString(),
+    idempotencyKey: mintIdempotencyKey(),
     utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
     sessionId: identity.sessionId ?? undefined,
     workspaceHash: identity.workspaceHash ?? undefined,
@@ -162,6 +169,7 @@ export class AscendaEventSender {
       source: this.config.source,
       eventType: mapped.eventType,
       occurredAt: new Date().toISOString(),
+      idempotencyKey: mintIdempotencyKey(),
       utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
@@ -196,6 +204,7 @@ export class AscendaEventSender {
       source: this.config.source,
       eventType: mapped.eventType,
       occurredAt: new Date().toISOString(),
+      idempotencyKey: mintIdempotencyKey(),
       utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
@@ -236,6 +245,12 @@ export class AscendaEventSender {
    * error gets one retry, because the common cases (a restarting instance, a
    * proxy blip, a 429) clear in well under a second and the alternative is
    * losing the event outright.
+   *
+   * Both recoveries resend the same `payload` object, so the `idempotencyKey`
+   * minted at construction is what the server sees on every attempt. That is
+   * what lets a retry of a request the server actually processed (a timeout
+   * after the write, a 502 from a proxy in front of a 200) come back
+   * `duplicate` instead of landing twice. Never rebuild the payload here.
    */
   private async attempt(payload: AscendaEventPayload): Promise<IngestOutcome> {
     const outcome = await postToolEvent(this.config.apiBaseUrl, this.eventWriteToken, payload, this.signal());

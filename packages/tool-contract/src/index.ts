@@ -295,7 +295,50 @@ export type AscendaEventPayload = {
   provenance: string;
   privacyMode: AscendaPrivacyMode;
   metadata?: AscendaEventMetadata;
+  /**
+   * Client-minted replay guard, accepted on both `POST /v1/tool-events` and
+   * `POST /v1/tool-events/batch`. Dedupe is enforced server-side; confirm the
+   * deployed backend answers a replay `duplicate` before relying on it. A v4
+   * UUID is enough — it needs no meaning, only stability.
+   *
+   * Top-level, deliberately not inside `metadata`: `importKey` lives there,
+   * is a different column with different semantics, and the two do not
+   * collide. An event may carry both.
+   *
+   * Minted where the payload is first constructed — at enqueue, never at
+   * send. A key minted on send is a fresh key per retry, which is the same as
+   * no key. An event delivered first time must carry the same key it would
+   * have carried had it been queued, so the key's meaning does not depend on
+   * which path the event took.
+   *
+   * At most {@link IDEMPOTENCY_KEY_MAX_LENGTH} characters after trimming;
+   * longer is `validation_failed`, not truncated. Blank or whitespace-only is
+   * treated as absent. Uniqueness is per (person, installation), so a backlog
+   * drained across a re-pair lands again.
+   *
+   * A replay answers `status: "duplicate"` — on the single door as the whole
+   * response, on the batch door per item alongside
+   * `reason: "already_delivered"`. Branch on `status`, never on `reason`: a
+   * duplicate is a success with nothing to do. Optional, permanently —
+   * omitting it keeps the un-deduplicated behaviour and needs no minimum
+   * client version.
+   */
+  idempotencyKey?: string;
 };
+
+/** Longest `idempotencyKey` the ingest doors accept; a longer one is rejected, not truncated. */
+export const IDEMPOTENCY_KEY_MAX_LENGTH = 128;
+
+/**
+ * The two `status` words that mean an event is on the server and needs no
+ * further delivery. `duplicate` is the answer to a replayed
+ * {@link AscendaEventPayload.idempotencyKey} (or a replayed `importKey`); it
+ * writes nothing server-side and must be treated exactly like `accepted` for
+ * eviction — retrying it would make a backlog immortal, and counting it as a
+ * rejection would report a healthy collector as failing.
+ */
+export type ToolEventDeliveredStatus = "accepted" | "duplicate";
+export const TOOL_EVENT_DELIVERED_STATUSES: readonly ToolEventDeliveredStatus[] = ["accepted", "duplicate"];
 
 export type WorkloadCategory = "creation" | "verification" | "supervision" | "risk" | "neutral" | "unclassified";
 
