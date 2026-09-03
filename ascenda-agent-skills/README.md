@@ -11,14 +11,25 @@ This package is both the skill/rule content *and* — since `.claude-plugin/plug
 | Path | Purpose |
 |---|---|
 | [`.claude-plugin/plugin.json`](./.claude-plugin/plugin.json) | Claude Code plugin manifest — makes this directory installable as `ascenda` |
-| [`skills/ascenda-work-signals/SKILL.md`](./skills/ascenda-work-signals/SKILL.md) | The Claude Code skill |
+| [`skills/ascenda-work-signals/SKILL.md`](./skills/ascenda-work-signals/SKILL.md) | The Claude Code skill that reports work-friction patterns |
+| [`skills/ascenda-work-checkpoints/SKILL.md`](./skills/ascenda-work-checkpoints/SKILL.md) | The Claude Code skill that *reads* the Flow app's local `get_work_demand_context` and offers a checkpoint at a work boundary |
 | [`hooks/hooks.json`](./hooks/hooks.json) | Wires [`ascenda-claude-code-hooks`](../ascenda-claude-code-hooks/)'s CLI into all eight lifecycle events, via `npx` |
 | [`.mcp.json`](./.mcp.json) | Wires [`ascenda-agent-mcp`](../ascenda-agent-mcp/)'s CLI in as an MCP server, via `npx` |
 | [`cursor/ascenda-work-signals.mdc`](./cursor/ascenda-work-signals.mdc) | The equivalent Cursor project rule (Cursor doesn't use this plugin system, so it's still installed separately — see below) |
 | [`docs/EMISSION_CRITERIA.md`](./docs/EMISSION_CRITERIA.md) | Versioned, per-event trigger thresholds and required evidence — the actual judgement logic both files above summarise |
 | [`copy/banned-vocabulary.txt`](./copy/banned-vocabulary.txt) | Phrases that must never appear in Flow-facing copy or reasoning — the canonical list the backend's own test mirrors |
+| [`copy/language-guard-exceptions.txt`](./copy/language-guard-exceptions.txt) | The occurrences of a banned phrase that are the rule naming what it forbids, one reviewable line each |
+| [`scripts/check-language.mjs`](./scripts/check-language.mjs) | Runs that list over every file above, on `npm test` |
 
 `tests/skillContent.test.mjs` keeps these in sync mechanically: every event type in `SEMANTIC_WORK_SIGNAL_EVENT_TYPES` (`@ascenda-one/tool-contract`) must be documented in `EMISSION_CRITERIA.md` and mentioned in both the skill and the rule, and neither may go stale silently.
+
+The vocabulary list used to govern only the model's reasoning — the skill told it to check itself, and nothing checked the shipped copy. `scripts/check-language.mjs` closes that: it runs the list over every skill, rule, doc and this README on `npm test`. Because the ban is on assertion rather than on the word existing, an occurrence that is a rule naming what it forbids is written down in `copy/language-guard-exceptions.txt` with its reason; an exception that stops matching anything fails too, so the list cannot rot into a blanket permit.
+
+### The two skills
+
+`ascenda-work-signals` **writes**: it reports observable patterns through `ascenda_emit_work_signal`, and nothing comes back. `ascenda-work-checkpoints` **reads**: it asks the Flow app's own local MCP server for today's work-demand context, keyed to the project the agent is sitting in, and offers a green run and a commit when that project has run a long stretch with nothing standing as a return point. They share the vocabulary line and nothing else — different tools, different directions, installable apart.
+
+The read skill needs the Flow macOS app running and an agent paired in **Flow › Connections** with the *Demand & workload* scope ticked. It never learns a repository name: it passes its own working directory in and gets back an opaque digest for the project it is already sitting in, and the other projects in the payload are digests it holds no key to.
 
 ## Installing the Claude Code plugin (recommended)
 
