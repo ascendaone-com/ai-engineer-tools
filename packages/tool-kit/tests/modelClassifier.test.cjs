@@ -132,6 +132,38 @@ test("an underscore-joined on-device suffix is a known blind spot", () => {
  * after a `/clear`. Saying `unknown` says "a model was reported and we could
  * not place it", which is the signal that a new tier has shipped.
  */
+/**
+ * The fourth state. Copilot and Cursor both let a person delegate the model
+ * choice, and their stores record the delegation rather than the model that
+ * served the turn — `copilot/auto` is the dominant value on a quarter of one
+ * store's sessions. A real model ran (so this is not absence), no vendor is
+ * named (so `<vendor>:unknown` is unavailable), and bare `unknown` would file
+ * those sessions beside the garbage strings. `router:auto` is the true
+ * statement: the choice was delegated and the identity was never written down.
+ */
+test("a delegated model choice is router:auto, not bare unknown", () => {
+  assert.equal(classifyModelClass("copilot/auto"), "router:auto");
+  assert.equal(classifyModelClass("default"), "router:auto");
+  assert.equal(classifyModelClass("auto"), "router:auto");
+  // A product prefix nobody has emitted yet rides along the same way.
+  assert.equal(classifyModelClass("openrouter/auto"), "router:auto");
+  // Same normalisation every other input gets.
+  assert.equal(classifyModelClass("  Copilot/Auto  "), "router:auto");
+});
+
+/**
+ * `auto` and `default` are ordinary English words — far likelier to turn up
+ * inside a real model name than `opus` is. The sentinel is therefore anchored
+ * at both ends and matched against the WHOLE id, never as a word within one.
+ */
+test("a sentinel word inside a longer id is not a router", () => {
+  assert.equal(classifyModelClass("auto-coder-9"), "unknown");
+  assert.equal(classifyModelClass("default-llm-v2"), "unknown");
+  // And an id that names a vendor keeps it: the router check runs first, but
+  // it cannot fire here, so nothing is stolen from the vendor read.
+  assert.equal(classifyModelClass("claude-auto"), "anthropic:unknown");
+});
+
 test("absent input yields undefined, so the key is omitted rather than guessed", () => {
   assert.equal(classifyModelClass(undefined), undefined);
   assert.equal(classifyModelClass(null), undefined);
