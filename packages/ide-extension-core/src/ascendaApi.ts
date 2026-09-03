@@ -36,6 +36,14 @@ export class AscendaApi {
   // This surface keeps returning the bare verdict because the extension holds
   // its own token in the editor's SecretStorage and reports through the editor
   // UI, not the file journal — nothing here consumes the extra fields yet.
+  //
+  // A replay the server answers `status: "duplicate"` (single door) or
+  // per-item `status: "duplicate"` (batch door) arrives here as `accepted`:
+  // the transport collapses the two on purpose, because for the queue in
+  // TelemetryService they are the same verdict — the event is on the server,
+  // evict it. Nothing here may re-split them: a `duplicate` that reached
+  // `flush()` as anything but `accepted` would be unshifted back onto the
+  // queue and re-sent on every flush for the life of the process.
   async sendEvent(payload: AscendaEventPayload, eventWriteToken: string): Promise<IngestResult> {
     return this.logging([payload], async () => (await postToolEvent(AscendaConfig.apiBaseUrl, eventWriteToken, payload)).result);
   }

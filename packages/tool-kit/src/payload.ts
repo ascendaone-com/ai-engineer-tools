@@ -3,7 +3,28 @@
  * Hook payload shapes drift across agent versions; these probe multiple
  * spellings and nestings so version drift degrades events gracefully.
  */
-import { CommandOutcome } from "@ascenda-one/tool-contract";
+import { randomUUID } from "node:crypto";
+import { CommandOutcome, IDEMPOTENCY_KEY_MAX_LENGTH } from "@ascenda-one/tool-contract";
+
+/**
+ * Mints an `idempotencyKey` for a tool-event payload: a v4 UUID, well inside
+ * the {@link IDEMPOTENCY_KEY_MAX_LENGTH} the ingest doors accept.
+ *
+ * Call this exactly once per event, at the moment the payload object is
+ * built — never inside a send or retry loop. The key only does its job if the
+ * same value rides along on every attempt to deliver the same event: the
+ * in-process retry in `AscendaEventSender`, the IDE's re-queued batch, and any
+ * later outbox drain must all resend the payload object this was stamped on.
+ * The single choke point for that stamping is the payload constructor, which
+ * is why every collector that builds a payload (the Claude Code hooks, the
+ * Codex hooks, the GitHub collector, the MCP server, the IDE extension) gets
+ * its key from here rather than minting its own.
+ */
+export function mintIdempotencyKey(): string {
+  const key = randomUUID();
+  if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) throw new Error("idempotency key exceeds the wire limit");
+  return key;
+}
 
 export function getString(input: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {

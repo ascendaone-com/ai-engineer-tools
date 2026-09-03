@@ -3,7 +3,9 @@ import {
   IngestResult,
   PairingSessionResponse,
   PairingStatusResponse,
-  RenewToolTokenResponse
+  RenewToolTokenResponse,
+  TOOL_EVENT_DELIVERED_STATUSES,
+  ToolEventDeliveredStatus
 } from "@ascenda-one/tool-contract";
 
 export class AscendaApiError extends Error {
@@ -57,7 +59,48 @@ export type IngestOutcome = {
   httpStatus?: number;
   errorCode?: string;
   detail?: string;
+  /**
+   * How many of the request's events the server answered `duplicate` — a
+   * replay it matched on `idempotencyKey` (or `importKey`) and wrote nothing
+   * for. Present only on an `accepted` result, and only when non-zero.
+   * Informational: a duplicate IS accepted for every decision a caller makes
+   * (evict, journal as healthy, do not retry). It is surfaced so a person
+   * reading a log can tell a drained backlog from first delivery, never so a
+   * caller can branch on it.
+   */
+  duplicates?: number;
 };
+
+/**
+ * `status` words the ingest doors use for an event that is on the server.
+ * Anything else on a 2xx (an empty body, a proxy's HTML, a future word) is
+ * still a 2xx: the request got a success verdict, and that verdict is what
+ * the caller acts on.
+ */
+function isDeliveredStatus(value: unknown): value is ToolEventDeliveredStatus {
+  return typeof value === "string" && (TOOL_EVENT_DELIVERED_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * Reads the success body of either door, branching on `status` only — never
+ * on `reason`, which exists for a human reading their own logs
+ * (`already_delivered` vs `already_imported`) and is not a contract for
+ * clients. Returns the number of events the server called `duplicate`.
+ */
+function countDuplicates(body: string): number {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return 0;
+  }
+  if (!parsed || typeof parsed !== "object") return 0;
+  const single = (parsed as { status?: unknown }).status;
+  if (isDeliveredStatus(single)) return single === "duplicate" ? 1 : 0;
+  const results = (parsed as { results?: unknown }).results;
+  if (!Array.isArray(results)) return 0;
+  return results.filter((item) => item && typeof item === "object" && (item as { status?: unknown }).status === "duplicate").length;
+}
 
 /** Statuses worth a second attempt: the request never got a real verdict. */
 export function isRetryableStatus(status: number | undefined): boolean {
@@ -95,8 +138,27 @@ async function sendIngest(url: string, eventWriteToken: string, body: string, si
   }
 }
 
+/**
+ * A 2xx is `accepted` whatever the body says. That includes a replay the
+ * server answered `status: "duplicate"` — on the single door as the whole
+ * response, on the batch door per item with `reason: "already_delivered"`.
+ * A duplicate is a success with nothing to do: the event is on the server,
+ * it must be evicted from any queue exactly as an accepted one is, it must
+ * not be retried (the backlog would be immortal), and it must not be
+ * journalled as a failure. It is counted, not distinguished, so the one
+ * `result` every caller already branches on keeps meaning "delivered".
+ */
 export async function parseIngestResponse(response: Response): Promise<IngestOutcome> {
-  if (response.ok) return { result: "accepted", httpStatus: response.status };
+  if (response.ok) {
+    const outcome: IngestOutcome = { result: "accepted", httpStatus: response.status };
+    let duplicates = 0;
+    try {
+      duplicates = countDuplicates(await response.text());
+    } catch {
+      duplicates = 0;
+    }
+    return duplicates > 0 ? { ...outcome, duplicates } : outcome;
+  }
   const body = await response.text();
   let errorCode: string | undefined;
   try {

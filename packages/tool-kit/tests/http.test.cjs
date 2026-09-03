@@ -74,3 +74,86 @@ test("isRetryableStatus covers the no-verdict statuses only", () => {
     assert.equal(isRetryableStatus(status), false, `${status} should not be retried`);
   }
 });
+
+// --- idempotencyKey replays (issues #50 / #51; backend asc-core-be#141) ---
+//
+// A replayed event is answered `status: "duplicate"` — the whole response on
+// the single door, per item (with `reason: "already_delivered"`) on the batch
+// door. It is a success with nothing to do: the same verdict as `accepted`
+// for eviction, for the journal, and for "do not retry". These pin that the
+// parser collapses the two, and that it branches on `status` alone.
+
+test("single door: status duplicate is accepted, with the replay counted", async () => {
+  const outcome = await parseIngestResponse(json(200, { status: "duplicate" }));
+  assert.equal(outcome.result, "accepted");
+  assert.equal(outcome.httpStatus, 200);
+  assert.equal(outcome.duplicates, 1);
+});
+
+test("single door: status accepted carries no duplicate count", async () => {
+  const outcome = await parseIngestResponse(json(200, { status: "accepted" }));
+  assert.equal(outcome.result, "accepted");
+  assert.equal(outcome.duplicates, undefined);
+});
+
+test("batch door: every item duplicate is accepted, counted per item", async () => {
+  const outcome = await parseIngestResponse(
+    json(200, {
+      accepted: 0,
+      duplicate: 2,
+      rejected: 0,
+      results: [
+        { index: 0, status: "duplicate", reason: "already_delivered" },
+        { index: 1, status: "duplicate", reason: "already_delivered" }
+      ]
+    })
+  );
+  assert.equal(outcome.result, "accepted");
+  assert.equal(outcome.duplicates, 2);
+});
+
+test("batch door: a mix of accepted and duplicate is accepted", async () => {
+  const outcome = await parseIngestResponse(
+    json(200, {
+      accepted: 1,
+      duplicate: 1,
+      rejected: 0,
+      results: [
+        { index: 0, status: "accepted" },
+        { index: 1, status: "duplicate", reason: "already_delivered" }
+      ]
+    })
+  );
+  assert.equal(outcome.result, "accepted");
+  assert.equal(outcome.duplicates, 1);
+});
+
+test("the branch is on status, never on reason", async () => {
+  // `reason` is for a person reading their logs (already_delivered vs
+  // already_imported). An unknown reason on a duplicate is still a duplicate;
+  // a familiar reason on an accepted item does not make it one.
+  const imported = await parseIngestResponse(
+    json(200, { results: [{ index: 0, status: "duplicate", reason: "already_imported" }] })
+  );
+  assert.equal(imported.result, "accepted");
+  assert.equal(imported.duplicates, 1);
+
+  const oddReason = await parseIngestResponse(
+    json(200, { results: [{ index: 0, status: "duplicate", reason: "something_new" }] })
+  );
+  assert.equal(oddReason.duplicates, 1);
+
+  const reasonOnAccepted = await parseIngestResponse(
+    json(200, { results: [{ index: 0, status: "accepted", reason: "already_delivered" }] })
+  );
+  assert.equal(reasonOnAccepted.result, "accepted");
+  assert.equal(reasonOnAccepted.duplicates, undefined);
+});
+
+test("a 2xx with an empty, non-JSON or unfamiliar body is still accepted", async () => {
+  assert.equal((await parseIngestResponse(new Response("", { status: 200 }))).result, "accepted");
+  assert.equal((await parseIngestResponse(new Response("<html>ok</html>", { status: 200 }))).result, "accepted");
+  const unfamiliar = await parseIngestResponse(json(200, { status: "queued" }));
+  assert.equal(unfamiliar.result, "accepted");
+  assert.equal(unfamiliar.duplicates, undefined);
+});

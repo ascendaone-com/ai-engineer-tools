@@ -130,6 +130,12 @@ export interface ToolEventRequest {
   privacyMode?: ToolEventPrivacyMode;  // top-level preferred
 
   metadata?: Record<string, unknown> | null;
+
+  // Optional, permanently. Client-minted replay guard (v4 UUID; ≤128 chars,
+  // trimmed, blank = absent). Top-level — not the same thing as
+  // metadata.importKey. Unique per (person, installation). A replay answers
+  // status "duplicate" and writes nothing. Mint at enqueue, never at send.
+  idempotencyKey?: string;
 }
 
 export interface ToolEventBatchRequest {
@@ -137,7 +143,7 @@ export interface ToolEventBatchRequest {
 }
 
 export interface ToolEventAcceptedResponse {
-  status: "accepted" | "duplicate";  // duplicate: already imported, nothing written
+  status: "accepted" | "duplicate";  // duplicate: idempotencyKey or importKey already seen, nothing written
 }
 
 export interface ToolEventBatchResponse {
@@ -147,7 +153,7 @@ export interface ToolEventBatchResponse {
   results: Array<{
     index: number;
     status: "accepted" | "duplicate" | "rejected";
-    reason?: string;                 // "already_imported" for duplicates
+    reason?: string;                 // duplicates: "already_delivered" (idempotencyKey) or "already_imported" (importKey). Branch on status, never on reason.
   }>;
 }
 
