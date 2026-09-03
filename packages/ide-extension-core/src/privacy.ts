@@ -1,6 +1,12 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { deriveWorkContext, hashWithMachineSalt, recordWorkContext, recordWorkContextAlias } from "@ascenda-one/tool-kit";
+import {
+  deriveWorkContext,
+  hashWithMachineSalt,
+  recordForgeProjectAlias,
+  recordWorkContext,
+  recordWorkContextAlias
+} from "@ascenda-one/tool-kit";
 import type { WorkContext } from "@ascenda-one/tool-kit";
 
 /**
@@ -37,6 +43,9 @@ export function getProjectContext(): WorkContext | null {
   const context = deriveWorkContext(folder);
   if (context) {
     recordWorkContext(context);
+    // Also the forge identity of this repository, read from its own remote —
+    // a local dictionary write, silent on failure. See forgeProject.ts.
+    recordForgeProjectAlias(context);
     const wireWorkspaceHash = getWorkspaceHash();
     if (wireWorkspaceHash && wireWorkspaceHash !== context.workspaceHash && wireWorkspaceHash !== context.projectHash) {
       recordWorkContextAlias(wireWorkspaceHash, vscode.workspace.name ?? context.workspaceLabel ?? folder, folder);

@@ -1,4 +1,5 @@
 import { AscendaTelemetryEventType, AscendaEventMetadata } from "@ascenda-one/tool-contract";
+import { forgeProjectHash } from "@ascenda-one/tool-kit";
 
 export type MappedForgeEvent = {
   eventType: AscendaTelemetryEventType;
@@ -105,7 +106,15 @@ function base(payload: ForgePayload): AscendaEventMetadata {
     host: "github",
     // Hashed, never the name. "Is it always the same repository" stays
     // answerable; which repository does not travel.
-    ...(repo ? { projectHash: hash(repo) } : {})
+    //
+    // The digest is an UNSALTED FNV-1a of `owner/repo`, and this step stays
+    // deliberately salt-free: it runs in CI from a webhook payload, where the
+    // only place a machine salt could come from is a repository secret — which
+    // is to say, from everyone who can read the repository's settings. The
+    // function now lives in tool-kit so a developer's own machine, which holds
+    // both identities, can compute this exact digest and file it beside its
+    // own; nothing about what this step emits has changed.
+    ...(repo ? { projectHash: forgeProjectHash(repo) } : {})
   };
 }
 
@@ -117,22 +126,6 @@ function base(payload: ForgePayload): AscendaEventMetadata {
  */
 function reviewState(state: string | undefined): "success" | "unknown" {
   return state?.toLowerCase() === "approved" ? "success" : "unknown";
-}
-
-/**
- * FNV-1a. Not a security boundary and not pretending to be one — the
- * repository name is low-entropy and a determined holder of the data could
- * guess it. Its job is to keep names out of the payload and stable across
- * events, which is what makes "the same repository" answerable without
- * recording which one.
- */
-function hash(value: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < value.length; i++) {
-    h ^= value.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, "0");
 }
 
 function obj(value: unknown): Record<string, unknown> {

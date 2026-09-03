@@ -147,3 +147,44 @@ test("a missing repository still emits, without a hash", () => {
   // Absent, not an empty string: the field is omitted when unknown.
   assert.ok(!("projectHash" in events[0].metadata));
 });
+
+// ── the emitted project digest has not moved ──────────────────────────────
+//
+// The FNV-1a now lives in tool-kit, so a developer's own machine — which knows
+// both this identity and its salted local one — can compute it and file the
+// two together. That refactor is only safe if this step keeps emitting the
+// exact strings it emitted before: rows already stored under them cannot be
+// re-keyed. `shippedHash` is a verbatim copy of the implementation as it stood
+// inside this file, kept here as the frozen witness.
+
+function shippedHash(value) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+test("the emitted projectHash is byte-identical to what this step shipped before", () => {
+  const fullNames = [
+    "acme/payments-service",
+    "ascendaone-com/ai-engineer-tools",
+    "octocat/Hello-World",
+    "a/b",
+    "OWNER/REPO"
+  ];
+  for (const fullName of fullNames) {
+    const events = mapForgeEvent(
+      "pull_request",
+      { action: "opened", repository: { full_name: fullName }, pull_request: { user: { login: ME } } },
+      ME
+    );
+    assert.equal(events[0].metadata.projectHash, shippedHash(fullName), fullName);
+  }
+});
+
+test("the digest for the default fixture is pinned to a literal", () => {
+  const events = mapForgeEvent("pull_request", prPayload("opened"), ME);
+  assert.equal(events[0].metadata.projectHash, "918128f5");
+});
