@@ -109,6 +109,23 @@
           "default": 30,
           "minimum": 5,
           "description": "How frequently telemetry events are flushed to the backend."
+        },
+        "ascenda.telemetry.drainPersistedQueue": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Re-send telemetry that a previous editor session could not deliver and left on disk. Off by default until the backend is confirmed to deduplicate on `idempotencyKey`; while off, the backlog is kept on disk (and bounded) but never sent."
+        },
+        "ascenda.telemetry.queueMaxEntries": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 0,
+          "description": "Most undelivered events kept on disk. The oldest are discarded beyond this, and every discard is written to the Ascenda Telemetry output channel."
+        },
+        "ascenda.telemetry.queueMaxAgeDays": {
+          "type": "number",
+          "default": 7,
+          "minimum": 0,
+          "description": "Undelivered events older than this are discarded rather than re-sent. Every discard is written to the Ascenda Telemetry output channel."
         }
       }
     }
