@@ -1,5 +1,5 @@
-import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief } from "@ascenda-one/tool-kit";
-import type { AutonomyMode, ModelClass } from "@ascenda-one/tool-contract";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief, classifyModelClass } from "@ascenda-one/tool-kit";
+import type { AutonomyMode } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
 
@@ -346,96 +346,16 @@ function readModelIdentifier(input: ClaudeHookInput): string | undefined {
 }
 
 /**
- * A raw model identifier onto the coarse vendor:tier vocabulary. Total for any
- * string; `undefined` only for a genuinely absent one, keeping "no model was
- * reported" distinct from "a model was reported that we could not place".
- *
- * **Two steps, not one, and the split is the whole design.** Vendor is read
- * first, tier second, so partial recognition degrades to `<vendor>:unknown`
- * rather than to bare `unknown`. The day a vendor ships a tier name we have
- * not mapped is certain, and on that day a flat `unknown` would make those
- * rows indistinguishable from a garbage string — losing the vendor, which is
- * the half that persists and the half vendor-mix-over-time is read from.
- * Coarsening `anthropic:unknown` down to `unknown` later costs a query;
- * inventing the vendor back costs the year of rows.
- *
- * Bare `unknown` therefore means exactly one thing: the *vendor* could not be
- * read either. `<synthetic>` is a real value in Claude Code's store, is not a
- * model, and correctly lands there.
- *
- * Matched on words rather than on whole ids — real identifiers from the store
- * are `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`,
- * `claude-haiku-4-5-20251001` and a bare `fable`, and the same words survive
- * the dated, Bedrock- and Vertex-prefixed forms. A point release therefore
- * cannot silently re-bucket a person's whole norm table.
- *
- * Lossy either way, which is why {@link readModelIdentifier}'s raw string
- * rides the same row under `modelId`. A class is a reading of the record, not
- * the record.
+ * Re-exported, not defined here. The classifier moved to tool-kit the moment a
+ * second pipeline needed it: the retrospective importer classifies the
+ * `primaryModel` it folds out of old transcripts, and its rows land in the
+ * same column as these. See `packages/tool-kit/src/modelClassifier.ts` for why
+ * one implementation is the point — including why it reads vendor and tier as
+ * two separate steps, so an unmapped tier degrades to `<vendor>:unknown`
+ * rather than losing the vendor as well. The name stays exported from this
+ * module so the hook's own tests and callers are unaffected by where it lives.
  */
-export function classifyModelClass(raw: string | undefined): ModelClass | undefined {
-  if (!raw) return undefined;
-  const value = raw.trim().toLowerCase();
-  if (!value) return undefined;
-
-  const vendor = readModelVendor(value);
-  if (vendor === undefined) return "unknown";
-
-  for (const [pattern, modelClass] of TIER_PATTERNS_BY_VENDOR[vendor]) {
-    if (pattern.test(value)) return modelClass;
-  }
-  return UNKNOWN_TIER_BY_VENDOR[vendor];
-}
-
-type ModelVendor = "anthropic" | "openai" | "google" | "local";
-
-/**
- * The vendor from the shape of the identifier alone. Ordered: the first match
- * wins, and the lists are disjoint on every id shape seen so far.
- *
- * Each vendor is recognisable by more than its tier words, which is what lets
- * an unmapped tier still land under its vendor: the family name (`claude`,
- * `gemini`), the corporate prefix that Bedrock and Vertex ids carry
- * (`us.anthropic.…`, `publishers/google/…`), and — for OpenAI's reasoning
- * line, which carries no family word at all — the bare `o1`/`o3`/`o4` form.
- */
-function readModelVendor(value: string): ModelVendor | undefined {
-  for (const [pattern, vendor] of VENDOR_PATTERNS) {
-    if (pattern.test(value)) return vendor;
-  }
-  return undefined;
-}
-
-const VENDOR_PATTERNS: readonly (readonly [RegExp, ModelVendor])[] = [
-  [/\b(anthropic|claude|opus|sonnet|haiku|fable)\b/, "anthropic"],
-  [/\b(openai|gpt|o[1-9])\b/, "openai"],
-  [/\b(google|gemini|vertex)\b/, "google"],
-  [/\b(ollama|llamacpp|on[-_]?device|local)\b/, "local"]
-];
-
-/**
- * Tier patterns scoped to the vendor that was already read, so the two halves
- * of a `vendor:tier` value can never disagree — a tier is only ever reachable
- * from its own vendor.
- */
-const TIER_PATTERNS_BY_VENDOR: Record<ModelVendor, readonly (readonly [RegExp, ModelClass])[]> = {
-  anthropic: [
-    [/\bopus\b/, "anthropic:opus"],
-    [/\bsonnet\b/, "anthropic:sonnet"],
-    [/\bhaiku\b/, "anthropic:haiku"],
-    [/\bfable\b/, "anthropic:fable"]
-  ],
-  openai: [[/\bgpt\b/, "openai:gpt"]],
-  google: [[/\bgemini\b/, "google:gemini"]],
-  local: [[/\b(ollama|llamacpp|on[-_]?device)\b/, "local:on_device"]]
-};
-
-const UNKNOWN_TIER_BY_VENDOR: Record<ModelVendor, ModelClass> = {
-  anthropic: "anthropic:unknown",
-  openai: "openai:unknown",
-  google: "google:unknown",
-  local: "local:unknown"
-};
+export { classifyModelClass };
 
 function getToolName(input: ClaudeHookInput): string | undefined {
   return getString(input, ["toolName", "tool_name", "name"]) ?? getNestedString(input, [["tool", "name"], ["tool_use", "name"], ["payload", "toolName"]]);

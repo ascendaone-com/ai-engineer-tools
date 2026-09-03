@@ -376,9 +376,24 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * live stream, which costs roughly twenty times the storage, has carried
    * nothing. See {@link ModelClass}.
    *
-   * Never sent alone. {@link AscendaEventMetadata.modelId} carries the raw
-   * string it was derived from on the same row, so the class can always be
-   * re-derived if the vocabulary changes.
+   * Never sent alone, on either path. A live row carries
+   * {@link AscendaEventMetadata.modelId}; an imported row carries
+   * `primaryModel`. Either way the raw string that produced the class sits on
+   * the same row, so a class is always re-derivable if the vocabulary changes
+   * — which is the only reason coarsening at capture is defensible here at
+   * all.
+   *
+   * Two writers now, one vocabulary. The retrospective importer also sets it,
+   * on the same `create_focus_session` grain, by putting its already-captured
+   * `primaryModel` through the identical `classifyModelClass` in tool-kit —
+   * shared, not reimplemented, because a norm table pools live and historical
+   * rows and a second classifier would drift into a population shift rather
+   * than a visible bug.
+   *
+   * The two raw strings stay on **separate keys** and must never be merged:
+   * `primaryModel` is the dominant model across a whole imported session,
+   * `modelId` is the model at live session open. Same vocabulary for the
+   * derived class, two different underlying measurements.
    */
   modelClass?: ModelClass;
 
