@@ -1,5 +1,6 @@
 import { AscendaTelemetrySource } from "@ascenda-one/tool-contract";
 import { recordWorkContext } from "./contextRegistry";
+import { recordForgeProjectAlias } from "./forgeProject";
 import { appendEventLog, resolveEventLogPath } from "./eventLog";
 import { AscendaEventSender, MappedEvent, buildEventPayload } from "./eventSender";
 import { defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
@@ -42,7 +43,12 @@ export function resolveContextHashes(cwd?: string | null): { workspaceHash: stri
   if (workspaceOverride && projectOverride) return { workspaceHash: workspaceOverride, projectHash: projectOverride };
 
   const context = deriveWorkContext(cwd ?? process.cwd());
-  if (context) recordWorkContext(context);
+  if (context) {
+    recordWorkContext(context);
+    // The same repository as a forge sees it, registered beside this one. Local
+    // dictionary write only, and silent on every failure — see forgeProject.ts.
+    recordForgeProjectAlias(context);
+  }
   return {
     workspaceHash: workspaceOverride ?? context?.workspaceHash ?? null,
     projectHash: projectOverride ?? context?.projectHash ?? null

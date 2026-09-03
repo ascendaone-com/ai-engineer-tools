@@ -349,6 +349,38 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   milestoneKind?: WorkMilestoneKind;
 
   /**
+   * Machine-salted digest of the branch the work happened on — the same
+   * salt, and the same derivation in tool-kit, that produces
+   * {@link AscendaEventPayload.workspaceHash} and
+   * {@link AscendaEventPayload.projectHash}. `refs/heads/feat/x` and `feat/x`
+   * are one branch and hash alike; the ref prefix is stripped before hashing.
+   *
+   * Metadata rather than a top-level field on purpose. The two identifiers up
+   * there answer "which repository"; this answers "which line of work inside
+   * it", which is a property of the event, not of the install.
+   *
+   * A branch name is LOW ENTROPY — `main`, `develop`, a ticket slug — so this
+   * digest is not a security boundary and must not be described as one. The
+   * machine salt is what makes the input space unguessable, exactly as for the
+   * workspace digest; what the digest buys is that a branch name never travels
+   * as text while work can still be grouped by branch.
+   *
+   * Omitted, never blank and never a placeholder, whenever there is no branch
+   * to name: a detached HEAD, a working directory in no checkout, or a salt
+   * that cannot be read. A reader must treat absence as "no branch was
+   * observable", not as a default branch — an empty string here would be a
+   * value that groups, asserting a branch that does not exist.
+   *
+   * Two writers, one derivation: the live agent hooks read the checkout's own
+   * `HEAD`, and the retrospective importer puts its captured branch name
+   * through the identical function, so a historical row and a live row from
+   * the same branch join. Imports shipped before this key used `gitBranchHash`
+   * and hashed the branch string with no normalisation; those rows cannot be
+   * re-keyed, so the older digest is registered as a local alias instead.
+   */
+  branchHash?: string;
+
+  /**
    * The permission posture in force when this event happened, in upstream's
    * own vocabulary. Per event, not per session, because it is: the mode is
    * switched mid-session, and a session summarised by one posture would

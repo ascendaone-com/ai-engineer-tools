@@ -41,7 +41,7 @@ done
 # 2. Functions owned by tool-kit must not be re-declared elsewhere.
 #    Matches declaration forms: `function name`, `const/let/var name =`,
 #    and class-method definitions `name(...): Type {` at line start.
-owned_names="classifyCommand|isVerificationCommand|bucketDurationMs|bucketLinesChanged|isAfterHours|persistEventWriteToken|readTokenFile|defaultTokenFilePath|parseIngestResponse|readOrCreateMachineSalt|hashWithMachineSalt|machineSaltFilePath|buildEventPayload|appendEventLog|resolveEventLogPath|expandUserPath|recordTurnStart|consumeTurnDurationMs|loadCliAgentConfig|deliverHookEvents|ascendaHome"
+owned_names="classifyCommand|isVerificationCommand|bucketDurationMs|bucketLinesChanged|isAfterHours|persistEventWriteToken|readTokenFile|defaultTokenFilePath|parseIngestResponse|readOrCreateMachineSalt|hashWithMachineSalt|machineSaltFilePath|buildEventPayload|appendEventLog|resolveEventLogPath|expandUserPath|recordTurnStart|consumeTurnDurationMs|loadCliAgentConfig|deliverHookEvents|ascendaHome|forgeProjectHash|recordForgeProjectAlias"
 decl_re="^[[:space:]]*(export[[:space:]]+)?((async[[:space:]]+)?function[[:space:]]+(${owned_names})\\b|(const|let|var)[[:space:]]+(${owned_names})[[:space:]]*=|(private[[:space:]]+|public[[:space:]]+|protected[[:space:]]+)?(${owned_names})[[:space:]]*\\([^)]*\\)[[:space:]]*:[^;]*\\{)"
 dupes=$(grep -rlE "$decl_re" --include="*.ts" "${existing_dirs[@]}" packages/tool-contract/src 2>/dev/null || true)
 if [ -n "$dupes" ]; then

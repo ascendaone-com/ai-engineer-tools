@@ -23,7 +23,7 @@ Every criterion below is written to be checked against **observable interaction 
 
 ## `goal_drift_detected`
 
-**Fires when:** a session has a declared intention (from `session_intention_declared`, or one already visible via the Flow app's `get_work_demand_context` tool as `todaysIntention`) and the actual work has moved somewhere else **without an explicit decision to do so**.
+**Fires when:** a session has a declared intention (from `session_intention_declared`, or one already visible via the Flow app's `get_plans` tool as a `kind: "intention"` row — it rides the plans scope, not the work-demand one, because it is a sentence the person wrote) and the actual work has moved somewhere else **without an explicit decision to do so**.
 
 - This is evidence for a question, never a conclusion. Before emitting, you should already be planning to ask the user something like *"this looks like it's moved from [declared intention] into [what's happening now] — deliberate, or did it drift?"* The event and the question are a pair; emitting without intending to ask is half the job.
 - If the user has already said "yes, I'm deliberately switching to X" — that is `scope_change_declared`, not this. This event is specifically the *unasked* or *unconfirmed* case.

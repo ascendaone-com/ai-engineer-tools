@@ -112,6 +112,42 @@ export const METRIC_KEYS = {
 
   // ── Read by the local handoff only ──────────────────────────────────────
   activeMinutes: { readBy: ["handoff"], unit: "minutes" },
+  /**
+   * The two halves of `activeMinutes`, and deliberately two keys.
+   *
+   * They partition it exactly, so a reader can add them — but there is no
+   * third key holding the sum, because the sum is `activeMinutes` and it
+   * already exists. Presenting one combined "active" figure in place of these
+   * is the thing the split was added to stop: an hour of typing and an hour of
+   * watching an agent work are not the same hour, and a single number says
+   * they are.
+   */
+  handsOnMinutes: {
+    readBy: ["handoff"],
+    unit: "minutes",
+    note: "Active time immediately preceding a human prompt — the only interval a transcript can show a person present for, because the prompt at its end is the evidence."
+  },
+  agentSupervisingMinutes: {
+    readBy: ["handoff"],
+    unit: "minutes",
+    note: "The remaining active time: the agent was working and the person was not typing. NOT a claim that anyone watched it — nothing in a transcript could show that. Never render as attention."
+  },
+  // The split's honesty counters. Read by neither the backend nor the handoff
+  // on purpose: they exist so a thin or posture-blind session can be told from
+  // a complete one, and a reader that ignores them is choosing to, rather than
+  // being unable to.
+  activeSplitInstants: {
+    readBy: ["diagnostic"],
+    note: "Distinct timestamps the split ran over, after collapsing ties. The denominator: two minutes off four instants and off four hundred are not the same measurement."
+  },
+  activeSplitUndatedLines: {
+    readBy: ["diagnostic"],
+    note: "Known lines carrying a timestamp that would not parse. Absent from the timeline, so both halves are short by an unknown amount and only this says so."
+  },
+  activeSplitUnposturedInstants: {
+    readBy: ["diagnostic"],
+    note: "Instants reached before any permissionMode had been declared. Their supervising time lands in the unknown band, which is a blind spot rather than a posture."
+  },
   afterHoursRequests: { readBy: ["handoff"] },
   approximateLintErrorsCount: { readBy: ["handoff"] },
   canceledCount: { readBy: ["handoff"] },

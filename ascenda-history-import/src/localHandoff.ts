@@ -25,7 +25,7 @@
  * metrics-only rule as the wire, minus the hashing that only exists to
  * keep paths from reaching a server.
  */
-import { deriveWorkContext } from "@ascenda-one/tool-kit";
+import { deriveWorkContext, type AutonomyBand } from "@ascenda-one/tool-kit";
 import { LOCAL_TIMEZONE, SessionDaySlice } from "./daySlice.js";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -87,6 +87,11 @@ export interface HandoffSession {
   /** Human-readable project name — the cwd's repository basename, a linked
    * worktree folded into the repo it came from (`projectLabelOf`). Local only. */
   projectLabel: string | null;
+  /** Salted digest of the canonical repository root — the same value the
+   * shipper puts on the wire as `projectHash`, carried here so a local session
+   * and an imported row can be lined up without the path. Null where the ref
+   * resolved to no repository. */
+  projectHash: string | null;
   promptCount: number;
   durationBucket: string;
   afterHoursPrompts: number;
@@ -94,6 +99,26 @@ export interface HandoffSession {
   /** Gap-split minutes (5m idle threshold) — the non-idle-inflated
    * alternative to wall-clock duration. See claudeCode.ts's activeMinutesOf. */
   activeMinutes: number;
+  /**
+   * The two halves of `activeMinutes`, and the pair the Reveal must quote
+   * rather than the total. Time immediately before a human prompt, and the
+   * rest.
+   *
+   * **Never render as one figure, and never render the second as attention.**
+   * "You spent 22 minutes" collapses a session that was 5 minutes of typing
+   * and 17 of an agent running; "you supervised for 17 minutes" claims a
+   * presence no transcript can show. The honest reading is "5 minutes
+   * hands-on, 17 with the agent working".
+   */
+  handsOnMinutes: number;
+  agentSupervisingMinutes: number;
+  /**
+   * Agent-supervising minutes by autonomy band, where the transcript declared
+   * a posture. `unknown` is a real entry — supervising time before the first
+   * declaration — and is never folded into a neighbouring band. Absent bands
+   * mean the session never worked under them.
+   */
+  autonomySplit: Partial<Record<AutonomyBand, number>>;
   /** `system` lines with subtype `compact_boundary` — how many times this
    * session's context got compacted, manual or auto. */
   compactionCount: number;
@@ -140,6 +165,48 @@ export interface HandoffSession {
   provenance: string;
 }
 
+/**
+ * One project's share of the split, summed across its sessions.
+ *
+ * **Why a project digest at all**, when the sessions are right there: the
+ * question "where does my hands-on time actually go" is asked per project, and
+ * summing sessions in the app would put the never-summed rule in the hands of
+ * whoever writes that loop. Aggregating once, here, means the two figures stay
+ * two everywhere they are read.
+ *
+ * Keyed by `projectHash` — the same digest the shipper puts on the wire, so a
+ * local digest and an imported row can be lined up without the label ever
+ * leaving the machine. The label rides alongside because this file never
+ * leaves it either.
+ */
+export interface HandoffProjectDigest {
+  /** Salted digest of the canonical repository root; the wire's `projectHash`.
+   * Null where the ref could not be resolved to a repository. */
+  projectHash: string | null;
+  /** Repository basename, worktrees folded into the repo they came from.
+   * Local only. */
+  projectLabel: string | null;
+  sessions: number;
+  promptCount: number;
+  /**
+   * Summed across the project's sessions, and summed from the *minute* figures
+   * the sessions carry rather than re-derived — a digest that disagreed with
+   * the sessions it is a digest of would be worse than no digest.
+   *
+   * Still two figures. There is no `activeMinutes` here on purpose: at project
+   * scale the combined number is the one a reader is most tempted to quote as
+   * "time on this project", and it is the one that means least.
+   */
+  handsOnMinutes: number;
+  agentSupervisingMinutes: number;
+  /** Supervising minutes by band, summed. `unknown` is kept as a band. */
+  autonomySplit: Partial<Record<AutonomyBand, number>>;
+  /** Local days this project held at least one prompt on. Not a span: a
+   * project touched on two days three weeks apart holds two days, not
+   * twenty-two. */
+  activeDays: number;
+}
+
 export interface HandoffFile {
   schema: number;
   extractionId: string;
@@ -155,6 +222,9 @@ export interface HandoffFile {
   windowOldest: string | null;
   windowNewest: string | null;
   sessions: HandoffSession[];
+  /** Per-project rollup of the split, oldest-busiest first. See
+   * {@link HandoffProjectDigest}. */
+  projects: HandoffProjectDigest[];
 }
 
 /** Cursor's handoff session — a distinct shape from Claude Code's, because
@@ -306,6 +376,72 @@ export function projectLabelOf(repoRef: string | null): string | null {
   return label;
 }
 
+/** The wire's `projectHash` for a ref, memoised alongside the label. Null
+ * where the ref resolves to no repository — kept null rather than falling back
+ * to the raw path, which would key a digest on something the wire never
+ * carries and could not be lined up against. */
+const projectHashMemo = new Map<string, string | null>();
+
+export function projectHashOf(repoRef: string | null): string | null {
+  if (!repoRef) return null;
+  const hit = projectHashMemo.get(repoRef);
+  if (hit !== undefined) return hit;
+  const hash = deriveWorkContext(repoRef)?.projectHash ?? null;
+  projectHashMemo.set(repoRef, hash);
+  return hash;
+}
+
+/**
+ * Rolls the sessions up per project.
+ *
+ * Grouped on `projectHash` where there is one and on the label otherwise, so
+ * two checkouts of one repository land in one digest (which is the whole point
+ * of the project hash) while a ref that resolves to nothing still gets counted
+ * somewhere instead of vanishing.
+ */
+export function buildProjectDigests(sessions: readonly HandoffSession[]): HandoffProjectDigest[] {
+  const byKey = new Map<string, HandoffProjectDigest & { days: Set<string> }>();
+  for (const session of sessions) {
+    const key = session.projectHash ?? `label:${session.projectLabel ?? ""}`;
+    let digest = byKey.get(key);
+    if (!digest) {
+      digest = {
+        projectHash: session.projectHash,
+        projectLabel: session.projectLabel,
+        sessions: 0,
+        promptCount: 0,
+        handsOnMinutes: 0,
+        agentSupervisingMinutes: 0,
+        autonomySplit: {},
+        activeDays: 0,
+        days: new Set<string>()
+      };
+      byKey.set(key, digest);
+    }
+    digest.sessions += 1;
+    digest.promptCount += session.promptCount;
+    digest.handsOnMinutes += session.handsOnMinutes;
+    digest.agentSupervisingMinutes += session.agentSupervisingMinutes;
+    for (const [band, minutes] of Object.entries(session.autonomySplit)) {
+      const key = band as AutonomyBand;
+      digest.autonomySplit[key] = (digest.autonomySplit[key] ?? 0) + minutes;
+    }
+    // Days the project actually held a prompt on — the union across its
+    // sessions, so two sessions on one Tuesday are one day.
+    for (const day of session.days) {
+      if (day.prompts > 0) digest.days.add(day.day);
+    }
+  }
+  return [...byKey.values()]
+    .map(({ days, ...digest }) => ({ ...digest, activeDays: days.size }))
+    .sort(
+      (a, b) =>
+        b.handsOnMinutes + b.agentSupervisingMinutes -
+          (a.handsOnMinutes + a.agentSupervisingMinutes) ||
+        (a.projectLabel ?? "").localeCompare(b.projectLabel ?? "")
+    );
+}
+
 export function buildHandoff(
   events: NormalizedHistoricalEvent[],
   extractionId: string,
@@ -329,12 +465,16 @@ export function buildHandoff(
       startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
       sessionRef: event.sessionRef,
       projectLabel: projectLabelOf(event.repoRef),
+      projectHash: projectHashOf(event.repoRef),
       promptCount: Number(event.metrics.promptCount ?? 0),
       durationBucket: String(event.metrics.durationBucket ?? "unknown"),
       afterHoursPrompts: Number(event.metrics.afterHoursPrompts ?? 0),
       primaryModel:
         typeof event.metrics.primaryModel === "string" ? event.metrics.primaryModel : null,
       activeMinutes: Number(event.metrics.activeMinutes ?? 0),
+      handsOnMinutes: Number(event.metrics.handsOnMinutes ?? 0),
+      agentSupervisingMinutes: Number(event.metrics.agentSupervisingMinutes ?? 0),
+      autonomySplit: event.autonomySplit ?? {},
       compactionCount: Number(event.metrics.compactionCount ?? 0),
       toolFailureCount: Number(event.metrics.toolFailureCount ?? 0),
       contextWindowPeakPct: Number(event.metrics.contextWindowPeakPct ?? 0),
@@ -367,7 +507,8 @@ export function buildHandoff(
     store: "claude_code",
     windowOldest,
     windowNewest,
-    sessions
+    sessions,
+    projects: buildProjectDigests(sessions)
   };
 }
 

@@ -1,10 +1,13 @@
 {
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "name": "@ascenda-one/agent-skills",
   "version": "0.1.0",
-  "description": "The Ascenda agent skill: Claude Code SKILL.md + Cursor rule teaching when and how to report semantic work-friction signals via ascenda_emit_work_signal.",
+  "description": "The Ascenda agent skills: a passive work-signals reporter and a work-checkpoint reader for the Flow app's local MCP server, plus the Cursor rule and the language guard that governs what they say.",
   "scripts": {
-    "test": "node --test tests/*.test.mjs"
+    "test": "node scripts/check-language.mjs && node --test tests/*.test.mjs",
+    "check:language": "node scripts/check-language.mjs"
   },
   "license": "Apache-2.0",
   "devDependencies": {

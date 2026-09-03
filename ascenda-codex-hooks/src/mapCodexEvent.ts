@@ -1,6 +1,7 @@
 import {
   bucketDurationMs,
   classifyCommand,
+  deriveBranchHashForCwd,
   getNested,
   getNestedString,
   getString,
@@ -15,8 +16,26 @@ import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from
  * Maps Codex lifecycle hooks to the canonical Ascenda event catalog.
  * Catalog values only; hooks without a catalog counterpart map to nothing.
  * See docs/CODEX_MAPPING.md.
+ *
+ * `branchHash` is stamped over the whole result rather than in each branch of
+ * the switch below, for the reason `withHost` exists: one site, so no mapping
+ * can drift from another. It comes from the payload's own `cwd` where Codex
+ * sends one, and is omitted entirely when no branch is observable — the same
+ * derivation the Claude adapter and the retrospective importer call, so rows
+ * from all three join on the same digest.
  */
 export function mapCodexEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurationMs?: number): MappedCodexEvent[] {
+  const events = mapEvent(hookName, input, turnDurationMs);
+  // Hooks with no catalog counterpart are the common case on the hot path;
+  // don't touch the filesystem to decorate an empty list.
+  if (events.length === 0) return events;
+
+  const branchHash = deriveBranchHashForCwd(getString(input, ["cwd"]) ?? process.cwd());
+  if (!branchHash) return events;
+  return events.map((event) => ({ ...event, metadata: { ...event.metadata, branchHash } }));
+}
+
+function mapEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurationMs?: number): MappedCodexEvent[] {
   switch (hookName) {
     case "SessionStart": return mapSessionStart(input);
     case "UserPromptSubmit": return mapUserPromptSubmit(input);

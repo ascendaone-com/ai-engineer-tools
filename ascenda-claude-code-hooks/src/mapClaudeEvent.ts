@@ -1,4 +1,4 @@
-import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief, classifyModelClass } from "@ascenda-one/tool-kit";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd } from "@ascenda-one/tool-kit";
 import type { AutonomyMode } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
@@ -7,11 +7,25 @@ import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNe
  * Every adapter tags `metadata.host` so one local log or one backend query can
  * separate agents. Claude also has its own `source`, but staying uniform keeps
  * cross-agent queries from needing a special case.
+ *
+ * `branchHash` is stamped here for the same reason and in the same place: it
+ * is a property of every event in the turn, not of any one mapping, and one
+ * site cannot drift from another. It comes from the payload's own `cwd` — the
+ * payload knows where the work happened; the environment this hook inherits
+ * does not have to — and is omitted entirely when no branch is observable
+ * (detached HEAD, no checkout, no readable salt). See the derivation in
+ * tool-kit for why absence is never an empty string.
  */
 export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {
-  return mapEvent(hookName, input).map((event) => ({
+  const events = mapEvent(hookName, input);
+  // Hooks with no catalog counterpart are the common case on the hot path;
+  // don't touch the filesystem to decorate an empty list.
+  if (events.length === 0) return events;
+
+  const branchHash = deriveBranchHashForCwd(getString(input, ["cwd"]) ?? process.cwd());
+  return events.map((event) => ({
     ...event,
-    metadata: { host: CLAUDE_HOST, ...event.metadata }
+    metadata: { host: CLAUDE_HOST, ...(branchHash ? { branchHash } : {}), ...event.metadata }
   }));
 }
 

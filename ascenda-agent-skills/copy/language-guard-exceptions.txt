@@ -1,0 +1,15 @@
+# Occurrences of a banned phrase that are not the product asserting it.
+#
+# The ban is on assertion, not on the word existing (see the header of
+# `banned-vocabulary.txt`). Rule content has to be able to name the thing it
+# forbids, and a guard that could not tell the two apart would push this
+# package into euphemism — which is a worse outcome than the guard exists to
+# prevent.
+#
+# One line each: <file> | <phrase> | why this occurrence is not an assertion.
+# Every line is checked both ways: an occurrence with no line here fails, and
+# a line here matching nothing fails too, so the list cannot rot into a
+# blanket permit.
+
+skills/ascenda-work-signals/SKILL.md | diagnosis | "Report the pattern, not a diagnosis" — the rule against diagnosing, which has to name what it bans.
+cursor/ascenda-work-signals.mdc | diagnosis | The same rule, in the Cursor phrasing.

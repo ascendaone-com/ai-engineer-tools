@@ -9,6 +9,7 @@ import {
   defaultTokenFilePath,
   deriveWorkContext,
   recordWorkContext,
+  recordForgeProjectAlias,
   emitLiveSignal,
   getPairingStatus,
   getString,
@@ -218,7 +219,13 @@ async function main(): Promise<void> {
   // directory, and events without a context hash are unattributable forever.
   // Env overrides (ASCENDA_WORKSPACE_HASH / ASCENDA_PROJECT_HASH) still win.
   const workContext = deriveWorkContext(getString(input, ["cwd"]) ?? process.cwd());
-  if (workContext) recordWorkContext(workContext);
+  if (workContext) {
+    recordWorkContext(workContext);
+    // And the same repository under the identity a code forge would give it,
+    // computed from this checkout's own remote. Local dictionary write only,
+    // silent on every failure path — see tool-kit's forgeProject.ts.
+    recordForgeProjectAlias(workContext);
+  }
 
   let config;
   try {

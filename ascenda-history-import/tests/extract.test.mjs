@@ -171,7 +171,7 @@ test("wire payload hashes refs, keeps counts, and is re-run stable", async () =>
     // Raw path and branch name never on the wire — only salted 16-hex hashes.
     assert.match(payload.workspaceHash, /^[0-9a-f]{16}$/);
     assert.equal(payload.metadata.gitBranch, undefined);
-    assert.match(payload.metadata.gitBranchHash, /^[0-9a-f]{16}$/);
+    assert.match(payload.metadata.branchHash, /^[0-9a-f]{16}$/);
     assert.equal(JSON.stringify(payload).includes("/Users/example"), false);
     assert.equal(JSON.stringify(payload).includes('"main"'), false);
     // Same event + ordinal → same importKey (the future dedup anchor).
