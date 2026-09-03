@@ -28,11 +28,11 @@ import { ModelClass } from "@ascenda-one/tool-contract";
  * this corpus is append-only.
  *
  * Vendor is therefore matched on more than its tier words — the family name
- * (`claude`, `gemini`), the corporate prefix that Bedrock and Vertex ids carry
- * (`us.anthropic.…`, `publishers/google/…`), and, for OpenAI's reasoning line
- * which carries no family word at all, the bare `o1`/`o3`/`o4` form. Tier is
- * then matched within that vendor only, so the two halves of a `vendor:tier`
- * value can never disagree.
+ * (`claude`, `gemini`, `grok`), the corporate prefix that Bedrock and Vertex
+ * ids carry (`us.anthropic.…`, `publishers/google/…`), and, for OpenAI's
+ * reasoning line which carries no family word at all, the bare `o1`/`o3`/`o4`
+ * form. Tier is then matched within that vendor only, so the two halves of a
+ * `vendor:tier` value can never disagree.
  *
  * Bare `unknown` means exactly one thing: the *vendor* could not be read
  * either. `<synthetic>` is a real value in Claude Code's store, is not a
@@ -86,7 +86,7 @@ export function classifyModelClass(raw: string | undefined): ModelClass | undefi
   return UNKNOWN_TIER_BY_VENDOR[vendor];
 }
 
-type ModelVendor = "anthropic" | "openai" | "google" | "local";
+type ModelVendor = "anthropic" | "openai" | "google" | "xai" | "local";
 
 /**
  * The vendor from the shape of the identifier alone. Ordered: the first match
@@ -103,6 +103,9 @@ const VENDOR_PATTERNS: readonly (readonly [RegExp, ModelVendor])[] = [
   [/\b(anthropic|claude|opus|sonnet|haiku|fable)\b/, "anthropic"],
   [/\b(openai|gpt|o[1-9])\b/, "openai"],
   [/\b(google|gemini|vertex)\b/, "google"],
+  // xAI carries no corporate prefix in any observed id — the family name is
+  // the whole marker, exactly as `claude` and `gemini` are for theirs.
+  [/\b(xai|grok)\b/, "xai"],
   [/\b(ollama|llamacpp|on[-_]?device|local)\b/, "local"]
 ];
 
@@ -120,6 +123,11 @@ const TIER_PATTERNS_BY_VENDOR: Record<ModelVendor, readonly (readonly [RegExp, M
   ],
   openai: [[/\bgpt\b/, "openai:gpt"]],
   google: [[/\bgemini\b/, "google:gemini"]],
+  // One tier for now. The line's coding variants (`grok-code-fast-1`) are the
+  // same tier word plus a suffix, and splitting them off would be inventing a
+  // distinction the ids do not yet draw — `<vendor>:unknown` is waiting for
+  // the day one does.
+  xai: [[/\bgrok\b/, "xai:grok"]],
   local: [[/\b(ollama|llamacpp|on[-_]?device)\b/, "local:on_device"]]
 };
 
@@ -127,5 +135,6 @@ const UNKNOWN_TIER_BY_VENDOR: Record<ModelVendor, ModelClass> = {
   anthropic: "anthropic:unknown",
   openai: "openai:unknown",
   google: "google:unknown",
+  xai: "xai:unknown",
   local: "local:unknown"
 };
