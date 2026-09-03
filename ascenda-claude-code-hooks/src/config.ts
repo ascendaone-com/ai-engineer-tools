@@ -1,4 +1,5 @@
 import {
+  defaultOutboxFilePath,
   defaultStateFilePath,
   defaultTokenFilePath,
   listPersistedToolInstallationIds,
@@ -17,10 +18,20 @@ export type AscendaHookConfig = {
   eventWriteToken: string;
   tokenFilePath: string;
   stateFilePath: string;
+  outboxFilePath: string;
   sessionId?: string | null;
   workspaceHash?: string | null;
   projectHash?: string | null;
 };
+
+/**
+ * Where refused events wait for a later drain. Resolved alongside the journal
+ * for the same reason: `doctor` reports its depth whether or not this
+ * invocation can send.
+ */
+export function resolveOutboxFilePath(toolInstallationId: string): string {
+  return process.env.ASCENDA_OUTBOX_FILE ?? defaultOutboxFilePath(toolInstallationId);
+}
 
 /**
  * Where the send journal lives for a given installation, resolved the same way
@@ -116,6 +127,7 @@ export function loadConfigFromEnv(): AscendaHookConfig {
     eventWriteToken,
     tokenFilePath,
     stateFilePath: resolveStateFilePath(toolInstallationId),
+    outboxFilePath: resolveOutboxFilePath(toolInstallationId),
     sessionId: process.env.ASCENDA_SESSION_ID ?? null,
     // Overrides only. When unset, main() fills these from the hook payload's
     // own cwd — the payload knows where the work happened; the environment

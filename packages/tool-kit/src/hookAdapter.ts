@@ -143,7 +143,7 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
     } else if (result === "auth_failed") {
       notice("Ascenda telemetry paused: connection revoked or expired. Re-pair via an Ascenda IDE extension or pairing-sim.");
     } else if (result === "transport_error") {
-      notice("Ascenda telemetry paused: the ingest endpoint could not be reached. Your work is unaffected.");
+      notice("Ascenda telemetry paused: the ingest endpoint could not be reached; the event is kept in the outbox. Your work is unaffected.");
     } else {
       notice(`Ascenda telemetry rejected: ${result}`);
     }

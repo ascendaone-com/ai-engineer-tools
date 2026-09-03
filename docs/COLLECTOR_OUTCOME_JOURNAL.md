@@ -80,3 +80,41 @@ Verified end to end against prod on 17 Aug 2026, following §6 of the handoff:
 success journalled, a simulated 401 journalled with status and error code,
 `doctor` reporting it, the notice appearing exactly once, and recovery clearing
 the episode.
+
+## The outbox — the same rule, applied to the payload
+
+The journal records *that* a send failed. For a long time nothing held *what*
+failed: the transport retried once after 250 ms and then the payload went out
+of scope. A laptop waking from sleep, a VPN reconnecting, a restarting instance
+— anything longer than a blip lost every event for its duration, and on a
+default install left no trace of them at all. The journal said the collector
+was failing; it could not say what was lost, and once delivery resumed its
+`consecutiveFailures` reset to zero and the gap was invisible.
+
+`packages/tool-kit/src/outbox.ts`, written from the same choke point:
+
+- A send that exhausts its retry on a failure **without a verdict** (network
+  failure, timeout, `408`, `429`, `5xx`) appends the payload to
+  `~/.ascenda/state/<toolInstallationId>.outbox.jsonl`. Unconditional — not
+  gated on the opt-in event log, because the two sinks answer different
+  questions and an outbox is not a debugging aid. A rejection with a verdict
+  is not queued: replaying it cannot change the answer.
+- The next hook invocation drains it, oldest first, one batch and no backoff
+  loop. An entry is deleted on `accepted` **or** `duplicate`, decided on
+  `status` alone. That is safe only because every payload carries the
+  `idempotencyKey` minted when it was built — the prerequisite this queue
+  waited on.
+- It is bounded (count and age), and **every eviction is journaled** as
+  `outbox_discarded` with a cumulative `outboxDiscarded` record that survives
+  later successes. A silent truncation would have reproduced the original
+  defect one level down.
+- `doctor` reports depth, the oldest entry's age, whether the drain is
+  enabled, and the discard record. A non-empty outbox is the honest health
+  answer, and unlike `consecutiveFailures` it survives the first success.
+
+Sending from the outbox is behind `ASCENDA_OUTBOX_DRAIN`, off by default, until
+the deployed ingest endpoint is confirmed to answer a replayed key with
+`duplicate`. A drain against a door that does not would land every queued
+event twice — the double-count this work was blocked on, except written rather
+than merely risked. Everything else (queueing, bounds, journaling, `doctor`)
+is live regardless of the flag.

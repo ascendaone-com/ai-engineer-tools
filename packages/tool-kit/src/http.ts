@@ -69,6 +69,20 @@ export type IngestOutcome = {
    * caller can branch on it.
    */
   duplicates?: number;
+  /**
+   * The batch door's per-item verdicts, positional against the events sent,
+   * when the 2xx body carried them. An outbox drain reads these to decide
+   * which entries the server now holds (`accepted` or `duplicate` — delete)
+   * and which it refused with a verdict (`rejected` — replaying cannot change
+   * the answer). Absent on the single door and on a body without `results`.
+   */
+  results?: IngestBatchItemResult[];
+};
+
+export type IngestBatchItemResult = {
+  index: number;
+  status: string;
+  reason?: string;
 };
 
 /**
@@ -87,19 +101,26 @@ function isDeliveredStatus(value: unknown): value is ToolEventDeliveredStatus {
  * (`already_delivered` vs `already_imported`) and is not a contract for
  * clients. Returns the number of events the server called `duplicate`.
  */
-function countDuplicates(body: string): number {
+function readSuccessBody(body: string): { duplicates: number; results?: IngestBatchItemResult[] } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
   } catch {
-    return 0;
+    return { duplicates: 0 };
   }
-  if (!parsed || typeof parsed !== "object") return 0;
+  if (!parsed || typeof parsed !== "object") return { duplicates: 0 };
   const single = (parsed as { status?: unknown }).status;
-  if (isDeliveredStatus(single)) return single === "duplicate" ? 1 : 0;
-  const results = (parsed as { results?: unknown }).results;
-  if (!Array.isArray(results)) return 0;
-  return results.filter((item) => item && typeof item === "object" && (item as { status?: unknown }).status === "duplicate").length;
+  if (isDeliveredStatus(single)) return { duplicates: single === "duplicate" ? 1 : 0 };
+  const raw = (parsed as { results?: unknown }).results;
+  if (!Array.isArray(raw)) return { duplicates: 0 };
+  const results: IngestBatchItemResult[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const { index, status, reason } = item as { index?: unknown; status?: unknown; reason?: unknown };
+    if (typeof index !== "number" || typeof status !== "string") continue;
+    results.push({ index, status, ...(typeof reason === "string" ? { reason } : {}) });
+  }
+  return { duplicates: results.filter((item) => item.status === "duplicate").length, results };
 }
 
 /** Statuses worth a second attempt: the request never got a real verdict. */
@@ -151,13 +172,17 @@ async function sendIngest(url: string, eventWriteToken: string, body: string, si
 export async function parseIngestResponse(response: Response): Promise<IngestOutcome> {
   if (response.ok) {
     const outcome: IngestOutcome = { result: "accepted", httpStatus: response.status };
-    let duplicates = 0;
+    let read: { duplicates: number; results?: IngestBatchItemResult[] } = { duplicates: 0 };
     try {
-      duplicates = countDuplicates(await response.text());
+      read = readSuccessBody(await response.text());
     } catch {
-      duplicates = 0;
+      read = { duplicates: 0 };
     }
-    return duplicates > 0 ? { ...outcome, duplicates } : outcome;
+    return {
+      ...outcome,
+      ...(read.duplicates > 0 ? { duplicates: read.duplicates } : {}),
+      ...(read.results !== undefined ? { results: read.results } : {})
+    };
   }
   const body = await response.text();
   let errorCode: string | undefined;

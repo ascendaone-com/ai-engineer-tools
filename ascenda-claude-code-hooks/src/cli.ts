@@ -19,7 +19,10 @@ import {
   recordSendOutcome,
   resolveEventLogPath,
   shouldAnnounceFailure,
-  unresolvedToolInstallationId
+  unresolvedToolInstallationId,
+  outboxDrainEnabled,
+  readOutboxSummary,
+  OUTBOX_DRAIN_ENV_VAR
 } from "@ascenda-one/tool-kit";
 import type { CollectorState, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
@@ -27,6 +30,7 @@ import {
   MissingInstallationIdError,
   envHashOverride,
   loadConfigFromEnv,
+  resolveOutboxFilePath,
   resolveStateFilePath,
   resolveToolInstallationId
 } from "./config.js";
@@ -270,7 +274,7 @@ function journalSkippedSend(error: MissingInstallationIdError): void {
 function explainRejection(result: IngestResult): string {
   if (result === "consent_missing") return "Ascenda telemetry rejected: renew IDE telemetry consent in the Ascenda app.";
   if (result === "auth_failed") return "Ascenda telemetry rejected: event write token invalid or revoked. Re-pair with `npx @ascenda-one/claude-code-hooks pair`.";
-  if (result === "transport_error") return "Ascenda telemetry not delivered: the ingest endpoint could not be reached.";
+  if (result === "transport_error") return "Ascenda telemetry not delivered: the ingest endpoint could not be reached; the event is kept in the outbox.";
   return `Ascenda telemetry rejected: ${result}`;
 }
 
@@ -385,6 +389,7 @@ function describeOutcome(state: CollectorState): string {
     case "consent_missing": return `the telemetry consent lease has lapsed${status}`;
     case "validation_failed": return `the events were refused as invalid${status}`;
     case "transport_error": return `the ingest endpoint could not be reached${status}`;
+    case "outbox_discarded": return `the outbox overflowed and ${state.outboxDiscarded?.lastCount ?? "some"} queued events were discarded`;
     default: return `last outcome ${state.lastOutcome}${status}`;
   }
 }
@@ -456,6 +461,7 @@ async function runDoctor(): Promise<void> {
     if (state.failingSince) lines.push(`  Failing since         ${state.failingSince}`);
   }
   lines.push(...skippedSendLines(stateFilePath));
+  lines.push(...outboxLines(toolInstallationId, state));
 
   lines.push("", "  Live round trip...");
   lines.push(`  ${await liveRoundTrip()}`);
@@ -505,6 +511,51 @@ function skippedSendLines(alreadyShown: string | undefined): string[] {
     ...(state.detail ? [`  Skipped because       ${state.detail}`] : []),
     `  Skipped-send journal  ${stateFilePath}`
   ];
+}
+
+/**
+ * The outbox is the honest health answer. `consecutiveFailures` resets on
+ * the first success after an outage; a non-empty outbox says events from
+ * that outage are still on this machine, and the cumulative discard record
+ * says how many never will be delivered — both survive the recovery.
+ */
+function outboxLines(toolInstallationId: string, state: CollectorState | undefined): string[] {
+  const outboxFilePath = resolveOutboxFilePath(toolInstallationId);
+  const lines: string[] = [`  Outbox                ${outboxFilePath}`];
+
+  const summary = readOutboxSummary(outboxFilePath);
+  if (!summary || summary.depth === 0) {
+    lines.push("  Outbox depth          0 (nothing waiting)");
+  } else {
+    const oldest = summary.oldestQueuedAt ? ` — oldest queued ${summary.oldestQueuedAt} (${describeAge(summary.oldestQueuedAt)} ago)` : "";
+    lines.push(`  Outbox depth          ${summary.depth} waiting${oldest}`);
+  }
+  if (summary && summary.unreadableLines > 0) {
+    lines.push(`  Outbox unreadable     ${summary.unreadableLines} line(s) did not parse — discarded and journaled on the next hook`);
+  }
+
+  // Off by default until the ingest doors are confirmed to dedupe live events
+  // on idempotencyKey; a drain against a door that does not would land every
+  // queued event a second time.
+  lines.push(`  Outbox drain          ${outboxDrainEnabled() ? "on" : "off (queued events are kept and bounded, not sent)"} — ${OUTBOX_DRAIN_ENV_VAR}`);
+
+  const discarded = state?.outboxDiscarded;
+  if (discarded) {
+    const reasons = Object.entries(discarded.lastReasons).map(([reason, count]) => `${count} ${reason}`).join(", ");
+    const reach = discarded.lastOldestQueuedAt ? `, reaching back to ${discarded.lastOldestQueuedAt}` : "";
+    lines.push(`  Outbox discarded      ${discarded.total} total; last ${discarded.lastCount} at ${discarded.lastAt} (${reasons}${reach})`);
+  }
+  return lines;
+}
+
+function describeAge(isoTimestamp: string): string {
+  const ms = Date.now() - Date.parse(isoTimestamp);
+  if (!Number.isFinite(ms) || ms < 0) return "0m";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
 function describeToken(tokenFilePath: string): string {
