@@ -191,6 +191,49 @@ export function sniffClaudeLine(line: string): SniffedClaudeLine {
   };
 }
 
+/**
+ * Claude Code writes some of its OWN notices as assistant lines, under the
+ * literal model string `<synthetic>` — "No response requested", plan-limit
+ * hits ("You've hit your limit · resets …"), sleep-drop and connection-loss
+ * notices, and 529 overloads. The runtime produced them, not a model: their
+ * `usage` block is present and every figure in it is zero.
+ *
+ * On one real store of 852 transcripts these are 345 of 300,221 assistant
+ * lines — 0.1%, but concentrated, and the damage is out of proportion to the
+ * count. 143 sessions carry at least one:
+ *
+ *  - `primaryModel`: on that store `<synthetic>` already wins one session
+ *    outright, which is enough. The session's dominant model would then be
+ *    reported as a string that is not a model, and `classifyModelClass` files
+ *    it as bare `unknown` — the same value a garbage string gets and
+ *    indistinguishable from one, which is the collapse the classifier's
+ *    vendor-first rule exists to prevent.
+ *  - `modelSwitchCount`: a notice interrupting a run reads as two switches,
+ *    out and back. 1,232 switches on that store become 743 once these are
+ *    excluded — 40% of the signal was the runtime clearing its throat.
+ *  - `modelCount`: a session that ran on one model reports two.
+ *
+ * The exclusion lives here and not in `sniffClaudeLine`, which stays a
+ * faithful read of what the line says: `<synthetic>` IS the string in the
+ * file, and the judgement that it names no model belongs to the fold that
+ * interprets it.
+ *
+ * A notice turn carries NO model. It does not carry an unknown one — absent
+ * and unknown are different facts, both are typed downstream, and folding
+ * these lines in would report the second when the first is true.
+ */
+export const SYNTHETIC_CLAUDE_MODEL = "<synthetic>";
+
+/**
+ * The model a fold should attribute an assistant line to: the reported
+ * identifier, or `null` where the line names no model at all — absent, empty,
+ * or the runtime's `<synthetic>` placeholder.
+ */
+export function foldableModelOf(model: string | null): string | null {
+  if (!model || model === SYNTHETIC_CLAUDE_MODEL) return null;
+  return model;
+}
+
 /** A user-role line that is actually a tool result round-trip, not a person
  * typing. Two independent markers observed in real stores; either decides. */
 export function isToolResultUserLine(record: Record<string, unknown>): boolean {
@@ -607,13 +650,26 @@ async function foldLinesInto(
             break;
           }
           fold.assistantTurns += 1;
-          if (sniffed.model) {
-            fold.models.set(sniffed.model, (fold.models.get(sniffed.model) ?? 0) + 1);
-            if (fold.lastMainModel && fold.lastMainModel !== sniffed.model) {
+          // A runtime notice names no model, so it moves none of the three
+          // model figures — and crucially does not touch `lastMainModel`
+          // either, so a run interrupted by a notice and resumed on the same
+          // model reads as the zero switches it was.
+          const foldedModel = foldableModelOf(sniffed.model);
+          if (foldedModel) {
+            fold.models.set(foldedModel, (fold.models.get(foldedModel) ?? 0) + 1);
+            if (fold.lastMainModel && fold.lastMainModel !== foldedModel) {
               fold.modelSwitchCount += 1;
             }
-            fold.lastMainModel = sniffed.model;
+            fold.lastMainModel = foldedModel;
           }
+          // Deliberately NOT gated on `foldedModel`. The model figures are a
+          // vocabulary and `<synthetic>` is not in it; the token figures are
+          // arithmetic, and a notice's `usage` block is all zeros, so adding
+          // it moves no total and a zero context figure cannot beat a peak.
+          // Skipping it would buy an identical result at the price of a
+          // second rule, and would hard-code the assumption that these lines
+          // always report zero — if one ever reports real tokens, they were
+          // really spent and this counts them.
           if (usage) {
             fold.inputTokens += asNumber(usage.input_tokens);
             fold.outputTokens += asNumber(usage.output_tokens);
