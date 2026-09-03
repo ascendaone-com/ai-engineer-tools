@@ -184,3 +184,14 @@ test("writeHandoff writes valid JSON into the container and replaces cleanly", a
     await fs.rm(home, { recursive: true, force: true });
   }
 });
+
+test("projectLabelOf folds a deleted Claude worktree into the repository it came from", () => {
+  // The importer replays cwds that no longer exist. Before this folded them,
+  // every `.claude/worktrees/<name>` the agent had cleaned up became a
+  // project of its own in the handoff, and the desktop app counted them.
+  assert.equal(projectLabelOf("/Users/example/Dev/repo-a/.claude/worktrees/sweet-wiles-0f5525"), "repo-a");
+  assert.equal(projectLabelOf("/Users/example/Dev/repo-a/.claude/worktrees/sweet-wiles-0f5525/src"), "repo-a");
+  assert.equal(projectLabelOf("/Users/example/Dev/repo-a-wt/metric-unit-split"), "repo-a");
+  // A plain deleted checkout is unchanged: its own basename.
+  assert.equal(projectLabelOf("/Users/example/Dev/gone/repo-b"), "repo-b");
+});
