@@ -387,9 +387,10 @@ test("autonomyMode: the classifier is total — non-strings do not crash and do 
 });
 
 test("autonomyMode: absent is not unknown — the key is omitted entirely", () => {
-  // Two different facts. "This runtime reports no posture" (SessionStart,
-  // Codex, the VS Code extension) must stay distinguishable from "this
-  // runtime reported a posture we failed to map", or the second is invisible.
+  // Two different facts. "This runtime reports no posture" (SessionStart here,
+  // Codex's compaction hooks, the VS Code extension whose events are not agent
+  // actions at all) must stay distinguishable from "this runtime reported a
+  // posture we failed to map", or the second is invisible.
   const events = mapClaudeEvent("PostToolUse", { tool_name: "Grep", tool_response: okResponse() });
   assert.ok(!("autonomyMode" in events[0].metadata));
 });

@@ -198,6 +198,17 @@ export type PromptClass = "creation" | "verification" | "correction" | "debuggin
  * Anthropic's published reference with no translation table in between, and
  * nobody has to defend a word upstream does not use.
  *
+ * Codex, checked the same day against its generated wire schemas, sends the
+ * same field with five of those six values (no `auto`) — so mirroring means
+ * both collectors land on the same tokens without either being translated to
+ * the other. That is worth more than a shared invented vocabulary would be:
+ * where the two runtimes agree, the wire shows it as agreement, and where they
+ * diverge, the wire shows that too instead of hiding it inside a rung.
+ * Near-identical today, and nothing guarantees they stay in step. The VS Code
+ * extension has no equivalent at all and omits the key; its events are a
+ * person's saves and terminal commands, not agent actions under an approval
+ * posture.
+ *
  * **Granular at capture, coarse at read — never the reverse.** An earlier
  * draft of this type was a five-rung posture ladder
  * (`planning`/`supervised`/`edits_auto`/`delegated`/`unsupervised`) that
@@ -297,10 +308,12 @@ export type AutonomyMode =
  *
  * Claude-Code-first, not uniform. `SessionStart` is the only live hook that
  * can carry a model at all, and even there the docs do not guarantee it (it is
- * omitted after `/clear` and on conversation recovery). The Codex hooks and
- * the VS Code extension know no model whatsoever. So absence is the normal
- * case everywhere else, and no surface may treat a missing `modelClass` as an
- * anomaly.
+ * omitted after `/clear` and on conversation recovery). The VS Code extension
+ * knows no model whatsoever. Codex is the correction to an earlier claim here:
+ * its hook payloads carry an active model slug on *every* event, but that
+ * adapter does not read it yet, so its rows carry no `modelClass` either. So
+ * absence is the normal case everywhere else, and no surface may treat a
+ * missing `modelClass` as an anomaly.
  */
 export type ModelClass =
   | "anthropic:opus"
