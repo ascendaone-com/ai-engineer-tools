@@ -1,6 +1,8 @@
 export { classifyCommand, isVerificationCommand } from "./commandClassifier";
 export { classifyGitAction, isReworkGitAction } from "./gitActionClassifier";
 export { classifyWorkMilestone, invitesDebrief } from "./workMilestoneClassifier";
+export { autonomyBand } from "./autonomyBand";
+export type { AutonomyBand } from "./autonomyBand";
 export { bucketLinesChanged, bucketDurationMs } from "./buckets";
 export {
   isAfterHours,

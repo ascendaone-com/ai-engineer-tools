@@ -53,10 +53,213 @@ Consequences that shape the adapter (`outcomeForHook` in `@ascenda-one/tool-kit`
 - Field naming is snake_case throughout: `tool_name`, `tool_input`,
   `tool_response`, `duration_ms`, `is_interrupt`.
 
-Also present in captured payloads and not yet used: `permission_mode` (a
-supervision-posture signal), and an Edit's `tool_response.userModified` /
-`structuredPatch` (whether the human corrected the agent's output, and real
-line counts).
+Still present in captured payloads and not used: an Edit's
+`tool_response.structuredPatch` (real line counts, as opposed to the
+`old_string`/`new_string` estimate below).
+
+## Three signals the payload carried and the mapper dropped
+
+`permission_mode`, `model` and `tool_response.userModified` all arrive in
+Claude Code's own payloads — the first and third are in this package's captured
+fixtures — and until 28 Aug 2026 none of them was read. `ClaudeHookInput` is a
+loose `Record<string, unknown>`, so they arrived and were discarded with
+nothing raising anywhere.
+
+Why that mattered more than it looks: ingest is a **denylist**
+(`ToolPairingService.SanitizeMetadata` strips `prompt`, `response`,
+`sourceCode`, `code`, `fileName`, `filePath`, `branch`, `repository`,
+`terminalOutput`, and preserves everything else verbatim into `MetadataJson`).
+A key a collector sends is a key that gets stored, so **no backend change is
+needed to capture any of these** — and a key it does not send is simply history
+that was never recorded. Do not add a server-side allowlist to make these
+"official": that would invert the denylist into a gate and silently drop every
+other collector key already flowing.
+
+The finding behind the work: the retrospective import already carries model,
+token and human-correction metrics, so **imported history was richer than the
+live stream that costs roughly twenty times the storage.** These three close
+the part of that gap the live payloads can actually answer.
+
+| Field | Read from | Rides | Grain |
+| --- | --- | --- | --- |
+| `autonomyMode` | `permission_mode` | `ai_file_*`, `ai_tool_call_*`, `compile_error`, `editor_verification_activity`, `ai_prompt_submitted`, `ai_correction_prompt`, `agent_loop_long` | per event |
+| `modelClass` + `modelId` | `model` (optional) | `create_focus_session` | per session |
+| `userModified` | `tool_response.userModified` | `ai_file_edit`, `ai_file_write` | per write |
+
+Measured wire cost: 29 B on a tool-call, prompt or stop row; 31 B on a session
+row; 48 B on a file row carrying both posture and `userModified`. Against the
+179 B/row reclaimed on 26 Aug, the row still shrinks.
+
+None of the three mints a new event type. They ride existing events for the
+same reason `gitAction` and `milestoneKind` do: a posture, a model and a
+correction are facts *about* the call that just happened, not different kinds
+of thing happening.
+
+### `autonomyMode` — the permission posture, mirrored
+
+Six documented `permission_mode` values (checked against Claude Code's hooks
+reference, 28 Aug 2026). **Each takes its own token, and snake-casing is the
+only transformation applied:**
+
+| `permission_mode` | `autonomyMode` |
+| --- | --- |
+| `default` | `default` |
+| `plan` | `plan` |
+| `acceptEdits` | `accept_edits` |
+| `auto` | `auto` |
+| `dontAsk` | `dont_ask` |
+| `bypassPermissions` | `bypass_permissions` |
+| *anything else* | `unknown` |
+| *field not in the payload* | *key omitted* |
+
+`default` is the mode the UI labels **Manual** — it never arrives on the wire
+as `"manual"`, and a mapping written from the UI's vocabulary would have missed
+the most common posture entirely. Keeping it as `default` rather than renaming
+it to `manual` is safe because the fallback is `unknown`: a `default` on the
+wire is always a posture Anthropic reported, never one this mapper invented.
+
+Mirroring buys three things a rename cannot: the vocabulary is auditable
+against Anthropic's published reference with no translation table, nobody has
+to defend a word upstream does not use, and there is no second vocabulary to
+keep in step as upstream's grows.
+
+`auto` collides with `trigger`'s `auto`, which means *what initiated this
+event*. Accepted and documented rather than dodged: the keys are namespaced and
+meaning is per key, so it is legal and readable — but it is a trap for a query
+that reads values rather than pairs.
+
+#### Granular at capture, coarse at read
+
+The five-rung ladder this field first shipped with —
+`planning`/`supervised`/`edits_auto`/`delegated`/`unsupervised` — **is gone
+from the wire.** It mapped both `auto` and `dontAsk` onto `delegated`, and that
+collapse is not injective.
+
+That matters because the corpus is effectively immutable: `ToolTelemetryEvents`
+has no retention window and no erasure pathway, and imported rows are never
+rewritten. Coarsening at capture is therefore indistinguishable from
+discarding, and it is the one decision here that cannot be revisited. A reader
+can always pool two tokens; no reader can un-collapse one.
+
+The test for any transformation applied at capture is **whether it is
+injective**. Snake-casing is (`accept_edits` recovers `acceptEdits`), so it is
+safe. Fusing two modes into one rung is not, so it moved to the reader:
+`autonomyBand` in `@ascenda-one/tool-kit` derives the same ladder from the
+stored token, and those bands are explicitly **not frozen** — changing our mind
+there costs a query rewrite rather than a lost year of rows.
+
+- **The mapping is total.** Anthropic's list may grow; an unrecognised value
+  becomes `unknown` and is still sent, so a new mode shows up as a rising
+  `unknown` count rather than as nothing having changed.
+- **Absent is not `unknown`.** Where the payload carries no posture the key is
+  omitted, so "this runtime has no such concept" stays distinguishable from
+  "we failed to map a value we were given".
+- **Not gated on success**, unlike `gitAction`/`milestoneKind`. A failed or
+  interrupted call still happened under a posture, and an interrupt is the most
+  interesting posture datum there is — a person stepping in.
+- **Not sent on `PreToolUse`.** `PreToolUse` and `PostToolUse` are a pair over
+  the same call under the same posture, so carrying it once halves the cost on
+  the highest-volume event with no information lost. The exception is a call
+  that starts and never completes; if that turns out to matter, adding it to
+  `mapPreToolUse` is a one-line change.
+- **Live-only by nature.** Transcripts do not reliably record permission state,
+  so unlike model mix this cannot be recovered by a later import. Every day
+  uncaptured is gone.
+- **Absent on `SessionStart`** — hence per event, not per session. That is also
+  the honest grain: the mode is switched mid-session, and a session summarised
+  by one posture would average away the transition this exists to see.
+
+### `modelClass` + `modelId` — the reading, and the record it came from
+
+`anthropic:opus` | `anthropic:sonnet` | `anthropic:haiku` | `anthropic:fable` |
+`anthropic:unknown` | `openai:gpt` | `openai:unknown` | `google:gemini` |
+`google:unknown` | `local:on_device` | `local:unknown` | `unknown`.
+
+**Partial recognition degrades to the vendor, not to nothing.** The classifier
+reads vendor and tier as two separate steps, so an Anthropic model whose tier
+we have not mapped is `anthropic:unknown`. The day a vendor ships an unmapped
+tier name is certain — it is the reason this rule exists — and flat `unknown`
+would make those rows indistinguishable from a garbage string, losing the
+vendor. Tiers churn on a release cadence; vendors persist, and
+vendor-mix-over-time is the reading this field exists to serve. Coarsening
+`anthropic:unknown` down to `unknown` later costs a query; inventing the vendor
+back costs the rows.
+
+Bare `unknown` therefore means exactly one thing: **the vendor could not be
+read either.** `<synthetic>` is a real value in the store, is not a model, and
+correctly lands there.
+
+**`modelId` carries the raw slug on the same row, on its own key.** A class is
+a lossy derivation written into an append-only corpus, so on its own it cannot
+be revised: a row holding only `anthropic:unknown` has lost which model
+actually ran. With the slug beside it the coarsening is recoverable, and the
+vocabulary can be improved against history rather than only against new rows.
+Both keys ship together or neither does.
+
+`modelId` is deliberately **not** the importer's `primaryModel`, and must never
+be merged with it. `primaryModel` is the *dominant* model across a whole
+imported session; `modelId` is the model at *session open*, and a mid-session
+switch is invisible to it. Two different measurements under one key is a column
+no reader can interpret — the same error as fusing two provenances into one
+rollup row.
+
+Session-grain by necessity. **`SessionStart` is the only live hook that can
+carry a model**, and even there the docs do not guarantee it — it is omitted
+after `/clear` and on conversation recovery. There is no `$CLAUDE_MODEL`
+environment variable, and no other event carries it. So **absence is the normal
+case, not an error**, and no surface may treat a missing `modelClass` as an
+anomaly. The existing `startup`/`resume` gate is unchanged; it happens to align
+with when a model is present at all.
+
+`transcript_path` is on every event, so the model is technically recoverable by
+reading the transcript. Deliberately not done: that puts file I/O on a
+per-tool-call hot path, against a format the docs say can lag the live
+conversation.
+
+Matching is on words, not on whole ids. The tier word survives every form seen
+in Claude Code's own store — `claude-opus-5`, `claude-sonnet-5`,
+`claude-fable-5`, `claude-haiku-4-5-20251001`, a bare `fable`, and the dated,
+Bedrock- and Vertex-prefixed variants — so a point release cannot silently
+re-bucket a person's norm table. The vendor is read from more than its tier
+words: the family name, the corporate prefix a Bedrock or Vertex id carries,
+and, for OpenAI's reasoning line, the bare `o1`/`o3` form that carries no
+family word at all. That is what lets an unmapped tier still land under its
+vendor.
+
+`modelClass` is a reading; `modelId` is the record. Charts group by the class,
+and anything that needs to know exactly which build ran reads the slug.
+
+Claude-Code-first, not uniform: the Codex hooks and the VS Code extension know
+no model at all, so this must never be promised as a cross-collector field.
+
+### `userModified` — the human correction signal
+
+From `tool_response.userModified` on Edit-family `PostToolUse` payloads. The
+one live signal of *correction* rather than production: everything else on a
+file event counts what the agent did, and none of it says whether a person then
+had to fix it.
+
+`false` is sent, not suppressed — without the negatives there is a numerator
+and no denominator, and no correction rate can be computed. Absence still means
+the payload said nothing, and a non-boolean value is treated as saying nothing
+rather than guessed at, so payload drift degrades to "not collected".
+
+**Read the corpus before trusting a zero.** The import side records this as
+`userModifiedEditCount` and had to document that Claude Code never sets it true
+in transcripts — a `0` there would have asserted "no AI edit was ever corrected
+by hand" when it only meant the store never says so. If the live field turns
+out to be inert the same way, an all-`false` corpus is evidence about the
+field, not about the work.
+
+### The enum values freeze
+
+Nothing server-side validates metadata vocabulary, so a collector typo becomes
+permanent history in an immutable corpus. These values freeze the way
+`retrospective` did under P-D28: once emitted they are in the record and cannot
+be renamed retroactively. They are provisional pending a decision-register
+ratification; the tests in `tests/mapClaudeEvent.test.mjs` spell out every
+string deliberately, because the consumer is in another repository and cannot
+be typechecked against.
 
 ## Acceptance-boundary metadata (`linesChangedBucket`)
 
