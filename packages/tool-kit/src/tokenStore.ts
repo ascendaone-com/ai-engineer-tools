@@ -32,6 +32,48 @@ export function persistEventWriteToken(tokenFilePath: string, token: string): vo
   }
 }
 
+/**
+ * The installation ids whose write token is on disk, for one tool type.
+ *
+ * Written because on 26 Aug 2026 a collector lost twelve hours of events: the
+ * id lived only in a shell rc file, the editor had been launched from the
+ * Dock, and every hook it spawned inherited an environment without it. The
+ * id was on disk the whole time — it *is* the token filename, in sanitised
+ * form — so a hook with an empty environment can still name its installation
+ * as long as the answer is unambiguous.
+ *
+ * Only readable, non-empty token files count: an empty file could not be used
+ * to send even if it were chosen. Filenames are sanitised (`:` becomes `_`),
+ * and real ids are `<toolType>:<uuid>`, so the id is rebuilt by putting the
+ * `:` back after the tool type. Anything that does not parse that way, or
+ * whose directory is missing or unreadable, contributes nothing rather than
+ * an error: the caller decides what an empty or ambiguous answer means.
+ */
+export function listPersistedToolInstallationIds(toolType: string): string[] {
+  const prefix = `${sanitizeFilePart(toolType)}_`;
+  const dir = path.join(ascendaHome(), "tokens");
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+
+  const ids: string[] = [];
+  for (const name of names.sort()) {
+    if (!name.startsWith(prefix) || name.length === prefix.length) continue;
+    const file = path.join(dir, name);
+    try {
+      if (!fs.statSync(file).isFile()) continue;
+    } catch {
+      continue;
+    }
+    if (readTokenFile(file) === undefined) continue;
+    ids.push(`${toolType}:${name.slice(prefix.length)}`);
+  }
+  return ids;
+}
+
 export function readTokenFile(tokenFilePath: string): string | undefined {
   try {
     if (!fs.existsSync(tokenFilePath)) return undefined;

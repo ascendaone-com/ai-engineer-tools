@@ -126,11 +126,14 @@ Code. The token itself is never copied around — every CLI tool reads it from
 the file `pair` wrote. (The editor extension's pairing cannot be reused here:
 its token lives in the editor's private secret storage.)
 
-> **On this route the variable is required.** Without it — and without the
-> `~/.ascenda/credentials.json` that `setup` writes — every hook invocation
-> exits saying so. The adapter refuses to guess rather than silently mint a
-> second, unpaired identity that would fragment your telemetry across two
-> installations.
+> **When the variable is absent** — and it is absent for any app launched from
+> the Dock, Finder or Spotlight, which never see a shell profile — the hooks
+> fall back to the `~/.ascenda/credentials.json` that `setup` writes, and then
+> to the token store: when `~/.ascenda/tokens/` holds exactly one `claude_code`
+> token, its filename is the id. With none, or several, every hook invocation
+> records a `skipped_no_installation_id` attempt in the journal and exits
+> saying so. The adapter refuses to guess rather than silently mint a second,
+> unpaired identity that would fragment your telemetry across two installations.
 
 On a Dev backend with no phone, [pairing-sim](../ascenda-pairing-sim/) stands in
 for the app:
@@ -185,9 +188,10 @@ for machine-wide coverage:
 npx -y @ascenda-one/claude-code-hooks doctor
 ```
 
-`doctor` prints the installation id, the token's presence and age, the last
-recorded send outcome, and the result of a live round trip against the real
-ingest endpoint. It is the first thing to run when the Ascenda app shows a
+`doctor` prints the installation id and where it came from (environment,
+credentials file, or the token store on disk), the token's presence and age,
+the last recorded send outcome, any sends skipped for want of an installation
+id, and the result of a live round trip against the real ingest endpoint. It is the first thing to run when the Ascenda app shows a
 connected tool that is not producing data.
 
 A telemetry failure never blocks your turn: **every hook invocation exits `0`**,

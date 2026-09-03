@@ -5,6 +5,18 @@ import { IngestResult } from "@ascenda-one/tool-contract";
 import { sanitizeFilePart } from "./tokenStore";
 
 /**
+ * Everything a send attempt can end in. {@link IngestResult} is what the
+ * ingest endpoint can say; the rest are attempts that never reached it.
+ *
+ * `skipped_no_installation_id`: the hook ran, had events to ship, and could
+ * not name the installation — no environment variable, no credentials file,
+ * and no single token file to fall back on. Recorded because an attempt that
+ * exits without touching the journal is indistinguishable from a collector
+ * that never ran, which hid a twelve-hour gap on 26–27 Aug 2026.
+ */
+export type SendOutcome = IngestResult | "skipped_no_installation_id";
+
+/**
  * The collector's send journal: one file per installation, rewritten on every
  * attempt, success included.
  *
@@ -33,7 +45,7 @@ export type CollectorState = {
   lastAttemptAt: string;
   /** Survives later failures — the answer to "when did this last work?". */
   lastSuccessAt?: string;
-  lastOutcome: IngestResult;
+  lastOutcome: SendOutcome;
   /** Reset to 0 by any success. Non-zero means the collector is failing now. */
   consecutiveFailures: number;
   httpStatus?: number;
@@ -67,6 +79,25 @@ export function defaultStateFilePath(toolInstallationId: string): string {
   return path.join(base, `${sanitizeFilePart(toolInstallationId)}.json`);
 }
 
+/**
+ * The placeholder an attempt is journalled under when it could not name its
+ * installation — see `skipped_no_installation_id` in {@link SendOutcome}.
+ * The journal is keyed by installation id, and this is the one outcome that
+ * by definition has none, so it gets a fixed name per tool type instead.
+ */
+export function unresolvedToolInstallationId(toolType: string): string {
+  return `${toolType}:unresolved`;
+}
+
+/**
+ * Where skipped-for-want-of-an-id attempts are journalled: the same directory
+ * as every other journal, under the placeholder id above. Resolvable with no
+ * installation id at all, which is the whole point.
+ */
+export function unresolvedStateFilePath(toolType: string): string {
+  return defaultStateFilePath(unresolvedToolInstallationId(toolType));
+}
+
 export function readCollectorState(stateFilePath: string): CollectorState | undefined {
   try {
     if (!fs.existsSync(stateFilePath)) return undefined;
@@ -97,7 +128,7 @@ export type OutcomeDetail = {
 export function recordSendOutcome(
   stateFilePath: string,
   toolInstallationId: string,
-  outcome: IngestResult,
+  outcome: SendOutcome,
   detail: OutcomeDetail = {}
 ): CollectorState {
   const now = new Date().toISOString();

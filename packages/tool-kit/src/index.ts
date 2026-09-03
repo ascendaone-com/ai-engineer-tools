@@ -17,15 +17,17 @@ export type { EventLogEntry } from "./eventLog";
 export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig, resolveContextHashes } from "./hookAdapter";
 export type { CliAgentConfig, HookDeliveryOptions } from "./hookAdapter";
 export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
-export { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export { ascendaHome, defaultTokenFilePath, listPersistedToolInstallationIds, persistEventWriteToken, readTokenFile } from "./tokenStore";
 export {
   defaultStateFilePath,
   readCollectorState,
   recordSendOutcome,
   shouldAnnounceFailure,
-  markFailureNotified
+  markFailureNotified,
+  unresolvedStateFilePath,
+  unresolvedToolInstallationId
 } from "./stateStore";
-export type { CollectorState, OutcomeDetail } from "./stateStore";
+export type { CollectorState, OutcomeDetail, SendOutcome } from "./stateStore";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export { deriveWorkContext } from "./workContext";
 export type { WorkContext } from "./workContext";

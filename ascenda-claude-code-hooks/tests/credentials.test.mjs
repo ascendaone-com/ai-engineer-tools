@@ -47,7 +47,19 @@ test("environment still wins over the credentials file", () => {
 test("unreadable or malformed credentials degrade to unconfigured, not a crash", () => {
   fs.writeFileSync(credentialsFilePath(), "{ not json");
   assert.equal(readCredentials(), undefined);
-  assert.throws(() => loadConfigFromEnv(), /Not configured/, "and the error tells you how to fix it");
+  // The token an earlier test persisted is the one claude_code token on disk,
+  // so since #48 the id is recovered from it rather than thrown away.
+  assert.equal(loadConfigFromEnv().toolInstallationId, "claude_code:abc", "falls through to the token store");
+
+  // With nothing on disk either, it is still an error that says how to fix it.
+  const tokenFile = defaultTokenFilePath("claude_code:abc");
+  const aside = path.join(process.env.ASCENDA_HOME, "token-set-aside");
+  fs.renameSync(tokenFile, aside);
+  try {
+    assert.throws(() => loadConfigFromEnv(), /Not configured/, "and the error tells you how to fix it");
+  } finally {
+    fs.renameSync(aside, tokenFile);
+  }
 
   fs.writeFileSync(credentialsFilePath(), JSON.stringify(["wrong", "shape"]));
   assert.equal(readCredentials(), undefined);
