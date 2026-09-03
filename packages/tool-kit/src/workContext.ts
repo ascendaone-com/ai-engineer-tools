@@ -37,7 +37,11 @@ export interface WorkContext {
   projectHash: string | null;
   /** The checkout (or folder). Local only, kept for the registry. */
   workspacePath: string | null;
-  /** Canonical repository root, when one was resolved on disk. Local only. */
+  /**
+   * Canonical repository root — resolved on disk, or inferred from the
+   * path's own shape when the disk can no longer answer (see
+   * `inferRootsFromPath`). Local only.
+   */
   projectPath: string | null;
 }
 
@@ -49,8 +53,13 @@ const MAX_WALK_DEPTH = 64;
  *
  * Pure filesystem — no `git` subprocess, because this runs on the hook hot
  * path between a person and their agent. A path that no longer exists (the
- * importer replays cwds of repositories long deleted) degrades cleanly: no
- * walk, project = workspace basename.
+ * importer replays cwds of repositories long deleted; a session's last hooks
+ * fire after its worktree is cleaned up) degrades in two steps: first the
+ * path's own shape is read for a worktree convention it can still name the
+ * parent repository from, and only then does the project fall back to the
+ * workspace basename. Without that first step every deleted worktree freezes
+ * into stored rows as a project of its own — a permanent split the backend
+ * cannot undo because it only ever sees the digests.
  *
  * Returns null for empty input so callers can pass optional fields through.
  */
@@ -70,6 +79,7 @@ export function deriveWorkContext(
     // reason to drop the event or stall the hook.
     roots = null;
   }
+  if (!roots) roots = inferRootsFromPath(startPath);
 
   const workspacePath = roots?.checkoutRoot ?? startPath;
   const workspaceLabel = basenameOf(workspacePath);
@@ -143,6 +153,50 @@ function worktreeParentRoot(dotGitFile: string, containingDir: string): string |
   const idx = resolved.indexOf(marker);
   if (idx === -1) return null;
   return resolved.slice(0, idx);
+}
+
+/**
+ * Roots read from the path's shape alone — the dead-path fallback.
+ *
+ * Only consulted when the disk gave no answer (the directory is gone, or
+ * holds no `.git`). Two conventions are recognised, both deliberately
+ * narrow so that a plain deleted checkout still degrades to its basename:
+ *
+ *   1. `<repo>/.claude/worktrees/<name>[/…]` — where Claude Code keeps the
+ *      worktrees it creates. The parent repository is the folder above the
+ *      marker; the checkout is the folder just below it.
+ *   2. `<repo>-wt/<name>[/…]` and `<repo>-worktrees/<name>[/…]` — the sibling
+ *      folder convention (`git worktree add ../<repo>-wt/<name>`). The parent
+ *      repository is inferred as `<repo>` beside that folder. This one is a
+ *      naming convention, not a git fact, so it applies to dead paths only.
+ *
+ * A worktree placed anywhere else (`git worktree add ../feature-x`) leaves no
+ * trace in its cwd once deleted, and cannot be inferred — that case still
+ * degrades to its own basename, as before.
+ */
+function inferRootsFromPath(startPath: string): RepositoryRoots | null {
+  const sep = startPath.includes("\\") && !startPath.includes("/") ? "\\" : "/";
+  const leading = /^[\\/]/.test(startPath) ? sep : "";
+  const segments = startPath.split(/[\\/]/).filter(Boolean);
+  const join = (count: number): string => leading + segments.slice(0, count).join(sep);
+
+  for (let i = 0; i + 2 < segments.length; i++) {
+    if (segments[i] === ".claude" && segments[i + 1] === "worktrees") {
+      if (i === 0) return null;
+      return { checkoutRoot: join(i + 3), canonicalRoot: join(i) };
+    }
+  }
+
+  for (let i = 0; i + 1 < segments.length; i++) {
+    const folder = segments[i];
+    const suffix = ["-worktrees", "-wt"].find((s) => folder.endsWith(s) && folder.length > s.length);
+    if (!suffix) continue;
+    const repoName = folder.slice(0, -suffix.length);
+    const canonicalRoot = leading + [...segments.slice(0, i), repoName].join(sep);
+    return { checkoutRoot: join(i + 2), canonicalRoot };
+  }
+
+  return null;
 }
 
 function stripTrailingSeparators(value: string): string {

@@ -25,6 +25,7 @@
  * metrics-only rule as the wire, minus the hashing that only exists to
  * keep paths from reaching a server.
  */
+import { deriveWorkContext } from "@ascenda-one/tool-kit";
 import { LOCAL_TIMEZONE, SessionDaySlice } from "./daySlice.js";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -83,7 +84,8 @@ export interface HandoffSession {
   startedAt: string | null;
   /** Session id, so a re-import can replace rather than duplicate. */
   sessionRef: string | null;
-  /** Human-readable project name (last path segment of the cwd). Local only. */
+  /** Human-readable project name — the cwd's repository basename, a linked
+   * worktree folded into the repo it came from (`projectLabelOf`). Local only. */
   projectLabel: string | null;
   promptCount: number;
   durationBucket: string;
@@ -278,13 +280,30 @@ export interface VsCodeHandoffFile {
   chatSessions: VsCodeHandoffSession[];
 }
 
-/** Last path segment of a repo path — "my-service" from a full cwd.
- * Falls back to the raw ref when it is already a slug. */
+/**
+ * The project a repo ref belongs to — "my-service" from a full cwd, with a
+ * linked worktree folded into the repository it was created from, exactly
+ * as the wire digests are (`deriveWorkContext` is the one derivation every
+ * collector shares). Falls back to the raw ref when it is already a slug.
+ *
+ * Folding matters more here than on the wire: the desktop app counts
+ * distinct labels as "projects", and a Claude Code session leaves a fresh
+ * `.claude/worktrees/<name>` behind every time, so an unfolded label turns
+ * one repository into dozens of projects on the Reveal. On a real machine
+ * 77 of 86 Claude labels were worktree names before this folded them.
+ *
+ * Memoised: the handoff walks thousands of events over a few dozen refs,
+ * and the derivation stats the filesystem.
+ */
+const projectLabelMemo = new Map<string, string | null>();
+
 export function projectLabelOf(repoRef: string | null): string | null {
   if (!repoRef) return null;
-  const trimmed = repoRef.replace(/\/+$/, "");
-  const segment = trimmed.split("/").filter(Boolean).pop() ?? null;
-  return segment && segment.length > 0 ? segment : null;
+  const hit = projectLabelMemo.get(repoRef);
+  if (hit !== undefined) return hit;
+  const label = deriveWorkContext(repoRef)?.projectLabel ?? null;
+  projectLabelMemo.set(repoRef, label);
+  return label;
 }
 
 export function buildHandoff(

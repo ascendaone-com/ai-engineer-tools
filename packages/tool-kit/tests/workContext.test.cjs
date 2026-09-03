@@ -102,3 +102,66 @@ test("trailing separators do not change identity", () => {
   const trailed = deriveWorkContext(`${repo}//`, saltFile);
   assert.equal(bare.workspaceHash, trailed.workspaceHash);
 });
+
+// ── The dead-path fallback ──────────────────────────────────────────────
+// A session's last hooks fire after Claude Code has removed its worktree,
+// and the importer replays cwds of worktrees long gone. Without inference
+// each of those froze into stored rows as its own project: on one real
+// machine 77 of 86 Claude project labels were worktree names.
+
+test("dead .claude/worktrees path folds into the parent repo, from any depth", () => {
+  const live = makePrimaryCheckout("repo-e");
+  const gone = path.join(root, "elsewhere", "repo-e", ".claude", "worktrees", "sweet-wiles-0f5525", "src", "deep");
+  const context = deriveWorkContext(gone, saltFile);
+
+  assert.equal(context.workspaceLabel, "sweet-wiles-0f5525");
+  assert.equal(context.projectLabel, "repo-e");
+  assert.equal(context.workspacePath, path.join(root, "elsewhere", "repo-e", ".claude", "worktrees", "sweet-wiles-0f5525"));
+  assert.equal(context.projectPath, path.join(root, "elsewhere", "repo-e"));
+  // The agreement that matters: the deleted worktree and the live repo carry
+  // the same project digest, so the rows do not split.
+  assert.equal(context.projectHash, deriveWorkContext(live, saltFile).projectHash);
+  assert.notEqual(context.workspaceHash, context.projectHash);
+});
+
+test("dead <repo>-wt/<name> and <repo>-worktrees/<name> siblings fold into <repo>", () => {
+  const wt = deriveWorkContext(path.join(root, "gone", "repo-f-wt", "metric-unit-split", "lib"), saltFile);
+  assert.equal(wt.workspaceLabel, "metric-unit-split");
+  assert.equal(wt.projectLabel, "repo-f");
+  assert.equal(wt.projectPath, path.join(root, "gone", "repo-f"));
+  assert.equal(wt.workspacePath, path.join(root, "gone", "repo-f-wt", "metric-unit-split"));
+
+  const wts = deriveWorkContext(path.join(root, "gone", "repo-f-worktrees", "handoff-real-home"), saltFile);
+  assert.equal(wts.projectLabel, "repo-f");
+  assert.equal(wts.projectHash, wt.projectHash);
+});
+
+test("a live path still wins over its shape: the disk answer is authoritative", () => {
+  // A primary checkout whose folder happens to be named like a worktree
+  // sibling is its own project — inference is only for paths the disk
+  // cannot answer for.
+  const repo = makePrimaryCheckout("repo-g-wt");
+  const context = deriveWorkContext(path.join(repo, "src"), saltFile);
+  assert.equal(context.projectLabel, "repo-g-wt");
+  assert.equal(context.projectPath, repo);
+});
+
+test("a dead path with no worktree convention still degrades to its basename", () => {
+  const context = deriveWorkContext(path.join(root, "gone", "feature-x"), saltFile);
+  assert.equal(context.workspaceLabel, "feature-x");
+  assert.equal(context.projectLabel, "feature-x");
+  assert.equal(context.projectPath, null);
+});
+
+test("the bare suffix is not a convention: '-wt' alone is a folder, not a parent", () => {
+  const context = deriveWorkContext(path.join(root, "gone", "-wt", "name"), saltFile);
+  assert.equal(context.projectLabel, "name");
+  assert.equal(context.projectPath, null);
+});
+
+test("windows-style dead worktree path folds with its own separators", () => {
+  const context = deriveWorkContext("C:\\Users\\x\\Dev\\repo-h\\.claude\\worktrees\\bold-ellis-d5c6fd\\src", saltFile);
+  assert.equal(context.workspaceLabel, "bold-ellis-d5c6fd");
+  assert.equal(context.projectLabel, "repo-h");
+  assert.equal(context.projectPath, "C:\\Users\\x\\Dev\\repo-h");
+});
