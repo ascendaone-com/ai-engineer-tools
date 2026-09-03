@@ -55,6 +55,13 @@ export {
   workContextRegistryFilePath
 } from "./contextRegistry";
 export type { WorkContextRegistry, WorkContextRegistryEntry } from "./contextRegistry";
+export {
+  forgeProjectHash,
+  parseForgeFullName,
+  readForgeFullName,
+  forgeFullNameFromConfig,
+  recordForgeProjectAlias
+} from "./forgeProject";
 export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates } from "./liveBus";
 export type { LiveBusEvent, LiveBusSignal, PromptSizeBucket } from "./liveBus";
 export {
