@@ -46,7 +46,7 @@ export {
 } from "./outbox";
 export type { OutboxEntry, OutboxBounds, OutboxDiscard, OutboxSummary, ClaimedOutbox } from "./outbox";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
-export { deriveWorkContext } from "./workContext";
+export { deriveWorkContext, deriveBranchHash, deriveBranchHashForCwd, normalizeBranchName, readBranchName } from "./workContext";
 export type { WorkContext } from "./workContext";
 export {
   recordWorkContext,

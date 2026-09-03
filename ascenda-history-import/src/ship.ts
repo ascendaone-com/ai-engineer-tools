@@ -50,6 +50,7 @@
 import { createHash } from "node:crypto";
 import {
   classifyModelClass,
+  deriveBranchHash,
   deriveWorkContext,
   hashWithMachineSalt,
   readTokenFile,
@@ -173,6 +174,24 @@ function workContextOf(repoRef: string | null): WorkContext | null {
   return context;
 }
 
+/**
+ * Registers this import's PREVIOUS branch digest — `hash(raw branch string)`,
+ * shipped under `gitBranchHash` — as a local alias of the canonical one.
+ *
+ * Only where the two actually differ, i.e. where the raw string needed
+ * normalising; a plain `main` hashes identically under both and needs no
+ * alias. Memoized per run for the same reason `workContextOf` is: an import
+ * replays tens of thousands of events over a handful of branches.
+ */
+const legacyBranchDigestsSeen = new Set<string>();
+
+function registerLegacyBranchDigest(rawBranch: string, branchHash: string): void {
+  if (legacyBranchDigestsSeen.has(rawBranch)) return;
+  legacyBranchDigestsSeen.add(rawBranch);
+  const legacyHash = hashWithMachineSalt(rawBranch);
+  if (legacyHash && legacyHash !== branchHash) recordWorkContextAlias(legacyHash, rawBranch);
+}
+
 export function toWirePayload(
   event: NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] },
   ordinal: number,
@@ -189,9 +208,32 @@ export function toWirePayload(
   }
   // gitBranch is a metric locally but a name on the wire — hash it like the
   // repo path. Branch names leak project vocabulary ("feature/acme-migration").
+  //
+  // Through `deriveBranchHash` in tool-kit — the SAME function the live Claude
+  // Code and Codex hooks call, imported rather than reimplemented, for exactly
+  // the reason `classifyModelClass` is shared below: a historical session and
+  // a live one on the same branch must land on the same digest, or the two
+  // corpora cannot be pooled and a second derivation drifts into a population
+  // shift rather than a visible bug.
+  //
+  // That moved this import off its own older form, which hashed the branch
+  // string raw (no `refs/heads/` normalisation) under the key `gitBranchHash`.
+  // Rows already stored that way can never be re-keyed — the import is
+  // immutable by design — so where the two digests differ the legacy one is
+  // registered as a local alias, the same treatment the full-cwd repo digest
+  // gets in `workContextOf` above.
+  //
+  // No key at all when there is no branch to name. The old `?? ""` wrote an
+  // empty string, which is a value a reader can group on: it asserted a branch
+  // for every session whose store recorded none.
   if (typeof metadata.gitBranch === "string") {
-    metadata.gitBranchHash = hashWithMachineSalt(metadata.gitBranch) ?? "";
+    const rawBranch = metadata.gitBranch;
     delete metadata.gitBranch;
+    const branchHash = deriveBranchHash(rawBranch);
+    if (branchHash) {
+      metadata.branchHash = branchHash;
+      registerLegacyBranchDigest(rawBranch, branchHash);
+    }
   }
   // The coarse companion to primaryModel, ADDED beside it and never in place
   // of it. Two reasons it is derived here rather than in each extractor:

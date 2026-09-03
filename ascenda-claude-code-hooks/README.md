@@ -352,6 +352,17 @@ Notification       -> (skipped — no catalog event)
 
 Metadata-only telemetry. Does not send raw prompts, responses, code, file names, repository names, branch names, or terminal output.
 
+Repository and branch identity travel only as machine-salted digests, derived
+in the hook process and never as text: `workspaceHash` and `projectHash` from
+the checkout's and repository's folder names, and `metadata.branchHash` from
+the branch the checkout is on. The salt is random per machine, stored at
+`~/.ascenda/salt`, and never transmitted — without it, a digest of a name from
+a short list is recoverable by guessing. A branch name is low-entropy in
+exactly that way, so the branch digest is not a security boundary; it is what
+lets work be grouped by branch on the other side without the name itself
+leaving the machine. On a detached HEAD, outside a checkout, or with no
+readable salt the key is omitted entirely rather than sent blank.
+
 Correction detection uses local pattern matching on prompt text in the hook process only — classified metadata (`reason: repeated_reprompting`) is sent; raw prompt text is not.
 
 ## Roadmap

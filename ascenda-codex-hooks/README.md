@@ -116,4 +116,11 @@ Codex's `Stop` payload has no duration, so the adapter records a turn-start time
 
 ## Privacy defaults
 
-Metadata-only. Does not send prompts, responses, code, file names, repository names, or terminal output. Correction detection runs locally on prompt text; only the classification is transmitted. `consentScope: ide_telemetry`, `provenance: ai_work_telemetry` on every event.
+Metadata-only. Does not send prompts, responses, code, file names, repository names, branch names, or terminal output. Correction detection runs locally on prompt text; only the classification is transmitted. `consentScope: ide_telemetry`, `provenance: ai_work_telemetry` on every event.
+
+Repository and branch identity travel only as machine-salted digests, never as
+text: `workspaceHash`/`projectHash` from folder names, and `metadata.branchHash`
+from the branch the checkout is on. A branch name is low-entropy, so that digest
+is not a security boundary — the machine salt is what makes the input space
+unguessable. On a detached HEAD, outside a checkout, or with no readable salt
+the key is omitted rather than sent blank.
