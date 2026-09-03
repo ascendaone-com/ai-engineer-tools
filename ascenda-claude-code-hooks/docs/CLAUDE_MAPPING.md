@@ -173,7 +173,8 @@ there costs a query rewrite rather than a lost year of rows.
 
 `anthropic:opus` | `anthropic:sonnet` | `anthropic:haiku` | `anthropic:fable` |
 `anthropic:unknown` | `openai:gpt` | `openai:unknown` | `google:gemini` |
-`google:unknown` | `local:on_device` | `local:unknown` | `unknown`.
+`google:unknown` | `xai:grok` | `xai:unknown` | `local:on_device` |
+`local:unknown` | `unknown`.
 
 **Partial recognition degrades to the vendor, not to nothing.** The classifier
 reads vendor and tier as two separate steps, so an Anthropic model whose tier

@@ -325,6 +325,8 @@ export type ModelClass =
   | "openai:unknown"
   | "google:gemini"
   | "google:unknown"
+  | "xai:grok"
+  | "xai:unknown"
   | "local:on_device"
   | "local:unknown"
   | "unknown";

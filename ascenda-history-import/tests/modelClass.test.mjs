@@ -63,6 +63,7 @@ test("Anthropic, OpenAI, Cursor-reported and local strings all reach a class", (
   assert.equal(wire({ primaryModel: "claude-4.5-sonnet" }).modelClass, "anthropic:sonnet");
   assert.equal(wire({ primaryModel: "Claude Sonnet 4.5" }).modelClass, "anthropic:sonnet");
   assert.equal(wire({ primaryModel: "copilot/gpt-4.1" }).modelClass, "openai:gpt");
+  assert.equal(wire({ primaryModel: "grok-4.6" }).modelClass, "xai:grok");
   assert.equal(wire({ primaryModel: "ollama/llama3.1:8b" }).modelClass, "local:on_device");
 });
 
@@ -121,6 +122,8 @@ test("the importer classifies exactly as the live collector does", () => {
     "us.anthropic.claude-opus-4-5-v1:0",
     "gpt-5-codex",
     "gemini-3-pro",
+    "grok-4.6",
+    "copilot/grok-code-fast-1",
     "ollama/llama3.1:8b",
     "octopus-1",
     "totally-made-up",
