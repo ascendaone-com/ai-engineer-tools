@@ -97,6 +97,12 @@ import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours } from "@a
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
+import {
+  minutesOf,
+  snakeCasePermissionMode,
+  splitActiveTime,
+  type ActiveInstant
+} from "../activeSplit.js";
 
 /** Line types the extractor reads fields from. */
 export const KNOWN_CLAUDE_LINE_TYPES = [
@@ -318,10 +324,17 @@ interface SessionFold {
    * counters above, exactly as `subagentAssistantTurns` splits turns.
    */
   toolCalls: { at: string; name: string }[];
-  /** Epoch ms of every known-line timestamp, main thread and subagents
-   * merged — the raw material for gap-split `activeMinutes`. Never shipped
-   * itself, only the derived total. */
-  timelinePoints: number[];
+  /** Every known-line timestamp, main thread and subagents merged, each
+   * carrying whether a person wrote it and what permission posture was
+   * declared there — the raw material for gap-split `activeMinutes` AND for
+   * the hands-on/agent-supervising split, which must be computed off the same
+   * instants or they cannot partition each other. Never shipped itself, only
+   * the derived totals. */
+  timelinePoints: ActiveInstant[];
+  /** Known lines whose `timestamp` the runtime wrote but `Date.parse` could
+   * not read. They are absent from `timelinePoints`, so both active figures
+   * are short by an unknown amount and only this says so. */
+  undatedTimelineLines: number;
   /** Timestamps of HUMAN prompts only — the per-prompt events emitted later,
    * and the source for rapid-reprompt detection. Timestamps, never text. */
   humanPromptTimestamps: (string | null)[];
@@ -367,6 +380,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     subagentToolCallCount: 0,
     toolCalls: [],
     timelinePoints: [],
+    undatedTimelineLines: 0,
     humanPromptTimestamps: []
   };
 }
@@ -412,15 +426,17 @@ function durationBucketOf(fold: SessionFold): string {
  */
 const ACTIVE_GAP_MS = 5 * 60_000;
 
-function activeMinutesOf(fold: SessionFold): number {
-  if (fold.timelinePoints.length < 2) return 0;
-  const sorted = [...fold.timelinePoints].sort((a, b) => a - b);
-  let activeMs = 0;
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = sorted[i] - sorted[i - 1];
-    if (gap > 0 && gap <= ACTIVE_GAP_MS) activeMs += gap;
-  }
-  return Math.round(activeMs / 60_000);
+/**
+ * The session's active time, split and totalled from one pass.
+ *
+ * `activeMinutes` is derived from the split rather than gap-split a second
+ * time. The two used to be separate loops over the same array, which is how
+ * `activeMinutes` and the per-day figures came to disagree; a partition that
+ * is computed independently of its total is a partition that will eventually
+ * stop being one.
+ */
+function activeSplitOf(fold: SessionFold) {
+  return splitActiveTime(fold.timelinePoints, { activeGapMs: ACTIVE_GAP_MS });
 }
 
 /** A reprompt inside 2 minutes of the previous human prompt in the same
@@ -508,9 +524,15 @@ async function foldLinesInto(
       if (sniffed.occurredAt) {
         if (!fold.firstTs || sniffed.occurredAt < fold.firstTs) fold.firstTs = sniffed.occurredAt;
         if (!fold.lastTs || sniffed.occurredAt > fold.lastTs) fold.lastTs = sniffed.occurredAt;
-        const ms = Date.parse(sniffed.occurredAt);
-        if (Number.isFinite(ms)) fold.timelinePoints.push(ms);
       }
+      // Set by the `user` case below, read after the switch. The timeline
+      // instant cannot be pushed before the switch any more: whether a line is
+      // a person's own prompt is decided in there, off the re-parsed record,
+      // and the split needs that answer on the same instant it needs the time.
+      // Deriving it a second time here is exactly the drift that put a
+      // prompts-only figure in the day slices.
+      let humanHere = false;
+      let postureHere: string | null = null;
       switch (sniffed.kind) {
         case "user": {
           // Re-parse is cheap relative to disk; the sniffer deliberately does
@@ -542,6 +564,14 @@ async function foldLinesInto(
               fold.afterHoursPrompts += 1;
             }
             fold.humanPromptTimestamps.push(sniffed.occurredAt);
+            humanHere = true;
+            // The transcript spells this `permissionMode`; the hook payloads
+            // spell the same field `permission_mode`. Snake-casing here means
+            // one vocabulary reaches `autonomyBand` from both collectors, and
+            // an unrecognised mode passes through rather than being mapped.
+            if (typeof record.permissionMode === "string" && record.permissionMode !== "") {
+              postureHere = snakeCasePermissionMode(record.permissionMode);
+            }
           }
           break;
         }
@@ -623,6 +653,18 @@ async function foldLinesInto(
         }
         default:
           break; // attachment / last-prompt / custom-title: window only.
+      }
+      if (sniffed.occurredAt) {
+        const ms = Date.parse(sniffed.occurredAt);
+        if (Number.isFinite(ms)) {
+          fold.timelinePoints.push({ at: ms, human: humanHere, autonomyMode: postureHere });
+        } else {
+          // A timestamp the runtime wrote and this code cannot read. It still
+          // moved `firstTs`/`lastTs` above by string comparison, so the
+          // session's wall clock survives it while both active figures do not
+          // — which is precisely why it is counted instead of dropped.
+          fold.undatedTimelineLines += 1;
+        }
       }
     }
   } finally {
@@ -805,6 +847,7 @@ export async function* extractClaudeCode(
 
       const durationMs = sessionDurationMs(fold);
       const toolFailureCount = fold.toolResultErrorCount + fold.apiErrorCount;
+      const split = activeSplitOf(fold);
       const sessionMetrics: NormalizedHistoricalEvent["metrics"] = {
         promptCount: fold.humanPrompts,
         assistantTurns: fold.assistantTurns,
@@ -834,7 +877,21 @@ export async function* extractClaudeCode(
         linesChangedBucket: bucketLinesChanged(fold.linesChangedTotal),
         rapidRepromptCount: rapidRepromptCountOf(fold),
         abandonedPromptCount: fold.abandonedPromptCount,
-        activeMinutes: activeMinutesOf(fold),
+        activeMinutes: minutesOf(split.handsOnMs + split.agentSupervisingMs),
+        // The two halves of that figure, and the reason it is not the whole
+        // answer: a session that spent 5 minutes being typed at and 17 minutes
+        // running an agent is not a 22-minute session of anything. Shipped as
+        // two keys and never as a third combined one — `activeMinutes` above
+        // is the pre-existing total with its existing readers, not a summary
+        // of these.
+        handsOnMinutes: minutesOf(split.handsOnMs),
+        agentSupervisingMinutes: minutesOf(split.agentSupervisingMs),
+        // Honesty counters for the split, in the same spirit as unparsedLines:
+        // a reader can tell a session with no posture data from one that ran
+        // entirely under `default`, and a short timeline from a complete one.
+        activeSplitInstants: split.instants,
+        activeSplitUndatedLines: fold.undatedTimelineLines,
+        activeSplitUnposturedInstants: split.unposturedInstants,
         subagentTranscripts: fold.subagentTranscripts,
         subagentPrompts: fold.subagentPrompts,
         subagentAssistantTurns: fold.subagentAssistantTurns,
@@ -857,11 +914,18 @@ export async function* extractClaudeCode(
         repoRef: fold.cwd ?? fold.projectSlug,
         eventKind: "create_focus_session",
         metrics: sessionMetrics,
-        // Same gap threshold the session-level activeMinutes uses, passed in
-        // rather than redeclared: two definitions of "active" would drift.
+        // Prompts are counted off the prompt timestamps; active time is
+        // gap-split over the whole classified timeline. Passing only the
+        // threshold used to be enough — it was not, and the day figures spent
+        // that time reporting prompts-only active minutes while the session
+        // figure reported the timeline. Both materials now cross this call.
         dayBreakdown: sliceSessionByLocalDay(fold.humanPromptTimestamps, {
-          activeGapMs: ACTIVE_GAP_MS
+          activeGapMs: ACTIVE_GAP_MS,
+          activeInstants: fold.timelinePoints
         }),
+        autonomySplit: Object.fromEntries(
+          Object.entries(split.supervisingMsByBand).map(([band, ms]) => [band, minutesOf(ms)])
+        ),
         provenance: HISTORICAL_PROVENANCE.derived,
         extractionId
       };

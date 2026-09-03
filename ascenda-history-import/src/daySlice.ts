@@ -25,6 +25,8 @@
  * assume. Nothing here reaches the wire — slices stay in the local handoff.
  */
 
+import { activeSpans, type ActiveInstant } from "./activeSplit.js";
+
 /** One local day of a session: what happened, on that day, in that session. */
 export interface SessionDaySlice {
   /** `YYYY-MM-DD` in the extracting machine's local time. */
@@ -37,6 +39,22 @@ export interface SessionDaySlice {
    * appear to.
    */
   activeMinutes?: number;
+  /**
+   * The day's share of {@link ActiveSplit.handsOnMs}, in minutes — time
+   * immediately preceding a human prompt.
+   *
+   * Present only alongside `agentSupervisingMinutes`, and only where the
+   * caller passed classified instants. The two are never accompanied by a
+   * combined figure: `activeMinutes` beside them is the pre-existing total and
+   * means the same thing it always did, not a third measurement.
+   */
+  handsOnMinutes?: number;
+  /**
+   * The day's share of {@link ActiveSplit.agentSupervisingMs}, in minutes —
+   * time the agent was working which the person did not spend typing. Not a
+   * claim that anyone watched it; see `activeSplit.ts`.
+   */
+  agentSupervisingMinutes?: number;
 }
 
 /** The IANA zone the slices were cut in, or null where the host cannot say. */
@@ -77,12 +95,31 @@ function addSpan(into: Map<string, number>, from: Date, to: Date): void {
 
 export interface SliceOptions {
   /**
-   * Consecutive prompts no further apart than this count as continuous work;
+   * Consecutive instants no further apart than this count as continuous work;
    * a wider gap is the session sitting idle. Same threshold the extractors
    * use for session-level `activeMinutes` — passing it in keeps one
    * definition rather than two that can drift.
    */
   activeGapMs?: number;
+  /**
+   * The instants to gap-split for active time, when they are not the prompt
+   * timestamps.
+   *
+   * **This parameter exists because leaving it out was a bug.** The threshold
+   * was already passed in, with a comment saying that kept one definition of
+   * "active" rather than two — but only the threshold was shared. The session
+   * figure gap-split every known-line timestamp while this function gap-split
+   * the prompts it was handed, so the two disagreed on the *material* while
+   * agreeing on the rule. Across 200 real sessions the prompts-only reading
+   * came to 2,730 minutes against 18,938: it under-reported by 85.6%, because
+   * a prompt that drives a forty-minute agent run contributes one instant and
+   * the forty minutes are invisible.
+   *
+   * Prompts still count prompts. Only active time reads this. A caller with
+   * nothing better to pass leaves it out and gets the old behaviour, which is
+   * correct for a store whose only timestamps *are* its prompts.
+   */
+  activeInstants?: readonly ActiveInstant[];
 }
 
 /**
@@ -113,11 +150,25 @@ export function sliceSessionByLocalDay(
   }
 
   const activeMs = new Map<string, number>();
+  const handsOnMs = new Map<string, number>();
+  const supervisingMs = new Map<string, number>();
   const gapMs = options.activeGapMs;
+  // Whether the caller gave classified instants decides whether the split is
+  // reported at all. A store that only has prompt timestamps gets active
+  // minutes off those, as before, and no split — inventing a hands-on figure
+  // for a store that cannot see an agent's turns would be the same fabrication
+  // this module's day-placement rules exist to avoid.
+  const classified = options.activeInstants;
   if (gapMs !== undefined) {
-    for (let i = 1; i < instants.length; i += 1) {
-      const gap = instants[i].getTime() - instants[i - 1].getTime();
-      if (gap > 0 && gap <= gapMs) addSpan(activeMs, instants[i - 1], instants[i]);
+    const points: readonly ActiveInstant[] =
+      classified ??
+      instants.map((d) => ({ at: d.getTime(), human: true, autonomyMode: null }));
+    // One classification, shared with the session totals — see activeSplit.ts.
+    for (const span of activeSpans(points, { activeGapMs: gapMs }).spans) {
+      const from = new Date(span.from);
+      const to = new Date(span.to);
+      addSpan(activeMs, from, to);
+      if (classified) addSpan(span.handsOn ? handsOnMs : supervisingMs, from, to);
     }
   }
 
@@ -126,6 +177,10 @@ export function sliceSessionByLocalDay(
     const slice: SessionDaySlice = { day, prompts: prompts.get(day) ?? 0 };
     if (gapMs !== undefined) {
       slice.activeMinutes = Math.round((activeMs.get(day) ?? 0) / 60_000);
+      if (classified) {
+        slice.handsOnMinutes = Math.round((handsOnMs.get(day) ?? 0) / 60_000);
+        slice.agentSupervisingMinutes = Math.round((supervisingMs.get(day) ?? 0) / 60_000);
+      }
     }
     return slice;
   });
