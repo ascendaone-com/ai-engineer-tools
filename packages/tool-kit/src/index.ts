@@ -11,7 +11,7 @@ export {
 } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection, mintIdempotencyKey } from "./payload";
 export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from "./eventSender";
-export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent } from "./eventSender";
+export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
 export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";
 export type { EventLogEntry } from "./eventLog";
 export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig, resolveContextHashes } from "./hookAdapter";
@@ -25,9 +25,23 @@ export {
   shouldAnnounceFailure,
   markFailureNotified,
   unresolvedStateFilePath,
-  unresolvedToolInstallationId
+  unresolvedToolInstallationId,
+  recordOutboxDiscard
 } from "./stateStore";
-export type { CollectorState, OutcomeDetail, SendOutcome } from "./stateStore";
+export type { CollectorState, OutcomeDetail, SendOutcome, OutboxDiscardReason, OutboxDiscardRecord } from "./stateStore";
+export {
+  OUTBOX_DRAIN_ENV_VAR,
+  DEFAULT_OUTBOX_MAX_ENTRIES,
+  DEFAULT_OUTBOX_MAX_AGE_MS,
+  DEFAULT_OUTBOX_DRAIN_BATCH_SIZE,
+  outboxDrainEnabled,
+  defaultOutboxFilePath,
+  appendToOutbox,
+  readOutboxSummary,
+  claimOutbox,
+  enforceOutboxBounds
+} from "./outbox";
+export type { OutboxEntry, OutboxBounds, OutboxDiscard, OutboxSummary, ClaimedOutbox } from "./outbox";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export { deriveWorkContext } from "./workContext";
 export type { WorkContext } from "./workContext";
@@ -50,4 +64,4 @@ export {
   parseIngestResponse,
   isRetryableStatus
 } from "./http";
-export type { IngestOutcome } from "./http";
+export type { IngestOutcome, IngestBatchItemResult } from "./http";

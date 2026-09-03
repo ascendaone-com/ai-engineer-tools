@@ -154,6 +154,8 @@ Optional environment:
 | `ASCENDA_WORKSPACE_HASH` | Override only. By default the hook derives this from the payload's own `cwd`: a machine-salted hash of the checkout folder's basename (never the path itself) |
 | `ASCENDA_PROJECT_HASH` | Override only. Defaults to the salted hash of the canonical repository's basename — a git worktree folds into the repo it was created from |
 | `ASCENDA_STATE_FILE` | Override the send journal path (default `~/.ascenda/state/<toolInstallationId>.json`) |
+| `ASCENDA_OUTBOX_FILE` | Override the outbox path (default `~/.ascenda/state/<toolInstallationId>.outbox.jsonl`) |
+| `ASCENDA_OUTBOX_DRAIN` | `true` lets the next hook re-send queued events. **Off by default** until the ingest endpoint is confirmed to dedupe live events on `idempotencyKey`; see "When the collector cannot reach Ascenda" |
 | `ASCENDA_DISABLE_FAILURE_NOTICE` | `true` silences the one-time in-session notice about a collector that has stopped delivering |
 
 On first run the CLI seeds `~/.ascenda/tokens/<toolInstallationId>` so
@@ -231,6 +233,64 @@ call, and never repeats until the collector has recovered and failed again.
 `lastSeenAt` in the Ascenda app cannot substitute for any of this: it cannot
 distinguish a dead token from a night's sleep, because both are "no events".
 Only the collector knows it tried and was refused.
+
+### When the collector cannot reach Ascenda
+
+A send that fails without a verdict — the endpoint unreachable, a timeout, a
+`429` or `5xx` — is retried once after 250 ms and then **kept**, not dropped.
+The payload is appended to an outbox next to the journal:
+
+```
+~/.ascenda/state/<toolInstallationId>.outbox.jsonl
+```
+
+one JSON line per event, exactly as it would have gone on the wire, plus the
+time it was queued. Anything longer than a blip — a laptop waking from sleep,
+a VPN reconnecting, a captive portal, a slow network on a train — used to lose
+every event for its duration with no copy anywhere. Now it costs nothing but
+delay. A rejection *with* a verdict (`400`, `401`, `403`) is not queued:
+replaying it cannot change the answer.
+
+The next hook invocation drains the outbox, oldest first, one batch of up to
+100 per invocation and never with a backoff loop — the hook is on your
+critical path, and the invocation after that is usually seconds away. An
+entry is deleted when the server answers `accepted` **or** `duplicate`; a
+duplicate means the server already had it, which is the point of the
+`idempotencyKey` every event carries. If the door refuses again, the pass stops
+with everything still on disk, and the live event joins the queue instead of
+knocking on a door that just said no.
+
+> **Sending from the outbox is off by default.** Set `ASCENDA_OUTBOX_DRAIN=true`
+> to enable it. A drain against an ingest endpoint that does not yet dedupe
+> live events on `idempotencyKey` would land every queued event a second
+> time — the exact double-count that blocked this queue until the key existed.
+> Until the deployed backend is confirmed to answer a replay with `duplicate`,
+> events are queued, bounded and reported, but not re-sent.
+
+The outbox is bounded: 10,000 entries and 7 days. When a bound evicts, the
+discard is recorded in the journal as `"lastOutcome": "outbox_discarded"` with
+a cumulative `outboxDiscarded` block — how many, when, why, and how far back
+the loss reaches. It survives every later success, because a gap that has
+since closed is still a gap in the data.
+
+`doctor` reads all of this:
+
+```
+  Outbox                ~/.ascenda/state/claude_code_….outbox.jsonl
+  Outbox depth          37 waiting — oldest queued 2026-09-03T01:12:08.114Z (3h 41m ago)
+  Outbox drain          off (queued events are kept and bounded, not sent) — ASCENDA_OUTBOX_DRAIN
+  Outbox discarded      12 total; last 12 at 2026-09-02T… (12 age, reaching back to 2026-08-25T…)
+```
+
+A non-empty outbox is the honest health answer. `consecutiveFailures` resets
+on the first success after an outage; the outbox says events from that outage
+are still on this machine.
+
+Hooks overlap — Claude Code fires `PreToolUse` and `PostToolUse` from separate
+processes — so appends use `O_APPEND` (whole lines, never fragments) and a
+drain takes the file by renaming it out from under concurrent appenders. An
+entry is never deleted before the server has confirmed it; a drain that dies
+mid-way leaves a claim file that the next drain sweeps back in.
 
 ## Build from source
 

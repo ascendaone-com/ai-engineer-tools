@@ -14,7 +14,30 @@ import { sanitizeFilePart } from "./tokenStore";
  * exits without touching the journal is indistinguishable from a collector
  * that never ran, which hid a twelve-hour gap on 26–27 Aug 2026.
  */
-export type SendOutcome = IngestResult | "skipped_no_installation_id";
+export type SendOutcome = IngestResult | "skipped_no_installation_id" | "outbox_discarded";
+
+/**
+ * Why a queued event was dropped from the outbox without being delivered.
+ * `age` and `count` are the bounds biting; `unreadable` is a line that did
+ * not parse; `rejected` is a verdict from the batch door that replaying
+ * cannot change.
+ */
+export type OutboxDiscardReason = "age" | "count" | "unreadable" | "rejected";
+
+/**
+ * The running record of outbox evictions. Cumulative, so it survives the
+ * successes that follow — unlike `consecutiveFailures`, which the first
+ * accepted send resets. A gap that has since closed is still a gap in the
+ * data, and this is the one place on the machine that says so.
+ */
+export type OutboxDiscardRecord = {
+  total: number;
+  lastAt: string;
+  lastCount: number;
+  lastReasons: Partial<Record<OutboxDiscardReason, number>>;
+  /** How far back the most recent loss reached. */
+  lastOldestQueuedAt?: string;
+};
 
 /**
  * The collector's send journal: one file per installation, rewritten on every
@@ -60,6 +83,8 @@ export type CollectorState = {
   failingSince?: string;
   /** The `failingSince` value already announced. Equal ⇒ already told them. */
   notifiedFailingSince?: string;
+  /** Present once the outbox has ever evicted an event on this installation. */
+  outboxDiscarded?: OutboxDiscardRecord;
 };
 
 /**
@@ -150,9 +175,43 @@ export function recordSendOutcome(
     ...(accepted ? {} : { failingSince: previous?.failingSince ?? now }),
     ...(accepted ? {} : previous?.notifiedFailingSince !== undefined
       ? { notifiedFailingSince: previous.notifiedFailingSince }
-      : {})
+      : {}),
+    // Cumulative by design: a send outcome, success included, never erases
+    // the record of what the outbox had to throw away.
+    ...(previous?.outboxDiscarded !== undefined ? { outboxDiscarded: previous.outboxDiscarded } : {})
   };
 
+  writeStateFile(stateFilePath, next);
+  return next;
+}
+
+/**
+ * Records that the outbox evicted events it will never deliver. Not a send
+ * attempt — `lastAttemptAt`, `consecutiveFailures` and the failure episode
+ * are left exactly as they were — but it is the most recent thing that
+ * happened to this installation's data, so `lastOutcome` says so. The
+ * cumulative `outboxDiscarded` record is what `doctor` reads, and it survives
+ * every later success.
+ */
+export function recordOutboxDiscard(
+  stateFilePath: string,
+  toolInstallationId: string,
+  discard: { count: number; reasons: Partial<Record<OutboxDiscardReason, number>>; oldestQueuedAt?: string }
+): CollectorState {
+  const now = new Date().toISOString();
+  const previous = readCollectorState(stateFilePath);
+  const next: CollectorState = {
+    ...(previous ?? { lastAttemptAt: now, consecutiveFailures: 0 }),
+    toolInstallationId,
+    lastOutcome: "outbox_discarded",
+    outboxDiscarded: {
+      total: (previous?.outboxDiscarded?.total ?? 0) + discard.count,
+      lastAt: now,
+      lastCount: discard.count,
+      lastReasons: discard.reasons,
+      ...(discard.oldestQueuedAt !== undefined ? { lastOldestQueuedAt: discard.oldestQueuedAt } : {})
+    }
+  };
   writeStateFile(stateFilePath, next);
   return next;
 }

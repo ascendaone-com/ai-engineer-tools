@@ -21,6 +21,12 @@ export type EventLogEntry = {
   loggedAt: string;
   delivery: IngestResult | "not_sent";
   payload: AscendaEventPayload;
+  /**
+   * Set when the outbox was involved: `queued` means this attempt failed and
+   * the payload was kept for a later drain (so a `transport_error` line is
+   * not a lost event); `drained` means this line is that later delivery.
+   */
+  outbox?: "queued" | "drained";
 };
 
 /**
