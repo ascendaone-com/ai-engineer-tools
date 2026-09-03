@@ -53,6 +53,7 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 | Staging/snapshot (copy-then-parse, WAL-aware, **torn down by the run that makes it**) | implemented |
 | `archive` (durable content-addressed copy, dedup, verify, restore, prune) | **implemented, verified on a real 4.1 GB store** |
 | **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented, verified live** |
+| **Active-time split** (hands-on vs agent-supervising, per session, per local day and per project digest; autonomy bands off the transcript's own `permissionMode`) | **implemented, verified against a real 400-session store** |
 | **Tool-call counting, all three stores** (`tool_use` items / `toolFormerData` / `toolInvocationSerialized`, one `ai_tool_call_started` per call) | **implemented; exercised end to end against all three stores on a developer machine** |
 | **Batch shipper** (`POST /v1/tool-events/batch`, salted hashes, stable importKey) | **implemented, verified live** |
 | **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, epoch marker) | **implemented, verified live** |
@@ -65,6 +66,74 @@ The human-prompt classifier is the load-bearing piece: the large majority of
 user-role transcript lines are tool-result round-trips, not typed prompts.
 Conflating the two inflates every prompt metric by roughly an order of
 magnitude, so its fixtures are the ones to keep green.
+
+## Active time is two figures, never one
+
+`activeMinutes` answers "how much of this session was not idle": every
+known-line timestamp, main thread and subagents merged, gap-split at five
+minutes. It has always been the honest alternative to wall clock, and it is
+unchanged.
+
+It is not, on its own, an answer to "how long did this take me". One prompt can
+drive a forty-minute agent run, and forty minutes of an agent working is not
+forty minutes of a person at a keyboard. So the same material is also reported
+split:
+
+| Figure | What it is |
+|---|---|
+| `handsOnMinutes` | The interval immediately **preceding** a human prompt. The prompt at its end is the evidence: someone read the previous output and typed. |
+| `agentSupervisingMinutes` | Every other active interval. The agent produced the lines that bound it. |
+
+The two partition `activeMinutes` exactly and there is **no third key holding
+their sum**, at session, day or project scale. Adding them reconstructs
+`activeMinutes`, which already exists; a differently-named total would be the
+same number wearing a claim it cannot support. On a real 400-session store the
+split came out 1,074 hands-on minutes against 36,948 supervising — quoting the
+combined 38,035 as time spent is off by a factor of thirty-five for the half a
+person would recognise as their own.
+
+**`agentSupervisingMinutes` does not claim anyone was watching**, and nothing
+in a transcript could show that they were. It is time the agent was working
+which the person did not spend typing. Rendering it as attention is a
+fabrication the name invites and the data does not support; the honest gloss is
+"the agent was working".
+
+### Autonomy bands
+
+`permissionMode` is on the transcript's human-prompt lines and nowhere else —
+across 120 real stores it appears on 6.7% of `user` lines and on no
+`assistant`, `system` or `attachment` line. So posture is known at prompt
+boundaries and carried forward between them, and supervising minutes are banded
+by it through `autonomyBand`. Time before the first declaration lands in
+`unknown` and is never folded into a neighbouring band.
+
+The band map rides in the local handoff only (`autonomySplit`), never on the
+wire: banding is a reader's vocabulary derived from the stored token at query
+time, and storing the band would freeze a decision deliberately left open.
+
+### The counters
+
+Three diagnostics ship with the split, read by neither the backend nor the
+handoff on purpose:
+
+- `activeSplitInstants` — distinct timestamps the split ran over. Two minutes
+  off four instants and off four hundred are not the same measurement.
+- `activeSplitUndatedLines` — known lines whose `timestamp` would not parse.
+  They still move the session's wall clock by string comparison, so only this
+  says both active figures are short.
+- `activeSplitUnposturedInstants` — instants reached before any
+  `permissionMode` was declared. The posture blind spot as a count, not
+  inferred from the `unknown` band being present.
+
+### The defect this replaced
+
+The per-day slices used to gap-split the **prompt timestamps** while the
+session figure gap-split the **whole timeline**. The threshold was shared and
+commented as keeping one definition of "active"; the material was not. Across
+200 real sessions the prompts-only reading came to 2,730 minutes against
+18,938 — an 85.6% under-report, concentrated exactly on the sessions where an
+agent did the most work. Both now cross the call, and
+`tests/activeSplit.test.mjs` pins it against a real transcript.
 
 ## Gaps that block a real user running this twice
 

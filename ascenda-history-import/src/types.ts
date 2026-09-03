@@ -1,4 +1,5 @@
 import type { SessionDaySlice } from "./daySlice.js";
+import type { AutonomyBand } from "@ascenda-one/tool-kit";
 
 /**
  * Shared shapes for the retrospective import.
@@ -149,6 +150,24 @@ export interface NormalizedHistoricalEvent {
    * where the store gave prompt timestamps to slice.
    */
   dayBreakdown?: SessionDaySlice[];
+  /**
+   * Agent-supervising minutes by autonomy band — how much latitude the agent
+   * had while it was working, for the part of active time the person did not
+   * spend typing.
+   *
+   * Local-only for the same reason `dayBreakdown` is: `metrics` is flat by
+   * contract because it becomes wire metadata, and a per-band map is not. It
+   * also should not reach the wire on its own merits — banding is a *reader's*
+   * vocabulary that `autonomyBand` derives at query time from the stored
+   * `autonomyMode` token, precisely so it can be changed later; storing the
+   * band would freeze a decision that was deliberately left open.
+   *
+   * Bands with no time are absent rather than zero, and `unknown` is a real
+   * band: a session that ran before any `permissionMode` was declared has
+   * supervising minutes nobody can place, and folding those into a neighbour
+   * would make a guess indistinguishable from a measurement.
+   */
+  autonomySplit?: Partial<Record<AutonomyBand, number>>;
   provenance: HistoricalProvenance;
   extractionId: string;
 }
