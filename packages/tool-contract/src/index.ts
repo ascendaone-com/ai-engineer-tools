@@ -539,6 +539,49 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   importSchema?: number;
 };
 
+/**
+ * The named fields of {@link AscendaEventMetadata}, as a runtime list.
+ *
+ * The type above is an intersection with `Record<string, …>`, so any key
+ * compiles — which is the hole `metricKeys.ts` closed for `metrics{}` and
+ * this list closes for live-collector `metadata{}`. A hook adapter's guard
+ * test runs its mapper and checks every key it emits against this list plus
+ * `METRIC_KEYS`; anything else would be accepted by ingestion and read by
+ * nothing. Pinned against the type itself by
+ * `tests/eventMetadataFields.test.mjs`, so the two cannot drift silently.
+ */
+export const EVENT_METADATA_FIELDS = [
+  "language",
+  "fileType",
+  "durationBucket",
+  "tokenPressureBucket",
+  "linesChangedBucket",
+  "commandClass",
+  "gitAction",
+  "milestoneKind",
+  "branchHash",
+  "autonomyMode",
+  "modelClass",
+  "modelId",
+  "userModified",
+  "outcome",
+  "trigger",
+  "promptClass",
+  "reason",
+  "afterHours",
+  "activity",
+  "message",
+  "host",
+  "toolName",
+  "simulated",
+  "relatedEventType",
+  "skillVersion",
+  "taskFingerprint",
+  "importKey",
+  "extractionId",
+  "importSchema"
+] as const;
+
 export type AscendaEventPayload = {
   toolInstallationId: string;
   source: AscendaTelemetrySource;

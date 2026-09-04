@@ -17,8 +17,33 @@ export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
 export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";
 export type { EventLogEntry } from "./eventLog";
-export { DEFAULT_API_BASE_URL, deliverHookEvents, loadCliAgentConfig, resolveContextHashes } from "./hookAdapter";
-export type { CliAgentConfig, HookDeliveryOptions } from "./hookAdapter";
+export {
+  DEFAULT_API_BASE_URL,
+  MissingInstallationIdError,
+  deliverHookEvents,
+  loadCliAgentConfig,
+  resolveCliAgentInstallationId,
+  resolveContextHashes
+} from "./hookAdapter";
+export type { CliAgentConfig, CliAgentIdentity, HookDeliveryOptions, InstallationIdSource, ResolvedInstallationId } from "./hookAdapter";
+export {
+  cliAgentHookBinPath,
+  findStaleHookCommands,
+  isCliAgentManagementCommand,
+  runCliAgentSetup,
+  writeHookSettings
+} from "./cliAgentSetup";
+export type { CliAgentSetupSpec, HookSettingsFormat, SetupScope } from "./cliAgentSetup";
+export {
+  credentialsFilePath,
+  readHostCredentials,
+  readMachineCredentials,
+  removeHostCredentials,
+  writeHostCredentials,
+  writeMachineCredentials,
+  writeTopLevelCredentials
+} from "./credentials";
+export type { HostCredentials, MachineCredentials } from "./credentials";
 export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
 export { ascendaHome, defaultTokenFilePath, listPersistedToolInstallationIds, persistEventWriteToken, readTokenFile } from "./tokenStore";
 export {

@@ -1,14 +1,12 @@
-import * as fs from "fs";
 import * as path from "path";
-import { ascendaHome } from "@ascenda-one/tool-kit";
+import { ascendaHome, readMachineCredentials, writeTopLevelCredentials } from "@ascenda-one/tool-kit";
+import type { HostCredentials } from "@ascenda-one/tool-kit";
+
+export { credentialsFilePath } from "@ascenda-one/tool-kit";
 
 /** Where `setup` places the self-contained hook bundle. No sudo, no npm -g. */
 export function hookBinPath(): string {
   return path.join(ascendaHome(), "bin", "ascenda-claude-hook");
-}
-
-export function credentialsFilePath(): string {
-  return path.join(ascendaHome(), "credentials.json");
 }
 
 /**
@@ -16,33 +14,20 @@ export function credentialsFilePath(): string {
  * spawns hooks with whatever environment it was launched from, so requiring
  * exports means telemetry silently stops whenever the editor is started from a
  * launcher rather than a configured shell.
+ *
+ * Claude Code's pairing is the top level of ~/.ascenda/credentials.json; the
+ * CLI agents' setups write under `tools.<host>` in the same file, and the
+ * writer here leaves that section alone.
  */
-export type MachineCredentials = {
-  apiBaseUrl?: string;
-  toolInstallationId?: string;
-  pairedAt?: string;
-};
+export type MachineCredentials = HostCredentials;
 
 export function readCredentials(): MachineCredentials | undefined {
-  try {
-    const raw = fs.readFileSync(credentialsFilePath(), "utf8").trim();
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
-    return parsed as MachineCredentials;
-  } catch {
-    // Missing or unreadable credentials are not an error: env vars and the
-    // token file are still valid sources.
-    return undefined;
-  }
+  const credentials = readMachineCredentials();
+  if (!credentials) return undefined;
+  const { tools: _tools, ...topLevel } = credentials;
+  return topLevel;
 }
 
 export function writeCredentials(credentials: MachineCredentials): void {
-  const file = credentialsFilePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, `${JSON.stringify(credentials, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  if (process.platform !== "win32") {
-    fs.chmodSync(path.dirname(file), 0o700);
-    fs.chmodSync(file, 0o600);
-  }
+  writeTopLevelCredentials(credentials);
 }
