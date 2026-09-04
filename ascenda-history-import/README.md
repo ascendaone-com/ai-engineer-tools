@@ -135,12 +135,16 @@ commented as keeping one definition of "active"; the material was not. Across
 agent did the most work. Both now cross the call, and
 `tests/activeSplit.test.mjs` pins it against a real transcript.
 
-## Gaps that block a real user running this twice
+## What the backend enforces on a second run
 
-Both blockers are enforced server-side, and both are **still landing**. Until
-they are live in the deployed backend, this package stays unpublished — a
-client anyone could install must not be able to backfill history against a
-backend that has not yet gated it.
+Both of the blockers this section used to list — the consent scope and
+idempotency — are enforced by the deployed backend, and have been since
+20 Aug 2026 (verified against a real backfill on 25 Aug 2026). They stopped
+gating publication then, and the package ships from the release tag like
+every other CLI here. Two things stand apart from them and are decided
+elsewhere: which tier the batch ship belongs to, and the consent surface that
+grants the lease. Without that grant every event of a backfill is rejected
+`consent_missing_or_expired` — the gate working, not a broken token.
 
 - **Consent scope.** `historical_import` is a distinct `ToolConsentScope`,
   separate from the lease granted for live IDE telemetry, and a backfill

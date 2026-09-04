@@ -148,7 +148,7 @@ test("every handoff session is derived provenance — never presented as recorde
   assert.ok(handoff.sessions.every((s) => s.provenance === "historical_derived"));
 });
 
-test("writeHandoff returns null when the app container is absent", async () => {
+test("writeHandoff returns null when the app does not appear installed", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "handoff-nohome-"));
   try {
     const handoff = buildHandoff(events, "x1", "2026-07-21T00:00:00.000Z");
@@ -158,16 +158,24 @@ test("writeHandoff returns null when the app container is absent", async () => {
   }
 });
 
-test("writeHandoff writes valid JSON into the container and replaces cleanly", async () => {
+// The app dropped its sandbox 20 Aug 2026: the target moved from the
+// container (`~/Library/Containers/<bundle>/Data/.ascenda/...`) to
+// `~/.ascenda/history-import` directly, and the "is the app installed"
+// signal moved with it — from the container existing to the unsandboxed
+// app's own Application Support directory existing. Both signals answer
+// the same question ("has this app launched on this Mac at least once"),
+// just at the new location.
+test("writeHandoff writes valid JSON and replaces cleanly, once the app looks installed", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "handoff-home-"));
   try {
     await fs.mkdir(
-      path.join(home, "Library", "Containers", "one.ascenda.ascendaMissionControl", "Data"),
+      path.join(home, "Library", "Application Support", "one.ascenda.ascendaMissionControl"),
       { recursive: true }
     );
     const handoff = buildHandoff(events, "x1", "2026-07-21T00:00:00.000Z");
     const written = await writeHandoff(handoff, home);
     assert.equal(written, handoffFilePath(home));
+    assert.equal(written, path.join(home, ".ascenda", "history-import", "claude_code.json"));
     const roundTripped = JSON.parse(await fs.readFile(written, "utf8"));
     assert.equal(roundTripped.sessions.length, 2);
 
@@ -194,4 +202,16 @@ test("projectLabelOf folds a deleted Claude worktree into the repository it came
   assert.equal(projectLabelOf("/Users/example/Dev/repo-a-wt/metric-unit-split"), "repo-a");
   // A plain deleted checkout is unchanged: its own basename.
   assert.equal(projectLabelOf("/Users/example/Dev/gone/repo-b"), "repo-b");
+});
+
+// `staging/` (this CLI's own working data, see staging.ts) already lives at
+// `~/.ascenda/history-import/staging` — this pins that the handoff files
+// land as flat siblings of that directory, not inside it, so the two never
+// collide on a filename.
+test("handoffDir sits beside staging/, not inside it", async () => {
+  const home = "/Users/example";
+  assert.equal(
+    handoffFilePath(home, "claude_code"),
+    path.join(home, ".ascenda", "history-import", "claude_code.json")
+  );
 });
