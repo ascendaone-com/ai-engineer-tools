@@ -23,8 +23,10 @@ import { RELEASE_PACKAGES } from "../release-artifacts.mjs";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
- * Workspaces that carry `publishConfig` but deliberately do not go to npm via
- * the tag path. Each entry states the channel that ships it instead — if you
+ * Workspaces that deliberately do not go to npm via the tag path — listed
+ * whether they still carry `publishConfig` or are marked private, so the
+ * reason survives either form. Each entry states the channel that ships it
+ * instead — if you
  * add one, say where it ships, or the next reader cannot tell an intentional
  * exclusion from a repeat of the history-import bug.
  */

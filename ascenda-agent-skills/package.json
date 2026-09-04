@@ -1,9 +1,8 @@
 {
-  "publishConfig": {
-    "access": "public"
-  },
   "name": "@ascenda-one/agent-skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "private": true,
+  "//": "private: this workspace ships as the Claude Code plugin from .claude-plugin/marketplace.json on main (RELEASING.md, \"Plugin distribution is not tag-driven\"), never as an npm tarball — it has no bin, no build output and nothing npx would run.",
   "description": "The Ascenda agent skills: a passive work-signals reporter and a work-checkpoint reader for the Flow app's local MCP server, plus the Cursor rule and the language guard that governs what they say.",
   "scripts": {
     "test": "node scripts/check-language.mjs && node --test tests/*.test.mjs",

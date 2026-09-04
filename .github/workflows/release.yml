@@ -70,6 +70,14 @@ jobs:
 
       - run: npm ci
 
+      # The hand-written half of the notes, from the CHANGELOG.md section that
+      # names this tag. Checked here, before anything is built or published, so
+      # a tag whose notes were never written fails at no cost. The merged-PR
+      # list that --generate-notes produces is appended underneath at release
+      # time; it names pull requests, this says what changed.
+      - name: Release notes
+        run: node scripts/release-notes.mjs --tag "$TAG" --out dist/release-notes.md
+
       # One tag, one version across every artifact, so the manifest carries a
       # single `version` and the installer never reasons about per-package skew.
       - name: Stamp release version
@@ -128,7 +136,7 @@ jobs:
         if: env.DRY_RUN == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" "$STAGE"/* --generate-notes --verify-tag
+        run: gh release create "$TAG" "$STAGE"/* --notes-file dist/release-notes.md --generate-notes --verify-tag
 
       # --- npm publishing ---------------------------------------------------
       # Publishing the hook CLIs makes `npx @ascenda-one/codex-hooks` work with

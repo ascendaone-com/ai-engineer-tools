@@ -5,24 +5,31 @@ the umbrella CLI, the curl installer — depends on this path existing first.
 
 ## Cutting a release
 
+Write the `## vX.Y.Z` section in [`CHANGELOG.md`](./CHANGELOG.md) first and
+merge it to `main`. The workflow reads it before building anything and fails
+if it is missing or empty, so a tag with no notes costs nothing. Then:
+
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
 [`.github/workflows/release.yml`](./.github/workflows/release.yml) then:
 
-1. **Stamps the version.** `scripts/stamp-version.mjs` writes the tag into the
+1. **Reads the notes.** `scripts/release-notes.mjs` extracts the tag's
+   CHANGELOG section; it becomes the top of the GitHub Release, with the
+   merged-PR list `--generate-notes` produces appended underneath.
+2. **Stamps the version.** `scripts/stamp-version.mjs` writes the tag into the
    root and every shipped `package.json` (see `RELEASE_PACKAGES` in
    `scripts/release-artifacts.mjs` for the current list), so one tag means one
    version everywhere and the manifest carries a single `version`. Not committed back.
-2. **Runs the gate.** `npm run verify` — the DRY guard rail, the full
+3. **Runs the gate.** `npm run verify` — the DRY guard rail, the full
    dependency-ordered build, and every workspace test suite. Red verify, no release.
-3. **Builds artifacts** via the hermetic `vscode:prepublish` path (`build:shared`
+4. **Builds artifacts** via the hermetic `vscode:prepublish` path (`build:shared`
    → typecheck → clean → esbuild bundle) and packages the extension VSIX.
-4. **Writes `manifest.json`** — `{ version, minNode, artifacts: [{ name, url, sha256 }] }`.
+5. **Writes `manifest.json`** — `{ version, minNode, artifacts: [{ name, url, sha256 }] }`.
    `minNode` is derived from the root `engines.node`, so it cannot drift.
-5. **Attests provenance** with keyless Sigstore signing, then creates the Release.
-6. **Publishes to Marketplace and OpenVSX** if the tokens are set (see below).
+6. **Attests provenance** with keyless Sigstore signing, then creates the Release.
+7. **Publishes to Marketplace and OpenVSX** if the tokens are set (see below).
 
 Dry-run the whole path without tagging via the workflow's `workflow_dispatch`
 input: it builds, verifies and produces a manifest, publishing nothing.
@@ -79,7 +86,12 @@ Consequences worth knowing:
   and no tag gate.
 - Bump `version` in `plugin.json` when the plugin's behaviour changes, or users
   will not receive the update — omitting it falls back to the commit SHA, which
-  makes every commit a new version.
+  makes every commit a new version. `marketplace.json` carries the same number
+  and `scripts/tests/releasePackages.test.mjs` fails verify when the two
+  disagree, so move both together.
+- `ascenda-agent-skills/package.json` is `private`: the plugin is this
+  channel's only artifact and is never an npm tarball. The tag path does not
+  stamp its version — it tracks `plugin.json`, not the release.
 - Validate before merging: `claude plugin validate ./ascenda-agent-skills --strict`.
 - The plugin's hooks and MCP server invoke the **published npm packages** via
   `npx`, so a plugin change that depends on new CLI behaviour needs the npm
