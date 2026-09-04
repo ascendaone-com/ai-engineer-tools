@@ -86,6 +86,69 @@ export async function scanClaudeCode(paths: StorePaths): Promise<StoreInventory>
   return inv;
 }
 
+/**
+ * Counts rollout files under one Codex sessions tree (`YYYY/MM/DD/*.jsonl`),
+ * walking whatever nesting is actually there rather than assuming the
+ * date layout survives the next release. File facts only.
+ */
+async function countRollouts(
+  root: string,
+  window: Window
+): Promise<{ rollouts: number; bytes: number } | null> {
+  if (!(await statOrNull(root))) return null;
+  let rollouts = 0;
+  let bytes = 0;
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+        const st = await statOrNull(full);
+        if (!st) continue;
+        rollouts += 1;
+        bytes += st.size;
+        window.see(st.mtime);
+      }
+    }
+  }
+  await walk(root);
+  return { rollouts, bytes };
+}
+
+export async function scanCodex(paths: StorePaths): Promise<StoreInventory> {
+  const inv: StoreInventory = {
+    store: "codex",
+    rootPath: paths.codexSessions,
+    present: false,
+    counts: {},
+    notes: []
+  };
+  const window = new Window();
+  const live = await countRollouts(paths.codexSessions, window);
+  const archived = await countRollouts(paths.codexArchivedSessions, window);
+  if (!live && !archived) return inv;
+  inv.present = true;
+  inv.counts = {
+    rollouts: live?.rollouts ?? 0,
+    archivedRollouts: archived?.rollouts ?? 0,
+    bytes: (live?.bytes ?? 0) + (archived?.bytes ?? 0)
+  };
+  inv.oldest = window.oldest?.toISOString();
+  inv.newest = window.newest?.toISOString();
+  // No retentionRisk: no rolling purge has been observed on this store —
+  // rollouts months old sit beside this week's. Stated as an observation,
+  // not a guarantee; if one appears, this is where the warning goes.
+  inv.notes.push("no rolling purge observed on rollouts; archived sessions are counted alongside live ones");
+  return inv;
+}
+
 export async function scanCursor(paths: StorePaths): Promise<StoreInventory> {
   const inv: StoreInventory = {
     store: "cursor",
@@ -210,6 +273,7 @@ export async function scanAll(paths: StorePaths): Promise<StoreInventory[]> {
   // Report order is evaporation order — the same order extraction runs in.
   return [
     await scanClaudeCode(paths),
+    await scanCodex(paths),
     await scanCursor(paths),
     await scanVsCode(paths),
     await scanGit(paths)

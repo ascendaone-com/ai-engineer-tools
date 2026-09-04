@@ -10,6 +10,25 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.17
+
+### History import: Codex rollouts
+
+- **`history-import` reads Codex.** `~/.codex/sessions` (and
+  `archived_sessions`) rollouts join Claude Code, Cursor and VS Code in
+  `scan`, `import` and `archive`. Per session: prompts, per-turn model mix,
+  issued tool calls, tool and runtime failures, cumulative token totals,
+  peak context against the window the rollout itself records, compaction
+  items, turns long enough to match the live hooks' `agent_loop_long`, and
+  gap-split active minutes split into hands-on and agent-supervising.
+- **Same identity as the live Codex hooks.** Rows ship as `cli_agent` with
+  `host: "codex"`, so a historical Codex session and a live one are one
+  population, and the local handoff gains a `codex.json` beside the others.
+- **What it does not claim.** The rollout records no permission mode, so
+  every agent-supervising minute on this store is reported under the
+  `unknown` band rather than a guessed posture, and compaction is counted
+  without a manual/auto split because the store does not say which.
+
 ## v0.1.16
 
 First publish of three hook adapters: `@ascenda-one/cursor-hooks`,

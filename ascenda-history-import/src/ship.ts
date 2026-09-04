@@ -65,6 +65,7 @@ import {
   EXTRACTION_EPOCH_KIND,
   HISTORICAL_CONSENT_SCOPE,
   NormalizedHistoricalEvent,
+  STORE_HOST,
   STORE_SOURCE
 } from "./types.js";
 
@@ -203,6 +204,11 @@ export function toWirePayload(
     importSchema: 1
   };
   if (event.sourceVersion) metadata.sourceVersion = event.sourceVersion;
+  // Stores that share a wire source with other tools name themselves here,
+  // the way the live Codex hooks do on every row — so a historical Codex
+  // session and a live one disaggregate on the same key.
+  const host = STORE_HOST[event.store];
+  if (host) metadata.host = host;
   for (const [key, value] of Object.entries(event.metrics)) {
     metadata[key] = value;
   }
