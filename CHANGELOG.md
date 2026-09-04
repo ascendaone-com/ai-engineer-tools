@@ -32,6 +32,11 @@ without a hand-edited environment.
 - **`idempotencyKey` on every payload,** minted when the payload is built.
   A `duplicate` answer is treated as delivered, which is what makes any
   replay — outbox, restored queue, or a plain retry — safe to attempt.
+- **Handoffs land where the app reads them.** `history-import` writes its
+  local handoff into `~/.ascenda/history-import` in your real home, a flat
+  sibling of the CLI's own `staging/`, rather than inside the desktop app's
+  old sandbox container. The app stopped running sandboxed, so the previous
+  location produced handoffs nothing ever read.
 - **Installation id from disk.** The Claude Code hooks fall back to the
   token store on disk when `ASCENDA_TOOL_INSTALLATION_ID` is not in the
   environment (the normal case for a Dock-launched editor on macOS). When
