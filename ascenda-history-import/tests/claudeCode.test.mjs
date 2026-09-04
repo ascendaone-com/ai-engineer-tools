@@ -8,7 +8,9 @@ import {
   KNOWN_CLAUDE_LINE_TYPES,
   META_CLAUDE_LINE_TYPES,
   extractClaudeCode,
-  isToolFailureLine
+  isToolFailureLine,
+  foldableModelOf,
+  SYNTHETIC_CLAUDE_MODEL
 } from "../dist/extractors/claudeCode.js";
 
 // Fixture lines shaped like Claude Code 2.1.x transcripts (real field shapes,
@@ -35,6 +37,30 @@ const assistantLine = JSON.stringify({
     role: "assistant",
     model: "claude-opus-5",
     usage: { input_tokens: 12, output_tokens: 34 }
+  }
+});
+
+// Claude Code writes its own notices as assistant lines under the literal
+// model string `<synthetic>` — "No response requested", plan-limit hits,
+// sleep-drop and connection-loss notices, 529 overloads. Field shapes copied
+// from real lines (345 of them on one 852-transcript store), content replaced:
+// the `usage` block is present and every figure in it is zero, because no
+// model ran.
+const syntheticNoticeLine = JSON.stringify({
+  type: "assistant",
+  timestamp: "2026-07-21T03:14:30.500Z",
+  sessionId: "0f0e0d0c-1111-2222-3333-444455556666",
+  version: "2.1.227",
+  message: {
+    role: "assistant",
+    model: "<synthetic>",
+    stop_reason: "stop_sequence",
+    usage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0
+    }
   }
 });
 
@@ -230,5 +256,101 @@ test("create_focus_session emits a contract-vocabulary durationBucket plus exact
     );
     assert.equal(session.metrics.durationBucket, "1-5m");
     assert.equal(session.metrics.sessionMinutes, 3);
+  });
+});
+
+test("the sniff reads `<synthetic>` verbatim — the fold is what excludes it", () => {
+  // The sniff stays a faithful read of the line: `<synthetic>` IS the string
+  // in the file. Turning it into `null` here would hide the placeholder from
+  // every other reader of the sniff, so the judgement lives one layer up.
+  const sniffed = sniffClaudeLine(syntheticNoticeLine);
+  assert.equal(sniffed.kind, "assistant");
+  assert.equal(sniffed.model, SYNTHETIC_CLAUDE_MODEL);
+});
+
+test("foldableModelOf treats a runtime notice as carrying no model", () => {
+  assert.equal(foldableModelOf("<synthetic>"), null);
+  assert.equal(foldableModelOf(null), null);
+  assert.equal(foldableModelOf(""), null);
+  // Everything that IS a model identifier passes through untouched — the
+  // exclusion is one literal string, not a heuristic about odd-looking names.
+  assert.equal(foldableModelOf("claude-opus-5"), "claude-opus-5");
+  assert.equal(foldableModelOf("synthetic"), "synthetic");
+  assert.equal(foldableModelOf("<synthetic-2>"), "<synthetic-2>");
+});
+
+test("a `<synthetic>` notice moves none of the three model figures", async () => {
+  // The regression this pins: a notice interrupting a run used to read as a
+  // second model and as two switches, out and back. On one real store that
+  // was 40% of all recorded switches.
+  const lines = [
+    JSON.stringify({
+      type: "user",
+      timestamp: "2026-07-21T03:14:15.926Z",
+      sessionId: "session1",
+      version: "2.1.227",
+      cwd: "/Users/example/Dev/testproj",
+      message: { role: "user", content: "redacted" }
+    }),
+    assistantLine,
+    syntheticNoticeLine,
+    JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-07-21T03:14:40.002Z",
+      sessionId: "session1",
+      version: "2.1.227",
+      message: {
+        role: "assistant",
+        model: "claude-opus-5",
+        usage: { input_tokens: 8, output_tokens: 6 }
+      }
+    })
+  ];
+
+  await withTempSnapshot(lines, async (snapshotDir) => {
+    const events = [];
+    for await (const event of extractClaudeCode(snapshotDir, "extraction-synthetic")) {
+      events.push(event);
+    }
+    const session = events.find((e) => e.eventKind === "create_focus_session");
+    assert.ok(session, "expected a create_focus_session event");
+    assert.equal(session.metrics.modelCount, 1);
+    assert.equal(session.metrics.modelSwitchCount, 0);
+    assert.equal(session.metrics.primaryModel, "claude-opus-5");
+    // The notice is still a line the runtime wrote and still a turn that
+    // happened — excluded from the model vocabulary, not from the transcript.
+    assert.equal(session.metrics.assistantTurns, 3);
+    // Its all-zero usage block is folded like any other and moves nothing.
+    assert.equal(session.metrics.inputTokens, 20);
+    assert.equal(session.metrics.outputTokens, 40);
+  });
+});
+
+test("a session of nothing but notices reports no model, not an unknown one", async () => {
+  // Absent and unknown are different facts and both are typed. Emitting
+  // `primaryModel: "<synthetic>"` here would classify as bare `unknown` —
+  // the value a garbage string gets — so the key is omitted instead.
+  const lines = [
+    JSON.stringify({
+      type: "user",
+      timestamp: "2026-07-21T03:14:15.926Z",
+      sessionId: "session1",
+      version: "2.1.227",
+      cwd: "/Users/example/Dev/testproj",
+      message: { role: "user", content: "redacted" }
+    }),
+    syntheticNoticeLine
+  ];
+
+  await withTempSnapshot(lines, async (snapshotDir) => {
+    const events = [];
+    for await (const event of extractClaudeCode(snapshotDir, "extraction-synthetic-only")) {
+      events.push(event);
+    }
+    const session = events.find((e) => e.eventKind === "create_focus_session");
+    assert.ok(session, "expected a create_focus_session event");
+    assert.equal(session.metrics.modelCount, 0);
+    assert.equal(session.metrics.modelSwitchCount, 0);
+    assert.equal("primaryModel" in session.metrics, false);
   });
 });
