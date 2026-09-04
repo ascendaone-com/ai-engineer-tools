@@ -44,7 +44,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { resolveStorePaths } from "./stores.js";
-import { scanAll, scanClaudeCode, scanCursor, scanVsCode } from "./scan.js";
+import { scanAll, scanClaudeCode, scanCodex, scanCursor, scanVsCode } from "./scan.js";
 import { applyClaudeRetentionFix, planClaudeRetentionFix } from "./retention.js";
 import {
   checkSpaceForSnapshot,
@@ -57,6 +57,7 @@ import {
   sweepStagingRoot
 } from "./staging.js";
 import { extractClaudeCode } from "./extractors/claudeCode.js";
+import { CODEX_SNAPSHOT_DIRS, extractCodex } from "./extractors/codex.js";
 import { extractCursor } from "./extractors/cursor.js";
 import { extractVsCode } from "./extractors/vscode.js";
 import {
@@ -74,7 +75,13 @@ import {
 import { loadShipConfig, shipEvents, shippableEvents } from "./ship.js";
 import type { MetricKey } from "@ascenda-one/tool-contract";
 import type { ShipResult } from "./ship.js";
-import { buildHandoff, buildCursorHandoff, buildVsCodeHandoff, writeHandoff } from "./localHandoff.js";
+import {
+  buildHandoff,
+  buildCodexHandoff,
+  buildCursorHandoff,
+  buildVsCodeHandoff,
+  writeHandoff
+} from "./localHandoff.js";
 import { HistoryStore, NormalizedHistoricalEvent, StoreInventory } from "./types.js";
 
 function formatInventory(inv: StoreInventory): string {
@@ -168,6 +175,7 @@ const READ_FAILURE_METRICS: readonly MetricKey[] = [
   "unrecognisedChatSessionFiles",
   "malformedChatSessionLines",
   "unparsedLines",
+  "unreadableRolloutFiles",
   // Projects, not files — the total is a count of things this run could not
   // read, and the warning wording ("file(s)/record(s)") is looser than the
   // set it sums.
@@ -402,9 +410,10 @@ async function main(): Promise<number> {
     }
     case "import": {
       // Evaporation order: Claude Code first (its 30-day rolling purge is
-      // deleting a day of baseline per day this hasn't run), then Cursor (no
-      // purge observed, but the richest per-message structure), then VS Code
-      // (stable, ~9-month baseline). Each store is independently optional AND
+      // deleting a day of baseline per day this hasn't run), then Codex (no
+      // purge observed; the same transcript shape, and cheap), then Cursor
+      // (no purge observed, but the richest per-message structure), then VS
+      // Code (stable, ~9-month baseline). Each store is independently optional AND
       // independently fallible — a machine missing any of them, or a store
       // that blows up mid-read, still gets a real import of the rest. That
       // isolation is new: before it, VS Code failing on the last source threw
@@ -414,17 +423,20 @@ async function main(): Promise<number> {
       const snapshotSessions = rest.includes("--snapshot-sessions");
 
       const claudeScan = await safeScan("claude_code", paths.claudeProjects, () => scanClaudeCode(paths));
+      const codexScan = await safeScan("codex", paths.codexSessions, () => scanCodex(paths));
       const cursorScan = await safeScan("cursor", paths.cursorStateDb, () => scanCursor(paths));
       const vsCodeScan = await safeScan("vscode", paths.vscodeHistory, () => scanVsCode(paths));
       const claudeInventory = claudeScan.inventory;
+      const codexInventory = codexScan.inventory;
       const cursorInventory = cursorScan.inventory;
       const vsCodeInventory = vsCodeScan.inventory;
-      const anyScanFailed = [claudeScan, cursorScan, vsCodeScan].some((r) => r.scanError !== null);
+      const scans = [claudeScan, codexScan, cursorScan, vsCodeScan];
+      const anyScanFailed = scans.some((r) => r.scanError !== null);
       // "Nothing to import" and "we could not look" are different answers, and
       // only the first of them is a clean exit.
-      if (!claudeInventory.present && !cursorInventory.present && !vsCodeInventory.present && !anyScanFailed) {
+      if (scans.every((r) => !r.inventory.present) && !anyScanFailed) {
         process.stderr.write(
-          `no Claude Code store at ${claudeInventory.rootPath}, no Cursor store at ${cursorInventory.rootPath}, and no VS Code store at ${vsCodeInventory.rootPath} — nothing to import\n`
+          `no Claude Code store at ${claudeInventory.rootPath}, no Codex store at ${codexInventory.rootPath}, no Cursor store at ${cursorInventory.rootPath}, and no VS Code store at ${vsCodeInventory.rootPath} — nothing to import\n`
         );
         return 2;
       }
@@ -446,6 +458,8 @@ async function main(): Promise<number> {
       const willCopy = [paths.claudeProjects, paths.cursorStateDb, paths.vscodeHistory].filter(
         (_, i) => [claudeInventory.present, cursorInventory.present, vsCodeInventory.present][i]
       );
+      // Both Codex roots, measured — whichever of them is absent measures 0.
+      if (codexInventory.present) willCopy.push(paths.codexSessions, paths.codexArchivedSessions);
       if (snapshotSessions && vsCodeInventory.present) willCopy.push(paths.vscodeWorkspaceStorage);
 
       const space = await checkSpaceForSnapshot(stagingRoot, willCopy);
@@ -470,6 +484,26 @@ async function main(): Promise<number> {
           await snapshotPath(area, paths.claudeProjects, path.join("claude_code", "projects"));
           for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) collect(event);
         }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError);
+
+        await runSource(outcomes, "codex", codexInventory, allEvents, async (collect) => {
+          // Rollouts are small (kilobytes to a few megabytes each) and there
+          // are two roots, either of which may be missing on a given machine;
+          // a missing one is an absence, not a failure.
+          const codexSnapshotRoot = path.join(area.root, "codex");
+          const roots: Record<(typeof CODEX_SNAPSHOT_DIRS)[number], string> = {
+            sessions: paths.codexSessions,
+            archived_sessions: paths.codexArchivedSessions
+          };
+          for (const dir of CODEX_SNAPSHOT_DIRS) {
+            try {
+              await fs.access(roots[dir]);
+            } catch {
+              continue;
+            }
+            await snapshotPath(area, roots[dir], path.join("codex", dir));
+          }
+          for await (const event of extractCodex(codexSnapshotRoot, area.extractionId)) collect(event);
+        }, (events) => buildCodexHandoff(events, area.extractionId, new Date().toISOString()), codexScan.scanError);
 
         await runSource(outcomes, "cursor", cursorInventory, allEvents, async (collect) => {
           const cursorSnapshotRoot = path.join(area.root, "cursor");

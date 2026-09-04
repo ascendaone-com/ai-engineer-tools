@@ -2,7 +2,7 @@
   "publishConfig": { "access": "public" },
   "name": "@ascenda-one/history-import",
   "version": "0.1.0",
-  "description": "Retrospective AI-usage import for Ascenda work telemetry — extracts the baseline already sitting in Claude Code, Cursor and VS Code stores.",
+  "description": "Retrospective AI-usage import for Ascenda work telemetry — extracts the baseline already sitting in Claude Code, Codex, Cursor and VS Code stores.",
   "repository": {
     "type": "git",
     "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
