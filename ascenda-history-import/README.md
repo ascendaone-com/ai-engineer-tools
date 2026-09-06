@@ -1,9 +1,10 @@
 # @ascenda-one/history-import
 
 Retrospective AI-usage import: extracts the baseline that already exists on
-an engineer's machine — Claude Code transcripts, Cursor's conversation store,
-VS Code local history and Copilot sessions, git — and ships it as
-provenance-classed historical events on the existing telemetry wire.
+an engineer's machine — Claude Code transcripts, Codex CLI rollouts, Cursor's
+conversation store, VS Code local history and Copilot sessions, git — and
+ships it as provenance-classed historical events on the existing telemetry
+wire.
 
 The store formats these extractors read are reverse-engineered and
 undocumented upstream, so they can change without notice. Each extractor's
@@ -20,11 +21,15 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 ## Design rules (non-negotiable)
 
 1. **Evaporation order.** Claude Code first — its 30-day rolling purge is
-   deleting a day of baseline per day. Then Cursor, then VS Code, then git.
+   deleting a day of baseline per day. Then Codex (no purge observed on its
+   rollouts; it sits second because it is the same transcript shape and
+   costs nothing to read, not because of measured risk), then Cursor, then
+   VS Code, then git.
 2. **Copy, then parse.** Extraction only ever reads a staged snapshot
    (`src/staging.ts`), never live files. SQLite snapshots carry their `-wal`.
 3. **Sniff per record, dispatch on the self-labelled version** (`version` on
-   Claude lines, `_v` on Cursor records, `version: 1` in VS Code entries).
+   Claude lines, `cli_version` on a Codex rollout's `session_meta`, `_v` on
+   Cursor records, `version: 1` in VS Code entries).
    Unknown shapes become `historical_unparsed` — raw retained in staging,
    nothing inferred. Fixture tests per known (tool, version) pair.
 4. **Metrics only by default.** Prompt/response text, thinking blocks and
@@ -53,8 +58,9 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 | Staging/snapshot (copy-then-parse, WAL-aware, **torn down by the run that makes it**) | implemented |
 | `archive` (durable content-addressed copy, dedup, verify, restore, prune) | **implemented, verified on a real 4.1 GB store** |
 | **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented, verified live** |
+| **Codex extractor** (`~/.codex/sessions` and `archived_sessions` rollouts: `user_message` prompts, per-turn model mix, issued tool calls, tool and runtime failures, cumulative tokens, context peak against the window the rollout itself records, compaction items, long turns, gap-split active minutes, epoch marker) | **implemented; fixture-tested and run against a developer machine's rollouts** |
 | **Active-time split** (hands-on vs agent-supervising, per session, per local day and per project digest; autonomy bands off the transcript's own `permissionMode`) | **implemented, verified against a real 400-session store** |
-| **Tool-call counting, all three stores** (`tool_use` items / `toolFormerData` / `toolInvocationSerialized`, one `ai_tool_call_started` per call) | **implemented; exercised end to end against all three stores on a developer machine** |
+| **Tool-call counting, all four stores** (`tool_use` items / tool-call `response_item`s / `toolFormerData` / `toolInvocationSerialized`, one `ai_tool_call_started` per call) | **implemented; exercised end to end against all four stores on a developer machine** |
 | **Batch shipper** (`POST /v1/tool-events/batch`, salted hashes, stable importKey) | **implemented, verified live** |
 | **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, epoch marker) | **implemented, verified live** |
 | **VS Code extractor** (Timeline-history Chat-Edit day×workspace aggregation, Copilot chatSessions folding, workspace identity via `workspace.json` longest-prefix match, epoch marker) | **implemented, verified live** |
@@ -66,6 +72,21 @@ The human-prompt classifier is the load-bearing piece: the large majority of
 user-role transcript lines are tool-result round-trips, not typed prompts.
 Conflating the two inflates every prompt metric by roughly an order of
 magnitude, so its fixtures are the ones to keep green.
+
+Codex has the same trap in a different place. A prompt is an `event_msg` of
+type `user_message`; the `response_item` copy that follows it shares
+`role: "user"` with injected environment context and aborted-turn notices,
+and counting those roughly doubles every prompt figure. Codex rollouts also
+carry things Claude Code transcripts do not: the model's real
+`model_context_window` (so the context ratio needs no assumed 200k), a
+per-turn `duration_ms` (so long turns are the store's own number, bucketed
+through the same function the live hooks use), and no `permission_mode` at
+all — the rollout records `approval_policy` and `sandbox_policy`, which the
+live Codex hooks deliberately leave unmapped, so every agent-supervising
+minute on this store lands in the `unknown` band. That is a blind spot stated
+as one, not a posture. On the wire Codex rides `cli_agent` with
+`metadata.host: "codex"`, exactly as the live hooks do, so historical and
+live rows are one population.
 
 ## Active time is two figures, never one
 
@@ -193,7 +214,7 @@ Still open, and worth knowing before trusting a second run completely:
 ascenda-history-import scan            # human-readable inventory
 ascenda-history-import scan --json     # what the app's consent surface renders
 ascenda-history-import fix-retention   # dry-run; --apply to write
-ascenda-history-import import          # Claude Code + Cursor + VS Code, dry run; --ship to send
+ascenda-history-import import          # Claude Code + Codex + Cursor + VS Code, dry run; --ship to send
 ascenda-history-import archive         # the durable copy; --verify / --list / --restore <dir> / --prune
 ```
 

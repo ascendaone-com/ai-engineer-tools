@@ -99,6 +99,8 @@ export function defaultArchiveSources(
 ): ArchiveSource[] {
   const sources: ArchiveSource[] = [
     { store: "claude_code", root: paths.claudeProjects, label: "projects" },
+    { store: "codex", root: paths.codexSessions, label: "sessions" },
+    { store: "codex", root: paths.codexArchivedSessions, label: "archived_sessions" },
     { store: "cursor", root: paths.cursorStateDb, siblings: ["-wal", "-shm"], label: "state" },
     { store: "vscode", root: paths.vscodeHistory, label: "history" }
   ];

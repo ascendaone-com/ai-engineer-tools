@@ -14,6 +14,14 @@ export interface StorePaths {
   claudeRoot: string;
   claudeProjects: string;
   claudeSettings: string;
+  /** `~/.codex` — Codex CLI's home; rollouts, config, skills, caches. */
+  codexRoot: string;
+  /** `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl` — one rollout
+   * per session, append-only JSONL, plaintext. */
+  codexSessions: string;
+  /** `~/.codex/archived_sessions` — rollouts the user archived from the
+   * resume picker, same shape, moved rather than deleted. */
+  codexArchivedSessions: string;
   /** Cursor's global SQLite KV — conversations and bubbles. WAL mode: never
    * open read-write; copy db+wal, or read with `immutable=1`. */
   cursorStateDb: string;
@@ -35,6 +43,9 @@ export function resolveStorePaths(home: string = os.homedir()): StorePaths {
     claudeRoot: path.join(home, ".claude"),
     claudeProjects: path.join(home, ".claude", "projects"),
     claudeSettings: path.join(home, ".claude", "settings.json"),
+    codexRoot: path.join(home, ".codex"),
+    codexSessions: path.join(home, ".codex", "sessions"),
+    codexArchivedSessions: path.join(home, ".codex", "archived_sessions"),
     cursorStateDb: path.join(appSupport, "Cursor", "User", "globalStorage", "state.vscdb"),
     cursorSearchDb: path.join(
       appSupport,

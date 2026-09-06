@@ -20,16 +20,34 @@ import type {
 
 /** The stores this importer knows how to read. Ordered by evaporation risk:
  * Claude Code's 30-day rolling purge deletes a day of baseline every day the
- * importer hasn't run, so it always extracts first. */
-export const HISTORY_STORES = ["claude_code", "cursor", "vscode", "git"] as const;
+ * importer hasn't run, so it always extracts first. Codex sits second because
+ * its rollouts are the same shape as Claude Code's transcripts and cost
+ * nothing to read — no purge has been observed on them, so its place here is
+ * about cheapness, not measured risk. */
+export const HISTORY_STORES = ["claude_code", "codex", "cursor", "vscode", "git"] as const;
 export type HistoryStore = (typeof HISTORY_STORES)[number];
 
 /** How each store's events identify on the existing telemetry wire. */
 export const STORE_SOURCE: Record<HistoryStore, AscendaTelemetrySource> = {
   claude_code: "claude_code",
+  // The registry has no codex value; the live Codex hooks ride `cli_agent`
+  // with `metadata.host: "codex"` (see STORE_HOST), and the import follows
+  // them so a historical Codex row and a live one are the same population.
+  codex: "cli_agent",
   cursor: "cursor_mcp",
   vscode: "vscode_extension",
   git: "code_forge"
+};
+
+/**
+ * The `metadata.host` a store's events carry on the wire, where the source
+ * alone does not name the tool. `cli_agent` is shared by every agent CLI
+ * without its own registry value, and `host` is how the backend tells them
+ * apart later without a contract change — the same convention the live Codex
+ * hooks established. Stores whose source already names the tool carry none.
+ */
+export const STORE_HOST: Partial<Record<HistoryStore, string>> = {
+  codex: "codex"
 };
 
 /**

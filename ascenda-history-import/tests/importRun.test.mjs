@@ -51,6 +51,17 @@ async function makeHome({ breakClaude = false } = {}) {
     ].join("\n") + "\n"
   );
 
+  const codex = path.join(home, ".codex", "sessions", "2026", "08", "01");
+  await fs.mkdir(codex, { recursive: true });
+  await fs.writeFile(
+    path.join(codex, "rollout-2026-08-01T20-00-00-c1.jsonl"),
+    [
+      JSON.stringify({ timestamp: "2026-08-01T10:00:00.000Z", type: "session_meta", payload: { id: "c1", cwd: "/Users/x/proj", cli_version: "0.144.0" } }),
+      JSON.stringify({ timestamp: "2026-08-01T10:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "hi", images: [] } }),
+      JSON.stringify({ timestamp: "2026-08-01T10:00:05.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "ok" }] } })
+    ].join("\n") + "\n"
+  );
+
   const code = path.join(home, "Library", "Application Support", "Code", "User");
   await fs.mkdir(path.join(code, "History", "aaa"), { recursive: true });
   await fs.writeFile(
@@ -115,6 +126,7 @@ test("a run prints a closing summary naming every source", async () => {
 
   assert.match(stdout, /^summary$/m);
   assert.match(stdout, /claude_code\s+\d/);
+  assert.match(stdout, /codex\s+\d/);
   assert.match(stdout, /vscode\s+\d/);
   assert.match(stdout, /cursor\s+not present on this machine/);
   assert.match(stdout, /total\s+\d+ extracted/);

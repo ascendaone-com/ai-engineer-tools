@@ -236,6 +236,75 @@ export interface HandoffFile {
   projects: HandoffProjectDigest[];
 }
 
+/**
+ * Codex's handoff session. Close to Claude Code's — both are agent
+ * transcripts with prompts, tool calls, tokens and compaction — but a
+ * distinct shape rather than a reuse, for the reason the Cursor shape gives
+ * below: Codex has no subagent transcripts folded into a session and no
+ * `userModified` marker, and a field that can never be collected should be
+ * absent from the shape, not present as a permanent null.
+ */
+export interface CodexHandoffSession {
+  /** Per-local-day slices, oldest first; see {@link HandoffSession.days}. */
+  days: SessionDaySlice[];
+  at: string;
+  startedAt: string | null;
+  sessionRef: string | null;
+  projectLabel: string | null;
+  /** The wire's `projectHash`, so the project digests can line up with
+   * imported rows — same field, same derivation as Claude Code's. */
+  projectHash: string | null;
+  promptCount: number;
+  durationBucket: string;
+  afterHoursPrompts: number;
+  /** The dominant `turn_context.model` across the session's turns. */
+  primaryModel: string | null;
+  activeMinutes: number;
+  /** The two halves of `activeMinutes` — never one figure, never the second
+   * as attention. See {@link HandoffSession.handsOnMinutes}. */
+  handsOnMinutes: number;
+  agentSupervisingMinutes: number;
+  /**
+   * Always `{ unknown: <supervising minutes> }` or empty on this store: the
+   * rollout records no `permission_mode`, and the extractor declines to
+   * invent one from the approval/sandbox pair the live hooks also leave
+   * unmapped. A reader must render this as a blind spot, not as a posture.
+   */
+  autonomySplit: Partial<Record<AutonomyBand, number>>;
+  /** Top-level `compacted` rollout items. Manual and auto are not told
+   * apart because the rollout does not say. */
+  compactionCount: number;
+  /** Failed tool outputs plus runtime `error` events. */
+  toolFailureCount: number;
+  /** Peak last-request input tokens as a fraction of the window the rollout
+   * itself recorded. Null where the store recorded no window — never
+   * computed against an assumed one. */
+  contextWindowPeakPct: number | null;
+  /** Peak last-request input tokens — the measured quantity. */
+  contextWindowPeakTokens: number;
+  /** The `model_context_window` the rollout recorded, in tokens; the
+   * denominator of `contextWindowPeakPct`. Null where it never said. */
+  contextWindowTokens: number | null;
+  /** Tool-call `response_item`s issued — the same quantity the backend's
+   * demand rail derives by counting `ai_tool_call_started` rows. */
+  toolCallCount: number;
+  provenance: string;
+}
+
+export interface CodexHandoffFile {
+  schema: number;
+  extractionId: string;
+  generatedAt: string;
+  /** IANA zone the day slices were cut in; see {@link HandoffFile.timezone}. */
+  timezone: string | null;
+  store: string;
+  windowOldest: string | null;
+  windowNewest: string | null;
+  sessions: CodexHandoffSession[];
+  /** Per-project rollup of the split — same digest as Claude Code's. */
+  projects: HandoffProjectDigest[];
+}
+
 /** Cursor's handoff session — a distinct shape from Claude Code's, because
  * Cursor's unique signals (lines added/removed, human-vs-AI edit
  * attribution, post-edit lint state) don't exist on the Claude side and
@@ -408,7 +477,20 @@ export function projectHashOf(repoRef: string | null): string | null {
  * of the project hash) while a ref that resolves to nothing still gets counted
  * somewhere instead of vanishing.
  */
-export function buildProjectDigests(sessions: readonly HandoffSession[]): HandoffProjectDigest[] {
+/** What a digest is summed from — the fields both agent-transcript shapes
+ * share, so Claude Code and Codex sessions roll up through one loop. */
+export type ProjectDigestInput = Pick<
+  HandoffSession,
+  | "projectHash"
+  | "projectLabel"
+  | "promptCount"
+  | "handsOnMinutes"
+  | "agentSupervisingMinutes"
+  | "autonomySplit"
+  | "days"
+>;
+
+export function buildProjectDigests(sessions: readonly ProjectDigestInput[]): HandoffProjectDigest[] {
   const byKey = new Map<string, HandoffProjectDigest & { days: Set<string> }>();
   for (const session of sessions) {
     const key = session.projectHash ?? `label:${session.projectLabel ?? ""}`;
@@ -514,6 +596,68 @@ export function buildHandoff(
     generatedAt,
     timezone: LOCAL_TIMEZONE,
     store: "claude_code",
+    windowOldest,
+    windowNewest,
+    sessions,
+    projects: buildProjectDigests(sessions)
+  };
+}
+
+export function buildCodexHandoff(
+  events: NormalizedHistoricalEvent[],
+  extractionId: string,
+  generatedAt: string
+): CodexHandoffFile {
+  const sessions: CodexHandoffSession[] = [];
+  let windowOldest: string | null = null;
+  let windowNewest: string | null = null;
+
+  for (const event of events) {
+    if (event.eventKind === "extraction_epoch") {
+      const oldest = event.metrics.windowOldest;
+      const newest = event.metrics.windowNewest;
+      if (typeof oldest === "string") windowOldest = oldest;
+      if (typeof newest === "string") windowNewest = newest;
+      continue;
+    }
+    if (event.eventKind !== "create_focus_session") continue;
+    sessions.push({
+      at: event.occurredAt,
+      startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
+      sessionRef: event.sessionRef,
+      projectLabel: projectLabelOf(event.repoRef),
+      projectHash: projectHashOf(event.repoRef),
+      promptCount: Number(event.metrics.promptCount ?? 0),
+      durationBucket: String(event.metrics.durationBucket ?? "unknown"),
+      afterHoursPrompts: Number(event.metrics.afterHoursPrompts ?? 0),
+      primaryModel:
+        typeof event.metrics.primaryModel === "string" ? event.metrics.primaryModel : null,
+      activeMinutes: Number(event.metrics.activeMinutes ?? 0),
+      handsOnMinutes: Number(event.metrics.handsOnMinutes ?? 0),
+      agentSupervisingMinutes: Number(event.metrics.agentSupervisingMinutes ?? 0),
+      autonomySplit: event.autonomySplit ?? {},
+      compactionCount: Number(event.metrics.compactionCount ?? 0),
+      toolFailureCount: Number(event.metrics.toolFailureCount ?? 0),
+      // Null, never 0: the extractor omits the ratio when the rollout named
+      // no window, and a 0 here would read as an empty context.
+      contextWindowPeakPct:
+        typeof event.metrics.contextWindowPeakPct === "number" ? event.metrics.contextWindowPeakPct : null,
+      contextWindowPeakTokens: Number(event.metrics.contextWindowPeakTokens ?? 0),
+      contextWindowTokens:
+        typeof event.metrics.contextWindowTokens === "number" ? event.metrics.contextWindowTokens : null,
+      toolCallCount: Number(event.metrics.toolCallCount ?? 0),
+      days: event.dayBreakdown ?? [],
+      provenance: event.provenance
+    });
+  }
+  sessions.sort((a, b) => a.at.localeCompare(b.at));
+
+  return {
+    schema: HANDOFF_SCHEMA,
+    extractionId,
+    generatedAt,
+    timezone: LOCAL_TIMEZONE,
+    store: "codex",
     windowOldest,
     windowNewest,
     sessions,
@@ -657,7 +801,7 @@ export function buildVsCodeHandoff(
  * change: which directory answers the question.
  */
 export async function writeHandoff(
-  handoff: HandoffFile | CursorHandoffFile | VsCodeHandoffFile,
+  handoff: HandoffFile | CodexHandoffFile | CursorHandoffFile | VsCodeHandoffFile,
   home: string = os.homedir()
 ): Promise<string | null> {
   const appSupportRoot = path.join(home, "Library", "Application Support", APP_BUNDLE_ID);

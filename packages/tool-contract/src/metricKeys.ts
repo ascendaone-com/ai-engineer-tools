@@ -161,6 +161,11 @@ export const METRIC_KEYS = {
     unit: "tokens",
     note: "The measured quantity, with no assumed denominator. Prefer this to the ratio for any within-person baseline."
   },
+  contextWindowTokens: {
+    readBy: ["handoff"],
+    unit: "tokens",
+    note: "Codex only: the model_context_window the rollout itself recorded — the real denominator its contextWindowPeakPct was computed against. Claude Code records no window and its ratio assumes 200k; absent here means the store never said."
+  },
   date: { readBy: ["handoff"] },
   errorCount: { readBy: ["handoff"] },
   filesChangedCount: { readBy: ["handoff"] },
@@ -245,6 +250,10 @@ export const METRIC_KEYS = {
   unparsedLines: { readBy: ["diagnostic"] },
   unreadableChatSessionFiles: { readBy: ["diagnostic"] },
   unreadableHistoryFiles: { readBy: ["diagnostic"] },
+  unreadableRolloutFiles: {
+    readBy: ["diagnostic"],
+    note: "Codex only: rollout files the extractor meant to read and could not open. Summed into the import's read-failure warning, so a store that is partly unreadable says so rather than reporting a short window as the whole."
+  },
   unrecognisedChatSessionFiles: { readBy: ["diagnostic"] }
 } as const satisfies Record<string, MetricKeySpec>;
 
