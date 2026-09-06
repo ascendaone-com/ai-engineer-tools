@@ -75,14 +75,17 @@ function nextLocalMidnight(t: Date): Date {
 
 /**
  * Adds `[from, to)` to the per-day totals, splitting at every local midnight
- * it crosses. A gap that runs 23:50 → 00:10 is ten minutes of Monday and ten
+ * it crosses. Exported so the cross-session union in `activeUnion.ts` places
+ * its merged spans on days by this rule and not a second copy of it — the
+ * mistake `SliceOptions.activeInstants` documents at length was two callers
+ * agreeing on a rule while disagreeing on how they applied it. A gap that runs 23:50 → 00:10 is ten minutes of Monday and ten
  * of Tuesday, not twenty of either.
  *
  * Splitting on local midnight also means a DST transition lands where the
  * person experienced it: the day boundary is whatever the host's calendar
  * says, so a 23-hour day is 23 hours.
  */
-function addSpan(into: Map<string, number>, from: Date, to: Date): void {
+export function addSpanByLocalDay(into: Map<string, number>, from: Date, to: Date): void {
   let cursor = from;
   while (cursor < to) {
     const boundary = nextLocalMidnight(cursor);
@@ -167,8 +170,8 @@ export function sliceSessionByLocalDay(
     for (const span of activeSpans(points, { activeGapMs: gapMs }).spans) {
       const from = new Date(span.from);
       const to = new Date(span.to);
-      addSpan(activeMs, from, to);
-      if (classified) addSpan(span.handsOn ? handsOnMs : supervisingMs, from, to);
+      addSpanByLocalDay(activeMs, from, to);
+      if (classified) addSpanByLocalDay(span.handsOn ? handsOnMs : supervisingMs, from, to);
     }
   }
 

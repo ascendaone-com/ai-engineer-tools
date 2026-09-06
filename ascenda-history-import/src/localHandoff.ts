@@ -36,6 +36,8 @@
  */
 import { deriveWorkContext, type AutonomyBand } from "@ascenda-one/tool-kit";
 import { LOCAL_TIMEZONE, SessionDaySlice } from "./daySlice.js";
+import { minutesOf, type ActiveSpan } from "./activeSplit.js";
+import { unionActiveByLocalDay, unionActiveTime } from "./activeUnion.js";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -61,8 +63,24 @@ const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
  * call. A reader that could not tell those apart would render the first as
  * the second — the absent-not-zero rule this package applies to every other
  * uncollectable field.
+ *
+ * **4 is not ours and is skipped deliberately.** The app's own in-app
+ * extractor minted 4 for the model and token fold (`inputTokens`,
+ * `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, the `subagent`
+ * totals). This writer does not produce those fields, so stamping 4 here
+ * would tell a reader they were present. The number is a ladder shared by
+ * two writers; a writer may only claim a rung it actually climbed.
+ *
+ * Bumped to 5 for `elapsed` on each project digest — active time unioned
+ * across the project's overlapping sessions, per day and in total, with the
+ * concurrency the sum was accidentally reporting. Additive like every step
+ * before it, and the bump is for the same reason: `elapsed` absent means
+ * "this handoff was written before the union existed", and the surface that
+ * reports where a week went needs to tell that apart from a project whose
+ * sessions genuinely never overlapped. A reader that could not would have to
+ * choose between the two readings blind.
  */
-export const HANDOFF_SCHEMA = 3;
+export const HANDOFF_SCHEMA = 5;
 
 export function handoffDir(home: string = os.homedir()): string {
   return path.join(home, ".ascenda", "history-import");
@@ -214,6 +232,60 @@ export interface HandoffProjectDigest {
    * project touched on two days three weeks apart holds two days, not
    * twenty-two. */
   activeDays: number;
+  /**
+   * The same time, unioned across the project's overlapping sessions instead
+   * of added up. Present only where the extractor handed over spans to union;
+   * absent means "not measured", never "the sessions did not overlap".
+   *
+   * **This is the figure to render as time.** `handsOnMinutes` and
+   * `agentSupervisingMinutes` above are sums over sessions, and sessions run
+   * concurrently: on the reference machine they came to 4.2x the wall clock of
+   * the period they described. They are kept because agent-hours is a real
+   * quantity and because removing them would silently change every existing
+   * reader, but a surface that says "where your week went" wants this.
+   */
+  elapsed?: ProjectElapsedActive;
+}
+
+/**
+ * A project's active time as elapsed time — the union of its sessions rather
+ * than their sum, with the difference between the two readings reported rather
+ * than discarded.
+ */
+export interface ProjectElapsedActive {
+  /** Unioned minutes in which any of the project's sessions was hands-on. */
+  handsOnMinutes: number;
+  /** Unioned minutes with an agent working and nobody typing. Hands-on time is
+   * already removed, so the two are disjoint and their sum is elapsed active
+   * time, not a double count. */
+  agentSupervisingMinutes: number;
+  /**
+   * Summed ÷ unioned: how many of this project's sessions were running in the
+   * average active minute. 1.0 is strictly sequential work. Null where there
+   * was no unioned time to divide by.
+   *
+   * The honest form of what the summed figures were accidentally reporting.
+   * A reader that wants to say "eleven agent-hours" should say it with this
+   * beside it, not by quoting the sum as elapsed time.
+   */
+  meanConcurrency: number | null;
+  /** The deepest simultaneous overlap the project ever reached. */
+  peakConcurrency: number;
+  /**
+   * Unioned minutes per local day, oldest first — because a window like "the
+   * last 7 days" is built by adding days up, and adding up per-session day
+   * slices reintroduces exactly the overlap this field exists to remove.
+   * Days with no active time are absent rather than zero.
+   */
+  days: ProjectElapsedDay[];
+}
+
+export interface ProjectElapsedDay {
+  /** `YYYY-MM-DD` in the extracting machine's local time, as everywhere else
+   * in this file. */
+  day: string;
+  handsOnMinutes: number;
+  agentSupervisingMinutes: number;
 }
 
 export interface HandoffFile {
@@ -490,10 +562,58 @@ export type ProjectDigestInput = Pick<
   | "days"
 >;
 
-export function buildProjectDigests(sessions: readonly ProjectDigestInput[]): HandoffProjectDigest[] {
+/**
+ * The spans of one session, tagged with the project it belongs to, so
+ * {@link buildProjectDigests} can union what overlaps.
+ *
+ * A parallel array rather than a field on {@link ProjectDigestInput} because
+ * these never become part of a session: they are consumed here and dropped,
+ * and nothing downstream — handoff file, wire, app — ever sees a span.
+ */
+export interface ProjectSpanInput {
+  projectHash: string | null;
+  projectLabel: string | null;
+  spans: readonly ActiveSpan[];
+}
+
+/** Same key `buildProjectDigests` groups on: the hash where there is one, the
+ * label otherwise. One definition, so the spans cannot land in a different
+ * bucket than the minutes they belong to. */
+function digestKeyOf(input: { projectHash: string | null; projectLabel: string | null }): string {
+  return input.projectHash ?? `label:${input.projectLabel ?? ""}`;
+}
+
+
+/** Turns a project's pooled spans into its elapsed reading. Minutes are
+ * rounded once, at this edge, for the reason `ActiveSplit` gives: rounding
+ * each half separately and then comparing to a separately-rounded total is how
+ * a partition stops adding up. */
+function elapsedActiveOf(spans: readonly ActiveSpan[]): ProjectElapsedActive {
+  const union = unionActiveTime(spans);
+  const byDay = unionActiveByLocalDay(spans);
+  return {
+    handsOnMinutes: minutesOf(union.handsOnMs),
+    agentSupervisingMinutes: minutesOf(union.agentSupervisingMs),
+    meanConcurrency:
+      union.meanConcurrency === null ? null : Math.round(union.meanConcurrency * 100) / 100,
+    peakConcurrency: union.peakConcurrency,
+    days: [...byDay.entries()]
+      .map(([day, ms]) => ({
+        day,
+        handsOnMinutes: minutesOf(ms.handsOnMs),
+        agentSupervisingMinutes: minutesOf(ms.agentSupervisingMs)
+      }))
+      .filter((d) => d.handsOnMinutes > 0 || d.agentSupervisingMinutes > 0)
+  };
+}
+
+export function buildProjectDigests(
+  sessions: readonly ProjectDigestInput[],
+  spansBySession: readonly ProjectSpanInput[] = []
+): HandoffProjectDigest[] {
   const byKey = new Map<string, HandoffProjectDigest & { days: Set<string> }>();
   for (const session of sessions) {
-    const key = session.projectHash ?? `label:${session.projectLabel ?? ""}`;
+    const key = digestKeyOf(session);
     let digest = byKey.get(key);
     if (!digest) {
       digest = {
@@ -523,8 +643,26 @@ export function buildProjectDigests(sessions: readonly ProjectDigestInput[]): Ha
       if (day.prompts > 0) digest.days.add(day.day);
     }
   }
+  // The union, per project. Built only from what the extractors handed over:
+  // a store that gave no spans gets no `elapsed` block rather than one that
+  // silently equals the sum, which is the same absent-not-zero rule the rest
+  // of this file applies to everything it cannot measure.
+  const spansByKey = new Map<string, ActiveSpan[]>();
+  for (const input of spansBySession) {
+    if (input.spans.length === 0) continue;
+    const key = digestKeyOf(input);
+    const bucket = spansByKey.get(key);
+    if (bucket) bucket.push(...input.spans);
+    else spansByKey.set(key, [...input.spans]);
+  }
+
   return [...byKey.values()]
-    .map(({ days, ...digest }) => ({ ...digest, activeDays: days.size }))
+    .map(({ days, ...digest }) => {
+      const out: HandoffProjectDigest = { ...digest, activeDays: days.size };
+      const spans = spansByKey.get(digestKeyOf(digest));
+      if (spans) out.elapsed = elapsedActiveOf(spans);
+      return out;
+    })
     .sort(
       (a, b) =>
         b.handsOnMinutes + b.agentSupervisingMinutes -
@@ -539,6 +677,9 @@ export function buildHandoff(
   generatedAt: string
 ): HandoffFile {
   const sessions: HandoffSession[] = [];
+  // Spans ride beside the sessions and are dropped at the end of this
+  // function: the union is computed here, the handoff carries the minutes.
+  const projectSpans: ProjectSpanInput[] = [];
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
 
@@ -551,6 +692,15 @@ export function buildHandoff(
       continue;
     }
     if (event.eventKind !== "create_focus_session") continue;
+    // Local-only spans, pooled per project for the union in
+    // `buildProjectDigests`; see `NormalizedHistoricalEvent.activeSpans`.
+    if (event.activeSpans?.length) {
+      projectSpans.push({
+        projectHash: projectHashOf(event.repoRef),
+        projectLabel: projectLabelOf(event.repoRef),
+        spans: event.activeSpans
+      });
+    }
     sessions.push({
       at: event.occurredAt,
       startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
@@ -599,7 +749,7 @@ export function buildHandoff(
     windowOldest,
     windowNewest,
     sessions,
-    projects: buildProjectDigests(sessions)
+    projects: buildProjectDigests(sessions, projectSpans)
   };
 }
 
@@ -609,6 +759,9 @@ export function buildCodexHandoff(
   generatedAt: string
 ): CodexHandoffFile {
   const sessions: CodexHandoffSession[] = [];
+  // Spans ride beside the sessions and are dropped at the end of this
+  // function: the union is computed here, the handoff carries the minutes.
+  const projectSpans: ProjectSpanInput[] = [];
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
 
@@ -621,6 +774,15 @@ export function buildCodexHandoff(
       continue;
     }
     if (event.eventKind !== "create_focus_session") continue;
+    // Local-only spans, pooled per project for the union in
+    // `buildProjectDigests`; see `NormalizedHistoricalEvent.activeSpans`.
+    if (event.activeSpans?.length) {
+      projectSpans.push({
+        projectHash: projectHashOf(event.repoRef),
+        projectLabel: projectLabelOf(event.repoRef),
+        spans: event.activeSpans
+      });
+    }
     sessions.push({
       at: event.occurredAt,
       startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
@@ -661,7 +823,7 @@ export function buildCodexHandoff(
     windowOldest,
     windowNewest,
     sessions,
-    projects: buildProjectDigests(sessions)
+    projects: buildProjectDigests(sessions, projectSpans)
   };
 }
 

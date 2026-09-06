@@ -98,6 +98,7 @@ import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 import {
+  activeSpans,
   minutesOf,
   snakeCasePermissionMode,
   splitActiveTime,
@@ -480,6 +481,20 @@ const ACTIVE_GAP_MS = 5 * 60_000;
  */
 function activeSplitOf(fold: SessionFold) {
   return splitActiveTime(fold.timelinePoints, { activeGapMs: ACTIVE_GAP_MS });
+}
+
+/**
+ * The same spans the split is summed from, kept rather than discarded, so the
+ * per-project rollup can union sessions that overlap instead of adding them.
+ *
+ * A second pass over the timeline, not a second definition of one: this calls
+ * the function `splitActiveTime` itself calls, with the threshold the rest of
+ * this file uses. Handing the spans out of `activeSplitOf` would avoid the
+ * pass but would change what every existing caller receives; the pass is
+ * cheap and the seam stays where it was.
+ */
+function activeSpansOf(fold: SessionFold) {
+  return activeSpans(fold.timelinePoints, { activeGapMs: ACTIVE_GAP_MS }).spans;
 }
 
 /** A reprompt inside 2 minutes of the previous human prompt in the same
@@ -979,6 +994,9 @@ export async function* extractClaudeCode(
           activeGapMs: ACTIVE_GAP_MS,
           activeInstants: fold.timelinePoints
         }),
+        // Local-only, consumed by `buildHandoff` and never written anywhere;
+        // see `NormalizedHistoricalEvent.activeSpans`.
+        activeSpans: activeSpansOf(fold),
         autonomySplit: Object.fromEntries(
           Object.entries(split.supervisingMsByBand).map(([band, ms]) => [band, minutesOf(ms)])
         ),

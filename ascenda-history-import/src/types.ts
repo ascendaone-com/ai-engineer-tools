@@ -1,4 +1,5 @@
 import type { SessionDaySlice } from "./daySlice.js";
+import type { ActiveSpan } from "./activeSplit.js";
 import type { AutonomyBand } from "@ascenda-one/tool-kit";
 
 /**
@@ -168,6 +169,22 @@ export interface NormalizedHistoricalEvent {
    * where the store gave prompt timestamps to slice.
    */
   dayBreakdown?: SessionDaySlice[];
+  /**
+   * The session's classified active spans, for the cross-session union in
+   * `activeUnion.ts`.
+   *
+   * Local-only on the same terms as `dayBreakdown`, and for a stronger reason
+   * than nesting: these are raw instants a millisecond apart, and a run of
+   * them is a far finer-grained picture of a person's day than any metric this
+   * package ships. They ride beside `metrics` so they cannot reach the backend
+   * by accident, and `buildHandoff` consumes them and drops them — no span
+   * reaches the handoff file either, only the unioned minutes derived from it.
+   *
+   * Absent where the store gave no timeline to classify, which a reader must
+   * tell from a session that genuinely had no active span: the first cannot be
+   * unioned, the second contributes nothing to one.
+   */
+  activeSpans?: ActiveSpan[];
   /**
    * Agent-supervising minutes by autonomy band — how much latitude the agent
    * had while it was working, for the part of active time the person did not
