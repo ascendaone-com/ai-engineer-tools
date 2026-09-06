@@ -6,7 +6,7 @@ import {
   unionActiveTime,
   unionActiveByLocalDay
 } from "../dist/activeUnion.js";
-import { buildProjectDigests } from "../dist/localHandoff.js";
+import { buildProjectDigests, HANDOFF_SCHEMA } from "../dist/localHandoff.js";
 
 const MIN = 60_000;
 const span = (fromMin, toMin, handsOn = false) => ({
@@ -111,4 +111,14 @@ test("a store that hands over no spans gets no elapsed block, not a zero one", (
   ]);
   assert.equal(digest.elapsed, undefined);
   assert.equal(digest.agentSupervisingMinutes, 7);
+});
+
+test("elapsed is a schema-5 addition, and 4 stays the app writer's rung", () => {
+  // A reader must be able to tell "this handoff predates the union" from "this
+  // project's sessions never overlapped": both leave the summed and elapsed
+  // figures equal, and only the schema separates them.
+  assert.ok(HANDOFF_SCHEMA >= 5, "elapsed is a schema-5 addition");
+  // 4 is the app's in-app extractor's rung, for the model and token fold this
+  // writer does not produce. Claiming it here would claim those fields.
+  assert.notEqual(HANDOFF_SCHEMA, 4);
 });

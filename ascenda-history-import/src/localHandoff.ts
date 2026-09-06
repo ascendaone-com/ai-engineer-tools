@@ -63,8 +63,24 @@ const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
  * call. A reader that could not tell those apart would render the first as
  * the second — the absent-not-zero rule this package applies to every other
  * uncollectable field.
+ *
+ * **4 is not ours and is skipped deliberately.** The app's own in-app
+ * extractor minted 4 for the model and token fold (`inputTokens`,
+ * `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, the `subagent`
+ * totals). This writer does not produce those fields, so stamping 4 here
+ * would tell a reader they were present. The number is a ladder shared by
+ * two writers; a writer may only claim a rung it actually climbed.
+ *
+ * Bumped to 5 for `elapsed` on each project digest — active time unioned
+ * across the project's overlapping sessions, per day and in total, with the
+ * concurrency the sum was accidentally reporting. Additive like every step
+ * before it, and the bump is for the same reason: `elapsed` absent means
+ * "this handoff was written before the union existed", and the surface that
+ * reports where a week went needs to tell that apart from a project whose
+ * sessions genuinely never overlapped. A reader that could not would have to
+ * choose between the two readings blind.
  */
-export const HANDOFF_SCHEMA = 3;
+export const HANDOFF_SCHEMA = 5;
 
 export function handoffDir(home: string = os.homedir()): string {
   return path.join(home, ".ascenda", "history-import");

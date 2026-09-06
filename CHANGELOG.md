@@ -12,6 +12,21 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.17
 
+### History import: where a week actually went
+
+- **Per-project active time is unioned, not added.** Sessions overlap — two
+  agents running in one repo from 14:00 to 16:00 are two hours of your week
+  and four hours of session time — and adding them up reported the second as
+  the first. Each project digest now carries an `elapsed` block with the
+  same time unioned: hands-on and agent-supervising minutes, the same per
+  local day, and the concurrency the sum was accidentally reporting (mean
+  and peak). The summed figures stay exactly where they were and still mean
+  what they meant: agent-hours worked, which is a real quantity and is not
+  elapsed time.
+- **The handoff is schema 5.** `elapsed` absent means the handoff predates
+  the union, which a reader has to be able to tell from a project whose
+  sessions never overlapped. Re-run `history-import import` to get it.
+
 ### History import: Codex rollouts
 
 - **`history-import` reads Codex.** `~/.codex/sessions` (and
