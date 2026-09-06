@@ -167,7 +167,10 @@ export function loadCliAgentConfig(toolType: string, sessionIdFromHook?: string,
     toolInstallationId,
     eventWriteToken,
     tokenFilePath,
-    sessionId: process.env.ASCENDA_SESSION_ID ?? sessionIdFromHook ?? null,
+    // An empty ASCENDA_SESSION_ID is "unset", not "override with nothing":
+    // read raw, `ASCENDA_SESSION_ID=""` beat a real hook session and shipped
+    // an empty string, grouping unrelated rows under a value naming no session.
+    sessionId: process.env.ASCENDA_SESSION_ID?.trim() || sessionIdFromHook || null,
     workspaceHash: contextHashes.workspaceHash,
     projectHash: contextHashes.projectHash,
     // Agents await command hooks; fail fast rather than stall the user's turn.
