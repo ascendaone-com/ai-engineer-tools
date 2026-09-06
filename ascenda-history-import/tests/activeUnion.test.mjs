@@ -122,3 +122,67 @@ test("elapsed is a schema-5 addition, and 4 stays the app writer's rung", () => 
   // writer does not produce. Claiming it here would claim those fields.
   assert.notEqual(HANDOFF_SCHEMA, 4);
 });
+
+test("a day carries its own summed minutes, so a window can state its concurrency", () => {
+  // Two sessions covering the same hour on one day.
+  const day = unionActiveByLocalDay([span(0, 60), span(0, 60)]);
+  const [only] = [...day.values()];
+  assert.equal(only.agentSupervisingMs, 60 * MIN);
+  assert.equal(only.summedAgentSupervisingMs, 120 * MIN);
+  assert.equal(only.peakConcurrency, 2);
+});
+
+test("a window's mean concurrency comes out of its own days, not the corpus", () => {
+  const at = (d, h) => new Date(2026, 8, d, h).getTime();
+  const s = (d, h1, h2) => ({ from: at(d, h1), to: at(d, h2), handsOn: false, band: "unknown" });
+  // 1 Sep: four sessions on one hour. 2 Sep: one session, three hours.
+  const byDay = unionActiveByLocalDay([
+    s(1, 9, 10), s(1, 9, 10), s(1, 9, 10), s(1, 9, 10),
+    s(2, 9, 12)
+  ]);
+
+  const windowOf = (days) => {
+    const rows = days.map((d) => byDay.get(d));
+    const unioned = rows.reduce((n, r) => n + r.handsOnMs + r.agentSupervisingMs, 0);
+    const summed = rows.reduce((n, r) => n + r.summedHandsOnMs + r.summedAgentSupervisingMs, 0);
+    return { mean: summed / unioned, peak: Math.max(...rows.map((r) => r.peakConcurrency)) };
+  };
+
+  // Each day states its own truth...
+  assert.equal(windowOf(["2026-09-01"]).mean, 4);
+  assert.equal(windowOf(["2026-09-02"]).mean, 1);
+  // ...and the two-day window is neither of them, which is the whole point:
+  // 7h summed over 4h elapsed. A corpus-wide figure would have said one number
+  // for every window a card could ask about.
+  assert.equal(windowOf(["2026-09-01", "2026-09-02"]).mean, 7 / 4);
+  // Peak is a maximum, so it composes by max and never by sum or average.
+  assert.equal(windowOf(["2026-09-01", "2026-09-02"]).peak, 4);
+});
+
+test("a span crossing midnight is deep on both days it touches", () => {
+  const at = (d, h, m = 0) => new Date(2026, 8, d, h, m).getTime();
+  const s = () => ({ from: at(1, 23, 50), to: at(2, 0, 10), handsOn: false, band: "unknown" });
+  const byDay = unionActiveByLocalDay([s(), s(), s()]);
+  // Three sessions across the boundary: each day sees depth 3 for its half,
+  // and neither day is made shallower by the work having begun in the other.
+  assert.equal(byDay.get("2026-09-01").peakConcurrency, 3);
+  assert.equal(byDay.get("2026-09-02").peakConcurrency, 3);
+  assert.equal(byDay.get("2026-09-01").summedAgentSupervisingMs, 30 * MIN);
+  assert.equal(byDay.get("2026-09-02").agentSupervisingMs, 10 * MIN);
+});
+
+test("per-day figures reach the digest, and the schema is not bumped for them", () => {
+  const session = {
+    projectHash: "hash-c", projectLabel: "repo-c", promptCount: 1,
+    handsOnMinutes: 0, agentSupervisingMinutes: 60, autonomySplit: {},
+    days: [{ day: "2026-09-01", prompts: 1 }]
+  };
+  const spans = { projectHash: "hash-c", projectLabel: "repo-c", spans: [span(0, 60)] };
+  const [digest] = buildProjectDigests([session, session], [spans, spans]);
+  const [day] = digest.elapsed.days;
+  assert.equal(day.agentSupervisingMinutes, 60);
+  assert.equal(day.summedAgentSupervisingMinutes, 120);
+  assert.equal(day.peakConcurrency, 2);
+  // The app refuses an unknown schema whole, so these ride inside 5.
+  assert.equal(HANDOFF_SCHEMA, 5);
+});
