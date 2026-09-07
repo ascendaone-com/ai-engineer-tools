@@ -29,7 +29,7 @@ import type { CollectorState, LiveBusEvent, WorkContext } from "@ascenda-one/too
 import { AscendaClient } from "./ascendaClient.js";
 import {
   MissingInstallationIdError,
-  envHashOverride,
+  envOverride,
   loadConfigFromEnv,
   resolveOutboxFilePath,
   resolveStateFilePath,
@@ -241,12 +241,27 @@ async function main(): Promise<void> {
     // deciding to pair. Without one there is nowhere for the event to go.
     const logFile = resolveEventLogPath();
     if (!logFile) throw error;
-    for (const event of mappedEvents) logUnsent(logFile, event, workContext);
+    for (const event of mappedEvents) {
+      logUnsent(logFile, event, workContext, getString(input, ["session_id", "sessionId"]) ?? null);
+    }
     return;
   }
 
   config.workspaceHash ??= workContext?.workspaceHash ?? null;
   config.projectHash ??= workContext?.projectHash ?? null;
+  // Who was working, from the payload's own `session_id` — the same reasoning
+  // as the cwd above, and the same reasoning the live gauge already applies
+  // twenty lines up: the payload knows which session it came from, and the
+  // environment this hook inherits does not have to.
+  //
+  // Without this every shipped row carried a null session unless someone had
+  // exported ASCENDA_SESSION_ID, which nothing sets. On prod that was 599 of
+  // 600 row groups on 3-4 Sep 2026, and a reader cannot union what it cannot
+  // group: asc-core-be#185 found its per-day active-time figures resting
+  // entirely on duration-bucket midpoints for those days, because a
+  // session-less row gap-splits to a zero-length span. The instants were
+  // always on the wire; the identity that makes them poolable was not.
+  config.sessionId ??= getString(input, ["session_id", "sessionId"]) ?? null;
 
   const client = new AscendaClient(config);
 
@@ -585,13 +600,22 @@ function describeToken(tokenFilePath: string): string {
  * The id is a placeholder because there is no pairing to name — `not_sent`
  * plus this value is what distinguishes these lines from delivered ones.
  */
-function logUnsent(logFile: string, event: MappedAscendaEvent, workContext: WorkContext | null): void {
+function logUnsent(
+  logFile: string,
+  event: MappedAscendaEvent,
+  workContext: WorkContext | null,
+  sessionId: string | null
+): void {
   const payload = buildEventPayload({
     toolInstallationId: `${ASCENDA_TOOL_TYPE}:unpaired`,
     source: "claude_code",
-    sessionId: process.env.ASCENDA_SESSION_ID ?? null,
-    workspaceHash: envHashOverride("ASCENDA_WORKSPACE_HASH") ?? workContext?.workspaceHash ?? null,
-    projectHash: envHashOverride("ASCENDA_PROJECT_HASH") ?? workContext?.projectHash ?? null
+    // The payload's session, same as a delivered row — this log exists so
+    // someone unpaired can see exactly what would be transmitted, and a field
+    // that reads null here but not on the wire would misinform the one person
+    // using it for that.
+    sessionId: envOverride("ASCENDA_SESSION_ID") ?? sessionId,
+    workspaceHash: envOverride("ASCENDA_WORKSPACE_HASH") ?? workContext?.workspaceHash ?? null,
+    projectHash: envOverride("ASCENDA_PROJECT_HASH") ?? workContext?.projectHash ?? null
   }, event);
   appendEventLog(logFile, { loggedAt: new Date().toISOString(), delivery: "not_sent", payload });
 }

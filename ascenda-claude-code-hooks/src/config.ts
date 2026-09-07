@@ -128,17 +128,24 @@ export function loadConfigFromEnv(): AscendaHookConfig {
     tokenFilePath,
     stateFilePath: resolveStateFilePath(toolInstallationId),
     outboxFilePath: resolveOutboxFilePath(toolInstallationId),
-    sessionId: process.env.ASCENDA_SESSION_ID ?? null,
+    // Override only. When unset, main() fills it from the hook payload's own
+    // `session_id`, exactly as it does the context hashes below — see there.
+    //
+    // Through `envOverride` rather than read raw: `ASCENDA_SESSION_ID=""` used
+    // to produce an empty-string session on the wire, which is neither an
+    // override nor an absence — it groups every such row together under a
+    // value that names no session.
+    sessionId: envOverride("ASCENDA_SESSION_ID"),
     // Overrides only. When unset, main() fills these from the hook payload's
     // own cwd — the payload knows where the work happened; the environment
     // this hook inherits does not have to.
-    workspaceHash: envHashOverride("ASCENDA_WORKSPACE_HASH"),
-    projectHash: envHashOverride("ASCENDA_PROJECT_HASH")
+    workspaceHash: envOverride("ASCENDA_WORKSPACE_HASH"),
+    projectHash: envOverride("ASCENDA_PROJECT_HASH")
   };
 }
 
 /** An empty or whitespace variable is "unset", not "override with nothing". */
-export function envHashOverride(name: string): string | null {
+export function envOverride(name: string): string | null {
   const value = process.env[name]?.trim();
   return value ? value : null;
 }
