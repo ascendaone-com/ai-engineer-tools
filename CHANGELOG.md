@@ -26,6 +26,29 @@ targets, error counts or internal resource names — this repository is public.
 - **The handoff is schema 5.** `elapsed` absent means the handoff predates
   the union, which a reader has to be able to tell from a project whose
   sessions never overlapped. Re-run `history-import import` to get it.
+- **Concurrency is per day, so a week can state its own.** `elapsed.days`
+  carries each day's summed minutes beside its unioned ones, and that day's
+  peak. A figure computed over your whole history cannot be quoted on a
+  seven-day card: one project here runs 1.7x mean and 6x peak over a week
+  against 2.2x and 10x across the corpus. Add up whichever days your window
+  covers and divide; take the greatest of their peaks.
+
+### Claude Code hooks: your session reaches the wire
+
+- **Live events now carry the session they came from.** The hook read its
+  session id from `ASCENDA_SESSION_ID` and nowhere else — a variable nothing
+  sets — while the payload's own `session_id` sat unread in the same
+  function. Every Claude Code event therefore shipped without a session.
+  Claude Code was the only adapter affected; Codex, Cursor, Windsurf and
+  Gemini already passed theirs through.
+- **Why it mattered.** Anything that measures your time has to group events
+  before it can tell concurrent work from consecutive work. Without a
+  session id there is nothing to group by, so overlapping stretches could
+  not be reconciled and time spent was over-reported.
+- **An empty `ASCENDA_SESSION_ID` now means "unset", not "no session".** It
+  previously shipped an empty string, which grouped unrelated events under a
+  value naming no session. A payload with no session leaves the field absent
+  rather than substituting anything.
 
 ### History import: Codex rollouts
 
