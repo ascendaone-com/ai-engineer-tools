@@ -1,0 +1,143 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { ASCENDA_ACTIVE_TIME_QUANTITIES } from "@ascenda-one/tool-contract";
+import {
+  ACTIVE_TIME_FIGURES,
+  NOT_ACTIVE_TIME_FIGURES,
+  quantityOf,
+  isElapsed
+} from "../dist/activeTimeFigures.js";
+
+/**
+ * Every active-time figure the handoff carries says what it measures.
+ *
+ * **Discovery is a source scan, because TypeScript erases interfaces.** There is
+ * no runtime object to reflect over — `HandoffSession` does not exist once the
+ * code is compiled — so the only way to start from the code rather than from the
+ * registry is to read the declarations. Starting from the registry would be
+ * worthless: a registry is opt-in, and the figure that causes the incident is
+ * the one nobody remembered to register.
+ *
+ * The thing this guards is not hypothetical in this file. `handsOnMinutes` is
+ * summed on `HandoffProjectDigest` and unioned on `ProjectElapsedActive` — same
+ * spelling, one nesting level apart, 4.2x apart in value on the reference
+ * machine. Both are deliberate and documented, and nothing mechanical told them
+ * apart until this table.
+ */
+
+const HANDOFF_SRC = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../src/localHandoff.ts"
+);
+
+/**
+ * Figure-shaped field names. Name-based because these are bare `number` fields,
+ * indistinguishable by type from a count — the same trade asc-core-be's
+ * `LooksLikeActiveTimeFigure` makes, with the same escape hatch for a false
+ * positive: an entry in `NOT_ACTIVE_TIME_FIGURES` with a reason.
+ */
+function looksLikeFigure(field) {
+  return /Minutes$/.test(field) || /Hours$/.test(field);
+}
+
+/** Every `Interface.field: number` declaration in the handoff source. */
+function declaredFigures() {
+  const lines = fs.readFileSync(HANDOFF_SRC, "utf8").split("\n");
+  const found = [];
+  let iface = null;
+
+  for (const line of lines) {
+    const decl = line.match(/^export (?:interface|type) ([A-Za-z0-9_]+)/);
+    if (decl) {
+      iface = decl[1];
+      continue;
+    }
+    if (!iface) continue;
+
+    const field = line.match(/^\s{2}([A-Za-z0-9_]+)\??:\s*number;/);
+    if (field && looksLikeFigure(field[1])) {
+      found.push({ iface, field: field[1], key: `${iface}.${field[1]}` });
+    }
+  }
+  return found;
+}
+
+test("the scan actually reads the handoff source", () => {
+  // Without this the whole suite passes just as happily against a renamed file,
+  // which is the failure mode a guard must not have.
+  const found = declaredFigures();
+  assert.ok(found.length >= 14, `the scan found only ${found.length} figures — it is not reading localHandoff.ts`);
+  assert.ok(found.some((f) => f.key === "ProjectElapsedActive.handsOnMinutes"));
+  assert.ok(found.some((f) => f.key === "HandoffProjectDigest.handsOnMinutes"));
+});
+
+test("every declared figure says what it measures", () => {
+  const undeclared = declaredFigures()
+    .filter((f) => !(f.key in ACTIVE_TIME_FIGURES) && !(f.key in NOT_ACTIVE_TIME_FIGURES))
+    .map((f) => f.key);
+
+  assert.deepEqual(
+    undeclared,
+    [],
+    `these active-time figures do not say what they measure — add them to ` +
+      `ACTIVE_TIME_FIGURES, or excuse them in NOT_ACTIVE_TIME_FIGURES with a reason:\n  ` +
+      undeclared.join("\n  ")
+  );
+});
+
+test("the registry only names quantities the contract owns", () => {
+  for (const [figure, quantity] of Object.entries(ACTIVE_TIME_FIGURES)) {
+    assert.ok(
+      ASCENDA_ACTIVE_TIME_QUANTITIES.includes(quantity),
+      `${figure} reports '${quantity}', which is not a contract quantity`
+    );
+  }
+});
+
+test("every registered and excused figure still exists", () => {
+  // A stale entry is a claim about code that is gone. Both directions matter:
+  // the registry must not outlive the figure it describes.
+  const declared = new Set(declaredFigures().map((f) => f.key));
+
+  for (const key of Object.keys(ACTIVE_TIME_FIGURES)) {
+    assert.ok(declared.has(key), `${key} is registered but no longer declared — drop the entry`);
+  }
+  for (const [key, reason] of Object.entries(NOT_ACTIVE_TIME_FIGURES)) {
+    assert.ok(declared.has(key), `${key} is excused (${reason}) but no longer declared — drop the entry`);
+  }
+});
+
+test("the same spelling carries different quantities where the code means different things", () => {
+  // The specific ambiguity this table exists to resolve. If these ever agree,
+  // either the code changed or the registry stopped describing it.
+  assert.equal(quantityOf("HandoffProjectDigest", "handsOnMinutes"), "hands_on_agent_hours");
+  assert.equal(quantityOf("ProjectElapsedActive", "handsOnMinutes"), "hands_on");
+  assert.notEqual(
+    quantityOf("HandoffProjectDigest", "handsOnMinutes"),
+    quantityOf("ProjectElapsedActive", "handsOnMinutes")
+  );
+});
+
+test("only the unioned figures may be rendered as elapsed time", () => {
+  assert.equal(isElapsed(quantityOf("ProjectElapsedActive", "handsOnMinutes")), true);
+  assert.equal(isElapsed(quantityOf("ProjectElapsedDay", "handsOnMinutes")), true);
+  assert.equal(isElapsed(quantityOf("HandoffProjectDigest", "handsOnMinutes")), false);
+  assert.equal(isElapsed(quantityOf("ProjectElapsedDay", "summedHandsOnMinutes")), false);
+});
+
+test("a session's own figures are elapsed, since one session cannot overlap itself", () => {
+  for (const field of ["activeMinutes", "handsOnMinutes", "agentSupervisingMinutes"]) {
+    assert.equal(isElapsed(quantityOf("HandoffSession", field)), true, `HandoffSession.${field}`);
+    assert.equal(isElapsed(quantityOf("CodexHandoffSession", field)), true, `CodexHandoffSession.${field}`);
+  }
+});
+
+test("the gap label is excused rather than registered", () => {
+  // activeGapMinutes says how the figures were cut. Registering it would claim
+  // the gap is itself a measurement of something.
+  assert.equal(quantityOf("HandoffFile", "activeGapMinutes"), undefined);
+  assert.ok("HandoffFile.activeGapMinutes" in NOT_ACTIVE_TIME_FIGURES);
+});

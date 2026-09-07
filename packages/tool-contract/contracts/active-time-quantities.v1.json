@@ -1,0 +1,99 @@
+{
+  "$comment": [
+    "VENDORED COPY. asc-core-be owns this file at Contracts/active-time-quantities.v1.json; re-vendor it there rather than editing here. Everything below is that file's own comment, unchanged.",
+    "What an active-time figure is a measurement OF. This backend OWNS this file;",
+    "ai-engineer-tools and the app workspace vendor copies and pin them in their own",
+    "tests, the same arrangement as tool-telemetry-contract.v2.json.",
+    "",
+    "It is a separate file from that one deliberately. That contract pins the",
+    "vocabularies a paired client may put on the wire at ingest. Nothing here is ever",
+    "sent by a client: these name what a COMPUTED figure reports. Same mechanism,",
+    "different ownership.",
+    "",
+    "The prose definition is docs/ACTIVE_TIME.md, section 'The quantity is the label,",
+    "not the gap'. This file is the machine-readable half, and the one other repos",
+    "copy.",
+    "",
+    "WHY THIS IS A SEPARATE AXIS FROM THE GAP. activeGapMinutes says how a figure was",
+    "cut; it does not say what was cut. Two figures sharing a gap can be incomparable",
+    "-- coverage and block_coverage are both cut at 30 here and answer different",
+    "questions. Two with different gaps can be legitimately compared: hands_on is cut",
+    "at 5 in ascenda-history-import and at 30 here, the same quantity on a different",
+    "corpus. So the gap is deliberately NOT part of the identity, or the guard would",
+    "forbid a comparison that is merely delicate.",
+    "",
+    "AGENT-HOURS IS A QUANTITY, NOT A PRESENTATION. docs/ACTIVE_TIME.md says so twice",
+    "-- 'Both quantities are real; only the union is elapsed time' and 'A summed",
+    "figure may be reported as agent-hours, never as where a week went' -- but its",
+    "four-name table had no name for the summed form, so the two figures that most",
+    "needed telling apart were the two it could not describe. In ai-engineer-tools'",
+    "localHandoff.ts, HandoffProjectDigest.handsOnMinutes is summed across sessions",
+    "(4.2x wall clock on the reference machine) while ProjectElapsedActive.",
+    "handsOnMinutes is unioned: same spelling, one nesting level apart. Both",
+    "deliberate, both documented, nothing mechanical telling them apart.",
+    "",
+    "WHAT THE GUARD FORBIDS, AND WHAT IT MUST NOT. Adding or subtracting across",
+    "quantities is a bug in the general case. Two exceptions are real and must stay",
+    "expressible:",
+    "  - DIVISION across a concurrencyPair is exactly meanConcurrency, the honest",
+    "    form of what a naive sum reports by accident. Never route it through the",
+    "    comparability guard.",
+    "  - The disjointHalves below sum to their whole BY CONSTRUCTION. SplitActiveMinutes",
+    "    assigns each gap-split span entirely to one side, so hands_on and supervising",
+    "    partition the same spans and their total is coverage, not a double count.",
+    "    What is forbidden is RENDERING that total as attention -- 'you spent 22",
+    "    minutes' collapses 5 of typing and 17 of an agent running -- which is a claim",
+    "    about presentation, not about arithmetic. Earlier comments in this repo",
+    "    conflated the two and said the addition itself was invalid; it is not."
+  ],
+  "version": 1,
+  "quantities": [
+    "coverage",
+    "hands_on",
+    "supervising",
+    "block_coverage",
+    "hands_on_agent_hours",
+    "supervising_agent_hours"
+  ],
+  "elapsed": {
+    "$comment": [
+      "Which quantities are elapsed time -- the union of underlying intervals, safe to",
+      "render as 'where your week went' -- and which are summed agent-hours. A surface",
+      "that quotes a summed figure as elapsed time is the defect this split prevents."
+    ],
+    "coverage": true,
+    "hands_on": true,
+    "supervising": true,
+    "block_coverage": true,
+    "hands_on_agent_hours": false,
+    "supervising_agent_hours": false
+  },
+  "concurrencyPairs": [
+    {
+      "$comment": "summed / unioned is meanConcurrency for this pair. Division legal, addition not.",
+      "summed": "hands_on_agent_hours",
+      "unioned": "hands_on"
+    },
+    {
+      "summed": "supervising_agent_hours",
+      "unioned": "supervising"
+    }
+  ],
+  "disjointHalves": [
+    {
+      "$comment": [
+        "Partition the same spans, so their total is the whole and adding them is",
+        "legal. The summed pair (hands_on_agent_hours, supervising_agent_hours) is",
+        "disjoint for the same reason, but there is no declared name for its whole --",
+        "total agent-hours -- so the guard does not bless that addition. Add the name",
+        "before adding the pair, rather than letting an addition produce a figure no",
+        "quantity describes."
+      ],
+      "halves": [
+        "hands_on",
+        "supervising"
+      ],
+      "whole": "coverage"
+    }
+  ]
+}
