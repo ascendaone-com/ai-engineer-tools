@@ -36,6 +36,11 @@
  */
 import { deriveWorkContext, type AutonomyBand } from "@ascenda-one/tool-kit";
 import { LOCAL_TIMEZONE, SessionDaySlice } from "./daySlice.js";
+import {
+  CLAUDE_CODE_ACTIVE_TIME_QUANTITIES,
+  CODEX_ACTIVE_TIME_QUANTITIES,
+  type ActiveTimeQuantityStamp
+} from "./handoffActiveTime.js";
 import { DEFAULT_ACTIVE_GAP_MS, minutesOf, type ActiveSpan } from "./activeSplit.js";
 import { unionActiveByLocalDay, unionActiveTime } from "./activeUnion.js";
 import * as fs from "node:fs/promises";
@@ -349,6 +354,27 @@ export interface HandoffFile {
    */
   activeGapMinutes: number;
   /**
+   * What each of this handoff's minute figures is a measurement **of**, keyed
+   * by the path a reader walks to reach it (`sessions[].handsOnMinutes`,
+   * `projects[].elapsed.days[].summedHandsOnMinutes`). The first third of the
+   * `{quantity, gapMinutes, basis}` triple, beside the second.
+   *
+   * `activeGapMinutes` above says how the figures were cut and cannot say what
+   * was cut. In this file `projects[].handsOnMinutes` is summed across the
+   * project's overlapping sessions and `projects[].elapsed.handsOnMinutes` is
+   * unioned over them — one spelling, one nesting level apart, 4.2x apart on
+   * the reference machine, and the same gap rule produced both.
+   *
+   * Read off `handoffActiveTime.ts`, whose values come from the vocabulary
+   * asc-core-be owns; never spelled here, for the reason the gap rule is never
+   * spelled here.
+   *
+   * Absent on a handoff written before this field, which means "this handoff
+   * makes no claim" — never "these are all coverage". Additive within the
+   * existing schema rung: a reader that does not know the key ignores it.
+   */
+  activeTimeQuantities: ActiveTimeQuantityStamp;
+  /**
    * IANA zone the day slices were cut in — the extracting machine's own, on
    * purpose: "did I work on Tuesday" is a question about the person's
    * Tuesday, not UTC's. Recorded so a reader can tell which zone rather than
@@ -440,6 +466,27 @@ export interface CodexHandoffFile {
    * never "cut at some default a reader may assume".
    */
   activeGapMinutes: number;
+  /**
+   * What each of this handoff's minute figures is a measurement **of**, keyed
+   * by the path a reader walks to reach it (`sessions[].handsOnMinutes`,
+   * `projects[].elapsed.days[].summedHandsOnMinutes`). The first third of the
+   * `{quantity, gapMinutes, basis}` triple, beside the second.
+   *
+   * `activeGapMinutes` above says how the figures were cut and cannot say what
+   * was cut. In this file `projects[].handsOnMinutes` is summed across the
+   * project's overlapping sessions and `projects[].elapsed.handsOnMinutes` is
+   * unioned over them — one spelling, one nesting level apart, 4.2x apart on
+   * the reference machine, and the same gap rule produced both.
+   *
+   * Read off `handoffActiveTime.ts`, whose values come from the vocabulary
+   * asc-core-be owns; never spelled here, for the reason the gap rule is never
+   * spelled here.
+   *
+   * Absent on a handoff written before this field, which means "this handoff
+   * makes no claim" — never "these are all coverage". Additive within the
+   * existing schema rung: a reader that does not know the key ignores it.
+   */
+  activeTimeQuantities: ActiveTimeQuantityStamp;
   /** IANA zone the day slices were cut in; see {@link HandoffFile.timezone}. */
   timezone: string | null;
   store: string;
@@ -828,6 +875,11 @@ export function buildHandoff(
     // repeated here — a provenance stamp that can disagree with the rule it
     // describes is worse than none.
     activeGapMinutes: DEFAULT_ACTIVE_GAP_MS / 60_000,
+    // And what each of those figures measures, keyed by the path a reader
+    // walks. The `projects` rollup below is why this store needs the stamp
+    // most: it carries the summed pair and the unioned pair under one
+    // spelling, both cut by the gap rule stamped above.
+    activeTimeQuantities: CLAUDE_CODE_ACTIVE_TIME_QUANTITIES,
     store: "claude_code",
     windowOldest,
     windowNewest,
@@ -906,6 +958,11 @@ export function buildCodexHandoff(
     // repeated here — a provenance stamp that can disagree with the rule it
     // describes is worse than none.
     activeGapMinutes: DEFAULT_ACTIVE_GAP_MS / 60_000,
+    // And what each of those figures measures, keyed by the path a reader
+    // walks. The `projects` rollup below is why this store needs the stamp
+    // most: it carries the summed pair and the unioned pair under one
+    // spelling, both cut by the gap rule stamped above.
+    activeTimeQuantities: CODEX_ACTIVE_TIME_QUANTITIES,
     store: "codex",
     windowOldest,
     windowNewest,
