@@ -186,3 +186,20 @@ test("per-day figures reach the digest, and the schema is not bumped for them", 
   // The app refuses an unknown schema whole, so these ride inside 5.
   assert.equal(HANDOFF_SCHEMA, 5);
 });
+
+test("the handoff says which gap rule cut its figures", async () => {
+  const { buildHandoff, buildCodexHandoff, HANDOFF_SCHEMA } = await import("../dist/localHandoff.js");
+  const { DEFAULT_ACTIVE_GAP_MS } = await import("../dist/activeSplit.js");
+
+  for (const build of [buildHandoff, buildCodexHandoff]) {
+    const file = build([], "extraction-1", new Date().toISOString());
+    // Provenance, not configuration: the number reported is the number the
+    // extractors split with, read from the same constant rather than repeated
+    // as a literal that could drift from the rule it claims to describe.
+    assert.equal(file.activeGapMinutes, DEFAULT_ACTIVE_GAP_MS / 60_000);
+    assert.equal(file.activeGapMinutes, 5);
+    // Additive inside schema 5: the app refuses an unknown schema whole, so a
+    // label cannot be bought at the price of the file becoming unreadable.
+    assert.equal(file.schema, HANDOFF_SCHEMA);
+  }
+});

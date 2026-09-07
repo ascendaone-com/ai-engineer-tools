@@ -98,6 +98,7 @@ import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 import {
+  DEFAULT_ACTIVE_GAP_MS,
   activeSpans,
   minutesOf,
   snakeCasePermissionMode,
@@ -468,7 +469,7 @@ function durationBucketOf(fold: SessionFold): string {
  * available for anyone who wants it, `activeMinutes` is the honest
  * alternative. Treat the threshold as a tuned default, not a measurement.
  */
-const ACTIVE_GAP_MS = 5 * 60_000;
+const ACTIVE_GAP_MS = DEFAULT_ACTIVE_GAP_MS;
 
 /**
  * The session's active time, split and totalled from one pass.

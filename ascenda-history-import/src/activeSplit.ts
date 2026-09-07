@@ -139,6 +139,37 @@ export interface SplitOptions {
 }
 
 /**
+ * The gap that ends a stretch of work, in milliseconds — one definition for
+ * every store this package reads.
+ *
+ * **Defined here, still injected.** The extractors used to hold a literal
+ * each, which is how a package with one documented rule came to have two
+ * copies of the number it rests on. They now import this and pass it in, so
+ * the call-site contract `SplitOptions` describes is unchanged and there is
+ * one value to change rather than two to keep in step.
+ *
+ * **5 minutes, and the reason is the hands-on half.** Hands-on is the interval
+ * immediately preceding a human prompt, and that prompt is the entire evidence
+ * a person was present — so the threshold sets how much absence one prompt is
+ * allowed to vouch for. At five minutes the interval reads as someone reading
+ * output and typing. Widening it to thirty admits "left, came back half an
+ * hour later, and typed" and counts the absence as time at a keyboard, which
+ * is a claim this module's own definition cannot support. Measured on a real
+ * 697-session store, thirty minutes inflates hands-on 3.5x and supervising
+ * 1.4x — the asymmetry is the tell, because the two halves rest on different
+ * evidence and only one of them is bounded by a prompt.
+ *
+ * **The backend gap-splits at thirty, on purpose, and that is not a bug to
+ * reconcile.** It measures block length and coverage rather than hands-on, and
+ * a longer bridge is a feature there. The two rails therefore measure
+ * different quantities with the same-shaped constant, and the decision
+ * (ascendaone-com/ai-engineer-tools#81) was to keep both and make every
+ * surface say which rule produced its figure rather than unify a spelling.
+ * `HandoffFile.activeGapMinutes` is this package's half of that.
+ */
+export const DEFAULT_ACTIVE_GAP_MS = 5 * 60_000;
+
+/**
  * One stretch of active time and what it was — the single classification, so
  * that the session totals and the per-day slices cannot come to differ. Both
  * consume this; neither reimplements it.
