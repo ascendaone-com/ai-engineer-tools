@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { EVENT_WORKLOAD_CATEGORY } from "../out/index.js";
+import {
+  ASCENDA_TELEMETRY_SOURCES,
+  ASCENDA_TOOL_TYPES,
+  EVENT_WORKLOAD_CATEGORY
+} from "../out/index.js";
 
 /**
  * Pins `AscendaTelemetryEventType` to the wire vocabulary the backend owns.
@@ -16,8 +20,14 @@ import { EVENT_WORKLOAD_CATEGORY } from "../out/index.js";
  * later rather than as a red test. That is how `@ascenda-one/history-import`
  * shipped three invented names and lost seven months of history behind a 2xx.
  *
- * `contracts/tool-telemetry-event-types.v1.json` is a vendored copy of the
+ * `contracts/tool-telemetry-contract.v2.json` is a vendored copy of the
  * equivalent file the backend owns.
+ *
+ * **v1 covered eventTypes only, and that is exactly how the source drift got
+ * through while the event-type drift was caught.** `code_forge` shipped from
+ * `ascenda-github-collector` for months against a backend `KnownSources` that
+ * never named it. v2 pins all three vocabularies — eventTypes, sources and
+ * toolTypes — so the next one fails here instead.
  *
  * What this test does and does not buy:
  *
@@ -37,15 +47,15 @@ import { EVENT_WORKLOAD_CATEGORY } from "../out/index.js";
 
 const CONTRACT_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../contracts/tool-telemetry-event-types.v1.json"
+  "../contracts/tool-telemetry-contract.v2.json"
 );
 
 const contract = JSON.parse(fs.readFileSync(CONTRACT_PATH, "utf8"));
 
-test("the vendored contract is the version this union was written against", () => {
+test("the vendored contract is the version these unions were written against", () => {
   // A bump means the backend changed the wire vocabulary's shape, not just its
   // contents. Re-read the file before raising this number.
-  assert.equal(contract.version, 1);
+  assert.equal(contract.version, 2);
 });
 
 test("every catalog event type is in the contract, and vice versa", () => {
@@ -80,7 +90,52 @@ test("every contract type has a workload category — none can land as unclassif
   );
 });
 
+test("every contract source is in ASCENDA_TELEMETRY_SOURCES, and vice versa", () => {
+  const declared = [...ASCENDA_TELEMETRY_SOURCES].sort();
+  const wire = [...contract.sources].sort();
+
+  assert.deepEqual(
+    wire.filter((s) => !declared.includes(s)),
+    [],
+    "the backend accepts these sources but ASCENDA_TELEMETRY_SOURCES does not name them"
+  );
+  assert.deepEqual(
+    declared.filter((s) => !wire.includes(s)),
+    [],
+    "these sources are declared here but are not on the wire contract"
+  );
+});
+
+test("every contract toolType is in ASCENDA_TOOL_TYPES, and vice versa", () => {
+  // The list that used to live only in ascenda-dev-server, where it had already
+  // lost `github_collector` and rejected a real collector pairing.
+  const declared = [...ASCENDA_TOOL_TYPES].sort();
+  const wire = [...contract.toolTypes].sort();
+
+  assert.deepEqual(
+    wire.filter((t) => !declared.includes(t)),
+    [],
+    "the backend accepts these tool types but ASCENDA_TOOL_TYPES does not name them"
+  );
+  assert.deepEqual(
+    declared.filter((t) => !wire.includes(t)),
+    [],
+    "these tool types are declared here but are not on the wire contract"
+  );
+});
+
 test("the contract lists no duplicates", () => {
   const seen = new Set(contract.eventTypes);
   assert.equal(seen.size, contract.eventTypes.length, "a duplicated type hides a real disagreement");
+});
+
+test("no vocabulary lists a duplicate", () => {
+  for (const [name, list] of [
+    ["sources", contract.sources],
+    ["toolTypes", contract.toolTypes],
+    ["ASCENDA_TELEMETRY_SOURCES", ASCENDA_TELEMETRY_SOURCES],
+    ["ASCENDA_TOOL_TYPES", ASCENDA_TOOL_TYPES]
+  ]) {
+    assert.equal(new Set(list).size, list.length, `${name} repeats a spelling`);
+  }
 });

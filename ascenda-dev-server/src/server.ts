@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
 import {
+  ASCENDA_TOOL_TYPES,
   AscendaEventPayload,
   EVENT_WORKLOAD_CATEGORY,
   WorkloadCategory
@@ -48,7 +49,7 @@ export type DevServer = {
   };
 };
 
-const TOOL_TYPES = ["vscode_extension", "cursor_mcp", "claude_code", "copilot_otel", "cli_agent", "mcp_server", "other"];
+
 
 const CATEGORY_COLOR: Record<WorkloadCategory, string> = {
   creation: "\x1b[34m",
@@ -126,7 +127,7 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
   async function createSession(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const body = (await readJson(req)) as { toolInstallationId?: string; toolType?: string; displayName?: string | null };
     if (!body.toolInstallationId || !body.toolType) return json(res, 400, { error: "invalid_request" });
-    if (!TOOL_TYPES.includes(body.toolType)) return json(res, 400, { error: "unknown_tool_type" });
+    if (!(ASCENDA_TOOL_TYPES as readonly string[]).includes(body.toolType)) return json(res, 400, { error: "unknown_tool_type" });
 
     const session: Session = {
       pairingSessionId: crypto.randomUUID(),

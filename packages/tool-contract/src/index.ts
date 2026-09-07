@@ -56,15 +56,51 @@ export type ConnectedTool = {
  */
 export type ToolConsentScope = "ide_telemetry" | "workflow_telemetry" | "subjective_checkins" | "semantic_work_signals" | "historical_import";
 
-export type AscendaTelemetrySource =
-  | "vscode_extension"
-  | "cursor_mcp"
-  | "claude_code"
-  | "copilot_otel"
-  | "cli_agent"
-  | "mcp_server"
-  | "activity_signals"
-  | "code_forge";
+/**
+ * The sources a paired client may put on the wire.
+ *
+ * Declared as a runtime array with the type derived from it, rather than as a
+ * union with a hand-kept array beside it. A type alone cannot be pinned against
+ * the vendored contract — types are erased before the test runs — and the
+ * moment the list exists twice it can disagree with itself. `code_forge` is the
+ * standing reminder: `ascenda-github-collector` sent it for months while the
+ * backend's `KnownSources` never listed it, harmless only by accident.
+ */
+export const ASCENDA_TELEMETRY_SOURCES = [
+  "vscode_extension",
+  "cursor_mcp",
+  "claude_code",
+  "copilot_otel",
+  "cli_agent",
+  "mcp_server",
+  "activity_signals",
+  "code_forge"
+] as const;
+
+export type AscendaTelemetrySource = (typeof ASCENDA_TELEMETRY_SOURCES)[number];
+
+/**
+ * The tool types a paired client may register under.
+ *
+ * This vocabulary had no TypeScript home at all until now — `ConnectedTool.toolType`
+ * is a bare `string`, and each hook package spells its own `ASCENDA_TOOL_TYPE`
+ * literal. `ascenda-dev-server` kept the only list, and it had already drifted:
+ * it omitted `github_collector`, so the dev server answered a real
+ * `ascenda-github-collector` pairing with `unknown_tool_type`. That is the
+ * v1-covered-eventTypes-only hole one level over, which is why v2 pins all three.
+ */
+export const ASCENDA_TOOL_TYPES = [
+  "vscode_extension",
+  "cursor_mcp",
+  "claude_code",
+  "copilot_otel",
+  "cli_agent",
+  "mcp_server",
+  "github_collector",
+  "other"
+] as const;
+
+export type AscendaToolType = (typeof ASCENDA_TOOL_TYPES)[number];
 
 /**
  * Canonical catalog only — unknown types classify as unclassified on the backend.
