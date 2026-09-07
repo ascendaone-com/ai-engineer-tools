@@ -36,7 +36,7 @@
  */
 import { deriveWorkContext, type AutonomyBand } from "@ascenda-one/tool-kit";
 import { LOCAL_TIMEZONE, SessionDaySlice } from "./daySlice.js";
-import { minutesOf, type ActiveSpan } from "./activeSplit.js";
+import { DEFAULT_ACTIVE_GAP_MS, minutesOf, type ActiveSpan } from "./activeSplit.js";
 import { unionActiveByLocalDay, unionActiveTime } from "./activeUnion.js";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -332,6 +332,23 @@ export interface HandoffFile {
   extractionId: string;
   generatedAt: string;
   /**
+   * The gap that ended a stretch of work when these figures were cut, in
+   * minutes. Provenance, in the same spirit as `timezone` above: a reader must
+   * be able to tell which rule produced a number rather than assume its own.
+   *
+   * It matters because the rule is not shared across surfaces. This package
+   * gap-splits at 5 minutes; the backend's live rail does it at 30, on purpose,
+   * because it measures block length rather than hands-on. The same person's
+   * active time therefore differs between the two, and neither figure is wrong
+   * on its own terms — which is exactly why a figure that does not say how it
+   * was cut invites a comparison it cannot survive. Decided in
+   * ascendaone-com/ai-engineer-tools#81: keep both rules, label both.
+   *
+   * Absent on a handoff written before this field, which means "not recorded",
+   * never "cut at some default a reader may assume".
+   */
+  activeGapMinutes: number;
+  /**
    * IANA zone the day slices were cut in — the extracting machine's own, on
    * purpose: "did I work on Tuesday" is a question about the person's
    * Tuesday, not UTC's. Recorded so a reader can tell which zone rather than
@@ -406,6 +423,23 @@ export interface CodexHandoffFile {
   schema: number;
   extractionId: string;
   generatedAt: string;
+  /**
+   * The gap that ended a stretch of work when these figures were cut, in
+   * minutes. Provenance, in the same spirit as `timezone` above: a reader must
+   * be able to tell which rule produced a number rather than assume its own.
+   *
+   * It matters because the rule is not shared across surfaces. This package
+   * gap-splits at 5 minutes; the backend's live rail does it at 30, on purpose,
+   * because it measures block length rather than hands-on. The same person's
+   * active time therefore differs between the two, and neither figure is wrong
+   * on its own terms — which is exactly why a figure that does not say how it
+   * was cut invites a comparison it cannot survive. Decided in
+   * ascendaone-com/ai-engineer-tools#81: keep both rules, label both.
+   *
+   * Absent on a handoff written before this field, which means "not recorded",
+   * never "cut at some default a reader may assume".
+   */
+  activeGapMinutes: number;
   /** IANA zone the day slices were cut in; see {@link HandoffFile.timezone}. */
   timezone: string | null;
   store: string;
@@ -790,6 +824,10 @@ export function buildHandoff(
     extractionId,
     generatedAt,
     timezone: LOCAL_TIMEZONE,
+    // From the same constant the extractors split with, never a literal
+    // repeated here — a provenance stamp that can disagree with the rule it
+    // describes is worse than none.
+    activeGapMinutes: DEFAULT_ACTIVE_GAP_MS / 60_000,
     store: "claude_code",
     windowOldest,
     windowNewest,
@@ -864,6 +902,10 @@ export function buildCodexHandoff(
     extractionId,
     generatedAt,
     timezone: LOCAL_TIMEZONE,
+    // From the same constant the extractors split with, never a literal
+    // repeated here — a provenance stamp that can disagree with the rule it
+    // describes is worse than none.
+    activeGapMinutes: DEFAULT_ACTIVE_GAP_MS / 60_000,
     store: "codex",
     windowOldest,
     windowNewest,

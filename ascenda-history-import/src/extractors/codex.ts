@@ -95,7 +95,7 @@ import { bucketDurationMs, isOutsideBusinessHours } from "@ascenda-one/tool-kit"
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
-import { activeSpans, minutesOf, splitActiveTime, type ActiveInstant } from "../activeSplit.js";
+import { DEFAULT_ACTIVE_GAP_MS, activeSpans, minutesOf, splitActiveTime, type ActiveInstant } from "../activeSplit.js";
 
 /** Top-level line types the extractor reads fields from. */
 export const KNOWN_CODEX_LINE_TYPES = [
@@ -368,7 +368,7 @@ function durationBucketOf(fold: SessionFold): string {
 /** The extractor's active-gap threshold: the same five minutes
  * `claudeCode.ts` documents, so one definition of "active" reaches both
  * stores' session and per-day figures. */
-const ACTIVE_GAP_MS = 5 * 60_000;
+const ACTIVE_GAP_MS = DEFAULT_ACTIVE_GAP_MS;
 
 const RAPID_REPROMPT_MS = 2 * 60_000;
 
