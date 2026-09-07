@@ -10,6 +10,25 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.18
+
+### History import: your figures say how they were cut
+
+- **The handoff records its active-time gap rule.** Active minutes are
+  gap-split — a pause longer than the threshold is you stepping away, not
+  working — and this tool uses five minutes. Other surfaces you may see
+  your time on do not all use the same rule, and deliberately so: a figure
+  measuring how long a block of work ran wants to bridge a longer pause
+  than a figure measuring how long you were personally typing. Neither is
+  wrong, and until now neither said which it was. `activeGapMinutes` on the
+  handoff answers that, so two figures cut differently are never quietly
+  compared.
+- **Why five, if you are wondering.** The hands-on half is the stretch
+  immediately before one of your prompts, and that prompt is the whole
+  evidence you were there. Five minutes reads as having read the output and
+  typed. Thirty would also count leaving for half an hour, coming back, and
+  typing — as half an hour at the keyboard.
+
 ## v0.1.17
 
 ### History import: where a week actually went
