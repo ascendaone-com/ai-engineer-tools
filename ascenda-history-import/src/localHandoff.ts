@@ -80,6 +80,25 @@ const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
  * sessions genuinely never overlapped. A reader that could not would have to
  * choose between the two readings blind.
  */
+/**
+ * **Per-day concurrency did NOT bump this to 6, deliberately.**
+ *
+ * `summedHandsOnMinutes`, `summedAgentSupervisingMinutes` and
+ * `peakConcurrency` on `elapsed.days` are additive inside the shape schema 5
+ * already describes, and absent reads as "not collected" — the rule this file
+ * applies everywhere else.
+ *
+ * The bump was declined because the app refuses an unknown schema *whole*:
+ * `historical_import.dart` keeps a set of readable schemas and returns
+ * `unreadable` with no sessions for anything outside it. Stamping 6 before a
+ * build that knows 6 exists would blank the card for everyone, which is
+ * exactly the drift the app's own comment records from the move to schema 3.
+ *
+ * So the ordering for whoever consumes these fields is fixed, and it is the
+ * opposite of the schema-5 bump's: teach the app to READ 6 and ship it, then
+ * stamp 6 here. A writer may only claim a rung it actually climbed, and it may
+ * only climb one the readers can already reach.
+ */
 export const HANDOFF_SCHEMA = 5;
 
 export function handoffDir(home: string = os.homedir()): string {
@@ -286,6 +305,26 @@ export interface ProjectElapsedDay {
   day: string;
   handsOnMinutes: number;
   agentSupervisingMinutes: number;
+  /**
+   * The day's spans added up rather than unioned — what the project-level
+   * `handsOnMinutes` and `agentSupervisingMinutes` report, at day grain.
+   *
+   * Here so a window can state its own concurrency. The project-level
+   * `meanConcurrency` and `peakConcurrency` are computed over the whole
+   * extraction, and a card showing seven days cannot borrow them: a
+   * corpus-wide ratio printed beside a weekly figure is a claim about the
+   * wrong period. Summed and unioned minutes are both additive across days, so
+   * a reader adds up whichever days its window covers and divides.
+   */
+  summedHandsOnMinutes: number;
+  summedAgentSupervisingMinutes: number;
+  /**
+   * Deepest simultaneous overlap on this day. A window's peak is the greatest
+   * of its days' peaks — exact, because every instant falls in exactly one
+   * local day — which is the only way to get a maximum back out of per-day
+   * storage: unlike the minutes, it cannot be summed or averaged into one.
+   */
+  peakConcurrency: number;
 }
 
 export interface HandoffFile {
@@ -601,8 +640,14 @@ function elapsedActiveOf(spans: readonly ActiveSpan[]): ProjectElapsedActive {
       .map(([day, ms]) => ({
         day,
         handsOnMinutes: minutesOf(ms.handsOnMs),
-        agentSupervisingMinutes: minutesOf(ms.agentSupervisingMs)
+        agentSupervisingMinutes: minutesOf(ms.agentSupervisingMs),
+        summedHandsOnMinutes: minutesOf(ms.summedHandsOnMs),
+        summedAgentSupervisingMinutes: minutesOf(ms.summedAgentSupervisingMs),
+        peakConcurrency: ms.peakConcurrency
       }))
+      // A day is dropped on its unioned figures, never its summed ones: a day
+      // whose union rounds to nothing had no elapsed time to report, whatever
+      // its sum says.
       .filter((d) => d.handsOnMinutes > 0 || d.agentSupervisingMinutes > 0)
   };
 }
