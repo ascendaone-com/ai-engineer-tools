@@ -48,7 +48,17 @@ export const ACTIVE_TIME_FIGURES: Readonly<Record<string, AscendaActiveTimeQuant
   "ProjectElapsedDay.handsOnMinutes": "hands_on",
   "ProjectElapsedDay.agentSupervisingMinutes": "supervising",
   "ProjectElapsedDay.summedHandsOnMinutes": "hands_on_agent_hours",
-  "ProjectElapsedDay.summedAgentSupervisingMinutes": "supervising_agent_hours"
+  "ProjectElapsedDay.summedAgentSupervisingMinutes": "supervising_agent_hours",
+
+  // One local day of one session — the day's share of that session's own split.
+  // A session cannot overlap itself, so these are elapsed. They sat in
+  // daySlice.ts unlabelled while the scan read only localHandoff.ts; the app
+  // workspace registers a class of the same name with the same three
+  // quantities, so the two rails already agreed and one could not see its own
+  // copy.
+  "SessionDaySlice.activeMinutes": "coverage",
+  "SessionDaySlice.handsOnMinutes": "hands_on",
+  "SessionDaySlice.agentSupervisingMinutes": "supervising"
 };
 
 /**
