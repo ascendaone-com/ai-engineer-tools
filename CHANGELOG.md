@@ -10,6 +10,35 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.19
+
+### History import: your figures say what they are, not just how they were cut
+
+- **The handoff records what each active-time figure measures.**
+  `activeGapMinutes` (added last release) says *how* your minutes were cut;
+  it has never said *what was cut*, and that is the part that decides
+  whether two numbers can be compared at all. The handoff now carries an
+  `activeTimeQuantities` map alongside it, keyed by the path you walk to
+  reach a figure — `sessions[].handsOnMinutes`,
+  `projects[].elapsed.days[].summedHandsOnMinutes` — naming the quantity
+  each one reports.
+- **The pair it exists for.** `projects[].handsOnMinutes` is your hands-on
+  time added up across that project's sessions, and
+  `projects[].elapsed.handsOnMinutes` is the same time with the overlap
+  removed. Same spelling, one nesting level apart, and on the machine this
+  was measured on they were 4.2x apart — because sessions run at the same
+  time as each other. The first is agent-hours; only the second is where
+  your week went. Both were already in the file and nothing in it told them
+  apart.
+- **Absent means no claim.** Cursor and VS Code handoffs carry no map,
+  exactly as they carry no gap rule: those stores hand over no timeline, so
+  there is no active figure for a label to name. A handoff written before
+  this release has no map either, which reads the same way — unstated,
+  never "assume they are all the same thing".
+- **Nothing else moved.** The handoff schema is unchanged and every existing
+  key means what it meant, so a reader that does not know the new key
+  ignores it. Re-run `history-import import` to get the map.
+
 ## v0.1.18
 
 ### History import: your figures say how they were cut
