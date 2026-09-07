@@ -28,9 +28,17 @@ import {
  * apart until this table.
  */
 
-const HANDOFF_SRC = path.resolve(
+/**
+ * The package's source, not one file of it.
+ *
+ * It read only `localHandoff.ts` until now, which left `daySlice.ts` carrying
+ * three unlabelled figures the guard never looked at. A scan scoped to a single
+ * file is the same defect one level up from the one it exists to catch: the
+ * figure that causes the incident is the one nothing looks at.
+ */
+const SRC_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../src/localHandoff.ts"
+  "../src"
 );
 
 /**
@@ -43,35 +51,48 @@ function looksLikeFigure(field) {
   return /Minutes$/.test(field) || /Hours$/.test(field);
 }
 
-/** Every `Interface.field: number` declaration in the handoff source. */
+/** Every `Interface.field: number` declaration across the package's source. */
 function declaredFigures() {
-  const lines = fs.readFileSync(HANDOFF_SRC, "utf8").split("\n");
   const found = [];
-  let iface = null;
 
-  for (const line of lines) {
-    const decl = line.match(/^export (?:interface|type) ([A-Za-z0-9_]+)/);
-    if (decl) {
-      iface = decl[1];
-      continue;
-    }
-    if (!iface) continue;
+  for (const file of sourceFiles(SRC_DIR)) {
+    let iface = null;
+    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+      const decl = line.match(/^export (?:interface|type) ([A-Za-z0-9_]+)/);
+      if (decl) {
+        iface = decl[1];
+        continue;
+      }
+      if (!iface) continue;
 
-    const field = line.match(/^\s{2}([A-Za-z0-9_]+)\??:\s*number;/);
-    if (field && looksLikeFigure(field[1])) {
-      found.push({ iface, field: field[1], key: `${iface}.${field[1]}` });
+      const field = line.match(/^\s{2}([A-Za-z0-9_]+)\??:\s*number;/);
+      if (field && looksLikeFigure(field[1])) {
+        found.push({ iface, field: field[1], key: `${iface}.${field[1]}` });
+      }
     }
   }
   return found;
+}
+
+function sourceFiles(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sourceFiles(full));
+    else if (entry.name.endsWith(".ts")) out.push(full);
+  }
+  return out;
 }
 
 test("the scan actually reads the handoff source", () => {
   // Without this the whole suite passes just as happily against a renamed file,
   // which is the failure mode a guard must not have.
   const found = declaredFigures();
-  assert.ok(found.length >= 14, `the scan found only ${found.length} figures — it is not reading localHandoff.ts`);
+  assert.ok(found.length >= 17, `the scan found only ${found.length} figures — it is not reading src/`);
   assert.ok(found.some((f) => f.key === "ProjectElapsedActive.handsOnMinutes"));
   assert.ok(found.some((f) => f.key === "HandoffProjectDigest.handsOnMinutes"));
+  // From daySlice.ts — proof the scan reaches past localHandoff.ts.
+  assert.ok(found.some((f) => f.key === "SessionDaySlice.activeMinutes"));
 });
 
 test("every declared figure says what it measures", () => {
