@@ -1,0 +1,79 @@
+{
+  "$comment": [
+    "What an active-time figure is a measurement OF. This is a DIFFERENT contract",
+    "from tool-telemetry-contract.v2.json: that one pins the vocabularies a paired",
+    "client may put on the wire at ingest, this one names the quantities computed",
+    "figures report. Nothing here is ever sent by a client.",
+    "",
+    "The canonical definition is asc-core-be's docs/ACTIVE_TIME.md, section 'The",
+    "quantity is the label, not the gap'. This file is the vendored copy, and the",
+    "same staleness caveat applies as to the wire contract: nothing in this repo",
+    "can reach that one, so re-vendor when the backend's version bumps. The version",
+    "assertion in the test is the tripwire that makes a bump impossible to apply",
+    "silently.",
+    "",
+    "WHY THIS IS A SEPARATE AXIS FROM THE GAP. activeGapMinutes says how a figure",
+    "was cut; it does not say what was cut. Two figures sharing a gap can be",
+    "incomparable -- coverage and block_coverage are both cut at 30 minutes in",
+    "asc-core-be and answer different questions. Two with different gaps can be",
+    "legitimately compared: hands_on is cut at 5 here and at 30 there, which is the",
+    "same quantity on different corpora. So the gap is deliberately NOT part of the",
+    "identity, or the guard would forbid a comparison that is merely delicate.",
+    "",
+    "AGENT-HOURS IS A QUANTITY, NOT A PRESENTATION. docs/ACTIVE_TIME.md says it",
+    "twice -- 'Both quantities are real; only the union is elapsed time' and 'A",
+    "summed figure may be reported as agent-hours, never as where a week went' --",
+    "but its four-name table had no name for the summed form, so the two figures in",
+    "this repo that most need distinguishing were the two it could not describe.",
+    "",
+    "In localHandoff.ts, Project.handsOnMinutes is SUMMED across sessions (4.2x wall",
+    "clock on the reference machine) while Project.elapsed.handsOnMinutes is",
+    "UNIONED. Same spelling, one nesting level apart, different quantities. Both are",
+    "deliberate and both are documented; nothing mechanical told them apart until",
+    "this file. That is the asc-core-be#194 shape -- two figures sharing a name with",
+    "nothing on either distinguishing them -- and it is why a quantity keyed on a",
+    "bare field name would be wrong here. Register by (interface, field).",
+    "",
+    "WHAT THE GUARD MAY AND MAY NOT FORBID. Adding or subtracting across differing",
+    "quantities is a bug: hands_on + supervising collapses 5 minutes of typing and",
+    "17 of an agent running into 'you spent 22 minutes', which is false about both",
+    "halves. DIVIDING across them is not: summed / unioned is precisely",
+    "meanConcurrency, the honest form of what a naive sum reports by accident. So",
+    "the pairs below are distinct quantities and the guard bans + and - between",
+    "them, never division."
+  ],
+  "version": 1,
+  "quantities": [
+    "coverage",
+    "hands_on",
+    "supervising",
+    "block_coverage",
+    "hands_on_agent_hours",
+    "supervising_agent_hours"
+  ],
+  "elapsed": {
+    "$comment": [
+      "Which quantities are elapsed time -- the union of underlying intervals, safe",
+      "to render as 'where your week went' -- and which are summed agent-hours. A",
+      "surface that quotes a summed figure as elapsed time is the specific defect",
+      "the elapsed/summed split exists to prevent."
+    ],
+    "coverage": true,
+    "hands_on": true,
+    "supervising": true,
+    "block_coverage": true,
+    "hands_on_agent_hours": false,
+    "supervising_agent_hours": false
+  },
+  "concurrencyPairs": [
+    {
+      "$comment": "summed / unioned is meanConcurrency for this pair. Division legal, addition not.",
+      "summed": "hands_on_agent_hours",
+      "unioned": "hands_on"
+    },
+    {
+      "summed": "supervising_agent_hours",
+      "unioned": "supervising"
+    }
+  ]
+}

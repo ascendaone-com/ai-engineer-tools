@@ -103,6 +103,80 @@ export const ASCENDA_TOOL_TYPES = [
 export type AscendaToolType = (typeof ASCENDA_TOOL_TYPES)[number];
 
 /**
+ * What an active-time figure is a measurement **of**.
+ *
+ * A different kind of vocabulary from the three above: those pin what a paired
+ * client may put on the wire, this names what a computed figure reports. Nothing
+ * here is ever sent by a client, which is why it is vendored from its own
+ * contract file rather than added to `tool-telemetry-contract.v2.json`.
+ *
+ * **This is the axis that decides comparability, and it is not the gap.**
+ * `activeGapMinutes` says how a figure was cut, not what was cut. `coverage` and
+ * `block_coverage` share a gap in asc-core-be and are still incomparable;
+ * `hands_on` is cut at 5 here and 30 there and is still the same quantity on a
+ * different corpus. So the gap is deliberately not folded into the identity.
+ *
+ * **`_agent_hours` is a quantity, not a presentation.** `docs/ACTIVE_TIME.md`
+ * calls it one twice — "Both quantities are real; only the union is elapsed
+ * time" — while its own four-name table had no name for the summed form. That
+ * omission covered the two figures in this repo that most need telling apart:
+ * `Project.handsOnMinutes` is summed across sessions (4.2x wall clock on the
+ * reference machine) and `Project.elapsed.handsOnMinutes` is unioned, one
+ * nesting level apart under one spelling.
+ *
+ * Declared as a runtime array with the type derived from it, for the reason
+ * `ASCENDA_TELEMETRY_SOURCES` gives: a type alone cannot be pinned against the
+ * vendored contract, and a list that exists twice can disagree with itself.
+ */
+export const ASCENDA_ACTIVE_TIME_QUANTITIES = [
+  "coverage",
+  "hands_on",
+  "supervising",
+  "block_coverage",
+  "hands_on_agent_hours",
+  "supervising_agent_hours"
+] as const;
+
+export type AscendaActiveTimeQuantity = (typeof ASCENDA_ACTIVE_TIME_QUANTITIES)[number];
+
+/**
+ * Which quantities are elapsed time, and which are summed agent-hours.
+ *
+ * A surface that quotes a summed figure as "where your week went" is the defect
+ * this split exists to prevent: on the reference machine the sums came to 4.2x
+ * the wall clock of the period they described.
+ */
+export const ASCENDA_ELAPSED_QUANTITIES: Readonly<Record<AscendaActiveTimeQuantity, boolean>> = {
+  coverage: true,
+  hands_on: true,
+  supervising: true,
+  block_coverage: true,
+  hands_on_agent_hours: false,
+  supervising_agent_hours: false
+};
+
+/**
+ * Throws unless two figures report the same quantity.
+ *
+ * Addition and subtraction across quantities is the bug — `hands_on` plus
+ * `supervising` collapses 5 minutes of typing and 17 of an agent running into
+ * "you spent 22 minutes", false about both halves. **Division is not**, and must
+ * not be routed through here: summed ÷ unioned is exactly `meanConcurrency`.
+ */
+export function requireComparableQuantities(
+  left: AscendaActiveTimeQuantity,
+  right: AscendaActiveTimeQuantity,
+  operation: string
+): void {
+  if (left !== right) {
+    throw new Error(
+      `'${operation}' combines active-time quantities '${left}' and '${right}', which ` +
+        `measure different things. See docs/ACTIVE_TIME.md, 'The quantity is the label, not the gap'.`
+    );
+  }
+}
+
+/**
  * Canonical catalog only — unknown types classify as unclassified on the backend.
  *
  * The six types from `approach_churn_detected` onward are semantic: nobody can
