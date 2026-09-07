@@ -6,11 +6,14 @@ import { fileURLToPath } from "node:url";
 import {
   ASCENDA_ACTIVE_TIME_QUANTITIES,
   ASCENDA_ELAPSED_QUANTITIES,
-  requireComparableQuantities
+  requireComparableQuantities,
+  combineDisjointHalves
 } from "../out/index.js";
 
 /**
- * Pins `AscendaActiveTimeQuantity` to the quantity vocabulary asc-core-be owns.
+ * Pins `AscendaActiveTimeQuantity` to the quantity vocabulary asc-core-be owns,
+ * at `Contracts/active-time-quantities.v1.json`. The file in `contracts/` here is
+ * a vendored copy of it — edit it there, not here.
  *
  * The same shape as `wireVocabularyContract.test.mjs`, for the same reason and
  * with the same limit: it fails when a name is added on one side and not the
@@ -106,12 +109,37 @@ test("every concurrency pair names two real quantities, summed and unioned", () 
   assert.ok(contract.concurrencyPairs.length >= 2, "both hands-on and supervising have a summed counterpart");
 });
 
-test("the guard rejects the addition that motivated it", () => {
-  // The specific sum docs/ACTIVE_TIME.md forbids in prose: "Rendering one
-  // combined figure collapses 5 minutes of typing and 17 of an agent running
-  // into 'you spent 22 minutes', which is false about both halves."
+test("hands_on plus supervising is coverage, and the contract says so", () => {
+  // The correction to this file's first version, which banned this addition.
+  // The halves partition the same spans, so their total is the whole; what is
+  // forbidden is rendering that total as attention, which is a claim about
+  // presentation rather than arithmetic.
+  const { total, quantity } = combineDisjointHalves(5, "hands_on", 17, "supervising");
+  assert.equal(total, 22);
+  assert.equal(quantity, "coverage");
+
+  const pair = contract.disjointHalves.find(
+    (d) => d.halves.includes("hands_on") && d.halves.includes("supervising")
+  );
+  assert.ok(pair, "the contract declares the pair this function relies on");
+  assert.equal(pair.whole, "coverage");
+});
+
+test("a pair that partitions nothing is still refused", () => {
   assert.throws(
-    () => requireComparableQuantities("hands_on", "supervising", "add"),
+    () => combineDisjointHalves(120, "coverage", 45, "block_coverage"),
+    /do not partition a common whole/
+  );
+  // Disjoint too, but total agent-hours has no declared name.
+  assert.throws(
+    () => combineDisjointHalves(10, "hands_on_agent_hours", 20, "supervising_agent_hours"),
+    /do not partition a common whole/
+  );
+});
+
+test("the comparability guard still rejects an unrelated cross-quantity add", () => {
+  assert.throws(
+    () => requireComparableQuantities("coverage", "block_coverage", "add"),
     /combines active-time quantities/
   );
 });

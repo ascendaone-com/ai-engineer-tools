@@ -127,6 +127,12 @@ export type AscendaToolType = (typeof ASCENDA_TOOL_TYPES)[number];
  * Declared as a runtime array with the type derived from it, for the reason
  * `ASCENDA_TELEMETRY_SOURCES` gives: a type alone cannot be pinned against the
  * vendored contract, and a list that exists twice can disagree with itself.
+ *
+ * **asc-core-be owns the contract file**, at
+ * `Contracts/active-time-quantities.v1.json`. The copy here is vendored, exactly
+ * as the wire contract is. It briefly was not: the vocabulary first shipped there
+ * as C# constants with no file to copy, this package wrote its own, and the two
+ * disagreed within the hour — four names against six.
  */
 export const ASCENDA_ACTIVE_TIME_QUANTITIES = [
   "coverage",
@@ -156,12 +162,54 @@ export const ASCENDA_ELAPSED_QUANTITIES: Readonly<Record<AscendaActiveTimeQuanti
 };
 
 /**
+ * Pairs that partition the same spans, and the quantity their total is.
+ *
+ * The one legal cross-quantity addition. `ProjectElapsedActive` has always
+ * documented this pair as "disjoint, and their sum is elapsed active time, not a
+ * double count", and asc-core-be's `SplitActiveMinutes` confirms it: each
+ * gap-split span is assigned entirely to one side.
+ */
+const DISJOINT_HALVES: ReadonlyArray<
+  readonly [AscendaActiveTimeQuantity, AscendaActiveTimeQuantity, AscendaActiveTimeQuantity]
+> = [
+  ["hands_on", "supervising", "coverage"],
+  ["supervising", "hands_on", "coverage"]
+];
+
+/**
+ * Adds two halves that partition the same spans, returning the quantity their
+ * total actually is.
+ *
+ * The summed pair is disjoint too, but total agent-hours has no declared name,
+ * so that addition stays refused rather than producing a figure no quantity
+ * describes.
+ */
+export function combineDisjointHalves(
+  left: number,
+  leftQuantity: AscendaActiveTimeQuantity,
+  right: number,
+  rightQuantity: AscendaActiveTimeQuantity
+): { total: number; quantity: AscendaActiveTimeQuantity } {
+  const pair = DISJOINT_HALVES.find(([a, b]) => a === leftQuantity && b === rightQuantity);
+  if (!pair) {
+    throw new Error(
+      `'combine-disjoint' combines active-time quantities '${leftQuantity}' and ` +
+        `'${rightQuantity}', which do not partition a common whole.`
+    );
+  }
+  return { total: left + right, quantity: pair[2] };
+}
+
+/**
  * Throws unless two figures report the same quantity.
  *
- * Addition and subtraction across quantities is the bug — `hands_on` plus
- * `supervising` collapses 5 minutes of typing and 17 of an agent running into
- * "you spent 22 minutes", false about both halves. **Division is not**, and must
- * not be routed through here: summed ÷ unioned is exactly `meanConcurrency`.
+ * **Two things this must not reject.** Division across a concurrency pair is
+ * exactly `meanConcurrency`, so never route it through here. And `hands_on` plus
+ * `supervising` is a legal addition whose total is `coverage` — use
+ * {@link combineDisjointHalves}, which names the result. What is forbidden is
+ * *rendering* that total as attention: "you spent 22 minutes" collapses 5 of
+ * typing and 17 of an agent running, which is a claim about presentation that no
+ * arithmetic guard can see.
  */
 export function requireComparableQuantities(
   left: AscendaActiveTimeQuantity,
