@@ -83,7 +83,11 @@ import {
   collectProjectSpans,
   writeHandoff
 } from "./localHandoff.js";
-import { CrossStoreElapsedPool, writeCrossStoreElapsed } from "./crossStoreElapsed.js";
+import {
+  CrossStoreElapsedPool,
+  removeCrossStoreElapsed,
+  writeCrossStoreElapsed
+} from "./crossStoreElapsed.js";
 import { HistoryStore, NormalizedHistoricalEvent, StoreInventory } from "./types.js";
 
 function formatInventory(inv: StoreInventory): string {
@@ -149,6 +153,15 @@ interface SourceOutcome {
   /** From the store's extraction_epoch: files it meant to read and could not.
    * A source can succeed and still be incomplete, and that is worth saying. */
   readFailures: number;
+  /**
+   * Whether this run replaced the store's handoff on disk.
+   *
+   * Not the same as `status: "extracted"`: a machine without the desktop app
+   * extracts fine and writes no handoff at all. It is the question the stale
+   * cross-store union is retired on — see `removeCrossStoreElapsed` — because
+   * a union beside handoffs that no run has touched is still true of them.
+   */
+  handoffWritten?: boolean;
 }
 
 /** Counters an extraction_epoch carries that mean "we did not read this". */
@@ -289,7 +302,8 @@ async function runSource(
     store,
     status: "extracted",
     events: events.length,
-    readFailures: readFailuresOf(events)
+    readFailures: readFailuresOf(events),
+    handoffWritten: handoffPath !== null
   });
 }
 
@@ -554,13 +568,38 @@ async function main(): Promise<number> {
         // The union over every store that handed over spans, written once all
         // of them have run. Null — and so no file — below two contributing
         // stores, where each store's own `elapsed` block already is the union.
-        const crossStoreFile = crossStore.build(area.extractionId, new Date().toISOString());
-        if (crossStoreFile) {
-          const crossStorePath = await writeCrossStoreElapsed(crossStoreFile);
+        //
+        // Contained, because this file is not what the run is for. The app
+        // treats it as optional and falls back to the summed reading without
+        // it, while everything below — the events file, the shipment, the
+        // closing summary — is the run's actual output and is what a caller
+        // reads instead of inferring an outcome from a stack trace. Letting a
+        // failed write of an optional file discard a finished extraction would
+        // be the silent partial import this command is built to never be.
+        try {
+          const crossStoreFile = crossStore.build(area.extractionId, new Date().toISOString());
+          if (crossStoreFile) {
+            const crossStorePath = await writeCrossStoreElapsed(crossStoreFile);
+            process.stdout.write(
+              crossStorePath
+                ? `elapsed across ${crossStoreFile.stores.join(" + ")}: → ${crossStorePath}\n\n`
+                : "elapsed across stores: desktop app container not found — skipped\n\n"
+            );
+          } else if (outcomes.some((outcome) => outcome.handoffWritten)) {
+            // No union this time, and at least one handoff replaced — so an
+            // older union is now about a set of handoffs that is gone. It is
+            // retired rather than left to be judged: the reader skips a store
+            // whose new handoff carries no `elapsed` block, so an old file can
+            // still match everything it checks and speak for minutes nothing
+            // on disk reports.
+            if (await removeCrossStoreElapsed()) {
+              process.stdout.write("elapsed across stores: not written this run — removed the previous one\n\n");
+            }
+          }
+        } catch (error) {
           process.stdout.write(
-            crossStorePath
-              ? `elapsed across ${crossStoreFile.stores.join(" + ")}: → ${crossStorePath}\n\n`
-              : "elapsed across stores: desktop app container not found — skipped\n\n"
+            `elapsed across stores: not written — ${error instanceof Error ? error.message : String(error)}\n` +
+              "  your per-store figures are unaffected; they are added rather than unioned across stores\n\n"
           );
         }
 

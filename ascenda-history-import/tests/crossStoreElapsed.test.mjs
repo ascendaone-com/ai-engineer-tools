@@ -244,3 +244,64 @@ test("every figure the union writes says what it measures", async () => {
   }
   assert.equal(union.activeTimeQuantities["projects[].elapsed.handsOnMinutes"], "hands_on");
 });
+
+test("a union this run did not write is retired, not left to be judged", async () => {
+  // The stamps very nearly make an old file inert on their own — but the app
+  // skips a store whose handoff carries no `elapsed` block, so a run where one
+  // store stops handing over spans while another store's handoff goes
+  // untouched leaves an old union matching everything the reader still checks.
+  // It would then speak for minutes no handoff on disk reports.
+  const home = await importedHome();
+  await fs.stat(crossStorePath(home));
+
+  // The same machine after Codex is gone: Claude Code's handoff is rewritten,
+  // Codex's is left exactly as found, and no union can be taken.
+  await fs.rm(path.join(home, ".codex"), { recursive: true });
+  const run = await runCli(["import"], home);
+  assert.equal(run.code, 0, run.stdout + run.stderr);
+
+  await assert.rejects(fs.stat(crossStorePath(home)), { code: "ENOENT" });
+  assert.match(run.stdout, /removed the previous one/);
+  // And the store's own reading is still there — retiring the union is not
+  // taking anything away.
+  assert.ok((await storeElapsed(home, "claude_code")).handsOnMinutes > 0);
+});
+
+test("a run that rewrote no handoff leaves the union alone", async () => {
+  // Nothing this run touched is described by the file, so removing it would
+  // throw away a reading still exactly true of the handoffs beside it. Here
+  // the desktop app is not installed, so no handoff is written at all.
+  const home = await importedHome();
+  const union = await readJson(crossStorePath(home));
+  await fs.rm(path.join(home, "Library", "Application Support", APP_BUNDLE_ID), { recursive: true });
+  await fs.rm(path.join(home, ".codex"), { recursive: true });
+
+  const run = await runCli(["import"], home);
+  assert.equal(run.code, 0, run.stdout + run.stderr);
+
+  assert.deepEqual(await readJson(crossStorePath(home)), union, "the union is untouched");
+});
+
+test("a union that cannot be written does not cost the run its output", async () => {
+  // The app treats this file as optional and falls back to the summed reading
+  // without it. Everything after it — the events file, the shipment, the
+  // closing summary — is the run's actual output, and is what a caller reads
+  // instead of inferring an outcome from a stack trace.
+  const home = await makeHome();
+  // `elapsed` occupied by a regular file: the directory cannot be created.
+  await fs.mkdir(handoffDir(home), { recursive: true });
+  await fs.writeFile(path.join(handoffDir(home), "elapsed"), "not a directory\n");
+
+  const run = await runCli(["import"], home);
+
+  assert.equal(run.code, 0, run.stdout + run.stderr);
+  // The message the contained failure prints, not the one a run that simply
+  // had no union to write prints — this has to be the throwing path.
+  assert.match(run.stdout, /elapsed across stores: not written — /);
+  assert.match(run.stdout, /your per-store figures are unaffected/);
+  assert.match(run.stdout, /summary/, "the closing summary is printed on every path");
+  assert.match(run.stdout, /events file:/);
+  // And the handoffs the run is actually for are on disk and complete.
+  assert.ok((await storeElapsed(home, "claude_code")).handsOnMinutes > 0);
+  assert.ok((await storeElapsed(home, "codex")).handsOnMinutes > 0);
+});

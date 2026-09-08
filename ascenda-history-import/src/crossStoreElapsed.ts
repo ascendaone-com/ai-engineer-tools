@@ -36,11 +36,15 @@
  * than quietly standing in for a window that no longer exists. Comparing file
  * times could not do that job: a copy or a restore falsifies them.
  *
- * Which is also why a run that writes no union leaves an older one where it
- * is rather than deleting it. The stamp already makes it inert — every
- * handoff this run rewrote carries a new one — and a writer that deletes
- * files it did not write is a worse thing to have around than a file that is
- * refused.
+ * **A run that writes no union retires the one it finds**, where it rewrote
+ * any handoff at all. The stamps very nearly make an old file inert on their
+ * own, and that was the original argument for leaving it — but not quite: the
+ * reader skips a store whose handoff carries no `elapsed` block, so a run in
+ * which one store stops handing over spans while another store's handoff goes
+ * untouched leaves an old union matching everything the reader still checks.
+ * It would then speak for minutes no handoff on disk reports. So the file is
+ * removed rather than argued about; `removeCrossStoreElapsed` says on what
+ * terms.
  */
 
 import * as fs from "node:fs/promises";
@@ -171,6 +175,31 @@ export class CrossStoreElapsedPool {
         elapsed: elapsedActiveOf(project.spans)
       }))
     };
+  }
+}
+
+/**
+ * Remove a union left by an earlier run, where this run wrote none.
+ *
+ * The counterpart to not writing one below two contributing stores: the file
+ * is a statement about a particular set of handoffs, and a run that replaced
+ * any of them has made it a statement about a set that is gone.
+ *
+ * **Only where this run actually rewrote a handoff**, which is the caller's to
+ * decide. A run that wrote none — no store present, or the app not installed —
+ * has changed nothing the file describes, and deleting it there would throw
+ * away a reading that is still exactly true of the handoffs beside it.
+ *
+ * Returns whether a file was there to remove. A failure to remove is reported
+ * as `false` rather than thrown: the alternative is a run that discards its
+ * whole extraction over a file the app treats as optional.
+ */
+export async function removeCrossStoreElapsed(home: string = os.homedir()): Promise<boolean> {
+  try {
+    await fs.unlink(crossStoreElapsedPath(home));
+    return true;
+  } catch {
+    return false;
   }
 }
 
