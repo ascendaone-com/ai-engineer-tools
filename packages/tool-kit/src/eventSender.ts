@@ -29,6 +29,7 @@ import {
   enforceOutboxBounds,
   outboxDrainEnabled
 } from "./outbox";
+import { TimeProvider, systemTimeProvider } from "./timeProvider";
 import { persistEventWriteToken } from "./tokenStore";
 import { CollectorState, OutboxDiscardReason, defaultStateFilePath, recordOutboxDiscard, recordSendOutcome } from "./stateStore";
 import { mintIdempotencyKey } from "./payload";
@@ -86,6 +87,13 @@ export type EventSenderConfig = {
   outboxMaxEntries?: number;
   outboxMaxAgeMs?: number;
   outboxDrainBatchSize?: number;
+  /**
+   * The clock the outbox bounds are measured against. Defaults to the real
+   * one. A caller that seeds entries at a fixed `queuedAt` — a test, a replay
+   * — pins this to the same anchor, so "within the last `maxAgeMs`" is a
+   * question about the fixture rather than about today's date.
+   */
+  timeProvider?: TimeProvider;
 };
 
 /** Who an event is from. The subset of sender config a payload is built out of. */
@@ -171,8 +179,12 @@ export class AscendaEventSender {
   /** One outbox pass per sender, i.e. per hook process. The hook is on the user's critical path. */
   private outboxServiced = false;
 
+  /** Resolved once, so every clock read in one pass sees the same instant. */
+  private readonly time: TimeProvider;
+
   constructor(private readonly config: EventSenderConfig) {
     this.eventWriteToken = config.eventWriteToken;
+    this.time = config.timeProvider ?? systemTimeProvider;
   }
 
   async send(mapped: MappedEvent): Promise<IngestResult> {
@@ -347,7 +359,7 @@ export class AscendaEventSender {
    * journal's detail says so instead of implying it was kept.
    */
   private enqueue(payload: AscendaEventPayload): boolean {
-    return appendToOutbox(this.outboxFilePath(), payload);
+    return appendToOutbox(this.outboxFilePath(), payload, new Date(this.time.now()));
   }
 
   /**
@@ -371,7 +383,7 @@ export class AscendaEventSender {
     this.outboxServiced = true;
 
     const sendEnabled = this.config.outboxDrain ?? outboxDrainEnabled();
-    const claimed = claimOutbox(this.outboxFilePath());
+    const claimed = claimOutbox(this.outboxFilePath(), this.time.now());
     if (!claimed) {
       this.lastDrain = { found: 0, discarded: 0, delivered: 0, remaining: 0, sendEnabled };
       return undefined;
@@ -381,7 +393,7 @@ export class AscendaEventSender {
     const { kept, discarded } = enforceOutboxBounds(claimed.entries, {
       maxEntries: this.config.outboxMaxEntries ?? DEFAULT_OUTBOX_MAX_ENTRIES,
       maxAgeMs: this.config.outboxMaxAgeMs ?? DEFAULT_OUTBOX_MAX_AGE_MS
-    });
+    }, this.time.now());
     if (claimed.unreadable > 0) {
       discarded.count += claimed.unreadable;
       discarded.reasons.unreadable = claimed.unreadable;

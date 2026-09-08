@@ -19,7 +19,8 @@ const {
   recordOutboxDiscard,
   recordSendOutcome,
   parseIngestResponse,
-  outboxDrainEnabled
+  outboxDrainEnabled,
+  fixedTimeProvider
 } = kit;
 
 // The gap this closes: the live send retries once after 250 ms and then the
@@ -31,6 +32,22 @@ const {
 // safe under overlapping hook processes.
 
 const ID = "claude_code:outbox-test";
+
+// One pinned instant for every sender built here, and the date every fixture is
+// written relative to.
+//
+// The outbox's age bound keeps an entry only while its `queuedAt` sits inside
+// `maxAgeMs` of now. Read that "now" off the wall clock and a fixture dated
+// 2026-09-01 exercises the bound for seven days and then silently stops: the
+// entries age out, the drain finds nothing, and assertions about batching and
+// count eviction start reporting the calendar instead of the code. That is
+// exactly how main went red on 2026-09-08 with no commit behind it — the same
+// defect asc-core-be fixed by giving its trailing-window writers a TimeProvider.
+//
+// So the sender is told what time it is. Fixtures are dated from ANCHOR, and
+// these tests mean the same thing on every date they are ever run.
+const ANCHOR = "2026-09-01T00:00:10.000Z";
+const ANCHOR_MS = Date.parse(ANCHOR);
 
 function scratch() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-outbox-"));
@@ -82,12 +99,13 @@ function makeSender(fetchImpl, files, overrides = {}) {
     eventLogFile: null,
     timeoutMs: 2_000,
     outboxDrain: false,
+    timeProvider: fixedTimeProvider(ANCHOR),
     ...overrides
   });
   return { instance, restore: () => (global.fetch = original) };
 }
 
-function payload(key, queuedAt = new Date().toISOString()) {
+function payload(key, queuedAt = ANCHOR) {
   return {
     queuedAt,
     payload: {
@@ -317,9 +335,35 @@ test("bound eviction by count is journaled with its own outcome, never a silent 
   }
 });
 
+test("the age bound is measured against the injected clock, not the wall clock", async () => {
+  // The guard on the seam itself. Both halves seed the *same* entry; only the
+  // clock the sender is handed differs. If someone drops the injection and goes
+  // back to Date.now(), one of these two must fail on every possible date —
+  // which is what the old suite could not say for itself.
+  const queuedAt = "2026-09-01T00:00:00.000Z";
+  const justInside = Date.parse(queuedAt) + 7 * 86_400_000 - 1_000;
+  const justOutside = Date.parse(queuedAt) + 7 * 86_400_000 + 1_000;
+
+  for (const [label, at, survives] of [["inside the window", justInside, true], ["past it", justOutside, false]]) {
+    const files = scratch();
+    seed(files.outbox, [payload("aged", queuedAt)]);
+    const { impl } = stubFetch({ single: () => ok({ status: "accepted" }) });
+    const { instance, restore } = makeSender(impl, files, { timeProvider: fixedTimeProvider(at) });
+    try {
+      await instance.send({ eventType: "ai_tool_call_completed", severity: "low" });
+      const kept = readOutbox(files.outbox).map((e) => e.payload.idempotencyKey);
+      assert.equal(kept.includes("aged"), survives, `${queuedAt} ${label}`);
+      assert.equal(instance.drain.discarded, survives ? 0 : 1, `discard count, ${label}`);
+    } finally {
+      restore();
+      files.cleanup();
+    }
+  }
+});
+
 test("bound eviction by age is journaled too", async () => {
   const files = scratch();
-  const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000).toISOString();
+  const eightDaysAgo = new Date(ANCHOR_MS - 8 * 86_400_000).toISOString();
   seed(files.outbox, [payload("stale", eightDaysAgo), payload("fresh")]);
   const { impl } = stubFetch({ single: () => ok({ status: "accepted" }) });
   const { instance, restore } = makeSender(impl, files);
@@ -417,7 +461,9 @@ test("a claim file orphaned by a drainer that died is swept back in", async () =
   const files = scratch();
   const orphan = `${files.outbox}.99999.draining`;
   seed(orphan, [payload("orphaned")]);
-  const twoMinutesAgo = new Date(Date.now() - 120_000);
+  // Age is measured against the sender's clock, so the mtime is set from ANCHOR
+  // too — two minutes stale by the only clock the drainer reads.
+  const twoMinutesAgo = new Date(ANCHOR_MS - 120_000);
   fs.utimesSync(orphan, twoMinutesAgo, twoMinutesAgo);
 
   const { impl, calls } = stubFetch({
@@ -440,6 +486,10 @@ test("a fresh claim file belongs to a drainer that is still running and is left 
   const files = scratch();
   const live = `${files.outbox}.99998.draining`;
   seed(live, [payload("in-flight")]);
+  // Freshly touched as at ANCHOR: the sweep must leave it alone because its
+  // owner could still be running, not because its mtime missed the clock.
+  const justNow = new Date(ANCHOR_MS);
+  fs.utimesSync(live, justNow, justNow);
   const { impl, calls } = stubFetch({ single: () => ok({ status: "accepted" }) });
   const { instance, restore } = makeSender(impl, files, { outboxDrain: true });
   try {
@@ -567,8 +617,13 @@ test("concurrent appends from overlapping hook processes do not corrupt the file
 test("concurrent drainers: exactly one claims the outbox, the other sees nothing to do", async () => {
   const files = scratch();
   seed(files.outbox, [payload("only")]);
-  const first = kit.claimOutbox(files.outbox);
-  const second = kit.claimOutbox(files.outbox);
+  // Both drainers read the same pinned clock, and the file is stamped at it, so
+  // "is that claim file's owner still alive?" is decided by the sweep's age rule
+  // rather than by the gap between the wall clock and this file's mtime.
+  const justNow = new Date(ANCHOR_MS);
+  fs.utimesSync(files.outbox, justNow, justNow);
+  const first = kit.claimOutbox(files.outbox, ANCHOR_MS);
+  const second = kit.claimOutbox(files.outbox, ANCHOR_MS);
   try {
     assert.ok(first, "the first rename wins");
     assert.equal(second, undefined, "the second finds no file: the rename is the lock");
