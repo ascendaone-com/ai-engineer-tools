@@ -10,7 +10,7 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
-## v0.1.20
+## v0.1.19
 
 ### `pair` writes your pairing to a file, instead of asking for a shell export
 
@@ -53,8 +53,6 @@ targets, error counts or internal resource names — this repository is public.
   anyone who prefers it or needs the inline `config.toml` form. It registers
   the same seven events with the same timeout — there is a test that fails if
   the two ever disagree.
-
-## v0.1.19
 
 ### History import: your time across two agents is counted once
 
