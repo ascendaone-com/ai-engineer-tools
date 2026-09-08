@@ -108,9 +108,17 @@ export const CLAUDE_CODE_ACTIVE_TIME_QUANTITIES: ActiveTimeQuantityStamp = {
  * Composed from the same two blocks rather than declared as one map with two
  * names, so that a store which stops writing a figure can drop it without
  * touching the other. The coincidence is a fact about today's extractors, not
- * a shared shape: the app workspace's Codex reader has no subagent activity to
- * split, so its stamp is one key, and this one being longer is a difference in
- * what the two rails can measure rather than a disagreement about the labels.
+ * a shared shape.
+ *
+ * **The divergence this paragraph used to record no longer exists.** It read:
+ * the app workspace's Codex reader has no subagent activity to split, so its
+ * stamp is one key, and this one being longer is a difference in what the two
+ * rails can measure. That was wrong on its own terms — the split does not come
+ * from subagents, it comes from the person's own prompts, and `extractors/
+ * codex.ts` has split this store since it was written. The other rail deleted
+ * the same reasoning on 8 Sep 2026 and its Codex stamp now aliases its Claude
+ * Code one, so the two stamps agree key for key. A comment recording a
+ * divergence outlives the divergence unless it is turned around with it.
  */
 export const CODEX_ACTIVE_TIME_QUANTITIES: ActiveTimeQuantityStamp = {
   ...SESSION_SPLIT_QUANTITIES,
