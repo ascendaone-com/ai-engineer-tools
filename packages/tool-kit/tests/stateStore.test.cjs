@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const {
   defaultStateFilePath,
+  defaultTokenFilePath,
   readCollectorState,
   recordSendOutcome,
   shouldAnnounceFailure,
@@ -127,14 +128,69 @@ test("detail is collapsed and bounded", () => {
 });
 
 test("defaultStateFilePath lives under ~/.ascenda/state and sanitises the id", () => {
-  const previous = process.env.ASCENDA_STATE_DIR;
+  const previousDir = process.env.ASCENDA_STATE_DIR;
+  const previousHome = process.env.ASCENDA_HOME;
   delete process.env.ASCENDA_STATE_DIR;
+  delete process.env.ASCENDA_HOME;
   try {
     const p = defaultStateFilePath("claude_code:abc-123");
     assert.ok(p.includes(path.join(".ascenda", "state")));
     assert.equal(path.basename(p), "claude_code_abc-123.json");
   } finally {
-    if (previous !== undefined) process.env.ASCENDA_STATE_DIR = previous;
+    if (previousDir !== undefined) process.env.ASCENDA_STATE_DIR = previousDir;
+    if (previousHome !== undefined) process.env.ASCENDA_HOME = previousHome;
+  }
+});
+
+test("ASCENDA_HOME alone moves the tokens and the journal together", () => {
+  // Guards a split found on 9 Sep 2026: `ascendaHome()` honoured ASCENDA_HOME
+  // while the journal resolved its own `~/.ascenda/state` from os.homedir(),
+  // so an isolated test or a CI run that set only ASCENDA_HOME wrote its
+  // tokens into the test home and its journal into the developer's real one —
+  // one installation split across two directories, and the fixtures `doctor`
+  // reports as real pairings left behind in the home this was meant to spare.
+  const previousDir = process.env.ASCENDA_STATE_DIR;
+  const previousHome = process.env.ASCENDA_HOME;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-home-"));
+  delete process.env.ASCENDA_STATE_DIR;
+  process.env.ASCENDA_HOME = home;
+  try {
+    const journal = defaultStateFilePath("claude_code:abc-123");
+    const token = defaultTokenFilePath("claude_code:abc-123");
+
+    assert.equal(journal, path.join(home, "state", "claude_code_abc-123.json"));
+    assert.equal(token, path.join(home, "tokens", "claude_code_abc-123"));
+    assert.ok(!journal.includes(os.homedir()), "the journal must not land in the real home");
+    assert.ok(!token.includes(os.homedir()), "the token must not land in the real home");
+
+    // And the redirect must survive an actual write, not just path arithmetic.
+    recordSendOutcome(journal, ID, "accepted", { httpStatus: 200 });
+    assert.equal(readCollectorState(journal).lastOutcome, "accepted");
+  } finally {
+    if (previousDir === undefined) delete process.env.ASCENDA_STATE_DIR;
+    else process.env.ASCENDA_STATE_DIR = previousDir;
+    if (previousHome === undefined) delete process.env.ASCENDA_HOME;
+    else process.env.ASCENDA_HOME = previousHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("ASCENDA_STATE_DIR still wins over ASCENDA_HOME", () => {
+  const previousDir = process.env.ASCENDA_STATE_DIR;
+  const previousHome = process.env.ASCENDA_HOME;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-home-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-state-dir-"));
+  process.env.ASCENDA_HOME = home;
+  process.env.ASCENDA_STATE_DIR = dir;
+  try {
+    assert.equal(defaultStateFilePath("claude_code:abc-123"), path.join(dir, "claude_code_abc-123.json"));
+  } finally {
+    if (previousDir === undefined) delete process.env.ASCENDA_STATE_DIR;
+    else process.env.ASCENDA_STATE_DIR = previousDir;
+    if (previousHome === undefined) delete process.env.ASCENDA_HOME;
+    else process.env.ASCENDA_HOME = previousHome;
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

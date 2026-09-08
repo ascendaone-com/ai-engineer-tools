@@ -1,6 +1,6 @@
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
+import { ascendaHome } from "./tokenStore";
 
 /**
  * Agent turn-length tracking for one-shot hook adapters.
@@ -13,7 +13,9 @@ import * as path from "path";
  *
  * Every failure degrades to "no duration": telemetry must never break the agent.
  */
-const stateDir = (): string => process.env.ASCENDA_STATE_DIR ?? path.join(os.homedir(), ".ascenda", "state");
+// Same base as the send journal: `ASCENDA_HOME` moves the whole ~/.ascenda
+// tree, `ASCENDA_STATE_DIR` overrides just this directory.
+const stateDir = (): string => process.env.ASCENDA_STATE_DIR ?? path.join(ascendaHome(), "state");
 
 function turnFile(agent: string, sessionId: string): string {
   return path.join(stateDir(), `${sanitize(agent)}-turn-${sanitize(sessionId)}`);
