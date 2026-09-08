@@ -37,6 +37,7 @@ import {
 } from "./config.js";
 import type { ResolvedInstallationId } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
+import { credentialsFilePath, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 
 const INTENTION_INVITE =
@@ -76,15 +77,25 @@ const MILESTONE_DEBRIEF_INVITE =
  */
 async function runPair(): Promise<void> {
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
-  // `pair --tool-type cli_agent` lets the Codex adapter (and anything else
-  // CLI-shaped) pair under its honest identity; the server rejects unknown
-  // types, so no allow-list is duplicated here.
+  // `pair --tool-type <type>` lets anything CLI-shaped pair under its honest
+  // identity; the server rejects unknown types, so no allow-list is
+  // duplicated here. Every agent with a `setup` of its own should use that
+  // instead — this flag is what is left for the ones that do not.
   const flagIndex = process.argv.indexOf("--tool-type");
-  const toolType = flagIndex !== -1 ? (process.argv[flagIndex + 1] ?? "").trim() || ASCENDA_TOOL_TYPE : ASCENDA_TOOL_TYPE;
+  const requestedType = flagIndex !== -1 ? (process.argv[flagIndex + 1] ?? "").trim() : "";
+  const toolType = requestedType || ASCENDA_TOOL_TYPE;
   // Reuse an already-exported id so re-pairing heals the existing identity
   // instead of minting a second one; mint only when none is configured.
+  //
+  // Naming a different type is not re-pairing, though — it is pairing a
+  // second tool, and reusing the id there hands the new tool the old one's
+  // identity. That happened: the Codex guide sent people here with
+  // `--tool-type cli_agent`, and on a machine with Claude Code already
+  // paired the export in their shell profile won, so Codex events were
+  // filed under Claude Code. An explicit type therefore beats the reuse.
   const existing = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim();
-  const toolInstallationId = existing && existing.includes(":") ? existing : `${toolType}:${randomUUID()}`;
+  const reusable = existing && existing.includes(":") && (!requestedType || existing.startsWith(`${requestedType}:`));
+  const toolInstallationId = reusable ? existing : `${toolType}:${randomUUID()}`;
 
   const session = await createPairingSession(apiBaseUrl, toolInstallationId, toolType, toolType === ASCENDA_TOOL_TYPE ? "Claude Code" : toolType);
   const code = session.deviceCode ?? session.code;
@@ -114,10 +125,15 @@ async function runPair(): Promise<void> {
     }
     const tokenFilePath = defaultTokenFilePath(pairedId);
     persistEventWriteToken(tokenFilePath, status.eventWriteToken);
+    // The credentials file, not a shell export, is what the hooks read when
+    // Claude Code is launched from the Dock with an empty environment — and
+    // it is per tool, where the environment variable is per machine. Writing
+    // it here is what lets a second agent pair without displacing this one.
+    writeCredentials({ apiBaseUrl, toolInstallationId: pairedId, pairedAt: new Date().toISOString() });
     await writeStdout(
-      `Paired. Write token saved to ${tokenFilePath}\n\n` +
-      `One step left — add this to your shell profile (~/.zshrc), then restart Claude Code:\n\n` +
-      `  export ASCENDA_TOOL_INSTALLATION_ID="${pairedId}"\n\n`
+      `Paired. Write token saved to ${tokenFilePath}\n` +
+      `Pairing saved to ${credentialsFilePath()}\n\n` +
+      `Restart Claude Code and events flow. Nothing to add to your shell profile.\n\n`
     );
     return;
   }

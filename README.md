@@ -145,20 +145,20 @@ The pairing code carries no personal data — it links this editor installation
 to your account so signals can be routed to your device, and nothing more. The
 panel states the same thing where you can see it at the time.
 
-The CLI tools (Claude Code hooks, Codex hooks, the MCP server) pair with one
-command — it prints a 6-digit code to confirm in the app, saves the write
-token to `~/.ascenda/tokens/`, and prints the one export line the tools need:
+Each CLI agent sets itself up with one command — it pairs (printing a 6-digit
+code to confirm in the app), installs the hook bundle, and registers the hooks:
 
 ```bash
-npx -y @ascenda-one/claude-code-hooks pair
+npx -y @ascenda-one/claude-code-hooks setup     # or codex-, cursor-, gemini-, windsurf-hooks
 ```
 
-Add the printed `export ASCENDA_TOOL_INSTALLATION_ID=…` line to your shell
-profile, then restart the tool. Without that variable the CLI tools exit with
-`Missing ASCENDA_TOOL_INSTALLATION_ID` rather than silently minting a second,
-unpaired identity. (The editor extension's own pairing cannot be reused here —
-its token lives in the editor's private secret storage, by design — so the CLI
-tools hold their own installation, paired against the same account.)
+Nothing to add to a shell profile: each agent's pairing lands under its own key
+in `~/.ascenda/credentials.json`, which is what lets several agents run on one
+machine without one inheriting another's identity. (`ASCENDA_TOOL_INSTALLATION_ID`
+still wins where it is set, so export it only if you mean it to cover every
+agent on the machine.) The editor extension's own pairing cannot be reused here
+— its token lives in the editor's private secret storage, by design — so the
+CLI tools hold their own installation, paired against the same account.
 
 ## Build from source
 

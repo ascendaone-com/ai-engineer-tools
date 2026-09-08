@@ -12,6 +12,23 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.20
 
+### `pair` writes your pairing to a file, instead of asking for a shell export
+
+- **No more `export ASCENDA_TOOL_INSTALLATION_ID=…`.** `pair` now writes the
+  pairing to `~/.ascenda/credentials.json`, the same file `setup` writes, and
+  says so. Restart Claude Code and events flow.
+- **Why it was worth changing.** That variable is per machine, but a pairing is
+  per tool — so the line the old output told you to add to `~/.zshrc` was also
+  the line that made the next agent you paired inherit this one's identity. The
+  credentials file has a key per tool and cannot do that. An export still wins
+  where you set one, so nothing you already have breaks.
+- **It also fixes a hook launched from the Dock**, which never sees a shell
+  profile: `pair` alone used to leave those unconfigured until you ran `setup`.
+- **`pair --tool-type <type>` now mints its own id** instead of reusing an
+  exported one. Naming a different tool is pairing a second tool, not
+  re-pairing this one. Re-running `pair` for the same tool still heals the
+  identity you have rather than forking your history in two.
+
 ### Codex sets itself up, and stops borrowing Claude Code's identity
 
 - **One command now does all of it:**
