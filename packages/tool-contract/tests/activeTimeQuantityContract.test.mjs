@@ -17,10 +17,19 @@ import {
  *
  * The same shape as `wireVocabularyContract.test.mjs`, for the same reason and
  * with the same limit: it fails when a name is added on one side and not the
- * other, and it CANNOT detect the vendored copy going stale against the
- * backend's own copy, because nothing here can reach that repo. Re-vendor when
- * the backend's version bumps; the version assertion is the tripwire that makes
- * a bump impossible to apply silently.
+ * other. Nothing here can still reach `asc-core-be` — it is private and in
+ * another org, and this repo holds no token for it — so the staleness half of
+ * the problem is answered from the other end. `asc-core-be`'s own
+ * `Vendored contract fanout` workflow fetches THIS file (this repo is public,
+ * so no credential is needed) and diffs it. That closes the direction that
+ * actually matters: the drift starts with an edit there.
+ *
+ * What is left for this file is the direction that check cannot see — someone
+ * editing the vendored copy here, in place, and moving the constants to match
+ * so that every assertion below still passes. That is what the pinned
+ * projection catches, and why it is a literal rather than something derived.
+ * Re-vendoring is a two-line change: replace `contracts/…v1.json`, then paste
+ * the new projection here.
  *
  * What makes this vocabulary worth pinning is the history of the one it
  * replaces. Before asc-core-be#208 the four names existed in a markdown table
@@ -41,6 +50,76 @@ const contract = JSON.parse(fs.readFileSync(CONTRACT_PATH, "utf8"));
 
 test("the vendored contract is the version this vocabulary was written against", () => {
   assert.equal(contract.version, 1);
+});
+
+/**
+ * The exact contract asc-core-be owns, as of 8 Sep 2026.
+ *
+ * Print the current value there with
+ *   `python3 Scripts/check_vendored_contracts.py --projection`
+ * and paste it whole. It is deliberately the string and not a hash of it: the
+ * whole contract fits on a line, so a failure here diffs into something you
+ * can read instead of two digests that differ by an unknown amount.
+ *
+ * `$comment` is excluded at every depth, which is why the one-line VENDORED
+ * COPY banner at the top of the local file does not appear. Prose is not
+ * contract; a reworded comment in the backend must not red this repo.
+ */
+const OWNER_PROJECTION =
+  '{"concurrencyPairs":[{"summed":"hands_on_agent_hours","unioned":"hands_on"},' +
+  '{"summed":"supervising_agent_hours","unioned":"supervising"}],' +
+  '"disjointHalves":[{"halves":["hands_on","supervising"],"whole":"coverage"}],' +
+  '"elapsed":{"block_coverage":true,"coverage":true,"hands_on":true,' +
+  '"hands_on_agent_hours":false,"supervising":true,' +
+  '"supervising_agent_hours":false},' +
+  '"quantities":["coverage","hands_on","supervising","block_coverage",' +
+  '"hands_on_agent_hours","supervising_agent_hours"],"version":1}';
+
+/** The semantic fields. Anything not named here is prose or local decoration. */
+const SEMANTIC_FIELDS = ["version", "quantities", "elapsed", "concurrencyPairs", "disjointHalves"];
+
+const stripComments = (node) =>
+  Array.isArray(node)
+    ? node.map(stripComments)
+    : node && typeof node === "object"
+      ? Object.fromEntries(
+          Object.entries(node)
+            .filter(([key]) => key !== "$comment")
+            .map(([key, value]) => [key, stripComments(value)])
+        )
+      : node;
+
+// Key order is fixed by sorting rather than left to insertion order, so this
+// agrees byte for byte with the Python that produced OWNER_PROJECTION and with
+// the Dart that pins the same string in the app workspace.
+const canonicalise = (node) =>
+  Array.isArray(node)
+    ? "[" + node.map(canonicalise).join(",") + "]"
+    : node && typeof node === "object"
+      ? "{" +
+        Object.keys(node)
+          .sort()
+          .map((key) => JSON.stringify(key) + ":" + canonicalise(node[key]))
+          .join(",") +
+        "}"
+      : JSON.stringify(node);
+
+test("the vendored copy is byte-for-byte the contract asc-core-be owns", () => {
+  const missing = SEMANTIC_FIELDS.filter((field) => !(field in contract));
+  assert.deepEqual(missing, [], "the vendored copy is missing semantic field(s)");
+
+  const projection = canonicalise(
+    Object.fromEntries(SEMANTIC_FIELDS.map((field) => [field, stripComments(contract[field])]))
+  );
+
+  assert.equal(
+    projection,
+    OWNER_PROJECTION,
+    "contracts/active-time-quantities.v1.json no longer matches the copy in " +
+      "asc-core-be that OWNER_PROJECTION was pinned from. Either it was edited " +
+      "here — don't; edit it there and re-vendor — or it was re-vendored " +
+      "without updating OWNER_PROJECTION above."
+  );
 });
 
 test("every contract quantity is declared, and vice versa", () => {
