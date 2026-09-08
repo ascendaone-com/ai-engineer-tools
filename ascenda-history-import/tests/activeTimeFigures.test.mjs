@@ -46,9 +46,27 @@ const SRC_DIR = path.resolve(
  * indistinguishable by type from a count — the same trade asc-core-be's
  * `LooksLikeActiveTimeFigure` makes, with the same escape hatch for a false
  * positive: an entry in `NOT_ACTIVE_TIME_FIGURES` with a reason.
+ *
+ * **`Minutes` is not anchored, and that is the correction.** The comment above
+ * has always claimed parity with `LooksLikeActiveTimeFigure`, which tests
+ * `Contains("Minutes")`; this tested `/Minutes$/`, so a name carrying the word
+ * anywhere but the end was figure-shaped in two rails and invisible in this
+ * one. `sessionMinutesMeasured` and `minutesFollowingMeetings` are both real
+ * names in the sibling repos and neither would have matched here.
+ *
+ * Nothing in this package's source is currently named that way, so this adds
+ * no figure today. It is fixed because a discovery rule narrower than its
+ * siblings' is a rail that cannot see a defect the others would catch, and the
+ * cross-repo read the three registries depend on assumes all three are looking
+ * for the same thing.
+ *
+ * `Hours` stays anchored to the end in all three: `afterHoursPrompts` and
+ * `afterHoursSessions` are counts that happen to contain the word.
  */
 function looksLikeFigure(field) {
-  return /Minutes$/.test(field) || /Hours$/.test(field);
+  return (
+    /Minutes/.test(field) || /^minutes/.test(field) || /Hours$/.test(field)
+  );
 }
 
 /** Every `Interface.field: number` declaration across the package's source. */
@@ -93,6 +111,30 @@ test("the scan actually reads the handoff source", () => {
   assert.ok(found.some((f) => f.key === "HandoffProjectDigest.handsOnMinutes"));
   // From daySlice.ts — proof the scan reaches past localHandoff.ts.
   assert.ok(found.some((f) => f.key === "SessionDaySlice.activeMinutes"));
+});
+
+test("the name test matches what the sibling rails would match", () => {
+  // The divergence this pins shut. asc-core-be tests `Contains("Minutes")` and
+  // the app workspace `contains('Minutes')`; this tested `/Minutes$/`, so the
+  // three registries the cross-repo ritual depends on were not looking for the
+  // same thing. A rail whose discovery is narrower than its siblings' cannot
+  // catch a defect they would, and it says nothing while failing to.
+  //
+  // These four names are real in the sibling repos. None is declared here
+  // today; all four must be figure-shaped if one ever is.
+  for (const name of [
+    "sessionMinutesMeasured", // asc-core-be, ToolTelemetryDemandBucket
+    "minutesFollowingMeetings", // app workspace, ProjectWeekRecord
+    "summedHandsOnMinutes", // this package, ProjectElapsedDay
+    "longestPromptBlockHours" // asc-core-be, TlxWeeklySignals
+  ]) {
+    assert.ok(looksLikeFigure(name), `${name} is figure-shaped in a sibling rail`);
+  }
+
+  // And the false positives all three deliberately exclude stay excluded.
+  for (const name of ["afterHoursPrompts", "afterHoursSessions", "promptCount"]) {
+    assert.ok(!looksLikeFigure(name), `${name} is a count, not a figure`);
+  }
 });
 
 test("every declared figure says what it measures", () => {
