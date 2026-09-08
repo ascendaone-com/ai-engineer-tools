@@ -52,6 +52,11 @@ separately revocable.
 
 ## Use in GitHub Actions
 
+Ready to copy: [`examples/workflow.yml`](./examples/workflow.yml). Both secrets
+come from pairing a collector identity of its own —
+`npx -y @ascenda-one/claude-code-hooks pair --tool-type github_collector` — which
+prints the installation id and names the token file to read.
+
 ```yaml
 name: ascenda-collaboration
 on:
