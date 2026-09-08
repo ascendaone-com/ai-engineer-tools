@@ -10,6 +10,33 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.20
+
+### Codex sets itself up, and stops borrowing Claude Code's identity
+
+- **One command now does all of it:**
+  `npx @ascenda-one/codex-hooks setup --scope user`. It pairs Codex, installs
+  the hook binary, and writes the hook entries into `~/.codex/hooks.json`.
+  `status` and `uninstall` came with it, the same pair every other CLI agent
+  has had.
+- **There is no longer a shell profile line to add.** Codex reads its identity
+  from `tools.codex` in `~/.ascenda/credentials.json`, written by `setup`.
+- **Why that matters if you run more than one agent.** The old instructions
+  told you to pair with `claude-code-hooks pair --tool-type cli_agent` and
+  export `ASCENDA_TOOL_INSTALLATION_ID`. On a machine where Claude Code was
+  already paired, that variable was already set — so the pairing reused the
+  Claude Code identity instead of minting a Codex one, and every Codex event
+  afterwards was filed under Claude Code. Nothing was lost, but the split
+  between the two agents was not there to read.
+- **If you set Codex up the old way:** run the new `setup`, then remove the
+  `ASCENDA_TOOL_INSTALLATION_ID` line from your shell profile if you added it
+  for Codex. Disconnect the tool that appeared as `cli_agent` in the app first,
+  so the pairing it displaced goes back to being Claude Code's.
+- **Merging `examples/hooks.json` by hand still works** and is documented, for
+  anyone who prefers it or needs the inline `config.toml` form. It registers
+  the same seven events with the same timeout — there is a test that fails if
+  the two ever disagree.
+
 ## v0.1.19
 
 ### History import: your time across two agents is counted once

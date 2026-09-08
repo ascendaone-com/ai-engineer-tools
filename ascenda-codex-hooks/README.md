@@ -27,48 +27,67 @@ Codex **awaits** command hooks and treats **exit code 2 as blocking** the user's
 
 - [Codex CLI](https://developers.openai.com/codex) with hooks support (v0.117+)
 - Node.js **20+**
-- A pairing to reuse (see [Pair first](#pair-first) below)
 
-### 1. Run the published CLI
+### 1. Set up
 
-No clone, no build — the package is on npm:
-
-```bash
-npx @ascenda-one/codex-hooks --help
-```
-
-### 2. Pair first
+One command pairs Codex, installs the hook binary, and registers the hooks:
 
 ```bash
-npx -y @ascenda-one/claude-code-hooks pair --tool-type cli_agent
+npx -y @ascenda-one/codex-hooks setup --scope user
 ```
 
 It prints a 6-digit code — confirm it in the Ascenda app under
-**Connections → Ingest telemetry** — then saves the write token to
-`~/.ascenda/tokens/` and prints the export line:
+**Connections → Ingest telemetry** — then writes:
+
+- the write token to `~/.ascenda/tokens/`
+- the pairing to `tools.codex` in `~/.ascenda/credentials.json`
+- the hook entries to `~/.codex/hooks.json`
+
+**There is no shell profile line to add.** Codex reads its identity from the
+credentials file, which is per agent — so pairing Codex cannot disturb a
+Claude Code or Cursor pairing on the same machine, and a Codex hook launched
+from the Dock with an empty environment still names itself correctly.
+
+`--scope user` registers machine-wide. Omit it and hooks land in
+`<cwd>/.codex/hooks.json`, instrumenting that project only — which is the
+default, so pass the flag unless you mean one repo.
+
+### 2. Check it
 
 ```bash
-export ASCENDA_TOOL_INSTALLATION_ID="cli_agent:<uuid>"   # printed by `pair`
+npx @ascenda-one/codex-hooks status
 ```
 
-Add it to your shell profile. **Without this variable every hook invocation
-exits with `Missing ASCENDA_TOOL_INSTALLATION_ID`.**
+Names the pairing, the binary and how many of the 7 events are registered.
+Exits non-zero when something is missing, so it can gate a CI step.
 
-On a Dev backend with no phone:
+To undo everything it wrote:
 
 ```bash
-cd ../ascenda-pairing-sim && npm run build
-node dist/cli.js e2e --tool-type cli_agent --name "Codex CLI"
+npx @ascenda-one/codex-hooks uninstall
 ```
 
-`ASCENDA_API_BASE_URL` defaults to `https://api.ascenda.one`; set it to
-`http://localhost:5002` or the Azure Dev host for development.
+### 3. Restart Codex
 
-### 3. Register hooks in Codex
+Hooks are read at startup.
 
-Merge [`examples/hooks.json`](./examples/hooks.json) into `~/.codex/hooks.json`
-(machine-wide) or `<repo>/.codex/hooks.json` (per project). Inline `config.toml`
-form works too:
+### On a Dev backend with no phone
+
+`setup --local` points at the [dev server](../ascenda-dev-server), which
+auto-confirms the pairing:
+
+```bash
+node ../ascenda-dev-server/dist/cli.js      # in another terminal
+npx @ascenda-one/codex-hooks setup --local --scope user
+```
+
+`--api-base-url` takes any other host; the default is `https://api.ascenda.one`.
+
+### Registering hooks by hand
+
+`setup` is the supported path. [`examples/hooks.json`](./examples/hooks.json)
+is the same content for anyone who would rather merge it themselves, or who
+needs the inline `config.toml` form:
 
 ```toml
 [[hooks.UserPromptSubmit]]
@@ -78,10 +97,20 @@ command = "npx -y @ascenda-one/codex-hooks UserPromptSubmit"
 timeout = 10
 ```
 
-### 4. Verify
+A hand-merged file still needs a pairing — run `setup` for that, or export
+`ASCENDA_TOOL_INSTALLATION_ID` yourself. The environment variable wins over
+the credentials file when both are present, so exporting one id on a machine
+running two agents sends both agents' work under it.
 
-Run a Codex session and confirm events arrive on the backend — or simply that
-the hook exits `0`, which it always does (see the safety contract above).
+### Verify
+
+Run a Codex session, then read the send journal at
+`~/.ascenda/state/<installationId>.json`. It records every attempt including
+failures, so an absent file means "never ran" rather than "ran and failed" —
+which is the distinction the hook's own exit code cannot give you, since it
+always exits `0` (see the safety contract above).
+
+Set `ASCENDA_EVENT_LOG_FILE` to also log each payload locally.
 
 ## Build from source
 
