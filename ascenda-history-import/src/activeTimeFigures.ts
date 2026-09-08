@@ -18,6 +18,11 @@ import {
  * The vocabulary itself is vendored in
  * `packages/tool-contract/contracts/active-time-quantities.v1.json`, so a name
  * used here that the backend does not own fails a build rather than a dashboard.
+ *
+ * **The assignments are not vendored — three repos keep three of these by hand,
+ * and changing one means reading the other two.** See asc-core-be
+ * `docs/ACTIVE_TIME.md`, "The vocabulary is shared; the assignments are three
+ * hand-kept registries", for the sibling paths and the one-line test.
  */
 export const ACTIVE_TIME_FIGURES: Readonly<Record<string, AscendaActiveTimeQuantity>> = {
   // One session cannot overlap itself, so its figures are already elapsed.
