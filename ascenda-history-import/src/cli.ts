@@ -80,8 +80,14 @@ import {
   buildCodexHandoff,
   buildCursorHandoff,
   buildVsCodeHandoff,
+  collectProjectSpans,
   writeHandoff
 } from "./localHandoff.js";
+import {
+  CrossStoreElapsedPool,
+  removeCrossStoreElapsed,
+  writeCrossStoreElapsed
+} from "./crossStoreElapsed.js";
 import { HistoryStore, NormalizedHistoricalEvent, StoreInventory } from "./types.js";
 
 function formatInventory(inv: StoreInventory): string {
@@ -147,6 +153,15 @@ interface SourceOutcome {
   /** From the store's extraction_epoch: files it meant to read and could not.
    * A source can succeed and still be incomplete, and that is worth saying. */
   readFailures: number;
+  /**
+   * Whether this run replaced the store's handoff on disk.
+   *
+   * Not the same as `status: "extracted"`: a machine without the desktop app
+   * extracts fine and writes no handoff at all. It is the question the stale
+   * cross-store union is retired on — see `removeCrossStoreElapsed` — because
+   * a union beside handoffs that no run has touched is still true of them.
+   */
+  handoffWritten?: boolean;
 }
 
 /** Counters an extraction_epoch carries that mean "we did not read this". */
@@ -223,7 +238,8 @@ async function runSource(
   allEvents: NormalizedHistoricalEvent[],
   extract: (collect: (event: NormalizedHistoricalEvent) => void) => Promise<void>,
   buildStoreHandoff: (events: NormalizedHistoricalEvent[]) => Parameters<typeof writeHandoff>[0],
-  scanError: string | null = null
+  scanError: string | null = null,
+  crossStore: CrossStoreElapsedPool | null = null
 ): Promise<void> {
   if (scanError !== null) {
     process.stdout.write(`${inventory.store} FAILED to scan: ${scanError}\n\n`);
@@ -268,6 +284,13 @@ async function runSource(
     process.stdout.write(`  window: ${epoch.metrics.windowOldest} → ${epoch.metrics.windowNewest}\n`);
   }
 
+  // Pooled before the handoff is written, from the same helper the handoff's
+  // own digests read: this store's union and the union over every store are
+  // then about the same sessions by construction rather than by two loops
+  // agreeing. A store that classified no timeline adds nothing and does not
+  // register as a contributor.
+  crossStore?.add(store, collectProjectSpans(events));
+
   const handoffPath = await writeHandoff(buildStoreHandoff(events));
   process.stdout.write(
     handoffPath
@@ -279,7 +302,8 @@ async function runSource(
     store,
     status: "extracted",
     events: events.length,
-    readFailures: readFailuresOf(events)
+    readFailures: readFailuresOf(events),
+    handoffWritten: handoffPath !== null
   });
 }
 
@@ -477,13 +501,19 @@ async function main(): Promise<number> {
 
       const allEvents: NormalizedHistoricalEvent[] = [];
       const outcomes: SourceOutcome[] = [];
+      // Every store's spans in one place, so the elapsed reading over all of
+      // them can be taken once. This process is the only place they coexist:
+      // each `build*Handoff` below unions its own store and drops the spans,
+      // and adding two of those unions counts twice every minute two agents
+      // were running together. See `crossStoreElapsed.ts`.
+      const crossStore = new CrossStoreElapsedPool();
 
       try {
         await runSource(outcomes, "claude_code", claudeInventory, allEvents, async (collect) => {
           const snapshotRoot = path.join(area.root, "claude_code");
           await snapshotPath(area, paths.claudeProjects, path.join("claude_code", "projects"));
           for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) collect(event);
-        }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError);
+        }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError, crossStore);
 
         await runSource(outcomes, "codex", codexInventory, allEvents, async (collect) => {
           // Rollouts are small (kilobytes to a few megabytes each) and there
@@ -503,13 +533,13 @@ async function main(): Promise<number> {
             await snapshotPath(area, roots[dir], path.join("codex", dir));
           }
           for await (const event of extractCodex(codexSnapshotRoot, area.extractionId)) collect(event);
-        }, (events) => buildCodexHandoff(events, area.extractionId, new Date().toISOString()), codexScan.scanError);
+        }, (events) => buildCodexHandoff(events, area.extractionId, new Date().toISOString()), codexScan.scanError, crossStore);
 
         await runSource(outcomes, "cursor", cursorInventory, allEvents, async (collect) => {
           const cursorSnapshotRoot = path.join(area.root, "cursor");
           await snapshotPath(area, paths.cursorStateDb, path.join("cursor", "state.vscdb"));
           for await (const event of extractCursor(cursorSnapshotRoot, area.extractionId)) collect(event);
-        }, (events) => buildCursorHandoff(events, area.extractionId, new Date().toISOString()), cursorScan.scanError);
+        }, (events) => buildCursorHandoff(events, area.extractionId, new Date().toISOString()), cursorScan.scanError, crossStore);
 
         await runSource(outcomes, "vscode", vsCodeInventory, allEvents, async (collect) => {
           // Timeline history is small (~280 MB) and cheap to snapshot. Chat
@@ -533,7 +563,45 @@ async function main(): Promise<number> {
             workspaceStorageDir
           };
           for await (const event of extractVsCode(source, area.extractionId)) collect(event);
-        }, (events) => buildVsCodeHandoff(events, area.extractionId, new Date().toISOString()), vsCodeScan.scanError);
+        }, (events) => buildVsCodeHandoff(events, area.extractionId, new Date().toISOString()), vsCodeScan.scanError, crossStore);
+
+        // The union over every store that handed over spans, written once all
+        // of them have run. Null — and so no file — below two contributing
+        // stores, where each store's own `elapsed` block already is the union.
+        //
+        // Contained, because this file is not what the run is for. The app
+        // treats it as optional and falls back to the summed reading without
+        // it, while everything below — the events file, the shipment, the
+        // closing summary — is the run's actual output and is what a caller
+        // reads instead of inferring an outcome from a stack trace. Letting a
+        // failed write of an optional file discard a finished extraction would
+        // be the silent partial import this command is built to never be.
+        try {
+          const crossStoreFile = crossStore.build(area.extractionId, new Date().toISOString());
+          if (crossStoreFile) {
+            const crossStorePath = await writeCrossStoreElapsed(crossStoreFile);
+            process.stdout.write(
+              crossStorePath
+                ? `elapsed across ${crossStoreFile.stores.join(" + ")}: → ${crossStorePath}\n\n`
+                : "elapsed across stores: desktop app container not found — skipped\n\n"
+            );
+          } else if (outcomes.some((outcome) => outcome.handoffWritten)) {
+            // No union this time, and at least one handoff replaced — so an
+            // older union is now about a set of handoffs that is gone. It is
+            // retired rather than left to be judged: the reader skips a store
+            // whose new handoff carries no `elapsed` block, so an old file can
+            // still match everything it checks and speak for minutes nothing
+            // on disk reports.
+            if (await removeCrossStoreElapsed()) {
+              process.stdout.write("elapsed across stores: not written this run — removed the previous one\n\n");
+            }
+          }
+        } catch (error) {
+          process.stdout.write(
+            `elapsed across stores: not written — ${error instanceof Error ? error.message : String(error)}\n` +
+              "  your per-store figures are unaffected; they are added rather than unioned across stores\n\n"
+          );
+        }
 
         // The normalized record set stays in staging — raw refs local-only.
         const eventsFile = path.join(area.root, "events.jsonl");

@@ -12,6 +12,47 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.19
 
+### History import: your time across two agents is counted once
+
+- **A new file: `elapsed/cross-store.json`, beside your handoffs.** If you use
+  both Claude Code and Codex, each store's handoff already removes the overlap
+  between *its own* sessions — but nothing removed the overlap between the two
+  stores. An hour with an agent running in each was counted as two hours, and
+  the only way to read "how long did I spend on this project" was to add the
+  two figures together, which is exactly the addition that double-counts. The
+  importer now takes one union across both stores while it still has the
+  underlying stretches in hand, and writes it here.
+- **Where it went, and why it is in a subdirectory.** The app treats every
+  `.json` file sitting directly in the handoff directory as a store, so a file
+  next to them would show up as a store called "cross-store" in the app — in
+  this version and in every version already installed. Inside `elapsed/` it is
+  invisible to builds that do not know to look for it, and nothing you already
+  have changes.
+- **It is only used where it still describes what is on disk.** The file names
+  the run that wrote it and the stores it covers, and the app reads it only
+  when every handoff beside it is from that same run. Re-import one store on
+  its own afterwards and the file is ignored rather than quietly speaking for a
+  window it no longer describes — you get the old added-up reading back, still
+  labelled as an addition.
+- **Not written when there is nothing to union.** With one store handing over
+  time, that store's own figures already are the answer, and a second copy of
+  them would only be something to disagree with. Cursor and VS Code hand over
+  no timeline at all, so they never take part.
+- **And cleared away when it stops applying.** If a later import has no union
+  to write — you stopped using one of the two agents, say — it removes the one
+  it finds rather than leaving an old file to be judged on its stamp. An import
+  that writes no handoffs at all (the desktop app is not installed, or no store
+  was found) leaves it alone, because nothing it describes has changed.
+- **A file it cannot write costs you nothing else.** If the union cannot be
+  saved, the import says so and finishes: your per-store handoffs, the
+  extracted record and the closing summary all land as usual, and your figures
+  fall back to being added across stores rather than unioned — labelled, as
+  ever, as an addition.
+- **Nothing else moved.** The per-store handoffs are unchanged, every existing
+  key means what it meant, and the new file carries the same
+  `activeTimeQuantities` map naming what each figure measures. Re-run
+  `history-import import` to get it.
+
 ### History import: your figures say what they are, not just how they were cut
 
 - **The handoff records what each active-time figure measures.**
