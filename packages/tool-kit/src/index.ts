@@ -70,6 +70,8 @@ export {
   enforceOutboxBounds
 } from "./outbox";
 export type { OutboxEntry, OutboxBounds, OutboxDiscard, OutboxSummary, ClaimedOutbox } from "./outbox";
+export { systemTimeProvider, fixedTimeProvider } from "./timeProvider";
+export type { TimeProvider } from "./timeProvider";
 export { machineSaltFilePath, readOrCreateMachineSalt, hashWithMachineSalt } from "./salt";
 export { deriveWorkContext, deriveBranchHash, deriveBranchHashForCwd, normalizeBranchName, readBranchName } from "./workContext";
 export type { WorkContext } from "./workContext";
