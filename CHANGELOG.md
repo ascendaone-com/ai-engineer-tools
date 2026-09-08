@@ -38,6 +38,16 @@ targets, error counts or internal resource names — this repository is public.
   time, that store's own figures already are the answer, and a second copy of
   them would only be something to disagree with. Cursor and VS Code hand over
   no timeline at all, so they never take part.
+- **And cleared away when it stops applying.** If a later import has no union
+  to write — you stopped using one of the two agents, say — it removes the one
+  it finds rather than leaving an old file to be judged on its stamp. An import
+  that writes no handoffs at all (the desktop app is not installed, or no store
+  was found) leaves it alone, because nothing it describes has changed.
+- **A file it cannot write costs you nothing else.** If the union cannot be
+  saved, the import says so and finishes: your per-store handoffs, the
+  extracted record and the closing summary all land as usual, and your figures
+  fall back to being added across stores rather than unioned — labelled, as
+  ever, as an addition.
 - **Nothing else moved.** The per-store handoffs are unchanged, every existing
   key means what it meant, and the new file carries the same
   `activeTimeQuantities` map naming what each figure measures. Re-run
