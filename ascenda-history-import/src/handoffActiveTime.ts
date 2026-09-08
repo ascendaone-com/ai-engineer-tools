@@ -63,10 +63,20 @@ const SESSION_SPLIT_QUANTITIES: ActiveTimeQuantityStamp = {
  * elapsed` is the same work unioned over those sessions — the figure to render
  * as time — under the same spelling, one nesting level down.
  */
-const PROJECT_DIGEST_QUANTITIES: ActiveTimeQuantityStamp = {
+const PROJECT_SUMMED_QUANTITIES: ActiveTimeQuantityStamp = {
   "projects[].handsOnMinutes": "hands_on_agent_hours",
-  "projects[].agentSupervisingMinutes": "supervising_agent_hours",
+  "projects[].agentSupervisingMinutes": "supervising_agent_hours"
+};
 
+/**
+ * The `elapsed` half of that rollup, split out because the cross-store union
+ * carries it without the summed pair above.
+ *
+ * That file's projects hold an `elapsed` block and nothing else: the per-store
+ * digests already carry the agent-hours reading, and a second summed figure
+ * keyed the same way would be one more thing to quote as time.
+ */
+const PROJECT_ELAPSED_QUANTITIES: ActiveTimeQuantityStamp = {
   "projects[].elapsed.handsOnMinutes": "hands_on",
   "projects[].elapsed.agentSupervisingMinutes": "supervising",
 
@@ -77,6 +87,11 @@ const PROJECT_DIGEST_QUANTITIES: ActiveTimeQuantityStamp = {
   // separating them in the file; this says what the prefix means.
   "projects[].elapsed.days[].summedHandsOnMinutes": "hands_on_agent_hours",
   "projects[].elapsed.days[].summedAgentSupervisingMinutes": "supervising_agent_hours"
+};
+
+const PROJECT_DIGEST_QUANTITIES: ActiveTimeQuantityStamp = {
+  ...PROJECT_SUMMED_QUANTITIES,
+  ...PROJECT_ELAPSED_QUANTITIES
 };
 
 /** The Claude Code handoff's figures. */
@@ -100,6 +115,24 @@ export const CLAUDE_CODE_ACTIVE_TIME_QUANTITIES: ActiveTimeQuantityStamp = {
 export const CODEX_ACTIVE_TIME_QUANTITIES: ActiveTimeQuantityStamp = {
   ...SESSION_SPLIT_QUANTITIES,
   ...PROJECT_DIGEST_QUANTITIES
+};
+
+/**
+ * The cross-store elapsed union's figures — `elapsed/cross-store.json`.
+ *
+ * The elapsed half alone, because that file is the elapsed reading alone: one
+ * union over every store's spans at once, per project, with no summed pair
+ * beside it. The paths are spelled exactly as a reader walks them in that
+ * file, which is why they read as `projects[].elapsed.*` there too — the block
+ * is the same block, written from `elapsedActiveOf` over a wider pool.
+ *
+ * The `summedHandsOnMinutes` pair inside the days is agent-hours here as it is
+ * in a per-store handoff, and across two stores rather than one: the same
+ * quantity over a wider corpus, which is exactly what the gap-versus-quantity
+ * split in the vendored contract says is a legitimate comparison.
+ */
+export const CROSS_STORE_ACTIVE_TIME_QUANTITIES: ActiveTimeQuantityStamp = {
+  ...PROJECT_ELAPSED_QUANTITIES
 };
 
 /**

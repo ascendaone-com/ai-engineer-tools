@@ -699,16 +699,50 @@ export interface ProjectSpanInput {
 /** Same key `buildProjectDigests` groups on: the hash where there is one, the
  * label otherwise. One definition, so the spans cannot land in a different
  * bucket than the minutes they belong to. */
-function digestKeyOf(input: { projectHash: string | null; projectLabel: string | null }): string {
+export function digestKeyOf(input: { projectHash: string | null; projectLabel: string | null }): string {
   return input.projectHash ?? `label:${input.projectLabel ?? ""}`;
 }
 
 
+/**
+ * The spans of every session in one store's extraction, tagged with its
+ * project.
+ *
+ * One construction, read twice: by the store's own `buildProjectDigests` call
+ * below, and by the cross-store pool in `crossStoreElapsed.ts`. Two loops over
+ * the same events is exactly how the per-store union and the cross-store one
+ * would come to be about different sessions, so there is only this one.
+ *
+ * Returns nothing for a store that classifies no timeline — Cursor and VS Code
+ * hand over no spans, which is why they can never contribute to the union and
+ * why nothing needs a list of which stores may.
+ */
+export function collectProjectSpans(
+  events: readonly NormalizedHistoricalEvent[]
+): ProjectSpanInput[] {
+  const spans: ProjectSpanInput[] = [];
+  for (const event of events) {
+    if (event.eventKind !== "create_focus_session") continue;
+    if (!event.activeSpans?.length) continue;
+    spans.push({
+      projectHash: projectHashOf(event.repoRef),
+      projectLabel: projectLabelOf(event.repoRef),
+      spans: event.activeSpans
+    });
+  }
+  return spans;
+}
+
 /** Turns a project's pooled spans into its elapsed reading. Minutes are
  * rounded once, at this edge, for the reason `ActiveSplit` gives: rounding
  * each half separately and then comparing to a separately-rounded total is how
- * a partition stops adding up. */
-function elapsedActiveOf(spans: readonly ActiveSpan[]): ProjectElapsedActive {
+ * a partition stops adding up.
+ *
+ * Exported because the cross-store union in `crossStoreElapsed.ts` is this
+ * same block over a wider pool of spans, and two writers of one shape is how
+ * the two come to disagree about what `elapsed` means. The pool differs; the
+ * block does not. */
+export function elapsedActiveOf(spans: readonly ActiveSpan[]): ProjectElapsedActive {
   const union = unionActiveTime(spans);
   const byDay = unionActiveByLocalDay(spans);
   return {
@@ -805,7 +839,9 @@ export function buildHandoff(
   const sessions: HandoffSession[] = [];
   // Spans ride beside the sessions and are dropped at the end of this
   // function: the union is computed here, the handoff carries the minutes.
-  const projectSpans: ProjectSpanInput[] = [];
+  // Collected by the same helper the cross-store pool reads, so this store's
+  // union and the union over both stores are about the same sessions.
+  const projectSpans = collectProjectSpans(events);
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
 
@@ -818,15 +854,6 @@ export function buildHandoff(
       continue;
     }
     if (event.eventKind !== "create_focus_session") continue;
-    // Local-only spans, pooled per project for the union in
-    // `buildProjectDigests`; see `NormalizedHistoricalEvent.activeSpans`.
-    if (event.activeSpans?.length) {
-      projectSpans.push({
-        projectHash: projectHashOf(event.repoRef),
-        projectLabel: projectLabelOf(event.repoRef),
-        spans: event.activeSpans
-      });
-    }
     sessions.push({
       at: event.occurredAt,
       startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
@@ -896,7 +923,9 @@ export function buildCodexHandoff(
   const sessions: CodexHandoffSession[] = [];
   // Spans ride beside the sessions and are dropped at the end of this
   // function: the union is computed here, the handoff carries the minutes.
-  const projectSpans: ProjectSpanInput[] = [];
+  // Collected by the same helper the cross-store pool reads, so this store's
+  // union and the union over both stores are about the same sessions.
+  const projectSpans = collectProjectSpans(events);
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
 
@@ -909,15 +938,6 @@ export function buildCodexHandoff(
       continue;
     }
     if (event.eventKind !== "create_focus_session") continue;
-    // Local-only spans, pooled per project for the union in
-    // `buildProjectDigests`; see `NormalizedHistoricalEvent.activeSpans`.
-    if (event.activeSpans?.length) {
-      projectSpans.push({
-        projectHash: projectHashOf(event.repoRef),
-        projectLabel: projectLabelOf(event.repoRef),
-        spans: event.activeSpans
-      });
-    }
     sessions.push({
       at: event.occurredAt,
       startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
@@ -1110,17 +1130,31 @@ export async function writeHandoff(
   handoff: HandoffFile | CodexHandoffFile | CursorHandoffFile | VsCodeHandoffFile,
   home: string = os.homedir()
 ): Promise<string | null> {
-  const appSupportRoot = path.join(home, "Library", "Application Support", APP_BUNDLE_ID);
-  try {
-    await fs.stat(appSupportRoot);
-  } catch {
-    return null;
-  }
+  if (!(await appIsInstalled(home))) return null;
   const dir = handoffDir(home);
   await fs.mkdir(dir, { recursive: true });
   const target = handoffFilePath(home, handoff.store);
-  const temp = `${target}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(handoff, null, 2) + "\n", "utf8");
-  await fs.rename(temp, target);
+  await writeJsonAtomically(target, handoff);
   return target;
+}
+
+/** Whether the desktop app has ever launched on this Mac — the "is there
+ * anybody to read this" test described above. Shared with the cross-store
+ * elapsed writer so the two files appear and stay absent together. */
+export async function appIsInstalled(home: string): Promise<boolean> {
+  try {
+    await fs.stat(path.join(home, "Library", "Application Support", APP_BUNDLE_ID));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Write-then-rename, for the reason above: the app may be reading at any
+ * moment, and a half-written document is indistinguishable from a corrupt
+ * one. */
+export async function writeJsonAtomically(target: string, payload: unknown): Promise<void> {
+  const temp = `${target}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(payload, null, 2) + "\n", "utf8");
+  await fs.rename(temp, target);
 }

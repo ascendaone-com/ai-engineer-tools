@@ -75,7 +75,8 @@ export const ACTIVE_TIME_FIGURES: Readonly<Record<string, AscendaActiveTimeQuant
  */
 export const NOT_ACTIVE_TIME_FIGURES: Readonly<Record<string, string>> = {
   "HandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
-  "CodexHandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure"
+  "CodexHandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
+  "CrossStoreElapsedFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure"
 };
 
 /** The quantity a figure reports, or undefined when it is not registered. */

@@ -80,8 +80,10 @@ import {
   buildCodexHandoff,
   buildCursorHandoff,
   buildVsCodeHandoff,
+  collectProjectSpans,
   writeHandoff
 } from "./localHandoff.js";
+import { CrossStoreElapsedPool, writeCrossStoreElapsed } from "./crossStoreElapsed.js";
 import { HistoryStore, NormalizedHistoricalEvent, StoreInventory } from "./types.js";
 
 function formatInventory(inv: StoreInventory): string {
@@ -223,7 +225,8 @@ async function runSource(
   allEvents: NormalizedHistoricalEvent[],
   extract: (collect: (event: NormalizedHistoricalEvent) => void) => Promise<void>,
   buildStoreHandoff: (events: NormalizedHistoricalEvent[]) => Parameters<typeof writeHandoff>[0],
-  scanError: string | null = null
+  scanError: string | null = null,
+  crossStore: CrossStoreElapsedPool | null = null
 ): Promise<void> {
   if (scanError !== null) {
     process.stdout.write(`${inventory.store} FAILED to scan: ${scanError}\n\n`);
@@ -267,6 +270,13 @@ async function runSource(
   if (epoch) {
     process.stdout.write(`  window: ${epoch.metrics.windowOldest} → ${epoch.metrics.windowNewest}\n`);
   }
+
+  // Pooled before the handoff is written, from the same helper the handoff's
+  // own digests read: this store's union and the union over every store are
+  // then about the same sessions by construction rather than by two loops
+  // agreeing. A store that classified no timeline adds nothing and does not
+  // register as a contributor.
+  crossStore?.add(store, collectProjectSpans(events));
 
   const handoffPath = await writeHandoff(buildStoreHandoff(events));
   process.stdout.write(
@@ -477,13 +487,19 @@ async function main(): Promise<number> {
 
       const allEvents: NormalizedHistoricalEvent[] = [];
       const outcomes: SourceOutcome[] = [];
+      // Every store's spans in one place, so the elapsed reading over all of
+      // them can be taken once. This process is the only place they coexist:
+      // each `build*Handoff` below unions its own store and drops the spans,
+      // and adding two of those unions counts twice every minute two agents
+      // were running together. See `crossStoreElapsed.ts`.
+      const crossStore = new CrossStoreElapsedPool();
 
       try {
         await runSource(outcomes, "claude_code", claudeInventory, allEvents, async (collect) => {
           const snapshotRoot = path.join(area.root, "claude_code");
           await snapshotPath(area, paths.claudeProjects, path.join("claude_code", "projects"));
           for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) collect(event);
-        }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError);
+        }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError, crossStore);
 
         await runSource(outcomes, "codex", codexInventory, allEvents, async (collect) => {
           // Rollouts are small (kilobytes to a few megabytes each) and there
@@ -503,13 +519,13 @@ async function main(): Promise<number> {
             await snapshotPath(area, roots[dir], path.join("codex", dir));
           }
           for await (const event of extractCodex(codexSnapshotRoot, area.extractionId)) collect(event);
-        }, (events) => buildCodexHandoff(events, area.extractionId, new Date().toISOString()), codexScan.scanError);
+        }, (events) => buildCodexHandoff(events, area.extractionId, new Date().toISOString()), codexScan.scanError, crossStore);
 
         await runSource(outcomes, "cursor", cursorInventory, allEvents, async (collect) => {
           const cursorSnapshotRoot = path.join(area.root, "cursor");
           await snapshotPath(area, paths.cursorStateDb, path.join("cursor", "state.vscdb"));
           for await (const event of extractCursor(cursorSnapshotRoot, area.extractionId)) collect(event);
-        }, (events) => buildCursorHandoff(events, area.extractionId, new Date().toISOString()), cursorScan.scanError);
+        }, (events) => buildCursorHandoff(events, area.extractionId, new Date().toISOString()), cursorScan.scanError, crossStore);
 
         await runSource(outcomes, "vscode", vsCodeInventory, allEvents, async (collect) => {
           // Timeline history is small (~280 MB) and cheap to snapshot. Chat
@@ -533,7 +549,20 @@ async function main(): Promise<number> {
             workspaceStorageDir
           };
           for await (const event of extractVsCode(source, area.extractionId)) collect(event);
-        }, (events) => buildVsCodeHandoff(events, area.extractionId, new Date().toISOString()), vsCodeScan.scanError);
+        }, (events) => buildVsCodeHandoff(events, area.extractionId, new Date().toISOString()), vsCodeScan.scanError, crossStore);
+
+        // The union over every store that handed over spans, written once all
+        // of them have run. Null — and so no file — below two contributing
+        // stores, where each store's own `elapsed` block already is the union.
+        const crossStoreFile = crossStore.build(area.extractionId, new Date().toISOString());
+        if (crossStoreFile) {
+          const crossStorePath = await writeCrossStoreElapsed(crossStoreFile);
+          process.stdout.write(
+            crossStorePath
+              ? `elapsed across ${crossStoreFile.stores.join(" + ")}: → ${crossStorePath}\n\n`
+              : "elapsed across stores: desktop app container not found — skipped\n\n"
+          );
+        }
 
         // The normalized record set stays in staging — raw refs local-only.
         const eventsFile = path.join(area.root, "events.jsonl");
