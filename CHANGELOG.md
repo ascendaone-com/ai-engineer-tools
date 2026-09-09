@@ -12,6 +12,23 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.19
 
+### `ASCENDA_HOME` moves the whole tree, not half of it
+
+- **One variable, one directory.** `ASCENDA_HOME` has always chosen where
+  Ascenda keeps its files. Until now only some of them listened: your write
+  tokens and credentials followed it, while the send journal and the
+  turn-start files stayed behind in `~/.ascenda/state` in your real home. Set
+  it and you got half a tree in each place. Both halves move together now.
+- **Who this reaches.** Anyone pointing `ASCENDA_HOME` at a project directory,
+  a sandbox, or a throwaway path in CI. If you've never set it, nothing about
+  your layout changes: the default is still `~/.ascenda`.
+- **`ASCENDA_STATE_DIR` still wins.** It names the state directory outright,
+  so it keeps overriding `ASCENDA_HOME` for that one subtree. That precedence
+  is now pinned by a test.
+- **Worth a look if you have stray files.** A run that wrote state under the
+  old split may have left files in `~/.ascenda/state` that belong under your
+  `ASCENDA_HOME`. They're inert. Delete them once the new layout looks right.
+
 ### `pair` writes your pairing to a file, instead of asking for a shell export
 
 - **No more `export ASCENDA_TOOL_INSTALLATION_ID=…`.** `pair` now writes the
@@ -27,7 +44,7 @@ targets, error counts or internal resource names — this repository is public.
 - **`pair --tool-type <type>` now mints its own id** instead of reusing an
   exported one. Naming a different tool is pairing a second tool, not
   re-pairing this one. Re-running `pair` for the same tool still heals the
-  identity you have rather than forking your history in two.
+  identity you have; it will not fork your history in two.
 
 ### Codex sets itself up, and stops borrowing Claude Code's identity
 
@@ -42,8 +59,8 @@ targets, error counts or internal resource names — this repository is public.
   told you to pair with `claude-code-hooks pair --tool-type cli_agent` and
   export `ASCENDA_TOOL_INSTALLATION_ID`. On a machine where Claude Code was
   already paired, that variable was already set — so the pairing reused the
-  Claude Code identity instead of minting a Codex one, and every Codex event
-  afterwards was filed under Claude Code. Nothing was lost, but the split
+  Claude Code identity, minted no Codex one, and filed every Codex event
+  afterwards under Claude Code. Nothing was lost, but the split
   between the two agents was not there to read.
 - **If you set Codex up the old way:** run the new `setup`, then remove the
   `ASCENDA_TOOL_INSTALLATION_ID` line from your shell profile if you added it
