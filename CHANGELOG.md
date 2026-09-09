@@ -10,7 +10,7 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
-## v0.1.19
+## v0.1.20
 
 ### Two agents on one machine: each keeps its own telemetry
 
@@ -22,13 +22,15 @@ targets, error counts or internal resource names — this repository is public.
   pairing in `~/.ascenda/credentials.json`. An id that matches, or one with no
   type at all, behaves exactly as before.
 - **What you may see once.** If you ran two agents this way, some of the second
-  agent's history is recorded against the first. Nothing is lost and nothing
-  needs re-pairing; new events land correctly from the next session.
+  agent's history is recorded against the first. Nothing is lost. Nothing needs
+  re-pairing, and new events land correctly from the next session.
 - **Codex needs its hooks trusted, not only registered.** Codex records trust
   against each hook definition and skips the ones it has not been shown, so
   `status` can report every hook registered while none of them run. After
   `setup`, restart Codex and run `/hooks` to review and trust the Ascenda
   commands. Changing a hook definition can send it back for review.
+
+## v0.1.19
 
 ### `ASCENDA_HOME` moves the whole tree, not half of it
 
