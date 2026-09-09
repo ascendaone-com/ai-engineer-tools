@@ -55,7 +55,7 @@ default, so pass the flag unless you mean one repo.
 ### 2. Check it
 
 ```bash
-npx @ascenda-one/codex-hooks status
+npx @ascenda-one/codex-hooks status --scope user
 ```
 
 Names the pairing, the binary and how many of the 7 events are registered.
@@ -64,12 +64,19 @@ Exits non-zero when something is missing, so it can gate a CI step.
 To undo everything it wrote:
 
 ```bash
-npx @ascenda-one/codex-hooks uninstall
+npx @ascenda-one/codex-hooks uninstall --scope user
 ```
 
-### 3. Restart Codex
+### 3. Restart Codex and review hooks
 
-Hooks are read at startup.
+Open `/hooks` in the Codex CLI and review and trust the Ascenda commands.
+Codex skips untrusted hooks; registration and workspace trust alone do not
+authorize them. Changes to a hook definition require review again. See the
+[Codex hook trust reference](https://learn.chatgpt.com/docs/hooks).
+
+The setup command registers hooks but does not write Codex trust hashes or
+bypass review. A successful `status` checks installation, not runtime trust
+or accepted delivery.
 
 ### On a Dev backend with no phone
 
@@ -98,17 +105,22 @@ timeout = 10
 ```
 
 A hand-merged file still needs a pairing — run `setup` for that, or export
-`ASCENDA_TOOL_INSTALLATION_ID` yourself. The environment variable wins over
-the credentials file when both are present, so exporting one id on a machine
-running two agents sends both agents' work under it.
+`ASCENDA_TOOL_INSTALLATION_ID` yourself. A matching `cli_agent:` id or an unqualified id overrides the credentials
+file. An id qualified for another tool type, such as `claude_code:`, is ignored
+so a shell-wide setting cannot redirect Codex events to that pairing. Multiple
+agents using `cli_agent` should use per-host credentials instead of a shared
+environment override.
 
 ### Verify
 
 Run a Codex session, then read the send journal at
-`~/.ascenda/state/<installationId>.json`. It records every attempt including
-failures, so an absent file means "never ran" rather than "ran and failed" —
-which is the distinction the hook's own exit code cannot give you, since it
-always exits `0` (see the safety contract above).
+`~/.ascenda/state/<installationId>.json`. Look for `lastOutcome: "accepted"` and a fresh attempt timestamp. The journal
+records delivery attempts under the resolved installation id, not hook process
+starts. An absent expected journal can also mean a different identity was
+selected, input processing failed before delivery, or the hook mapped to no
+event. Check the local event log for `metadata.host: "codex"` and confirm its
+`toolInstallationId` matches `tools.codex` in the credentials file. The hook
+always exits `0`, so its exit code alone cannot prove delivery.
 
 Set `ASCENDA_EVENT_LOG_FILE` to also log each payload locally.
 
