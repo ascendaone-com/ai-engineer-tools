@@ -30,6 +30,26 @@ targets, error counts or internal resource names — this repository is public.
   `setup`, restart Codex and run `/hooks` to review and trust the Ascenda
   commands. Changing a hook definition can send it back for review.
 
+### `ASCENDA_HOME` moves the rest of the tree
+
+- **The history import follows it now.** v0.1.19 moved the tokens, the
+  credentials and the send journal under `ASCENDA_HOME`. Three things stayed
+  in your real home and have caught up: the handoffs the desktop app reads,
+  the staging area, and the archive. Point the variable at a directory and
+  everything Ascenda writes is in it.
+- **The machine salt moved too, and that one is worth reading twice.** The
+  salt is what makes your project and workspace hashes unguessable, and it
+  lives in a file. Point `ASCENDA_HOME` somewhere new and there's no salt
+  there yet, so a fresh one gets minted and every hash derived afterwards
+  differs from the ones before. Deleting the file does the same thing. Want
+  the old hashes? Copy `salt` across from `~/.ascenda` before your next run.
+- **The stores being read don't move, by design.** `~/.claude`, `~/.codex`
+  and the editor histories belong to those tools. An Ascenda variable that
+  relocated them would find nobody's history at all, so it leaves them alone
+  and a test pins that.
+- **Nothing changes if you've never set it.** The default is still
+  `~/.ascenda`, and every file sits where it did.
+
 ## v0.1.19
 
 ### `ASCENDA_HOME` moves the whole tree, not half of it

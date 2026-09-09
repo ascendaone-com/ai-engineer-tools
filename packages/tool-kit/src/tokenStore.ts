@@ -7,9 +7,16 @@ import * as path from "path";
  * binaries. One directory so an uninstaller has one thing to reason about.
  * `ASCENDA_HOME` overrides it — tests rely on that to stay out of the real
  * home directory, and it is the hook for future per-profile installs.
+ *
+ * `home` exists for callers that already hold the OS home and pass a
+ * throwaway one in tests — history-import threads one through every path it
+ * resolves. It is the base the default is built from, never the override:
+ * `ASCENDA_HOME` wins over it, so the precedence lives here and nowhere
+ * else. A caller that grew its own `ASCENDA_HOME ?? …` line is how the tree
+ * came to move in halves.
  */
-export function ascendaHome(): string {
-  return process.env.ASCENDA_HOME ?? path.join(os.homedir(), ".ascenda");
+export function ascendaHome(home: string = os.homedir()): string {
+  return process.env.ASCENDA_HOME ?? path.join(home, ".ascenda");
 }
 
 /** Default location for persisted event write tokens: ~/.ascenda/tokens/<toolInstallationId>. */

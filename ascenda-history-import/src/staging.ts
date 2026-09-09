@@ -13,6 +13,7 @@ import * as fs from "node:fs/promises";
 import { constants } from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
+import { ascendaHome } from "@ascenda-one/tool-kit";
 
 /**
  * Ask for a reflink, but DO NOT believe you got one.
@@ -41,7 +42,7 @@ export interface StagingArea {
 /** Default staging root. Local, never synced, never shipped — raw records
  * (including UNPARSED ones) stay here on the machine. */
 export function defaultStagingRoot(home: string): string {
-  return path.join(home, ".ascenda", "history-import", "staging");
+  return path.join(ascendaHome(home), "history-import", "staging");
 }
 
 export async function createStagingArea(stagingRoot: string): Promise<StagingArea> {
