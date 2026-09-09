@@ -115,25 +115,27 @@ npx -y @ascenda-one/claude-code-hooks pair
 
 It prints a 6-digit code — confirm it in the Ascenda app under
 **Connections → Ingest telemetry** — then saves the write token to
-`~/.ascenda/tokens/` and prints the one line left to do by hand:
+`~/.ascenda/tokens/` and the pairing to `~/.ascenda/credentials.json`. Restart
+Claude Code; there is nothing to add to a shell profile. The token itself is
+never copied around — every CLI tool reads it from the file `pair` wrote. (The
+editor extension's pairing cannot be reused here: its token lives in the
+editor's private secret storage.)
 
-```bash
-export ASCENDA_TOOL_INSTALLATION_ID="claude_code:<uuid>"   # printed by `pair`
-```
+`--tool-type <type>` pairs something else CLI-shaped that has no `setup` of its
+own. An explicit type always mints its own id: naming a different tool is
+pairing a second one, not re-pairing this one, and reusing the id there would
+file the new tool's work under the old tool's identity.
 
-Add that to your shell profile (`~/.zshrc`, `~/.bashrc`) and restart Claude
-Code. The token itself is never copied around — every CLI tool reads it from
-the file `pair` wrote. (The editor extension's pairing cannot be reused here:
-its token lives in the editor's private secret storage.)
-
-> **When the variable is absent** — and it is absent for any app launched from
-> the Dock, Finder or Spotlight, which never see a shell profile — the hooks
-> fall back to the `~/.ascenda/credentials.json` that `setup` writes, and then
-> to the token store: when `~/.ascenda/tokens/` holds exactly one `claude_code`
-> token, its filename is the id. With none, or several, every hook invocation
-> records a `skipped_no_installation_id` attempt in the journal and exits
-> saying so. The adapter refuses to guess rather than silently mint a second,
-> unpaired identity that would fragment your telemetry across two installations.
+> **How a hook names itself**, in order: `ASCENDA_TOOL_INSTALLATION_ID` if it is
+> set, then `~/.ascenda/credentials.json`, then the token store — where exactly
+> one `claude_code` token means its filename is the id. With none, or several,
+> every hook invocation records a `skipped_no_installation_id` attempt in the
+> journal and exits saying so, rather than silently minting a second, unpaired
+> identity that would fragment your telemetry across two installations.
+>
+> The environment variable is per *machine*, while the credentials file is per
+> *tool* — so exporting one id on a machine running two agents sends both
+> agents' work under it. Prefer the file, which both `pair` and `setup` write.
 
 On a Dev backend with no phone, [pairing-sim](../ascenda-pairing-sim/) stands in
 for the app:

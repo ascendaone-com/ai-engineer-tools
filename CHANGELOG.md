@@ -12,73 +12,131 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.19
 
+### `ASCENDA_HOME` moves the whole tree, not half of it
+
+- **One variable, one directory.** `ASCENDA_HOME` has always chosen where
+  Ascenda keeps its files. Until now only some of them listened: your write
+  tokens and credentials followed it, while the send journal and the
+  turn-start files stayed behind in `~/.ascenda/state` in your real home. Set
+  it and you got half a tree in each place. Both halves move together now.
+- **Who this reaches.** Anyone pointing `ASCENDA_HOME` at a project directory,
+  a sandbox, or a throwaway path in CI. If you've never set it, nothing about
+  your layout changes: the default is still `~/.ascenda`.
+- **`ASCENDA_STATE_DIR` still wins.** It names the state directory outright,
+  so it keeps overriding `ASCENDA_HOME` for that one subtree. That precedence
+  is now pinned by a test.
+- **Worth a look if you have stray files.** A run that wrote state under the
+  old split may have left files in `~/.ascenda/state` that belong under your
+  `ASCENDA_HOME`. They're inert. Delete them once the new layout looks right.
+
+### `pair` writes your pairing to a file, instead of asking for a shell export
+
+- **No more `export ASCENDA_TOOL_INSTALLATION_ID=…`.** `pair` now writes the
+  pairing to `~/.ascenda/credentials.json`, the same file `setup` writes, and
+  says so. Restart Claude Code and events flow.
+- **Why it was worth changing.** That variable is per machine, but a pairing is
+  per tool — so the line the old output told you to add to `~/.zshrc` was also
+  the line that made the next agent you paired inherit this one's identity. The
+  credentials file has a key per tool and cannot do that. An export still wins
+  where you set one, so nothing you already have breaks.
+- **It also fixes a hook launched from the Dock**, which never sees a shell
+  profile: `pair` alone used to leave those unconfigured until you ran `setup`.
+- **`pair --tool-type <type>` now mints its own id** instead of reusing an
+  exported one. Naming a different tool is pairing a second tool, not
+  re-pairing this one. Re-running `pair` for the same tool still heals the
+  identity you have; it will not fork your history in two.
+
+### Codex sets itself up, and stops borrowing Claude Code's identity
+
+- **One command now does all of it:**
+  `npx @ascenda-one/codex-hooks setup --scope user`. It pairs Codex, installs
+  the hook binary, and writes the hook entries into `~/.codex/hooks.json`.
+  `status` and `uninstall` came with it, the same pair every other CLI agent
+  has had.
+- **There is no longer a shell profile line to add.** Codex reads its identity
+  from `tools.codex` in `~/.ascenda/credentials.json`, written by `setup`.
+- **Why that matters if you run more than one agent.** The old instructions
+  told you to pair with `claude-code-hooks pair --tool-type cli_agent` and
+  export `ASCENDA_TOOL_INSTALLATION_ID`. On a machine where Claude Code was
+  already paired, that variable was already set — so the pairing reused the
+  Claude Code identity, minted no Codex one, and filed every Codex event
+  afterwards under Claude Code. Nothing was lost, but the split
+  between the two agents was not there to read.
+- **If you set Codex up the old way:** run the new `setup`, then remove the
+  `ASCENDA_TOOL_INSTALLATION_ID` line from your shell profile if you added it
+  for Codex. Disconnect the tool that appeared as `cli_agent` in the app first,
+  so the pairing it displaced goes back to being Claude Code's.
+- **Merging `examples/hooks.json` by hand still works** and is documented, for
+  anyone who prefers it or needs the inline `config.toml` form. It registers
+  the same seven events with the same timeout — there is a test that fails if
+  the two ever disagree.
+
 ### History import: your time across two agents is counted once
 
-- **A new file: `elapsed/cross-store.json`, beside your handoffs.** If you use
-  both Claude Code and Codex, each store's handoff already removes the overlap
-  between *its own* sessions — but nothing removed the overlap between the two
-  stores. An hour with an agent running in each was counted as two hours, and
-  the only way to read "how long did I spend on this project" was to add the
-  two figures together, which is exactly the addition that double-counts. The
+- **A new file: `elapsed/cross-store.json`, beside your handoffs.** The
   importer now takes one union across both stores while it still has the
-  underlying stretches in hand, and writes it here.
-- **Where it went, and why it is in a subdirectory.** The app treats every
-  `.json` file sitting directly in the handoff directory as a store, so a file
-  next to them would show up as a store called "cross-store" in the app — in
-  this version and in every version already installed. Inside `elapsed/` it is
-  invisible to builds that do not know to look for it, and nothing you already
-  have changes.
-- **It is only used where it still describes what is on disk.** The file names
+  underlying stretches in hand, and writes it here. Re-run
+  `history-import import` to get it.
+- **What it fixes.** Each store's handoff already removes the overlap between
+  *its own* sessions. Nothing removed the overlap between the two. If you use
+  both Claude Code and Codex, an hour with an agent running in each counted as
+  two hours, and the only way to read "how long did I spend on this project"
+  was to add the two figures together, which is exactly the addition that
+  double-counts.
+- **Why it's in a subdirectory.** The app treats every `.json` file sitting
+  directly in the handoff directory as a store, so a file next to them would
+  show up as a store called "cross-store": in this version, and in every
+  version already installed. Inside `elapsed/` it's invisible to builds that
+  don't know to look for it, and nothing you already have changes.
+- **It's only used where it still describes what's on disk.** The file names
   the run that wrote it and the stores it covers, and the app reads it only
   when every handoff beside it is from that same run. Re-import one store on
-  its own afterwards and the file is ignored rather than quietly speaking for a
-  window it no longer describes — you get the old added-up reading back, still
+  its own afterwards and the file is ignored, not left to speak quietly for a
+  window it no longer describes. You get the old added-up reading back, still
   labelled as an addition.
-- **Not written when there is nothing to union.** With one store handing over
+- **Not written when there's nothing to union.** With one store handing over
   time, that store's own figures already are the answer, and a second copy of
   them would only be something to disagree with. Cursor and VS Code hand over
   no timeline at all, so they never take part.
 - **And cleared away when it stops applying.** If a later import has no union
-  to write — you stopped using one of the two agents, say — it removes the one
-  it finds rather than leaving an old file to be judged on its stamp. An import
-  that writes no handoffs at all (the desktop app is not installed, or no store
-  was found) leaves it alone, because nothing it describes has changed.
-- **A file it cannot write costs you nothing else.** If the union cannot be
-  saved, the import says so and finishes: your per-store handoffs, the
+  to write, because you stopped using one of the two agents, say, it removes
+  the one it finds instead of leaving an old file to be judged on its stamp.
+  An import that writes no handoffs at all (the desktop app isn't installed,
+  or no store was found) leaves it alone, because nothing it describes has
+  changed.
+- **A file it can't write costs you nothing else.** If the union can't be
+  saved, the import says so and finishes. Your per-store handoffs, the
   extracted record and the closing summary all land as usual, and your figures
-  fall back to being added across stores rather than unioned — labelled, as
-  ever, as an addition.
+  fall back to being added across stores, labelled as ever as an addition.
 - **Nothing else moved.** The per-store handoffs are unchanged, every existing
   key means what it meant, and the new file carries the same
-  `activeTimeQuantities` map naming what each figure measures. Re-run
-  `history-import import` to get it.
+  `activeTimeQuantities` map naming what each figure measures.
 
-### History import: your figures say what they are, not just how they were cut
+### History import: your figures say what they measure
 
-- **The handoff records what each active-time figure measures.**
-  `activeGapMinutes` (added last release) says *how* your minutes were cut;
-  it has never said *what was cut*, and that is the part that decides
-  whether two numbers can be compared at all. The handoff now carries an
-  `activeTimeQuantities` map alongside it, keyed by the path you walk to
-  reach a figure — `sessions[].handsOnMinutes`,
-  `projects[].elapsed.days[].summedHandsOnMinutes` — naming the quantity
-  each one reports.
+- **The handoff records what each active-time figure counts.**
+  `activeGapMinutes` (added last release) says *how* your minutes were cut. It
+  has never said *what* was cut, and that's the part that decides whether two
+  numbers can be compared at all. The handoff now carries an
+  `activeTimeQuantities` map alongside it, keyed by the path you walk to reach
+  a figure (`sessions[].handsOnMinutes`,
+  `projects[].elapsed.days[].summedHandsOnMinutes`), naming the quantity each
+  one reports.
 - **The pair it exists for.** `projects[].handsOnMinutes` is your hands-on
   time added up across that project's sessions, and
   `projects[].elapsed.handsOnMinutes` is the same time with the overlap
-  removed. Same spelling, one nesting level apart, and on the machine this
-  was measured on they were 4.2x apart — because sessions run at the same
-  time as each other. The first is agent-hours; only the second is where
-  your week went. Both were already in the file and nothing in it told them
-  apart.
-- **Absent means no claim.** Cursor and VS Code handoffs carry no map,
-  exactly as they carry no gap rule: those stores hand over no timeline, so
-  there is no active figure for a label to name. A handoff written before
-  this release has no map either, which reads the same way — unstated,
-  never "assume they are all the same thing".
-- **Nothing else moved.** The handoff schema is unchanged and every existing
-  key means what it meant, so a reader that does not know the new key
-  ignores it. Re-run `history-import import` to get the map.
+  removed. Same spelling, one nesting level apart, and on the machine this was
+  measured on they were 4.2x apart, because sessions run at the same time as
+  each other. The first is agent-hours; only the second is where your week
+  went. Both were already in the file and nothing in it told them apart.
+- **Absent means no claim.** Cursor and VS Code handoffs carry no map, exactly
+  as they carry no gap rule: those stores hand over no timeline, so there's no
+  active figure for a label to name. A handoff written before this release has
+  no map either, which reads the same way. Unstated, never "assume they are
+  all the same thing".
+- **The schema is otherwise unchanged.** Every existing key means what it
+  meant, so a reader that doesn't know the new key ignores it. Re-run
+  `history-import import` to get the map.
 
 ## v0.1.18
 

@@ -26,3 +26,6 @@ local.devauth.env
 .ascenda/
 .claude/settings.local.json
 .claude/settings.local.json.ascenda-backup
+
+# Local editor/agent instructions and personal working notes
+CLAUDE.local.md

@@ -1,0 +1,29 @@
+# Collaboration signals — review load and pull-request activity — for one
+# repository. Drop this at .github/workflows/ascenda-collaboration.yml.
+#
+# Both secrets come from pairing a collector identity on your machine:
+#   npx -y @ascenda-one/claude-code-hooks pair --tool-type github_collector
+# which prints the installation id and the path of the token file to read.
+#
+# This collector has its own tool type and rides workflow_telemetry, not
+# ide_telemetry: how you work with your team is separately revocable from
+# how you work in your editor.
+name: ascenda-collaboration
+
+on:
+  pull_request:
+    types: [opened, review_requested]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      # Exits 0 on every path that is not a configuration error, including
+      # "nothing to emit" — a telemetry step must never turn a build red.
+      - run: npx @ascenda-one/github-collector
+        env:
+          ASCENDA_TOOL_INSTALLATION_ID: ${{ secrets.ASCENDA_TOOL_INSTALLATION_ID }}
+          ASCENDA_EVENT_WRITE_TOKEN: ${{ secrets.ASCENDA_EVENT_WRITE_TOKEN }}
+          ASCENDA_FORGE_LOGIN: ${{ github.actor }}

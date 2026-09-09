@@ -1,8 +1,7 @@
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import { IngestResult } from "@ascenda-one/tool-contract";
-import { sanitizeFilePart } from "./tokenStore";
+import { ascendaHome, sanitizeFilePart } from "./tokenStore";
 
 /**
  * Everything a send attempt can end in. {@link IngestResult} is what the
@@ -88,7 +87,7 @@ export type CollectorState = {
 };
 
 /**
- * Default location: `~/.ascenda/state/<toolInstallationId>.json`, or
+ * Default location: `<ascendaHome()>/state/<toolInstallationId>.json`, or
  * `$ASCENDA_STATE_DIR/<toolInstallationId>.json` when that is set.
  *
  * The override exists because the journal is the one part of this package that
@@ -97,10 +96,16 @@ export type CollectorState = {
  * That is wrong in three places at once: a test suite leaves fixtures behind
  * that `doctor` then reports as real installations, CI writes into a shared
  * home, and a sandboxed host may have no writable `$HOME` at all.
+ *
+ * The base is {@link ascendaHome} rather than `~/.ascenda` directly so the
+ * whole tree moves as one unit: setting `ASCENDA_HOME` alone used to relocate
+ * the tokens while leaving the journal in the real home, which is exactly what
+ * an isolated test or a CI run does, and it split one installation across two
+ * directories.
  */
 export function defaultStateFilePath(toolInstallationId: string): string {
   const dir = process.env.ASCENDA_STATE_DIR?.trim();
-  const base = dir ? dir : path.join(os.homedir(), ".ascenda", "state");
+  const base = dir ? dir : path.join(ascendaHome(), "state");
   return path.join(base, `${sanitizeFilePart(toolInstallationId)}.json`);
 }
 
