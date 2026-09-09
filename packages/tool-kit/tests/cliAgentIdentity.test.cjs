@@ -77,6 +77,43 @@ test("another host's entry is not this host's identity", async () => {
   });
 });
 
+test("a foreign tool type in the environment cannot override the host pairing or its token", async () => {
+  await isolated(() => {
+    process.env.ASCENDA_TOOL_INSTALLATION_ID = `claude_code:${UUID_A}`;
+    persistEventWriteToken(defaultTokenFilePath(`claude_code:${UUID_A}`), "claude_token");
+    writeHostCredentials("codex", { toolInstallationId: `cli_agent:${UUID_B}` });
+    persistEventWriteToken(defaultTokenFilePath(`cli_agent:${UUID_B}`), "codex_token");
+    assert.deepEqual(resolveCliAgentInstallationId("cli_agent", { host: "codex" }), {
+      toolInstallationId: `cli_agent:${UUID_B}`, source: "credentials"
+    });
+    const config = loadCliAgentConfig("cli_agent", undefined, undefined, { host: "codex" });
+    assert.equal(config.toolInstallationId, `cli_agent:${UUID_B}`);
+    assert.equal(config.eventWriteToken, "codex_token");
+  });
+});
+
+test("foreign ids fall through to the matching token store, or fail without a matching pairing", async () => {
+  await isolated(() => {
+    process.env.ASCENDA_TOOL_INSTALLATION_ID = `claude_code:${UUID_A}`;
+    writeHostCredentials("codex", { toolInstallationId: `claude_code:${UUID_A}` });
+    persistEventWriteToken(defaultTokenFilePath(`claude_code:${UUID_A}`), "claude_token");
+    assert.throws(() => resolveCliAgentInstallationId("cli_agent", { host: "codex" }), MissingInstallationIdError);
+    persistEventWriteToken(defaultTokenFilePath(`cli_agent:${UUID_B}`), "codex_token");
+    assert.deepEqual(resolveCliAgentInstallationId("cli_agent", { host: "codex" }), {
+      toolInstallationId: `cli_agent:${UUID_B}`, source: "disk"
+    });
+  });
+});
+
+test("an unqualified environment override still selects an installation of the requested type", async () => {
+  await isolated(() => {
+    process.env.ASCENDA_TOOL_INSTALLATION_ID = UUID_A;
+    assert.deepEqual(resolveCliAgentInstallationId("cli_agent", { host: "codex" }), {
+      toolInstallationId: `cli_agent:${UUID_A}`, source: "env"
+    });
+  });
+});
+
 test("zero or several tokens: throws, naming every source tried and the host's own setup command", async () => {
   await isolated(() => {
     assert.throws(

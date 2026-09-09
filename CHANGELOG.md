@@ -12,6 +12,24 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.19
 
+### Two agents on one machine: each keeps its own telemetry
+
+- **An exported `ASCENDA_TOOL_INSTALLATION_ID` no longer captures a different
+  agent.** The variable is per machine and a pairing is per tool, so an id
+  exported for Claude Code was being used by Codex, Cursor, Gemini and Windsurf
+  hooks too — their events arrived filed under Claude Code. An id qualified for
+  one tool type is now ignored by the others, which fall through to their own
+  pairing in `~/.ascenda/credentials.json`. An id that matches, or one with no
+  type at all, behaves exactly as before.
+- **What you may see once.** If you ran two agents this way, some of the second
+  agent's history is recorded against the first. Nothing is lost and nothing
+  needs re-pairing; new events land correctly from the next session.
+- **Codex needs its hooks trusted, not only registered.** Codex records trust
+  against each hook definition and skips the ones it has not been shown, so
+  `status` can report every hook registered while none of them run. After
+  `setup`, restart Codex and run `/hooks` to review and trust the Ascenda
+  commands. Changing a hook definition can send it back for review.
+
 ### `ASCENDA_HOME` moves the whole tree, not half of it
 
 - **One variable, one directory.** `ASCENDA_HOME` has always chosen where
