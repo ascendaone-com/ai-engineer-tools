@@ -56,71 +56,70 @@ targets, error counts or internal resource names — this repository is public.
 
 ### History import: your time across two agents is counted once
 
-- **A new file: `elapsed/cross-store.json`, beside your handoffs.** If you use
-  both Claude Code and Codex, each store's handoff already removes the overlap
-  between *its own* sessions — but nothing removed the overlap between the two
-  stores. An hour with an agent running in each was counted as two hours, and
-  the only way to read "how long did I spend on this project" was to add the
-  two figures together, which is exactly the addition that double-counts. The
+- **A new file: `elapsed/cross-store.json`, beside your handoffs.** The
   importer now takes one union across both stores while it still has the
-  underlying stretches in hand, and writes it here.
-- **Where it went, and why it is in a subdirectory.** The app treats every
-  `.json` file sitting directly in the handoff directory as a store, so a file
-  next to them would show up as a store called "cross-store" in the app — in
-  this version and in every version already installed. Inside `elapsed/` it is
-  invisible to builds that do not know to look for it, and nothing you already
-  have changes.
-- **It is only used where it still describes what is on disk.** The file names
+  underlying stretches in hand, and writes it here. Re-run
+  `history-import import` to get it.
+- **What it fixes.** Each store's handoff already removes the overlap between
+  *its own* sessions. Nothing removed the overlap between the two. If you use
+  both Claude Code and Codex, an hour with an agent running in each counted as
+  two hours, and the only way to read "how long did I spend on this project"
+  was to add the two figures together, which is exactly the addition that
+  double-counts.
+- **Why it's in a subdirectory.** The app treats every `.json` file sitting
+  directly in the handoff directory as a store, so a file next to them would
+  show up as a store called "cross-store": in this version, and in every
+  version already installed. Inside `elapsed/` it's invisible to builds that
+  don't know to look for it, and nothing you already have changes.
+- **It's only used where it still describes what's on disk.** The file names
   the run that wrote it and the stores it covers, and the app reads it only
   when every handoff beside it is from that same run. Re-import one store on
-  its own afterwards and the file is ignored rather than quietly speaking for a
-  window it no longer describes — you get the old added-up reading back, still
+  its own afterwards and the file is ignored, not left to speak quietly for a
+  window it no longer describes. You get the old added-up reading back, still
   labelled as an addition.
-- **Not written when there is nothing to union.** With one store handing over
+- **Not written when there's nothing to union.** With one store handing over
   time, that store's own figures already are the answer, and a second copy of
   them would only be something to disagree with. Cursor and VS Code hand over
   no timeline at all, so they never take part.
 - **And cleared away when it stops applying.** If a later import has no union
-  to write — you stopped using one of the two agents, say — it removes the one
-  it finds rather than leaving an old file to be judged on its stamp. An import
-  that writes no handoffs at all (the desktop app is not installed, or no store
-  was found) leaves it alone, because nothing it describes has changed.
-- **A file it cannot write costs you nothing else.** If the union cannot be
-  saved, the import says so and finishes: your per-store handoffs, the
+  to write, because you stopped using one of the two agents, say, it removes
+  the one it finds instead of leaving an old file to be judged on its stamp.
+  An import that writes no handoffs at all (the desktop app isn't installed,
+  or no store was found) leaves it alone, because nothing it describes has
+  changed.
+- **A file it can't write costs you nothing else.** If the union can't be
+  saved, the import says so and finishes. Your per-store handoffs, the
   extracted record and the closing summary all land as usual, and your figures
-  fall back to being added across stores rather than unioned — labelled, as
-  ever, as an addition.
+  fall back to being added across stores, labelled as ever as an addition.
 - **Nothing else moved.** The per-store handoffs are unchanged, every existing
   key means what it meant, and the new file carries the same
-  `activeTimeQuantities` map naming what each figure measures. Re-run
-  `history-import import` to get it.
+  `activeTimeQuantities` map naming what each figure measures.
 
-### History import: your figures say what they are, not just how they were cut
+### History import: your figures say what they measure
 
-- **The handoff records what each active-time figure measures.**
-  `activeGapMinutes` (added last release) says *how* your minutes were cut;
-  it has never said *what was cut*, and that is the part that decides
-  whether two numbers can be compared at all. The handoff now carries an
-  `activeTimeQuantities` map alongside it, keyed by the path you walk to
-  reach a figure — `sessions[].handsOnMinutes`,
-  `projects[].elapsed.days[].summedHandsOnMinutes` — naming the quantity
-  each one reports.
+- **The handoff records what each active-time figure counts.**
+  `activeGapMinutes` (added last release) says *how* your minutes were cut. It
+  has never said *what* was cut, and that's the part that decides whether two
+  numbers can be compared at all. The handoff now carries an
+  `activeTimeQuantities` map alongside it, keyed by the path you walk to reach
+  a figure (`sessions[].handsOnMinutes`,
+  `projects[].elapsed.days[].summedHandsOnMinutes`), naming the quantity each
+  one reports.
 - **The pair it exists for.** `projects[].handsOnMinutes` is your hands-on
   time added up across that project's sessions, and
   `projects[].elapsed.handsOnMinutes` is the same time with the overlap
-  removed. Same spelling, one nesting level apart, and on the machine this
-  was measured on they were 4.2x apart — because sessions run at the same
-  time as each other. The first is agent-hours; only the second is where
-  your week went. Both were already in the file and nothing in it told them
-  apart.
-- **Absent means no claim.** Cursor and VS Code handoffs carry no map,
-  exactly as they carry no gap rule: those stores hand over no timeline, so
-  there is no active figure for a label to name. A handoff written before
-  this release has no map either, which reads the same way — unstated,
-  never "assume they are all the same thing".
-- **Nothing else moved.** The handoff schema is unchanged and every existing
-  key means what it meant, so a reader that does not know the new key
-  ignores it. Re-run `history-import import` to get the map.
+  removed. Same spelling, one nesting level apart, and on the machine this was
+  measured on they were 4.2x apart, because sessions run at the same time as
+  each other. The first is agent-hours; only the second is where your week
+  went. Both were already in the file and nothing in it told them apart.
+- **Absent means no claim.** Cursor and VS Code handoffs carry no map, exactly
+  as they carry no gap rule: those stores hand over no timeline, so there's no
+  active figure for a label to name. A handoff written before this release has
+  no map either, which reads the same way. Unstated, never "assume they are
+  all the same thing".
+- **The schema is otherwise unchanged.** Every existing key means what it
+  meant, so a reader that doesn't know the new key ignores it. Re-run
+  `history-import import` to get the map.
 
 ## v0.1.18
 

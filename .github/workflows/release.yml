@@ -78,6 +78,14 @@ jobs:
       - name: Release notes
         run: node scripts/release-notes.mjs --tag "$TAG" --out dist/release-notes.md
 
+      # The same section, read for how it sounds: contrast frames, em dashes,
+      # repeated bullet openers, sentence length. Densities rather than bans,
+      # so one of anything is fine. It runs beside the read above, before the
+      # build, because a rewrite costs nothing at this point and a release
+      # nobody finishes reading costs the next one.
+      - name: Release notes voice
+        run: node scripts/release-notes-voice.mjs --tag "$TAG"
+
       # One tag, one version across every artifact, so the manifest carries a
       # single `version` and the installer never reasons about per-package skew.
       - name: Stamp release version
