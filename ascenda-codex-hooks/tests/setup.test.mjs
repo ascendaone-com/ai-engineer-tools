@@ -45,7 +45,15 @@ test("the written file agrees with the hand-merge example it replaces", () => {
   const written = read(file);
   const example = read(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../examples/hooks.json"));
   assert.deepEqual(Object.keys(written.hooks).sort(), Object.keys(example.hooks).sort(), "setup and the example must register the same events");
-  assert.equal(written.hooks.Stop[0].hooks[0].timeout, example.hooks.Stop[0].hooks[0].timeout, "one timeout, not two");
+  for (const event of HOOK_EVENTS) {
+    const groups = written.hooks[event];
+    assert.match(groups[0].hooks[0].command, new RegExp(` ${event}$`));
+    const normalised = groups.map((group) => ({
+      ...group,
+      hooks: group.hooks.map((handler) => ({ ...handler, command: `npx -y @ascenda-one/codex-hooks ${event}` }))
+    }));
+    assert.deepEqual(normalised, example.hooks[event], `${event}: setup and example must share the complete handler shape`);
+  }
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -54,6 +62,8 @@ test("settings live where Codex looks for them", () => {
   assert.equal(SETUP.settings.settingsPath("user", "/p"), path.join(os.homedir(), ".codex", "hooks.json"));
   assert.equal(SETUP.host, "codex");
   assert.equal(SETUP.toolType, "cli_agent");
+  assert.match(SETUP.restartHint, /\/hooks.*trust/);
+  assert.match(SETUP.restartHint, /Registration alone does not enable execution/);
 });
 
 function run(args) {

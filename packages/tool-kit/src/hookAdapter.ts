@@ -81,7 +81,8 @@ export class MissingInstallationIdError extends Error {
 /**
  * Which installation this hook is. Most specific first: the environment, then
  * the host's entry in the credentials file written by `setup`, then the token
- * store on disk.
+ * store on disk. Qualified ids must belong to this tool type: a shell-wide
+ * Claude Code override must not redirect CLI-agent events to its pairing.
  *
  * The disk fallback exists because a GUI-launched editor never sees a shell
  * rc file, so on macOS the environment is empty in the *normal* case. The id
@@ -95,10 +96,10 @@ export class MissingInstallationIdError extends Error {
  */
 export function resolveCliAgentInstallationId(toolType: string, identity: CliAgentIdentity = {}): ResolvedInstallationId {
   const fromEnv = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim();
-  if (fromEnv) return { toolInstallationId: qualify(toolType, fromEnv), source: "env" };
+  if (fromEnv && belongsToToolType(toolType, fromEnv)) return { toolInstallationId: qualify(toolType, fromEnv), source: "env" };
 
   const fromCredentials = identity.host ? readHostCredentials(identity.host)?.toolInstallationId?.trim() : undefined;
-  if (fromCredentials) return { toolInstallationId: qualify(toolType, fromCredentials), source: "credentials" };
+  if (fromCredentials && belongsToToolType(toolType, fromCredentials)) return { toolInstallationId: qualify(toolType, fromCredentials), source: "credentials" };
 
   const candidates = listPersistedToolInstallationIds(toolType);
   if (candidates.length === 1) return { toolInstallationId: candidates[0], source: "disk" };
@@ -107,6 +108,10 @@ export function resolveCliAgentInstallationId(toolType: string, identity: CliAge
 
 function defaultSetupCommand(host: string | undefined): string {
   return host ? `npx @ascenda-one/${host.replace(/_cli$/, "")}-hooks setup` : "the agent's setup command";
+}
+
+function belongsToToolType(toolType: string, value: string): boolean {
+  return !value.includes(":") || value.startsWith(`${toolType}:`);
 }
 
 function qualify(toolType: string, value: string): string {
