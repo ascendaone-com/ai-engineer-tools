@@ -34,7 +34,7 @@
  * metrics-only rule as the wire, minus the hashing that only exists to
  * keep paths from reaching a server.
  */
-import { deriveWorkContext, type AutonomyBand } from "@ascenda-one/tool-kit";
+import { ascendaHome, deriveWorkContext, type AutonomyBand } from "@ascenda-one/tool-kit";
 import { LOCAL_TIMEZONE, SessionDaySlice } from "./daySlice.js";
 import {
   CLAUDE_CODE_ACTIVE_TIME_QUANTITIES,
@@ -106,8 +106,16 @@ const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
  */
 export const HANDOFF_SCHEMA = 5;
 
+/**
+ * Where the handoffs go. `home` is the OS home, and `ascendaHome` turns it
+ * into Ascenda's own root — so `ASCENDA_HOME` moves the handoffs with the
+ * tokens and the send journal rather than leaving them behind in the real
+ * home. The store paths this importer *reads* are a different question and
+ * stay on the OS home: `~/.claude` and `~/.codex` belong to those tools, and
+ * an Ascenda variable has no business relocating them.
+ */
 export function handoffDir(home: string = os.homedir()): string {
-  return path.join(home, ".ascenda", "history-import");
+  return path.join(ascendaHome(home), "history-import");
 }
 
 /** One handoff file per store — `store` names the file (`claude_code.json`,

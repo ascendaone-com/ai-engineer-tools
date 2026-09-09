@@ -43,13 +43,14 @@ import { createReadStream } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { ascendaHome } from "@ascenda-one/tool-kit";
 import { HistoryStore } from "./types.js";
 import { StorePaths } from "./stores.js";
 
 export const ARCHIVE_SCHEMA = 1;
 
 export function defaultArchiveRoot(home: string): string {
-  return path.join(home, ".ascenda", "history-import", "archive");
+  return path.join(ascendaHome(home), "history-import", "archive");
 }
 
 export interface ArchivedFile {
