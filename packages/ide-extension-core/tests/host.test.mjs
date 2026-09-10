@@ -63,3 +63,36 @@ test("source stays pinned to the identity an install paired under", () => {
   assert.equal(host.resolveTelemetrySource("vscode_extension:abc-123"), "vscode_extension");
   assert.equal(host.resolveTelemetrySource("nonsense-prefix"), "cursor_mcp", "falls back to live detection");
 });
+
+test("every source the contract declares is recognised as a paired identity", () => {
+  // The regression this pins: `KNOWN_SOURCES` was a second copy of the
+  // contract's list, restated by hand in host.ts, and it had drifted by one --
+  // `code_forge` was absent, so an install paired under it fell through to live
+  // host detection and reported the editor it was running in instead of the
+  // identity it paired as. Neither the type nor the test above could see it:
+  // `readonly AscendaTelemetrySource[]` accepts a subset of the union, and the
+  // old test named two prefixes by hand rather than enumerating the contract.
+  //
+  // So this test enumerates. It cannot go stale when a source is added,
+  // because the contract is the loop, not the fixture.
+  const { ASCENDA_TELEMETRY_SOURCES } = require("@ascenda-one/tool-contract");
+  const host = hostFor("Visual Studio Code", "vscode");
+
+  assert.ok(ASCENDA_TELEMETRY_SOURCES.length > 0, "contract declares no sources");
+  for (const source of ASCENDA_TELEMETRY_SOURCES) {
+    assert.equal(
+      host.resolveTelemetrySource(`${source}:install-abc`),
+      source,
+      `${source} is declared by the contract but not recognised as a paired identity`
+    );
+  }
+});
+
+test("an unknown prefix still falls back to live detection", () => {
+  // The complement of the test above: recognising every declared source must
+  // not mean recognising everything. A prefix the contract does not declare is
+  // not a source, and guessing one onto the wire is worse than falling back.
+  const host = hostFor("Cursor", "cursor");
+  assert.equal(host.resolveTelemetrySource("not_a_source:install-abc"), "cursor_mcp");
+  assert.equal(host.resolveTelemetrySource(undefined), "cursor_mcp");
+});

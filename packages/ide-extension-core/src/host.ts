@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { AscendaTelemetrySource } from "@ascenda-one/tool-contract";
+import { ASCENDA_TELEMETRY_SOURCES, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
 
 export type HostKind = "cursor" | "antigravity" | "vscode" | "unknown";
 
@@ -39,8 +39,6 @@ export function getHostDisplayName(): string {
   return vscode.env.appName || "Editor";
 }
 
-const KNOWN_SOURCES: readonly AscendaTelemetrySource[] = ["vscode_extension", "cursor_mcp", "claude_code", "copilot_otel", "cli_agent", "mcp_server", "activity_signals"];
-
 /**
  * Telemetry source must stay consistent with the identity this installation
  * paired under (the toolType prefix of its toolInstallationId); live host
@@ -50,6 +48,15 @@ const KNOWN_SOURCES: readonly AscendaTelemetrySource[] = ["vscode_extension", "c
  */
 export function resolveTelemetrySource(toolInstallationId: string | undefined): AscendaTelemetrySource {
   const prefix = toolInstallationId?.split(":")[0];
-  if (prefix && (KNOWN_SOURCES as readonly string[]).includes(prefix)) return prefix as AscendaTelemetrySource;
+  // Read straight off the contract. This list used to be restated here and had
+  // already drifted by one -- `code_forge` was missing, so a collector paired
+  // under it would have fallen through to live host detection and reported the
+  // editor it happened to be running in. A `readonly AscendaTelemetrySource[]`
+  // annotation cannot catch that: a subset of the union type-checks perfectly.
+  // The contract declares the array at runtime for exactly this reason, and its
+  // own comment names `code_forge` as the standing reminder.
+  if (prefix && (ASCENDA_TELEMETRY_SOURCES as readonly string[]).includes(prefix)) {
+    return prefix as AscendaTelemetrySource;
+  }
   return getTelemetrySource();
 }
