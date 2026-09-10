@@ -12,21 +12,27 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.22
 
-### Codex, Windsurf and Gemini now drive the desktop app's live features
+### Codex, Cursor, Windsurf and Gemini now drive the desktop app's live features
 
 - **Step Away no longer lets the Mac sleep mid-run.** The Ascenda Flow macOS
   app learns that an agent is working *right now* over a local channel, and
   only the Claude Code hooks and the editor extensions were speaking on it.
-  If you drive Codex, Windsurf or Gemini CLI, four things looked switched on
-  and did nothing: the live gauges stayed flat, arming Step Away read the
-  machine as idle and released the keep-awake, the settle bell never rang,
-  and the Waterline screen saver fell back to ambient. All four work now.
+  If you drive Codex, Cursor, Windsurf or Gemini CLI through their hooks,
+  four things looked switched on and did nothing: the live gauges stayed
+  flat, arming Step Away read the machine as idle and released the
+  keep-awake, the settle bell never rang, and the Waterline screen saver fell
+  back to ambient. All four work now.
 - **Each agent counts as itself.** The three report under their own names, so
   running two agents side by side reads as two streams rather than one — the
   concurrency gauge was the thing that would have quietly under-counted.
 - **Windsurf has no compaction beat, and won't get one.** Cascade ships no
   compaction hook, so the gauge's compaction ripple never fires there. Every
   other beat does.
+- **Cursor, if you run both the extension and the hooks.** They're separate
+  installs and neither can see the other, so the same work reaches the gauges
+  twice and the concurrency reading sits higher than the number of agents you
+  are actually running. The hooks were included anyway, because anyone using
+  them without the extension had nothing at all. One of the two is enough.
 - **Nothing new leaves your machine.** This channel is a socket on your own
   Mac; nothing is sent anywhere and nothing is stored. What your collectors
   report to Ascenda is unchanged, as is the consent that governs it. If you
