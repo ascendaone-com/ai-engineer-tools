@@ -148,6 +148,44 @@ Same as all producers: `POST /v1/tool-events` with Bearer eventWriteToken,
 `privacyMode: "metadata_only"`, `source: "cli_agent"`. Tool-scoped renew
 persists rotated tokens under `~/.ascenda/tokens/<toolInstallationId>`.
 
+## Local live bus (not telemetry)
+
+A second, entirely local path. Alongside the cloud send, the adapter writes a
+one-line JSON signal to a Unix socket on this machine (`~/.ascenda/live.sock`)
+that the Ascenda Flow macOS app binds. Nothing leaves the machine, nothing is
+stored, and the cloud path is unaffected either way.
+
+It exists because four local features have no other input: the live gauges,
+the Away Mode keep-awake assertion (without it the Mac sleeps mid-work), the
+settle bell, and the paired handoff to the Waterline screen saver.
+
+The vocabulary is much smaller than the event catalog above — five values —
+and the app drops anything it cannot parse, so the mapping is deliberately
+partial and leading-edge. The signal reports `tool: "codex"`, this host's
+own name rather than the shared `cli_agent` tool type, because the app keys
+one stream per `tool`/`session` pair and a shared name would fuse the CLI
+adapters into one and under-count concurrency.
+
+| Codex hook | Live signal |
+| --- | --- |
+| UserPromptSubmit | `prompt_submitted` (+ a coarse size bucket; never the text) |
+| PreToolUse | `tool_call` — the leading edge, so the gauge rises as work starts |
+| PostToolUse (failure) | `tool_failure` |
+| PostToolUse (success or unknown) | *(silent — PreToolUse already counted the call)* |
+| PreCompact | `compaction` |
+| PostCompact | *(silent — the same compaction, seen from the other side)* |
+| Stop | `stop` |
+| SessionStart, PermissionRequest, SubagentStart/Stop | *(silent)* |
+
+Emission is additive and best-effort: it is abandoned after 50 ms, swallows
+every error, and a machine with no listener — which is most machines, and
+every CI runner — behaves exactly as it did before this existed.
+
+`queued` — the field saying a turn came out of the user's queue — is absent
+from every Codex signal, and its absence is a measurement, not an oversight.
+Codex payloads carry nothing that could answer, and the field is tri-state so
+that a tool which cannot know says nothing rather than saying "no".
+
 ## Privacy
 
 Metadata-only. Prompt text is used locally for correction inference only;

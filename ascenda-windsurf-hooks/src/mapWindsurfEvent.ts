@@ -91,8 +91,13 @@ function mcpToolName(input: WindsurfHookInput): string {
 /**
  * `mcp_result` is free-form per server, so only an explicit error marker counts
  * as failure — guessing from arbitrary payload shapes would invent failures.
+ *
+ * Exported because the live-bus mapping needs the same answer: it is the only
+ * Cascade hook that reports an outcome, so it is the only one that can ring
+ * the waterline's failure impulse. One definition, so the two paths cannot
+ * disagree about what "failed" means.
  */
-function mcpResultFailed(input: WindsurfHookInput): boolean {
+export function mcpResultFailed(input: WindsurfHookInput): boolean {
   const result = getNested(input, ["tool_info", "mcp_result"]);
   if (!result || typeof result !== "object") return false;
   const record = result as Record<string, unknown>;

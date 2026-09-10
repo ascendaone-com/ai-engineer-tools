@@ -51,7 +51,19 @@ export type LiveBusEvent =
   | "stop";
 
 export interface LiveBusSignal {
-  /** Which surface — `claude_code`, `vscode_extension`, `cursor_mcp`, `cli_agent`. */
+  /**
+   * Which surface is speaking: `claude_code`, `vscode_extension`,
+   * `cursor_mcp`, and the CLI adapters under their own host names —
+   * `codex`, `windsurf`, `gemini_cli`.
+   *
+   * **Finer-grained than the backend tool type on purpose.** Those three
+   * adapters all file cloud events under the shared `cli_agent` type, but
+   * the app keys one decaying envelope per `tool`/`session` pair, so
+   * reporting the shared value here would fuse three different agents into
+   * one stream and make the concurrency gauge under-count. Free-form by
+   * contract — the app groups by whatever string arrives and validates
+   * nothing but non-emptiness.
+   */
   tool: string;
   /** Opaque per-session id, so concurrent sessions count as separate streams. */
   session: string;

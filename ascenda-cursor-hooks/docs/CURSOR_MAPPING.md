@@ -38,6 +38,53 @@ would double-count every command and edit. Register only the hooks in the table.
 `workspaceOpen`, `beforeTabFileRead`, `afterTabFileEdit` have no catalog
 counterpart.
 
+## Local live bus (not telemetry)
+
+A second, entirely local path. Alongside the cloud send, the adapter writes a
+one-line JSON signal to a Unix socket on this machine (`~/.ascenda/live.sock`)
+that the Ascenda Flow macOS app binds. Nothing leaves the machine, nothing is
+stored, and the cloud path is unaffected either way.
+
+It exists because four local features have no other input: the live gauges,
+the Away Mode keep-awake assertion (without it the Mac sleeps mid-work), the
+settle bell, and the paired handoff to the Waterline screen saver.
+
+The signal reports `tool: "cursor"` — this host's own name, and **distinct
+from the Cursor extension's `cursor_mcp`**. That distinction has a cost worth
+naming: run both the extension and these hooks and the same work arrives on
+the bus twice, under session ids with nothing in common, so the concurrency
+gauge reads two streams where a person would count one. There is no shared
+session id to dedupe on today. It was accepted because someone who takes only
+the hooks route had all four features silently dead, and a gauge that
+over-counts for the doubly-installed is the smaller defect. What must not
+happen is the two names collapsing into one, since a single install would
+then be indistinguishable from a double one.
+
+The vocabulary is much smaller than the event catalog above — five values —
+and the app drops anything it cannot parse, so the mapping is deliberately
+partial and leading-edge.
+
+| Cursor hook | Live signal |
+| --- | --- |
+| `beforeSubmitPrompt` | `prompt_submitted` (+ a coarse size bucket; never the text) |
+| `preToolUse` | `tool_call` — the leading edge, so the gauge rises as work starts |
+| `postToolUseFailure` (`is_interrupt: false`) | `tool_failure` |
+| `postToolUseFailure` (`is_interrupt: true`) | *(silent — a user pressing stop is not a failure)* |
+| `postToolUse` | *(silent — failure has its own hook, so this would only double-count)* |
+| `preCompact` | `compaction` |
+| `stop` | `stop` |
+| `sessionStart`, `sessionEnd` | *(silent — the turn is the beat, not the app session)* |
+| the shell / MCP / file / Tab / subagent hooks | *(silent — views of calls `preToolUse` already reported)* |
+
+Emission is additive and best-effort: it is abandoned after 50 ms, swallows
+every error, and a machine with no listener — which is most machines, and
+every CI runner — behaves exactly as it did before this existed.
+
+`queued` — the field saying a turn came out of the user's queue — is absent
+from every Cursor signal, and its absence is a measurement, not an oversight.
+Cursor payloads carry nothing that could answer, and the field is tri-state so
+that a tool which cannot know says nothing rather than saying "no".
+
 ## Quirks
 
 - `tool_output` is a **JSON string**, not an object, so the exit code has to be
