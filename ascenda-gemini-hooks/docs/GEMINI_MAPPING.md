@@ -43,3 +43,44 @@ timing becomes a wanted metric — but do it deliberately, with volume in mind.
   array of `{ matcher, hooks: [{ type, command }] }`. See `examples/settings.json`.
 - The event name arrives in `hook_event_name` on stdin, so one `command` works
   for every hook.
+
+## Local live bus (not telemetry)
+
+A second, entirely local path. Alongside the cloud send, the adapter writes a
+one-line JSON signal to a Unix socket on this machine (`~/.ascenda/live.sock`)
+that the Ascenda Flow macOS app binds. Nothing leaves the machine, nothing is
+stored, and the cloud path is unaffected either way.
+
+It exists because four local features have no other input: the live gauges,
+the Away Mode keep-awake assertion (without it the Mac sleeps mid-work), the
+settle bell, and the paired handoff to the Waterline screen saver.
+
+The vocabulary is much smaller than the event catalog above — five values —
+and the app drops anything it cannot parse, so the mapping is deliberately
+partial and leading-edge. The signal reports `tool: "gemini_cli"`, this host's
+own name rather than the shared `cli_agent` tool type, because the app keys
+one stream per `tool`/`session` pair and a shared name would fuse the CLI
+adapters into one and under-count concurrency.
+
+| Gemini hook | Live signal |
+| --- | --- |
+| BeforeAgent | `prompt_submitted` (+ a coarse size bucket; never the text) |
+| BeforeTool | `tool_call` — the leading edge, so the gauge rises as work starts |
+| AfterTool (failure) | `tool_failure` |
+| AfterTool (success or unknown) | *(silent — BeforeTool already counted the call)* |
+| PreCompress | `compaction` |
+| AfterAgent | `stop` |
+| SessionStart, SessionEnd | *(silent — the turn is the beat, not the CLI run)* |
+| BeforeModel, AfterModel, BeforeToolSelection, Notification | *(silent — per round trip)* |
+
+Emission is additive and best-effort: it is abandoned after 50 ms, swallows
+every error, and a machine with no listener — which is most machines, and
+every CI runner — behaves exactly as it did before this existed.
+
+`SessionEnd` is silent on purpose: it lands immediately after the last
+`AfterAgent`, and a second `stop` would draw two session ends for one turn.
+
+`queued` — the field saying a turn came out of the user's queue — is absent
+from every Gemini signal, and its absence is a measurement, not an oversight.
+Gemini payloads carry nothing that could answer, and the field is tri-state so
+that a tool which cannot know says nothing rather than saying "no".

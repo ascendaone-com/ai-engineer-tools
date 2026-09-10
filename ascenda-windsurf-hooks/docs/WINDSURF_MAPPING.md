@@ -52,3 +52,49 @@ JSONL transcript of raw conversation content, which this tool never reads.
   it. Turn length keys on `trajectory_id`.
 - `mcp_result` is free-form per MCP server, so only an explicit error marker
   counts as failure. Guessing from arbitrary shapes would invent failures.
+
+## Local live bus (not telemetry)
+
+A second, entirely local path. Alongside the cloud send, the adapter writes a
+one-line JSON signal to a Unix socket on this machine (`~/.ascenda/live.sock`)
+that the Ascenda Flow macOS app binds. Nothing leaves the machine, nothing is
+stored, and the cloud path is unaffected either way.
+
+It exists because four local features have no other input: the live gauges,
+the Away Mode keep-awake assertion (without it the Mac sleeps mid-work), the
+settle bell, and the paired handoff to the Waterline screen saver.
+
+The vocabulary is much smaller than the event catalog above — five values —
+and the app drops anything it cannot parse, so the mapping is deliberately
+partial and leading-edge. The signal reports `tool: "windsurf"`, this host's
+own name rather than the shared `cli_agent` tool type, because the app keys
+one stream per `tool`/`session` pair and a shared name would fuse the CLI
+adapters into one and under-count concurrency.
+
+| Cascade hook | Live signal |
+| --- | --- |
+| pre_user_prompt | `prompt_submitted` (+ a coarse size bucket; never the text) |
+| pre_read_code, pre_write_code, pre_run_command, pre_mcp_tool_use | `tool_call` — the leading edge |
+| post_mcp_tool_use (explicit error marker) | `tool_failure` |
+| post_read_code, post_write_code, post_run_command | *(silent — the pre_* partner already counted the call)* |
+| post_cascade_response | `stop` |
+| post_cascade_response_with_transcript | *(silent — the same moment, repeated)* |
+| post_setup_worktree | *(silent)* |
+
+Emission is additive and best-effort: it is abandoned after 50 ms, swallows
+every error, and a machine with no listener — which is most machines, and
+every CI runner — behaves exactly as it did before this existed.
+
+**`compaction` is unreachable from Cascade.** Windsurf ships no compaction
+hook, so that ripple never fires for these users — the same gap this document
+already records for `context_compression_*`, not a gap in the mapping.
+
+`post_mcp_tool_use` is the only Cascade hook that reports an outcome at all,
+so it is the only one that can ring the failure impulse, and only on an
+explicit error marker: `mcp_result` is free-form per server, and guessing
+would report failures for work that succeeded.
+
+`queued` — the field saying a turn came out of the user's queue — is absent
+from every Cascade signal, and its absence is a measurement, not an oversight.
+Cascade payloads carry nothing that could answer, and the field is tri-state so
+that a tool which cannot know says nothing rather than saying "no".
