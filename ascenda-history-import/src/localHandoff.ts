@@ -35,7 +35,7 @@
  * keep paths from reaching a server.
  */
 import { ascendaHome, deriveWorkContext, type AutonomyBand } from "@ascenda-one/tool-kit";
-import { LOCAL_TIMEZONE, SessionDaySlice } from "./daySlice.js";
+import { LOCAL_TIMEZONE, SessionDaySlice, localDayKey } from "./daySlice.js";
 import {
   CLAUDE_CODE_ACTIVE_TIME_QUANTITIES,
   CODEX_ACTIVE_TIME_QUANTITIES,
@@ -84,27 +84,32 @@ const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
  * reports where a week went needs to tell that apart from a project whose
  * sessions genuinely never overlapped. A reader that could not would have to
  * choose between the two readings blind.
+ *
+ * Bumped to 6 for `longestActiveRunMinutes` and `longestActiveRunStartedOn` on
+ * the `elapsed` block — the longest single unbroken stretch, and the local day
+ * it began on. This one is not additive in the usual sense and that is why it
+ * needed a rung: it is the first figure on the handoff that is a maximum rather
+ * than a total, and a reader holding only `elapsed.days[]` cannot derive it.
+ * The day slices are cut at local midnight, so 23:40 -> 00:30 arrives as 20 and
+ * 30 and never as 50. Absent has to mean not collected, because 30 is what a
+ * reader would otherwise be tempted to compute.
  */
 /**
- * **Per-day concurrency did NOT bump this to 6, deliberately.**
+ * **Per-day concurrency did NOT buy this rung.**
  *
  * `summedHandsOnMinutes`, `summedAgentSupervisingMinutes` and
  * `peakConcurrency` on `elapsed.days` are additive inside the shape schema 5
  * already describes, and absent reads as "not collected" — the rule this file
- * applies everywhere else.
+ * applies everywhere else. They ride inside 5 and always will.
  *
- * The bump was declined because the app refuses an unknown schema *whole*:
- * `historical_import.dart` keeps a set of readable schemas and returns
- * `unreadable` with no sessions for anything outside it. Stamping 6 before a
- * build that knows 6 exists would blank the card for everyone, which is
- * exactly the drift the app's own comment records from the move to schema 3.
- *
- * So the ordering for whoever consumes these fields is fixed, and it is the
- * opposite of the schema-5 bump's: teach the app to READ 6 and ship it, then
- * stamp 6 here. A writer may only claim a rung it actually climbed, and it may
- * only climb one the readers can already reach.
+ * The rule that held the bump back is unchanged: the app refuses an unknown
+ * schema *whole*, so a writer may only claim a rung the readers can already
+ * reach. 6 is claimed here because the app climbed it first — the Dart writer
+ * stamps 6 and its reader knows 6, which is the ordering that comment demanded
+ * and the first time this package has been the second writer up the ladder
+ * rather than the first.
  */
-export const HANDOFF_SCHEMA = 5;
+export const HANDOFF_SCHEMA = 6;
 
 /**
  * Where the handoffs go. `home` is the OS home, and `ascendaHome` turns it
@@ -303,6 +308,35 @@ export interface ProjectElapsedActive {
   meanConcurrency: number | null;
   /** The deepest simultaneous overlap the project ever reached. */
   peakConcurrency: number;
+  /**
+   * The longest single unbroken stretch of active time, and the local day it
+   * began on — a schema-6 addition, and the only figure in this block that is
+   * not a total.
+   *
+   * **It is written here because nothing downstream can rebuild it.** Every
+   * other number survives being reduced to minutes, because every other number
+   * is a sum. `days` below is cut at local midnight, so a fifty-minute stretch
+   * worked 23:40 -> 00:30 reaches a reader as twenty minutes of one day and
+   * thirty of the next, and no arithmetic over those returns fifty. The maximum
+   * is taken over the unioned spans instead: after the union that joins two
+   * overlapping sessions into the one stretch the person worked, and before the
+   * clip that would cut it. That is the only point in the pipeline where both
+   * are true.
+   *
+   * **`days` does not compose into this, and is not meant to.** A day-grain
+   * longest run and a window-grain one cannot both be clip-consistent, so one
+   * grain is emitted: this, over the whole pool. `longestActiveRunStartedOn`
+   * does not make the figure windowable. It makes the window decidable — a
+   * surface drawing thirty days can tell whether the stretch is in its window,
+   * and outside it the honest reading is absence, because that window's own
+   * longest run is not in this file.
+   *
+   * Both absent together, never zero, where there were no spans to measure.
+   */
+  longestActiveRunMinutes?: number;
+  /** `YYYY-MM-DD` in the extracting machine's local time, keyed by the same
+   * rule `days[].day` is. */
+  longestActiveRunStartedOn?: string;
   /**
    * Unioned minutes per local day, oldest first — because a window like "the
    * last 7 days" is built by adding days up, and adding up per-session day
@@ -759,6 +793,13 @@ export function elapsedActiveOf(spans: readonly ActiveSpan[]): ProjectElapsedAct
     meanConcurrency:
       union.meanConcurrency === null ? null : Math.round(union.meanConcurrency * 100) / 100,
     peakConcurrency: union.peakConcurrency,
+    // Absent, not zero, where there were no spans: see the field note.
+    ...(union.longestRunMs === null || union.longestRunFrom === null
+      ? {}
+      : {
+          longestActiveRunMinutes: minutesOf(union.longestRunMs),
+          longestActiveRunStartedOn: localDayKey(new Date(union.longestRunFrom))
+        }),
     days: [...byDay.entries()]
       .map(([day, ms]) => ({
         day,

@@ -171,7 +171,7 @@ test("a span crossing midnight is deep on both days it touches", () => {
   assert.equal(byDay.get("2026-09-02").agentSupervisingMs, 10 * MIN);
 });
 
-test("per-day figures reach the digest, and the schema is not bumped for them", () => {
+test("per-day figures reach the digest, and did not buy a schema rung", () => {
   const session = {
     projectHash: "hash-c", projectLabel: "repo-c", promptCount: 1,
     handsOnMinutes: 0, agentSupervisingMinutes: 60, autonomySplit: {},
@@ -183,8 +183,10 @@ test("per-day figures reach the digest, and the schema is not bumped for them", 
   assert.equal(day.agentSupervisingMinutes, 60);
   assert.equal(day.summedAgentSupervisingMinutes, 120);
   assert.equal(day.peakConcurrency, 2);
-  // The app refuses an unknown schema whole, so these ride inside 5.
-  assert.equal(HANDOFF_SCHEMA, 5);
+  // These did not buy the rung and never will: they are additive inside the
+  // shape schema 5 already describes. 6 is the longest unbroken stretch's, a
+  // maximum no reader can derive from the day figures above.
+  assert.ok(HANDOFF_SCHEMA >= 5);
 });
 
 test("the handoff says which gap rule cut its figures", async () => {
@@ -198,8 +200,9 @@ test("the handoff says which gap rule cut its figures", async () => {
     // as a literal that could drift from the rule it claims to describe.
     assert.equal(file.activeGapMinutes, DEFAULT_ACTIVE_GAP_MS / 60_000);
     assert.equal(file.activeGapMinutes, 5);
-    // Additive inside schema 5: the app refuses an unknown schema whole, so a
-    // label cannot be bought at the price of the file becoming unreadable.
+    // Additive inside the rung the file already claims: the app refuses an
+    // unknown schema whole, so a label cannot be bought at the price of the
+    // file becoming unreadable.
     assert.equal(file.schema, HANDOFF_SCHEMA);
   }
 });

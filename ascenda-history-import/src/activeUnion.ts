@@ -72,6 +72,20 @@ export interface UnionedActive {
   meanConcurrency: number | null;
   /** Deepest simultaneous overlap. 1 for strictly sequential work. */
   peakConcurrency: number;
+  /**
+   * The longest single unbroken stretch of active time, hands-on and
+   * supervising unioned together, in ms — and the instant it began. Null
+   * together where there were no spans to measure. See {@link longestRunOf}.
+   *
+   * **Not composable, and not windowable.** This is a maximum over whatever
+   * pool it was computed from. A reader drawing a narrower window cannot
+   * recover that window's own longest run from it, and must not quote this one
+   * for a window `longestRunFrom` falls outside. That is why the starting
+   * instant rides beside the length: it is the only thing that lets a windowed
+   * surface tell its own figure from somebody else's week.
+   */
+  longestRunMs: number | null;
+  longestRunFrom: number | null;
 }
 
 /**
@@ -154,6 +168,40 @@ function peakOverlap(intervals: readonly Interval[]): number {
 }
 
 /**
+ * The longest single unbroken stretch across a set of intervals, and where it
+ * began.
+ *
+ * **The one reading in this file that cannot be recovered downstream.**
+ * Everything else here is a total, and totals survive being cut at local
+ * midnight and added back up. A longest run does not. A stretch worked
+ * 23:40 -> 00:30 is fifty unbroken minutes of a person's night, and the
+ * per-day slices record twenty of Monday and thirty of Tuesday; nothing added
+ * from those returns fifty. So the maximum is taken here, over the unioned
+ * spans, before `addSpanByLocalDay` ever sees them.
+ *
+ * Taken over both halves together, deliberately. A stretch that ran forty
+ * minutes supervising and then twenty hands-on is an hour the person did not
+ * step away from, and splitting it at the moment they started typing would
+ * answer a different question than the one "unbroken" asks. {@link
+ * mergeIntervals} treats touching as merging, and the two halves are disjoint
+ * and touching by construction, so the join costs nothing extra.
+ *
+ * Null where there is nothing to measure. Absent is not zero: a store that
+ * hands over no spans has not recorded a zero-minute stretch, it has recorded
+ * nothing.
+ */
+export function longestRunOf(
+  intervals: readonly Interval[]
+): { length: number; from: number } | null {
+  let longest: { length: number; from: number } | null = null;
+  for (const run of mergeIntervals(intervals)) {
+    const length = run.to - run.from;
+    if (longest === null || length > longest.length) longest = { length, from: run.from };
+  }
+  return longest;
+}
+
+/**
  * Unions classified spans from any number of sessions into one elapsed-time
  * reading.
  *
@@ -178,6 +226,10 @@ export function unionActiveTime(spans: readonly ActiveSpan[]): UnionedActive {
   const summedHandsOnMs = totalMs(handsOn);
   const summedAgentSupervisingMs = totalMs(supervising);
   const unionedMs = handsOnMs + agentSupervisingMs;
+  // Over the raw spans rather than the merged halves: their union is the same
+  // set of instants, and starting from the raw list keeps the longest run
+  // independent of how the hands-on/supervising partition was drawn.
+  const longest = longestRunOf([...handsOn, ...supervising]);
 
   return {
     handsOnMs,
@@ -186,7 +238,9 @@ export function unionActiveTime(spans: readonly ActiveSpan[]): UnionedActive {
     summedAgentSupervisingMs,
     meanConcurrency:
       unionedMs > 0 ? (summedHandsOnMs + summedAgentSupervisingMs) / unionedMs : null,
-    peakConcurrency: peakOverlap([...handsOn, ...supervising])
+    peakConcurrency: peakOverlap([...handsOn, ...supervising]),
+    longestRunMs: longest?.length ?? null,
+    longestRunFrom: longest?.from ?? null
   };
 }
 

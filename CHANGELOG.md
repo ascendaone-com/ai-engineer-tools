@@ -12,6 +12,27 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.22
 
+### Your longest unbroken stretch
+
+- **The history import records how long your best single run of work was.**
+  Every project on the handoff now carries it, along with the day it started.
+  The desktop app has been asking you to run the import again to pick it up;
+  that ask goes away.
+- **It's measured once, before anything cuts it up.** A stretch worked from
+  23:40 to 00:30 is fifty minutes. The per-day figures split it at midnight
+  into twenty and thirty, and no arithmetic over those gets you back to fifty,
+  so the figure is taken over your whole timeline before the split happens.
+  Two agents working the same hour count as one hour, the same way the rest of
+  your elapsed time does.
+- **It doesn't add up with anything.** Every other figure in the import is a
+  total; this one is a maximum. You can't sum it across projects, and a card
+  showing your last thirty days can't derive its own longest run from it. The
+  start date is there so a surface can at least tell whether the stretch falls
+  inside the window it's drawing.
+- **Nothing to install.** Run the import again and the app has it. Handoffs
+  already on disk still read fine. They just don't carry the stretch, and the
+  app says so. It won't guess a number from the day figures.
+
 ### Codex, Cursor, Windsurf and Gemini now drive the desktop app's live features
 
 - **Step Away no longer lets the Mac sleep mid-run.** The Ascenda Flow macOS

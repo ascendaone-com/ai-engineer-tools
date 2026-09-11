@@ -61,7 +61,16 @@ export interface SessionDaySlice {
 export const LOCAL_TIMEZONE: string | null =
   Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;
 
-function localDayKey(t: Date): string {
+/**
+ * The `YYYY-MM-DD` a moment falls on in the host's local time.
+ *
+ * Exported so that a figure dated outside the per-day slices — the longest
+ * unbroken stretch, which is taken before the midnight cut and so has no slice
+ * of its own — is dated by the same rule the slices are keyed by. Two spellings
+ * of one day key is how `2026-08-03` comes to mean two different days in one
+ * file.
+ */
+export function localDayKey(t: Date): string {
   const y = t.getFullYear();
   const m = String(t.getMonth() + 1).padStart(2, "0");
   const d = String(t.getDate()).padStart(2, "0");
