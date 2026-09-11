@@ -48,6 +48,14 @@ export const ACTIVE_TIME_FIGURES: Readonly<Record<string, AscendaActiveTimeQuant
   "ProjectElapsedActive.handsOnMinutes": "hands_on",
   "ProjectElapsedActive.agentSupervisingMinutes": "supervising",
 
+  // The longest single unbroken stretch — a maximum, where every other figure
+  // registered here is a total. `block_coverage` is the contract's name for
+  // "how long the best single stretch was", so no name is invented for it. The
+  // consequence a reader needs: it does not add, and it does not decompose into
+  // the per-day figures below, which are cut at local midnight where this is
+  // not.
+  "ProjectElapsedActive.longestActiveRunMinutes": "block_coverage",
+
   // Per local day, both readings side by side so a window can state its own
   // concurrency instead of borrowing a corpus-wide ratio.
   "ProjectElapsedDay.handsOnMinutes": "hands_on",

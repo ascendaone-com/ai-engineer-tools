@@ -86,7 +86,18 @@ const PROJECT_ELAPSED_QUANTITIES: ActiveTimeQuantityStamp = {
   // than borrow a corpus-wide ratio. The `summed` prefix is the only thing
   // separating them in the file; this says what the prefix means.
   "projects[].elapsed.days[].summedHandsOnMinutes": "hands_on_agent_hours",
-  "projects[].elapsed.days[].summedAgentSupervisingMinutes": "supervising_agent_hours"
+  "projects[].elapsed.days[].summedAgentSupervisingMinutes": "supervising_agent_hours",
+
+  // Not coverage. Every key above answers "how much clock was touched" and is
+  // a total; this one answers "how long was the best single stretch" and is a
+  // maximum — the distinction `block_coverage` was declared for, reached for
+  // rather than a name invented for the occasion. It is cut by this file's gap
+  // rule like the rest, and the gap stamp beside it already says which rule.
+  //
+  // The consequence a reader needs from the quantity: a maximum does not add.
+  // It cannot be summed with another project's, and it does not decompose into
+  // `elapsed.days[]` — those are cut at local midnight and this is not.
+  "projects[].elapsed.longestActiveRunMinutes": "block_coverage"
 };
 
 const PROJECT_DIGEST_QUANTITIES: ActiveTimeQuantityStamp = {
