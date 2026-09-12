@@ -370,11 +370,12 @@ interface SessionFold {
    */
   toolCalls: { at: string; name: string }[];
   /** Every known-line timestamp, main thread and subagents merged, each
-   * carrying whether a person wrote it and what permission posture was
-   * declared there — the raw material for gap-split `activeMinutes` AND for
-   * the hands-on/agent-supervising split, which must be computed off the same
-   * instants or they cannot partition each other. Never shipped itself, only
-   * the derived totals. */
+   * carrying whether a person wrote it, whether the agent side of the runtime
+   * produced it, and what permission posture was declared there — the raw
+   * material for gap-split `activeMinutes` AND for the hands-on/agent-
+   * supervising split, which must be computed off the same instants or they
+   * cannot partition each other. Never shipped itself, only the derived
+   * totals. */
   timelinePoints: ActiveInstant[];
   /** Known lines whose `timestamp` the runtime wrote but `Date.parse` could
    * not read. They are absent from `timelinePoints`, so both active figures
@@ -592,6 +593,15 @@ async function foldLinesInto(
       // prompts-only figure in the day slices.
       let humanHere = false;
       let postureHere: string | null = null;
+      // Whether the agent side of the runtime produced this line. Decided per
+      // line type below, and it is what starts a human turn: hands-on runs
+      // from the last instant this is true to the next human prompt. The
+      // runtime's bookkeeping around a prompt — `attachment`, `queue-operation`,
+      // `last-prompt`, `custom-title` — is neither a person nor the agent, so
+      // it bounds nothing; under the old nearest-line rule it bounded almost
+      // every hands-on span, milliseconds before the prompt, which is why that
+      // rule measured the runtime's write latency rather than a person.
+      let agentOutputHere = false;
       switch (sniffed.kind) {
         case "user": {
           // Re-parse is cheap relative to disk; the sniffer deliberately does
@@ -603,6 +613,8 @@ async function foldLinesInto(
           }
           if (isToolFailureLine(record)) fold.toolResultErrorCount += 1;
           if (isToolResultUserLine(record)) {
+            // A tool round-trip completing is the agent's work landing.
+            agentOutputHere = true;
             fold.toolResults += 1;
             const tur = record.toolUseResult;
             if (tur && typeof tur === "object" && !Array.isArray(tur)) {
@@ -615,7 +627,9 @@ async function foldLinesInto(
           } else if (opts.isSidechain) {
             // A subagent's task instruction — not a tool round-trip, and not
             // something a human typed either. Counted so it's visible, never
-            // folded into promptCount.
+            // folded into promptCount. The orchestrator wrote it, so it is
+            // the agent's output as far as the human turn is concerned.
+            agentOutputHere = true;
             fold.subagentPrompts += 1;
           } else {
             fold.humanPrompts += 1;
@@ -635,6 +649,10 @@ async function foldLinesInto(
           break;
         }
         case "assistant": {
+          // Every assistant line is the agent speaking — a model turn, a tool
+          // call being issued, or a runtime notice under `<synthetic>`. Each
+          // ends whatever human turn was open.
+          agentOutputHere = true;
           const record = JSON.parse(line) as Record<string, unknown>;
           const usage = (record.message as Record<string, unknown> | undefined)?.usage as
             | Record<string, unknown>
@@ -699,6 +717,12 @@ async function foldLinesInto(
           break;
         }
         case "system": {
+          // Runtime notices — the stop-hook summary that closes a turn, an
+          // API retry, a compaction boundary. The runtime's agent side wrote
+          // them while working, so they end a human turn the way a model
+          // line does; the stop-hook summary in particular is the last line
+          // before the person's reading time begins.
+          agentOutputHere = true;
           // Not observed inside subagent transcripts on the verified store
           // (compaction and api_error both live on the main thread only),
           // but nothing here assumes that stays true — it just naturally
@@ -724,12 +748,18 @@ async function foldLinesInto(
           break;
         }
         default:
-          break; // attachment / last-prompt / custom-title: window only.
+          break; // attachment / last-prompt / custom-title: window only, and
+        //           bookkeeping for the split — `agentOutputHere` stays false.
       }
       if (sniffed.occurredAt) {
         const ms = Date.parse(sniffed.occurredAt);
         if (Number.isFinite(ms)) {
-          fold.timelinePoints.push({ at: ms, human: humanHere, autonomyMode: postureHere });
+          fold.timelinePoints.push({
+            at: ms,
+            human: humanHere,
+            agentOutput: agentOutputHere,
+            autonomyMode: postureHere
+          });
         } else {
           // A timestamp the runtime wrote and this code cannot read. It still
           // moved `firstTs`/`lastTs` above by string comparison, so the
