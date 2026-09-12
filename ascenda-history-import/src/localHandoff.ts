@@ -41,7 +41,7 @@ import {
   CODEX_ACTIVE_TIME_QUANTITIES,
   type ActiveTimeQuantityStamp
 } from "./handoffActiveTime.js";
-import { DEFAULT_ACTIVE_GAP_MS, minutesOf, type ActiveSpan } from "./activeSplit.js";
+import { DEFAULT_ACTIVE_GAP_MS, minutesOf, type ActiveSpan, type HandsOnBoundary } from "./activeSplit.js";
 import { unionActiveByLocalDay, unionActiveTime } from "./activeUnion.js";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -396,6 +396,20 @@ export interface HandoffFile {
    */
   activeGapMinutes: number;
   /**
+   * Which line begins a hands-on span — `human_turn` (the run from the
+   * agent's last output to the prompt) or `nearest_line` (the single span
+   * ending at the prompt, whatever began it). The third label beside the gap
+   * rule above and the quantities below: the gap says how the figures were
+   * cut, the quantity says what was measured, and this says what "hands-on"
+   * meant while it was measured. The two rules differ by orders of magnitude
+   * on a transcript whose runtime writes bookkeeping lines around a prompt.
+   *
+   * Absent on a handoff written before this field, which every writer cut by
+   * `nearest_line`; a reader that needs to compare hands-on across handoffs
+   * must treat absent as that, never as "the current rule".
+   */
+  handsOnBoundary: HandsOnBoundary;
+  /**
    * What each of this handoff's minute figures is a measurement **of**, keyed
    * by the path a reader walks to reach it (`sessions[].handsOnMinutes`,
    * `projects[].elapsed.days[].summedHandsOnMinutes`). The first third of the
@@ -508,6 +522,20 @@ export interface CodexHandoffFile {
    * never "cut at some default a reader may assume".
    */
   activeGapMinutes: number;
+  /**
+   * Which line begins a hands-on span — `human_turn` (the run from the
+   * agent's last output to the prompt) or `nearest_line` (the single span
+   * ending at the prompt, whatever began it). The third label beside the gap
+   * rule above and the quantities below: the gap says how the figures were
+   * cut, the quantity says what was measured, and this says what "hands-on"
+   * meant while it was measured. The two rules differ by orders of magnitude
+   * on a transcript whose runtime writes bookkeeping lines around a prompt.
+   *
+   * Absent on a handoff written before this field, which every writer cut by
+   * `nearest_line`; a reader that needs to compare hands-on across handoffs
+   * must treat absent as that, never as "the current rule".
+   */
+  handsOnBoundary: HandsOnBoundary;
   /**
    * What each of this handoff's minute figures is a measurement **of**, keyed
    * by the path a reader walks to reach it (`sessions[].handsOnMinutes`,
@@ -951,6 +979,9 @@ export function buildHandoff(
     // repeated here — a provenance stamp that can disagree with the rule it
     // describes is worse than none.
     activeGapMinutes: DEFAULT_ACTIVE_GAP_MS / 60_000,
+    // The Claude Code extractor classifies its lines, so hands-on here runs
+    // from the agent's last output to the prompt.
+    handsOnBoundary: "human_turn",
     // And what each of those figures measures, keyed by the path a reader
     // walks. The `projects` rollup below is why this store needs the stamp
     // most: it carries the summed pair and the unioned pair under one
@@ -1027,6 +1058,9 @@ export function buildCodexHandoff(
     // repeated here — a provenance stamp that can disagree with the rule it
     // describes is worse than none.
     activeGapMinutes: DEFAULT_ACTIVE_GAP_MS / 60_000,
+    // The Codex extractor has not classified its bookkeeping lines, so its
+    // hands-on is still the span ending at the prompt — see the extractor.
+    handsOnBoundary: "nearest_line",
     // And what each of those figures measures, keyed by the path a reader
     // walks. The `projects` rollup below is why this store needs the stamp
     // most: it carries the summed pair and the unioned pair under one
