@@ -70,7 +70,7 @@ targets, error counts or internal resource names — this repository is public.
   keep-awake, the settle bell never rang, and the Waterline screen saver fell
   back to ambient. All four work now.
 - **Each agent counts as itself.** The three report under their own names, so
-  running two agents side by side reads as two streams rather than one — the
+  running two agents side by side reads as two streams rather than one: the
   concurrency gauge was the thing that would have quietly under-counted.
 - **Windsurf has no compaction beat, and won't get one.** Cascade ships no
   compaction hook, so the gauge's compaction ripple never fires there. Every
