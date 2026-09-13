@@ -40,8 +40,8 @@ export interface SessionDaySlice {
    */
   activeMinutes?: number;
   /**
-   * The day's share of {@link ActiveSplit.handsOnMs}, in minutes — time
-   * immediately preceding a human prompt.
+   * The day's share of {@link ActiveSplit.handsOnMs}, in minutes — the human
+   * turns, from the agent's last output to the prompt that followed.
    *
    * Present only alongside `agentSupervisingMinutes`, and only where the
    * caller passed classified instants. The two are never accompanied by a
@@ -174,7 +174,9 @@ export function sliceSessionByLocalDay(
   if (gapMs !== undefined) {
     const points: readonly ActiveInstant[] =
       classified ??
-      instants.map((d) => ({ at: d.getTime(), human: true, autonomyMode: null }));
+      // Prompt-only instants are never split, so the classification is moot;
+      // `agentOutput: false` is stated so the type says what this path knows.
+      instants.map((d) => ({ at: d.getTime(), human: true, agentOutput: false, autonomyMode: null }));
     // One classification, shared with the session totals — see activeSplit.ts.
     for (const span of activeSpans(points, { activeGapMs: gapMs }).spans) {
       const from = new Date(span.from);

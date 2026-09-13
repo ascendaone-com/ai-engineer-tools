@@ -10,12 +10,38 @@
  *
  * This module splits the same gap-split material in two:
  *
- *  - **hands-on** — the interval immediately *preceding* a human prompt. The
- *    prompt at its end is the evidence: someone read the previous output and
- *    typed. It is the only interval in a transcript where a person is
- *    demonstrably present, because it is the only one a person signed.
+ *  - **hands-on** — the stretch from the agent's last output to the human
+ *    prompt that follows it: the human turn. The prompt at its end is the
+ *    evidence: someone read the previous output and typed. It is the only
+ *    stretch in a transcript where a person is demonstrably present, because
+ *    it is the only one a person signed.
  *  - **agent-supervising** — every other active interval. The agent produced
  *    the lines that bound it.
+ *
+ * ## Which line bounds the human turn
+ *
+ * Hands-on used to be the single span *ending* at the prompt, whatever line
+ * began it. That reads well and measures almost nothing, because a transcript
+ * is not only prompts and turns: the runtime writes its own bookkeeping around
+ * a prompt — a queue operation as the prompt is dequeued, an attachment as a
+ * hook runs — and those lines land milliseconds before the prompt line. Under
+ * the nearest-line rule the span ending at the prompt began at one of those,
+ * so hands-on was the runtime's write latency, counted once per prompt: a
+ * prompt counter wearing a minutes label, on any store where that
+ * bookkeeping exists.
+ *
+ * So each instant now says whether the agent side of the runtime produced it
+ * (`agentOutput`): a model turn, a tool result, a runtime notice. Bookkeeping
+ * lines and the prompt itself do not. Hands-on is the run of active spans
+ * from the last agent-produced instant to the next human one. A gap past the
+ * threshold breaks the run — a prompt vouches for the stretch it closes, not
+ * for a stretch on the far side of an absence — and a run no prompt closes
+ * stays on the agent's side, because nothing signed it.
+ *
+ * A writer that cannot tell bookkeeping from output passes `agentOutput` as
+ * the complement of `human`, which reproduces the nearest-line rule exactly,
+ * and stamps `handsOnBoundary: "nearest_line"` on its handoff so a reader
+ * knows which rule it is holding. {@link HandsOnBoundary}.
  *
  * **What "supervising" does not claim.** It does not claim the person was
  * watching, and nothing in a transcript could show that they were. It is time
@@ -78,6 +104,16 @@ export interface ActiveInstant {
    * "human" that could drift from the one `promptCount` is counted with.
    */
   human: boolean;
+  /**
+   * True where a line at this instant was produced by the agent side of the
+   * runtime — a model turn, a tool result, a runtime notice — as opposed to
+   * the runtime's bookkeeping around a prompt (attachments, queue operations)
+   * or the prompt itself. The last such instant is where a human turn starts;
+   * see the module note. Required rather than defaulted: an extractor that has
+   * not classified its lines must say so by passing `!human`, not by leaving
+   * a field off and getting the nearest-line rule by accident.
+   */
+  agentOutput: boolean;
   /**
    * Snake-cased `permissionMode` declared by a line at this instant, or null
    * where none was. Null is the overwhelming majority; see the module note.
@@ -148,16 +184,17 @@ export interface SplitOptions {
  * the call-site contract `SplitOptions` describes is unchanged and there is
  * one value to change rather than two to keep in step.
  *
- * **5 minutes, and the reason is the hands-on half.** Hands-on is the interval
- * immediately preceding a human prompt, and that prompt is the entire evidence
- * a person was present — so the threshold sets how much absence one prompt is
- * allowed to vouch for. At five minutes the interval reads as someone reading
- * output and typing. Widening it to thirty admits "left, came back half an
- * hour later, and typed" and counts the absence as time at a keyboard, which
- * is a claim this module's own definition cannot support. Measured on a real
- * 697-session store, thirty minutes inflates hands-on 3.5x and supervising
- * 1.4x — the asymmetry is the tell, because the two halves rest on different
- * evidence and only one of them is bounded by a prompt.
+ * **5 minutes, and the reason is the hands-on half.** Hands-on is the run
+ * from the agent's last output to a human prompt, and that prompt is the
+ * entire evidence a person was present — so the threshold sets how much
+ * absence one prompt is allowed to vouch for. At five minutes the interval
+ * reads as someone reading output and typing. Widening it to thirty admits
+ * "left, came back half an hour later, and typed" and counts the absence as
+ * time at a keyboard, which is a claim this module's own definition cannot
+ * support. Measured on a real 697-session store under the nearest-line rule,
+ * thirty minutes inflates hands-on 3.5x and supervising 1.4x — the asymmetry
+ * is the tell, because the two halves rest on different evidence and only
+ * one of them is bounded by a prompt.
  *
  * **The backend gap-splits at thirty, on purpose, and that is not a bug to
  * reconcile.** It measures block length and coverage rather than hands-on, and
@@ -170,6 +207,24 @@ export interface SplitOptions {
 export const DEFAULT_ACTIVE_GAP_MS = 5 * 60_000;
 
 /**
+ * Which line begins a hands-on span — the third label beside the gap rule and
+ * the quantity, and the one that says what "hands-on" meant when the figure
+ * was cut.
+ *
+ *  - `human_turn`: the run from the agent's last output to the prompt, as the
+ *    module note describes. The writer classified its lines.
+ *  - `nearest_line`: the single span ending at the prompt, whatever line began
+ *    it — the rule every handoff was cut by before this label existed, and
+ *    the rule a writer that has not classified its bookkeeping still applies.
+ *
+ * Stamped per handoff rather than assumed, because the two rules can differ by
+ * orders of magnitude on the same transcript and nothing else in the file
+ * would say which one a reader is holding. Absent means "written before the
+ * label existed", which on every writer so far means `nearest_line`.
+ */
+export type HandsOnBoundary = "human_turn" | "nearest_line";
+
+/**
  * One stretch of active time and what it was — the single classification, so
  * that the session totals and the per-day slices cannot come to differ. Both
  * consume this; neither reimplements it.
@@ -178,7 +233,8 @@ export interface ActiveSpan {
   /** Epoch ms, exclusive of nothing: `[from, to)`. */
   from: number;
   to: number;
-  /** True where the span ends at a human prompt. */
+  /** True where the span lies inside a human turn: after the agent's last
+   * output and no later than the prompt that closed the run. */
   handsOn: boolean;
   /** The posture in force across the span. Only meaningful when `handsOn` is
    * false; supplied regardless so a caller never has to re-derive it. */
@@ -209,7 +265,10 @@ export function activeSpans(
   points: readonly ActiveInstant[],
   options: SplitOptions
 ): ActiveSpanReport {
-  const collapsed = new Map<number, { human: boolean; autonomyMode: string | null }>();
+  const collapsed = new Map<
+    number,
+    { human: boolean; agentOutput: boolean; autonomyMode: string | null }
+  >();
   let undatedPoints = 0;
   for (const point of points) {
     if (!Number.isFinite(point.at)) {
@@ -219,9 +278,14 @@ export function activeSpans(
     const existing = collapsed.get(point.at);
     if (existing) {
       existing.human = existing.human || point.human;
+      existing.agentOutput = existing.agentOutput || point.agentOutput;
       if (point.autonomyMode) existing.autonomyMode = point.autonomyMode;
     } else {
-      collapsed.set(point.at, { human: point.human, autonomyMode: point.autonomyMode });
+      collapsed.set(point.at, {
+        human: point.human,
+        agentOutput: point.agentOutput,
+        autonomyMode: point.autonomyMode
+      });
     }
   }
 
@@ -241,6 +305,11 @@ export function activeSpans(
   let posture: string | null = collapsed.get(instants[0])?.autonomyMode ?? null;
   if (posture === null) report.unposturedInstants += 1;
 
+  // Index into `report.spans` of the first span not yet accounted for by an
+  // agent-produced instant: from here to the end is the run since the agent
+  // last spoke. A human instant claims that run as hands-on; an agent instant
+  // leaves it on the agent's side; either way the run then starts afresh.
+  let runStart = 0;
   for (let i = 1; i < instants.length; i += 1) {
     const from = instants[i - 1];
     const to = instants[i];
@@ -250,8 +319,17 @@ export function activeSpans(
       // `autonomyBand` maps a null or unrecognised token to `unknown` on its
       // own; passing the raw carried value keeps that decision in the one
       // place that documents it.
-      report.spans.push({ from, to, handsOn: here.human, band: autonomyBand(posture) });
+      report.spans.push({ from, to, handsOn: false, band: autonomyBand(posture) });
+    } else {
+      // Stepping away breaks the run. A prompt on this side of the absence
+      // vouches for nothing on the far side of it.
+      runStart = report.spans.length;
     }
+    if (here.human) {
+      for (let s = runStart; s < report.spans.length; s += 1) report.spans[s].handsOn = true;
+      runStart = report.spans.length;
+    }
+    if (here.agentOutput) runStart = report.spans.length;
     if (here.autonomyMode) posture = here.autonomyMode;
     else if (posture === null) report.unposturedInstants += 1;
   }

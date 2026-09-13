@@ -12,6 +12,32 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.22
 
+### Hands-on time now runs from the agent's last output to your next prompt
+
+- **What "hands-on" measures changed, and the number will move.** The history
+  import splits your active time into hands-on and agent-working. Hands-on used
+  to be the single stretch ending at your prompt, whatever line started it — and
+  on Claude Code that line was usually the runtime's own bookkeeping (the queue
+  entry as your prompt was dequeued, a hook running), written milliseconds
+  before the prompt itself. So hands-on was counting the runtime's write
+  latency once per prompt, not the time you spent reading and typing. It now
+  runs from the agent's last output — its reply, a tool result, the stop-hook
+  line that closes a turn — to the prompt that follows. Expect a larger figure
+  after your next import; the old one was not smaller because you were less
+  present.
+- **The five-minute rule is unchanged.** A stretch longer than five minutes
+  between the agent's last line and your prompt still counts as stepping away,
+  and a prompt still vouches only for the stretch it closes.
+- **Every handoff says which rule cut it.** `handsOnBoundary` on the file reads
+  `human_turn` for Claude Code and `nearest_line` for Codex, whose transcript
+  bookkeeping has not been classified yet, so its figure means what it always
+  meant. A handoff without the field was cut by the old rule. The schema
+  number does not move: the shape is the same, the label is additive, and the
+  desktop app reads the file it already knows.
+- **The desktop app's own importer has not made this change yet.** Until it
+  does, a handoff it writes and one this CLI writes will disagree on hands-on
+  for the same week, and the label is how a reader tells them apart.
+
 ### Your longest unbroken stretch
 
 - **The history import records how long your best single run of work was.**

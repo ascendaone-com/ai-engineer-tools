@@ -537,7 +537,20 @@ async function foldRollout(filePath: string): Promise<SessionFold> {
           // sandbox_policy, not permission_mode, and the live hooks leave
           // those unmapped on purpose. Null here is what puts every
           // supervising minute in the `unknown` band, as the header says.
-          fold.timelinePoints.push({ at: ms, human: humanHere, autonomyMode: null });
+          // `agentOutput` as the complement of `human` is the nearest-line
+          // rule, stated rather than defaulted: this extractor has not
+          // classified which rollout lines are the runtime's bookkeeping
+          // (`turn_context`, the injected `user_message` kinds) and which are
+          // the agent's output, so the human turn cannot start from the right
+          // line yet. Its handoff stamps `handsOnBoundary: "nearest_line"` for
+          // the same reason. Classifying them is the next step, and the
+          // Claude Code extractor is the worked example.
+          fold.timelinePoints.push({
+            at: ms,
+            human: humanHere,
+            agentOutput: !humanHere,
+            autonomyMode: null
+          });
         } else {
           fold.undatedTimelineLines += 1;
         }

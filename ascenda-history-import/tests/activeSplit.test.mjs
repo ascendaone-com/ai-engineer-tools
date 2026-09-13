@@ -190,10 +190,10 @@ test("the transcript spells it permissionMode; the wire vocabulary is snake_case
 
 test("supervising time before any declared posture is unknown, never a neighbour", () => {
   const points = [
-    { at: 0, human: false, autonomyMode: null },
-    { at: 60_000, human: false, autonomyMode: null },
-    { at: 120_000, human: true, autonomyMode: "bypass_permissions" },
-    { at: 180_000, human: false, autonomyMode: null }
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60_000, human: false, agentOutput: true, autonomyMode: null },
+    { at: 120_000, human: true, agentOutput: false, autonomyMode: "bypass_permissions" },
+    { at: 180_000, human: false, agentOutput: true, autonomyMode: null }
   ];
   const split = splitActiveTime(points, { activeGapMs: GAP });
   assert.equal(split.supervisingMsByBand.unknown, 60_000, "the first minute had no posture to carry");
@@ -204,8 +204,8 @@ test("supervising time before any declared posture is unknown, never a neighbour
 
 test("an unrecognised posture lands in unknown and is not folded into a band", () => {
   const points = [
-    { at: 0, human: true, autonomyMode: "some_future_mode" },
-    { at: 60_000, human: false, autonomyMode: null }
+    { at: 0, human: true, agentOutput: false, autonomyMode: "some_future_mode" },
+    { at: 60_000, human: false, agentOutput: true, autonomyMode: null }
   ];
   const split = splitActiveTime(points, { activeGapMs: GAP });
   assert.equal(split.supervisingMsByBand.unknown, 60_000);
@@ -214,22 +214,150 @@ test("an unrecognised posture lands in unknown and is not folded into a band", (
 
 // ── The rule itself ────────────────────────────────────────────────────────
 
-test("the span ending at a human prompt is hands-on; the ones after it are not", () => {
+test("the span from the agent's output to a human prompt is hands-on; the ones after it are not", () => {
   const points = [
-    { at: 0, human: false, autonomyMode: null },
-    { at: 60_000, human: true, autonomyMode: "default" }, // 1m of reading+typing
-    { at: 120_000, human: false, autonomyMode: null }, //     1m of the agent working
-    { at: 180_000, human: false, autonomyMode: null } //      1m more
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60_000, human: true, agentOutput: false, autonomyMode: "default" }, // 1m of reading+typing
+    { at: 120_000, human: false, agentOutput: true, autonomyMode: null }, //     1m of the agent working
+    { at: 180_000, human: false, agentOutput: true, autonomyMode: null } //      1m more
   ];
   const split = splitActiveTime(points, { activeGapMs: GAP });
   assert.equal(split.handsOnMs, 60_000);
   assert.equal(split.agentSupervisingMs, 120_000);
 });
 
+// ── Which line begins the human turn ───────────────────────────────────────
+//
+// The defect these pin: the runtime writes its own bookkeeping around a prompt
+// (a queue operation as it is dequeued, an attachment as a hook runs), and
+// those lines land milliseconds before the prompt line. Taking the single span
+// ending at the prompt therefore measured the runtime's write latency once per
+// prompt, on any store where such lines exist — a prompt counter wearing a
+// minutes label.
+
+test("the runtime's bookkeeping between the agent's output and the prompt does not bound hands-on", () => {
+  const points = [
+    { at: 0, human: false, agentOutput: true, autonomyMode: null }, //          the agent's last line
+    { at: 100_000, human: false, agentOutput: false, autonomyMode: null }, //  a queue operation
+    { at: 100_050, human: false, agentOutput: false, autonomyMode: null }, //  a hook attachment
+    { at: 100_100, human: true, agentOutput: false, autonomyMode: null } //    the prompt
+  ];
+  const split = splitActiveTime(points, { activeGapMs: GAP });
+  assert.equal(split.handsOnMs, 100_100, "the whole human turn, not the last hundred milliseconds of it");
+  assert.equal(split.agentSupervisingMs, 0);
+  const spans = activeSpans(points, { activeGapMs: GAP }).spans;
+  assert.deepEqual(spans.map((s) => s.handsOn), [true, true, true], "every span in the run is marked, not only the last");
+});
+
+test("under the nearest-line rule the same timeline credits only the last hundred milliseconds", () => {
+  // `agentOutput: !human` is how a writer that has not classified its lines
+  // states the old rule, and this is what that rule makes of the same turn.
+  const points = [
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 100_000, human: false, agentOutput: true, autonomyMode: null },
+    { at: 100_050, human: false, agentOutput: true, autonomyMode: null },
+    { at: 100_100, human: true, agentOutput: false, autonomyMode: null }
+  ];
+  const split = splitActiveTime(points, { activeGapMs: GAP });
+  assert.equal(split.handsOnMs, 50);
+  assert.equal(split.agentSupervisingMs, 100_050);
+});
+
+test("a run no prompt closes stays on the agent's side", () => {
+  const points = [
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60_000, human: false, agentOutput: false, autonomyMode: null }, // bookkeeping, then nothing human
+    { at: 120_000, human: false, agentOutput: true, autonomyMode: null }
+  ];
+  const split = splitActiveTime(points, { activeGapMs: GAP });
+  assert.equal(split.handsOnMs, 0, "nothing signed it");
+  assert.equal(split.agentSupervisingMs, 120_000);
+});
+
+test("a gap past the threshold breaks the run — a prompt vouches for nothing on the far side of an absence", () => {
+  const points = [
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 30_000, human: false, agentOutput: false, autonomyMode: null },
+    { at: 30_000 + 6 * 60_000, human: true, agentOutput: false, autonomyMode: null } // six minutes later
+  ];
+  const split = splitActiveTime(points, { activeGapMs: GAP });
+  assert.equal(split.handsOnMs, 0);
+  assert.equal(split.agentSupervisingMs, 30_000, "the half-minute before the absence is the agent's, as it always was");
+});
+
+test("two prompts with no agent output between them are one continuous human turn", () => {
+  const points = [
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60_000, human: true, agentOutput: false, autonomyMode: null },
+    { at: 120_000, human: true, agentOutput: false, autonomyMode: null }
+  ];
+  const split = splitActiveTime(points, { activeGapMs: GAP });
+  assert.equal(split.handsOnMs, 120_000);
+  assert.equal(split.agentSupervisingMs, 0);
+});
+
+test("a prompt and the agent's reply on one instant: the turn is claimed, then the run restarts", () => {
+  const points = [
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60_000, human: true, agentOutput: true, autonomyMode: null },
+    { at: 120_000, human: false, agentOutput: true, autonomyMode: null }
+  ];
+  const split = splitActiveTime(points, { activeGapMs: GAP });
+  assert.equal(split.handsOnMs, 60_000);
+  assert.equal(split.agentSupervisingMs, 60_000);
+});
+
+test("through the extractor: a queue operation and a hook attachment before the prompt do not shrink the human turn", async () => {
+  // The real fixture above happens not to exercise this — its bookkeeping-
+  // bounded prompts sit past the gap from the agent's last line, so both rules
+  // give them nothing. This transcript puts the bookkeeping inside the gap,
+  // which is the everyday shape: the agent finishes, the person reads for a
+  // while, types, and the runtime writes a dequeue and a hook line a few
+  // milliseconds ahead of the prompt.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "active-split-turn-"));
+  const project = path.join(dir, "projects", "-Users-example-Dev-repo-turn");
+  await fs.mkdir(project, { recursive: true });
+  const session = "aaaaaaaa-bbbb-cccc-dddd-eeeeffff0010";
+  const base = Date.parse("2026-07-20T10:00:00.000Z");
+  const at = (ms) => new Date(base + ms).toISOString();
+  const common = { sessionId: session, version: "2.1.227", cwd: "/Users/example/Dev/repo-turn" };
+  const lines = [
+    { type: "user", timestamp: at(0), ...common, message: { role: "user", content: "start" } },
+    { type: "assistant", timestamp: at(30_000), ...common, message: { role: "assistant", model: "claude-opus-5", content: [{ type: "text", text: "done" }] } },
+    { type: "system", subtype: "stop_hook_summary", timestamp: at(31_000), ...common },
+    // 100 seconds of reading, then the person types: the runtime enqueues,
+    // dequeues, runs a hook, and only then writes the prompt line.
+    { type: "queue-operation", operation: "enqueue", timestamp: at(131_000), sessionId: session },
+    { type: "queue-operation", operation: "dequeue", timestamp: at(131_900), sessionId: session },
+    { type: "attachment", timestamp: at(131_990), ...common, attachment: { type: "hook_success" } },
+    { type: "user", timestamp: at(132_000), ...common, message: { role: "user", content: "next" } },
+    { type: "assistant", timestamp: at(150_000), ...common, message: { role: "assistant", model: "claude-opus-5", content: [{ type: "text", text: "ok" }] } }
+  ].map((o) => JSON.stringify(o));
+  await fs.writeFile(path.join(project, `${session}.jsonl`), lines.join("\n") + "\n");
+
+  const events = [];
+  for await (const event of extractClaudeCode(dir, "extraction-turn")) events.push(event);
+  await fs.rm(dir, { recursive: true, force: true });
+
+  const m = sessionOf(events).metrics;
+  // Under the nearest-line rule the human turn was the 10 ms between the
+  // attachment and the prompt, which rounds to nothing; the run from the
+  // stop-hook line to the prompt is 101 s.
+  assert.equal(m.handsOnMinutes, 2, "the reading-and-typing stretch, not the runtime's write latency");
+  assert.equal(m.agentSupervisingMinutes, 1, "the agent's 30 s reply plus its 18 s follow-up");
+  assert.equal(m.activeMinutes, m.handsOnMinutes + m.agentSupervisingMinutes);
+});
+
+test("the handoff says which rule cut its hands-on figures", async () => {
+  const events = await extractFixture();
+  const handoff = buildHandoff(events, "extraction-active-split", "2026-09-03T00:00:00.000Z");
+  assert.equal(handoff.handsOnBoundary, "human_turn", "the Claude Code extractor classifies its lines");
+});
+
 test("a gap past the threshold is neither figure — stepping away is not work", () => {
   const points = [
-    { at: 0, human: false, autonomyMode: null },
-    { at: 60 * 60_000, human: true, autonomyMode: null } // an hour later
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60 * 60_000, human: true, agentOutput: false, autonomyMode: null } // an hour later
   ];
   const split = splitActiveTime(points, { activeGapMs: GAP });
   assert.equal(split.handsOnMs, 0);
@@ -241,10 +369,10 @@ test("lines sharing a millisecond collapse instead of being ordered against each
   // instant. Ordering them would make the split depend on a within-millisecond
   // order the store does not promise.
   const points = [
-    { at: 0, human: false, autonomyMode: null },
-    { at: 60_000, human: false, autonomyMode: null },
-    { at: 60_000, human: true, autonomyMode: null },
-    { at: 60_000, human: false, autonomyMode: null }
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60_000, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60_000, human: true, agentOutput: false, autonomyMode: null },
+    { at: 60_000, human: false, agentOutput: true, autonomyMode: null }
   ];
   const split = splitActiveTime(points, { activeGapMs: GAP });
   assert.equal(split.instants, 2, "three lines on one millisecond are one instant");
@@ -256,9 +384,9 @@ test("the split and the day slices read the same spans", async () => {
   // Not a coincidence to be re-asserted per caller: both go through
   // `activeSpans`, and this pins that they still do.
   const points = [
-    { at: 0, human: false, autonomyMode: null },
-    { at: 60_000, human: true, autonomyMode: null },
-    { at: 120_000, human: false, autonomyMode: null }
+    { at: 0, human: false, agentOutput: true, autonomyMode: null },
+    { at: 60_000, human: true, agentOutput: false, autonomyMode: null },
+    { at: 120_000, human: false, agentOutput: true, autonomyMode: null }
   ];
   const report = activeSpans(points, { activeGapMs: GAP });
   const split = splitActiveTime(points, { activeGapMs: GAP });

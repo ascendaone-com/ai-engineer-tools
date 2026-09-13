@@ -102,8 +102,19 @@ split:
 
 | Figure | What it is |
 |---|---|
-| `handsOnMinutes` | The interval immediately **preceding** a human prompt. The prompt at its end is the evidence: someone read the previous output and typed. |
+| `handsOnMinutes` | The human turns: from the agent's last output to the human prompt that follows. The prompt at the end is the evidence: someone read the previous output and typed. |
 | `agentSupervisingMinutes` | Every other active interval. The agent produced the lines that bound it. |
+
+Which line *begins* a hands-on span matters more than it looks. A transcript
+is not only prompts and turns: the runtime writes bookkeeping around a prompt
+(a queue operation as it is dequeued, an attachment as a hook runs), and those
+lines land milliseconds before the prompt line. The first version of this
+split took the single span ending at the prompt, whatever line began it, and
+on any store with that bookkeeping it measured the runtime's write latency
+once per prompt. The handoff now stamps `handsOnBoundary` to say which rule cut
+it: `human_turn` for Claude Code, whose extractor classifies its lines, and
+`nearest_line` for Codex, whose bookkeeping has not been classified yet. A
+handoff without the stamp was cut by `nearest_line`.
 
 The two partition `activeMinutes` exactly and there is **no third key holding
 their sum**, at session, day or project scale. Adding them reconstructs
