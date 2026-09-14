@@ -105,6 +105,7 @@ import {
   splitActiveTime,
   type ActiveInstant
 } from "../activeSplit.js";
+import { stepRun } from "../interruptedRuns.js";
 
 /** Line types the extractor reads fields from. */
 export const KNOWN_CLAUDE_LINE_TYPES = [
@@ -384,6 +385,10 @@ interface SessionFold {
   /** Timestamps of HUMAN prompts only — the per-prompt events emitted later,
    * and the source for rapid-reprompt detection. Timestamps, never text. */
   humanPromptTimestamps: (string | null)[];
+  /** Runs the person cut short, main thread only. See `interruptedRuns.ts`. */
+  interruptedRuns: number;
+  /** When each of those cuts happened, for the day slices. Never shipped. */
+  interruptedRunTimestamps: (string | null)[];
 }
 
 function newFold(sessionId: string, projectSlug: string): SessionFold {
@@ -427,7 +432,9 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     toolCalls: [],
     timelinePoints: [],
     undatedTimelineLines: 0,
-    humanPromptTimestamps: []
+    humanPromptTimestamps: [],
+    interruptedRuns: 0,
+    interruptedRunTimestamps: []
   };
 }
 
@@ -555,6 +562,10 @@ async function foldLinesInto(
 ): Promise<void> {
   // Transcripts run to hundreds of MB; read line-wise, never whole-file.
   const handle = await fs.open(filePath);
+  // Whether an agent turn is going on the main thread, for counting the runs a
+  // person cut short. Per file, because a subagent's turns are not the
+  // person's to interrupt and its transcript is never stepped.
+  let turnRunning = false;
   try {
     for await (const line of handle.readLines({ encoding: "utf8" })) {
       const sniffed = sniffClaudeLine(line);
@@ -611,6 +622,19 @@ async function foldLinesInto(
           if (typeof record.gitBranch === "string" && !fold.gitBranch) {
             fold.gitBranch = record.gitBranch;
           }
+          if (!opts.isSidechain) {
+            // The one place this writer counts a run cut short: a human
+            // interrupt marker that ends an agent turn still going. Not one
+            // that lands after the turn ended, and not one the app wrote while
+            // shutting down. The rule and its evidence live in
+            // `interruptedRuns.ts`.
+            const step = stepRun(turnRunning, record, isToolResultUserLine);
+            turnRunning = step.running;
+            if (step.cut) {
+              fold.interruptedRuns += 1;
+              fold.interruptedRunTimestamps.push(sniffed.occurredAt);
+            }
+          }
           if (isToolFailureLine(record)) fold.toolResultErrorCount += 1;
           if (isToolResultUserLine(record)) {
             // A tool round-trip completing is the agent's work landing.
@@ -654,6 +678,7 @@ async function foldLinesInto(
           // ends whatever human turn was open.
           agentOutputHere = true;
           const record = JSON.parse(line) as Record<string, unknown>;
+          if (!opts.isSidechain) turnRunning = stepRun(turnRunning, record, isToolResultUserLine).running;
           const usage = (record.message as Record<string, unknown> | undefined)?.usage as
             | Record<string, unknown>
             | undefined;
@@ -728,6 +753,7 @@ async function foldLinesInto(
           // but nothing here assumes that stays true — it just naturally
           // folds into the same session counters if it ever does.
           const record = JSON.parse(line) as Record<string, unknown>;
+          if (!opts.isSidechain) turnRunning = stepRun(turnRunning, record, isToolResultUserLine).running;
           if (record.subtype === "compact_boundary") {
             fold.compactionCount += 1;
             const trigger = (record.compactMetadata as Record<string, unknown> | undefined)?.trigger;
@@ -979,6 +1005,7 @@ export async function* extractClaudeCode(
         linesChangedBucket: bucketLinesChanged(fold.linesChangedTotal),
         rapidRepromptCount: rapidRepromptCountOf(fold),
         abandonedPromptCount: fold.abandonedPromptCount,
+        interruptedRuns: fold.interruptedRuns,
         activeMinutes: minutesOf(split.handsOnMs + split.agentSupervisingMs),
         // The two halves of that figure, and the reason it is not the whole
         // answer: a session that spent 5 minutes being typed at and 17 minutes
@@ -1023,7 +1050,8 @@ export async function* extractClaudeCode(
         // figure reported the timeline. Both materials now cross this call.
         dayBreakdown: sliceSessionByLocalDay(fold.humanPromptTimestamps, {
           activeGapMs: ACTIVE_GAP_MS,
-          activeInstants: fold.timelinePoints
+          activeInstants: fold.timelinePoints,
+          interruptedRunTimestamps: fold.interruptedRunTimestamps
         }),
         // Local-only, consumed by `buildHandoff` and never written anywhere;
         // see `NormalizedHistoricalEvent.activeSpans`.

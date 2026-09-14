@@ -55,6 +55,14 @@ export interface SessionDaySlice {
    * claim that anyone watched it; see `activeSplit.ts`.
    */
   agentSupervisingMinutes?: number;
+  /**
+   * Runs the person cut short on this day, in this session: a human interrupt
+   * marker that ended an agent turn still going. See `interruptedRuns.ts`.
+   *
+   * Present only where the caller counted them, so absent means "not counted"
+   * and `0` means "counted, and there were none".
+   */
+  interruptedRuns?: number;
 }
 
 /** The IANA zone the slices were cut in, or null where the host cannot say. */
@@ -132,6 +140,26 @@ export interface SliceOptions {
    * correct for a store whose only timestamps *are* its prompts.
    */
   activeInstants?: readonly ActiveInstant[];
+  /**
+   * When each run the person cut short happened. Passed only by a store that
+   * counts them; every slice then carries `interruptedRuns`, `0` included.
+   * A cut's day is a day the session held work, so it gets a slice even with
+   * no prompt on it. Undated cuts are dropped here as undated prompts are.
+   */
+  interruptedRunTimestamps?: readonly (string | null | undefined)[];
+}
+
+/** Local-day keys of the parseable timestamps in `timestamps`, unsorted. */
+function localDayCounts(timestamps: readonly (string | null | undefined)[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const t of timestamps) {
+    if (typeof t !== "string" || t.length === 0) continue;
+    const d = new Date(t);
+    if (!Number.isFinite(d.getTime())) continue;
+    const key = localDayKey(d);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /**
@@ -186,7 +214,10 @@ export function sliceSessionByLocalDay(
     }
   }
 
-  const days = [...new Set([...prompts.keys(), ...activeMs.keys()])].sort();
+  const cuts = options.interruptedRunTimestamps
+    ? localDayCounts(options.interruptedRunTimestamps)
+    : null;
+  const days = [...new Set([...prompts.keys(), ...activeMs.keys(), ...(cuts?.keys() ?? [])])].sort();
   return days.map((day) => {
     const slice: SessionDaySlice = { day, prompts: prompts.get(day) ?? 0 };
     if (gapMs !== undefined) {
@@ -196,6 +227,7 @@ export function sliceSessionByLocalDay(
         slice.agentSupervisingMinutes = Math.round((supervisingMs.get(day) ?? 0) / 60_000);
       }
     }
+    if (cuts) slice.interruptedRuns = cuts.get(day) ?? 0;
     return slice;
   });
 }

@@ -130,6 +130,28 @@ which the person did not spend typing. Rendering it as attention is a
 fabrication the name invites and the data does not support; the honest gloss is
 "the agent was working".
 
+### Runs you cut short
+
+Claude Code sessions also count the times you stopped the agent mid-turn.
+
+| Figure | What it is |
+|---|---|
+| `interruptedRuns` | Runs you cut short. A run is cut short when a human interrupt marker (`[Request interrupted by user]`, or its `for tool use` variant, written when you press Escape) ends an agent turn that was still going. One per marker, per session, on every day slice as well, placed on the marker's local day the way prompts are. A marker after the turn had already ended is a stray keypress and doesn't count. Neither does one the app wrote while shutting down. |
+
+It's a count. It isn't a rate, and nothing places it more finely than a day.
+
+The handoff says whether it was counted. `interruptedRunsCounted: true` on the
+file means every session and every day slice carries the figure, so `0` means
+none. A handoff without the label wasn't counted: every file written before
+this field, and every store other than Claude Code. Absent is never zero. The
+schema number doesn't move, because the label is additive.
+
+A turn is still going from the prompt, tool result or notification that starts
+it until a reply with a `stop_reason` other than `tool_use`, or the stop-hook
+line that closes the turn. The rule is in
+[`src/interruptedRuns.ts`](./src/interruptedRuns.ts), and the desktop app's
+importer counts by the same one.
+
 ### Autonomy bands
 
 `permissionMode` is on the transcript's human-prompt lines and nowhere else —

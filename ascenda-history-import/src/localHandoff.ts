@@ -159,6 +159,9 @@ export interface HandoffSession {
   promptCount: number;
   durationBucket: string;
   afterHoursPrompts: number;
+  /** Runs the person cut short in this session. Read only beside the file's
+   * `interruptedRunsCounted`; see `interruptedRuns.ts` for the definition. */
+  interruptedRuns: number;
   primaryModel: string | null;
   /** Gap-split minutes (5m idle threshold) — the non-idle-inflated
    * alternative to wall-clock duration. See claudeCode.ts's activeMinutesOf. */
@@ -378,6 +381,14 @@ export interface HandoffFile {
   schema: number;
   extractionId: string;
   generatedAt: string;
+  /**
+   * Whether this writer counted the runs a person cut short. When true, every
+   * session carries `interruptedRuns` and every day slice does too, `0`
+   * included. Absent on a handoff written before the count existed, and on any
+   * store that doesn't count it: absent means "not counted", never zero.
+   * Additive, so the schema number doesn't move.
+   */
+  interruptedRunsCounted: true;
   /**
    * The gap that ended a stretch of work when these figures were cut, in
    * minutes. Provenance, in the same spirit as `timezone` above: a reader must
@@ -950,6 +961,7 @@ export function buildHandoff(
       toolFailureCount: Number(event.metrics.toolFailureCount ?? 0),
       contextWindowPeakPct: Number(event.metrics.contextWindowPeakPct ?? 0),
       contextWindowPeakTokens: Number(event.metrics.contextWindowPeakTokens ?? 0),
+      interruptedRuns: Number(event.metrics.interruptedRuns ?? 0),
       // Null, never 0. `toolUseResult.userModified` occurs 20,133 times
       // across a real 363-session store and is `false` on every single one
       // — Claude Code does not appear to set it true. Shipping 0 says "no
@@ -982,6 +994,9 @@ export function buildHandoff(
     // The Claude Code extractor classifies its lines, so hands-on here runs
     // from the agent's last output to the prompt.
     handsOnBoundary: "human_turn",
+    // This extractor counts the runs a person cut short, so a `0` on a session
+    // or a day slice below means none, not "not looked for".
+    interruptedRunsCounted: true,
     // And what each of those figures measures, keyed by the path a reader
     // walks. The `projects` rollup below is why this store needs the stamp
     // most: it carries the summed pair and the unioned pair under one
