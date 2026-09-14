@@ -26,6 +26,7 @@ no cursor-agent value yet.
 | `preCompact` | `trigger: auto` | `context_compression_auto` | high |
 | `preCompact` | `trigger: manual` | `context_compression_manual` | medium |
 | `stop` | turn ≥ 30m | `agent_loop_long` | medium / high |
+| `stop` | every turn, after the above | `ai_turn_completed` | low |
 
 ## Deliberately unmapped
 

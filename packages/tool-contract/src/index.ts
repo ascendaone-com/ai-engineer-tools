@@ -248,6 +248,7 @@ export type AscendaTelemetryEventType =
   | "ai_tool_call_started"
   | "ai_tool_call_completed"
   | "ai_tool_call_failed"
+  | "ai_turn_completed"
   | "context_pressure_high"
   | "agent_loop_long"
   | "after_hours_ai_session"
@@ -863,6 +864,11 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   context_compression_manual: "neutral",
   context_compression_auto: "neutral",
   editor_activity: "neutral",
+  // The agent finished a turn and handed back to the person. A boundary, not
+  // work: it closes the agent's stretch and opens the person's, which the next
+  // `ai_prompt_submitted` closes. Neutral so a marker sent once per turn
+  // doesn't weigh on any workload leg.
+  ai_turn_completed: "neutral",
 
   // Semantic (agent-observed) — see SEMANTIC_WORK_SIGNAL_EVENT_TYPES.
   approach_churn_detected: "risk",

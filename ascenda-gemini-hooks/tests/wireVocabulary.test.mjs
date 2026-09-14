@@ -36,6 +36,7 @@ const FIXTURES = [
   ["AfterTool", { tool_name: "replace", tool_response: { exitCode: 0 } }],
   ["AfterTool", { tool_name: "read_file", tool_response: { exitCode: 0 } }],
   ["PreCompress", {}],
+  ["AfterAgent", { prompt: "x" }, 120000],
   ["AfterAgent", { prompt: "x" }, 45 * 60000],
   ["AfterAgent", { prompt: "x" }, 90 * 60000]
 ];

@@ -121,13 +121,19 @@ function mapPreCompact(input: CodexHookInput): MappedCodexEvent[] {
 
 function mapStop(input: CodexHookInput, turnDurationMs: number | undefined): MappedCodexEvent[] {
   const durationBucket = bucketDurationMs(turnDurationMs);
+  const autonomy = autonomyModeMetadata(input);
+  const events: MappedCodexEvent[] = [];
   if (durationBucket === "30-60m" || durationBucket === "60m+") {
     // The posture matters most here: a 90-minute turn under `default` is 90
     // minutes of a person approving every step, and the same 90 minutes under
     // `bypass_permissions` is a person who walked away.
-    return [{ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: withHost({ durationBucket, reason: "long_session", trigger: "inferred", ...autonomyModeMetadata(input) }) }];
+    events.push({ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: withHost({ durationBucket, reason: "long_session", trigger: "inferred", ...autonomy }) });
   }
-  return [];
+  // Every turn ends here, long or short. Pushed last so a send that isn't
+  // accepted can't cost the long-loop signal ahead of it. A turn with no
+  // recorded start still ended; it just has no duration bucket.
+  events.push({ eventType: "ai_turn_completed", severity: "low", metadata: withHost({ ...(durationBucket ? { durationBucket } : {}), ...autonomy }) });
+  return events;
 }
 
 /**

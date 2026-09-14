@@ -346,7 +346,7 @@ PostToolUse Bash   -> editor_verification_activity / ai_tool_call_completed (suc
 PostToolUseFailure -> compile_error / ai_tool_call_failed
 PreCompact         -> context_compression_manual / context_compression_auto
 PostCompact        -> context_pressure_high
-Stop (long only)   -> agent_loop_long
+Stop               -> ai_turn_completed (every turn), agent_loop_long (long only)
 Notification       -> (skipped — no catalog event)
 ```
 

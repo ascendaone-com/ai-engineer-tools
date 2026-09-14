@@ -21,6 +21,7 @@ All Cascade payloads nest their event-specific fields under `tool_info`.
 | `post_mcp_tool_use` | `mcp_result.isError` or non-empty `.error` | `ai_tool_call_failed` | medium |
 | `post_mcp_tool_use` | otherwise | `ai_tool_call_completed` | low |
 | `post_cascade_response` | turn ≥ 30m | `agent_loop_long` | medium / high |
+| `post_cascade_response` | every turn, after the above | `ai_turn_completed` | low |
 
 ## Coverage gaps — Cascade's, not this mapper's
 

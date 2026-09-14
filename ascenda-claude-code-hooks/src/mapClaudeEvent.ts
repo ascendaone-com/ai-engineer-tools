@@ -251,15 +251,29 @@ function mapPreCompact(input: ClaudeHookInput): MappedAscendaEvent[] {
 function mapStop(input: ClaudeHookInput): MappedAscendaEvent[] {
   const durationMs = getNumber(input, ["durationMs", "duration_ms", "elapsedMs"]) ?? getNestedNumber(input, [["session", "durationMs"], ["payload", "durationMs"]]);
   const durationBucket = bucketDurationMs(durationMs);
-  // Catalog only includes agent_loop_long (risk), not agent_loop_completed.
+  const autonomy = autonomyModeMetadata(input);
+  const events: MappedAscendaEvent[] = [];
   if (durationBucket === "30-60m" || durationBucket === "60m+") {
     // The posture matters most here of anywhere: a 90-minute loop under
     // `default` is 90 minutes of a person approving every step, and the same
     // 90 minutes under `bypass_permissions` is a person who walked away. The
     // event has never been able to tell those apart.
-    return [{ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: { durationBucket, reason: "long_session", trigger: "inferred", ...autonomyModeMetadata(input) } }];
+    events.push({ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: { durationBucket, reason: "long_session", trigger: "inferred", ...autonomy } });
   }
-  return [];
+  // Every turn ends here, long or short, and this is the only hook that marks
+  // it. The last PostToolUse is not a stand-in: the agent writes its closing
+  // message after its final tool call, so a person's turn measured from there
+  // would count the agent's compose time as theirs.
+  //
+  // Nothing from the payload rides along beyond what the long-loop event
+  // already reads. `last_assistant_message` and `transcript_path` are content
+  // and are never touched.
+  //
+  // Pushed last on purpose. The CLI stops at the first send that isn't
+  // accepted, so an ingest that doesn't know this type yet can't cost the
+  // long-loop signal ahead of it.
+  events.push({ eventType: "ai_turn_completed", severity: "low", metadata: { ...(durationBucket ? { durationBucket } : {}), ...autonomy } });
+  return events;
 }
 
 /**

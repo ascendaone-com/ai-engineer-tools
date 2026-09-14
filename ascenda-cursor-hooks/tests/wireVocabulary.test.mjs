@@ -49,6 +49,7 @@ const FIXTURES = [
   ["postToolUseFailure", { tool_name: "Read", is_interrupt: false }],
   ["preCompact", { trigger: "auto", context_usage_percent: 85 }],
   ["preCompact", { trigger: "manual" }],
+  ["stop", { status: "completed" }, 120000],
   ["stop", { status: "completed" }, 45 * 60000],
   ["stop", { status: "completed" }, 90 * 60000]
 ];

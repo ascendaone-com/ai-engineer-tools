@@ -153,7 +153,7 @@ Codex's PATH, use the absolute path to the binary.
 
 ## Turn duration
 
-Codex's `Stop` payload has no duration, so the adapter records a turn-start timestamp per session under `~/.ascenda/state/` at `UserPromptSubmit` and consumes it at `Stop`; turns of 30+ minutes emit `agent_loop_long`. State failures degrade silently to "no duration".
+Codex's `Stop` payload has no duration, so the adapter records a turn-start timestamp per session under `~/.ascenda/state/` at `UserPromptSubmit` and consumes it at `Stop`; turns of 30+ minutes emit `agent_loop_long`, and every turn emits `ai_turn_completed`. State failures degrade silently to "no duration".
 
 ## Privacy defaults
 
