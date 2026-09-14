@@ -49,6 +49,26 @@ targets, error counts or internal resource names — this repository is public.
   same field, a handoff it writes won't carry the label, and the app reads that
   as not counted.
 
+### Prompt counts count what you typed
+
+- **A Claude Code session's `promptCount` is the prompts you typed.** Claude
+  Code writes some `user` lines itself: background task notifications, messages
+  from another session, its own bookkeeping, slash commands and their output,
+  and the marker it leaves when you press Escape. The import used to count
+  those as prompts. It skips them now.
+- **Expect lower prompt counts after your next import.** Sessions that ran
+  background tasks or lots of slash commands drop the most. After-hours prompts
+  and quick re-prompts move with them.
+- **Hands-on time can move too.** A skipped line isn't you and isn't the agent,
+  so it doesn't start or end a hands-on span.
+- **Every session carries `syntheticPromptLines`**, the number of lines it
+  skipped, so you can see the difference session by session.
+- **`promptBasis: "typed"` on the handoff says which count you're reading.** A
+  handoff without it counted every line. Your existing handoffs still read
+  fine, and the schema number doesn't move.
+- **Both importers agree.** The desktop app already skips these lines, so a
+  week imported by either shows the same prompts.
+
 ## v0.1.22
 
 ### Hands-on time now runs from the agent's last output to your next prompt

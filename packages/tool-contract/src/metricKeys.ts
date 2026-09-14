@@ -112,6 +112,11 @@ export const METRIC_KEYS = {
 
   // ── Read by the local handoff only ──────────────────────────────────────
   activeMinutes: { readBy: ["handoff"], unit: "minutes" },
+  syntheticPromptLines: {
+    readBy: ["handoff"],
+    unit: "lines",
+    note: "Main-thread user lines the runtime wrote on the person's behalf (notifications, its own bookkeeping, slash-command wrappers, interrupt markers) and promptCount left out. Claude Code only; the receipt for the handoff's promptBasis: typed."
+  },
   interruptedRuns: {
     readBy: ["handoff"],
     unit: "runs",
