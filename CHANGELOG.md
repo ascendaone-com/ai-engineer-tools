@@ -10,6 +10,26 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.23
+
+### The hooks mark the end of every agent turn
+
+- **Each turn now ends with `ai_turn_completed`.** Claude Code's `Stop`,
+  Codex's `Stop`, Cursor's `stop`, Windsurf's `post_cascade_response` and
+  Gemini CLI's `AfterAgent` send it every time the agent hands back to you.
+  Until now those hooks sent something only when a turn ran past 30 minutes.
+- **It's where your turn starts.** The agent writes its closing message after
+  its last tool call, so the last tool event isn't the moment it stopped. This
+  one is. Paired with your next `ai_prompt_submitted`, it gives live telemetry
+  the same hands-on boundary the history import uses.
+- **Nothing about content travels.** The event carries the session, time, UTC
+  offset and project hashes every event already has, plus the turn's duration
+  bucket where the adapter measured one and the permission mode where the agent
+  reports it. The agent's reply and the transcript path are never read.
+- **`agent_loop_long` is unchanged.** A long turn still sends it, first.
+- **Expect one more event per turn** in the local event log. It's classed as
+  neutral workload.
+
 ## v0.1.22
 
 ### Hands-on time now runs from the agent's last output to your next prompt

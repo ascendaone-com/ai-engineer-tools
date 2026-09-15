@@ -22,6 +22,7 @@ This adapter is the **primary Phase 1 source for `AIInteractionLoad`** and workf
 | PreCompact manual | `context_compression_manual` | neutral |
 | PreCompact auto | `context_compression_auto` | neutral |
 | PostCompact | `context_pressure_high` | risk |
+| Stop (every turn) | `ai_turn_completed` | neutral |
 | Stop (long duration only) | `agent_loop_long` | risk |
 | Notification | *(skipped — no catalog event)* | — |
 
@@ -82,7 +83,7 @@ the part of that gap the live payloads can actually answer.
 
 | Field | Read from | Rides | Grain |
 | --- | --- | --- | --- |
-| `autonomyMode` | `permission_mode` | `ai_file_*`, `ai_tool_call_*`, `compile_error`, `editor_verification_activity`, `ai_prompt_submitted`, `ai_correction_prompt`, `agent_loop_long` | per event |
+| `autonomyMode` | `permission_mode` | `ai_file_*`, `ai_tool_call_*`, `compile_error`, `editor_verification_activity`, `ai_prompt_submitted`, `ai_correction_prompt`, `agent_loop_long`, `ai_turn_completed` | per event |
 | `modelClass` + `modelId` | `model` (optional) | `create_focus_session` | per session |
 | `userModified` | `tool_response.userModified` | `ai_file_edit`, `ai_file_write` | per write |
 

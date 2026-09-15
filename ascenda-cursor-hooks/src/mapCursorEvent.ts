@@ -119,10 +119,14 @@ function contextOccupancy(input: CursorHookInput): { contextWindowPeakPct?: numb
 
 function mapStop(turnDurationMs: number | undefined): MappedCursorEvent[] {
   const durationBucket = bucketDurationMs(turnDurationMs);
+  const events: MappedCursorEvent[] = [];
   if (durationBucket === "30-60m" || durationBucket === "60m+") {
-    return [{ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: withHost({ durationBucket, reason: "long_session", trigger: "inferred" }) }];
+    events.push({ eventType: "agent_loop_long", severity: durationBucket === "60m+" ? "high" : "medium", metadata: withHost({ durationBucket, reason: "long_session", trigger: "inferred" }) });
   }
-  return [];
+  // Every turn ends here, long or short. Pushed last so a send that isn't
+  // accepted can't cost the long-loop signal ahead of it.
+  events.push({ eventType: "ai_turn_completed", severity: "low", metadata: withHost(durationBucket ? { durationBucket } : {}) });
+  return events;
 }
 
 /**

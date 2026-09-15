@@ -61,9 +61,14 @@ test("mcp tool names are prefixed and sanitised", () => {
   assert.equal(one("pre_mcp_tool_use", { tool_info: {} }).metadata.toolName, "mcp_tool");
 });
 
-test("post_cascade_response ends the turn; only long ones are a signal", () => {
-  assert.deepEqual(mapWindsurfEvent("post_cascade_response", {}, 120000), []);
-  assert.equal(one("post_cascade_response", {}, 45 * 60000).eventType, "agent_loop_long");
+test("post_cascade_response ends the turn; only long ones add agent_loop_long", () => {
+  const short = mapWindsurfEvent("post_cascade_response", {}, 120000);
+  assert.deepEqual(short.map((e) => e.eventType), ["ai_turn_completed"]);
+  assert.equal(short[0].metadata.durationBucket, "1-5m");
+  const unmeasured = mapWindsurfEvent("post_cascade_response", {}, undefined);
+  assert.equal("durationBucket" in unmeasured[0].metadata, false);
+  const long = mapWindsurfEvent("post_cascade_response", {}, 45 * 60000);
+  assert.deepEqual(long.map((e) => e.eventType), ["agent_loop_long", "ai_turn_completed"]);
 });
 
 test("transcript and worktree hooks map to nothing", () => {

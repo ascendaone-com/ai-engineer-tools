@@ -21,6 +21,7 @@ Hooks are enabled by default in Gemini CLI v0.26.0+.
 | `AfterTool` | otherwise | `ai_tool_call_completed` | low |
 | `PreCompress` | | `context_compression_auto` | high |
 | `AfterAgent` | turn ≥ 30m | `agent_loop_long` | medium / high |
+| `AfterAgent` | every turn, after the above | `ai_turn_completed` | low |
 
 ## Deliberately unmapped
 

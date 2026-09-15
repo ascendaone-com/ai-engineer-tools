@@ -36,6 +36,7 @@ const FIXTURES = [
   ["pre_mcp_tool_use", { tool_info: { mcp_tool_name: "search" } }],
   ["post_mcp_tool_use", { tool_info: { mcp_tool_name: "search", mcp_result: { isError: true } } }],
   ["post_mcp_tool_use", { tool_info: { mcp_tool_name: "search", mcp_result: { content: "hits" } } }],
+  ["post_cascade_response", {}, 120000],
   ["post_cascade_response", {}, 45 * 60000],
   ["post_cascade_response", {}, 90 * 60000]
 ];

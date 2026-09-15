@@ -51,10 +51,20 @@ test("compaction: manual vs auto, and post-compact pressure", () => {
   assert.equal(mapCodexEvent("PostCompact", {})[0].eventType, "context_pressure_high");
 });
 
-test("Stop: agent_loop_long only for long turns", () => {
-  assert.deepEqual(mapCodexEvent("Stop", {}, 5 * 60000), []);
-  assert.deepEqual(mapCodexEvent("Stop", {}, undefined), []);
-  assert.equal(mapCodexEvent("Stop", {}, 45 * 60000)[0].severity, "medium");
+test("Stop: every turn ends with ai_turn_completed; only long ones add agent_loop_long", () => {
+  const short = mapCodexEvent("Stop", {}, 5 * 60000);
+  assert.deepEqual(short.map((e) => e.eventType), ["ai_turn_completed"]);
+  assert.equal(short[0].metadata.durationBucket, "1-5m");
+  assert.equal(short[0].metadata.host, "codex");
+
+  const unmeasured = mapCodexEvent("Stop", {}, undefined);
+  assert.deepEqual(unmeasured.map((e) => e.eventType), ["ai_turn_completed"]);
+  assert.equal("durationBucket" in unmeasured[0].metadata, false);
+
+  const long = mapCodexEvent("Stop", { permission_mode: "default" }, 45 * 60000);
+  assert.deepEqual(long.map((e) => e.eventType), ["agent_loop_long", "ai_turn_completed"]);
+  assert.equal(long[0].severity, "medium");
+  assert.equal(long[1].metadata.autonomyMode, "default");
   assert.equal(mapCodexEvent("Stop", {}, 90 * 60000)[0].severity, "high");
 });
 

@@ -53,9 +53,15 @@ test("session boundaries and compaction", () => {
   assert.equal(one("PreCompress", {}).eventType, "context_compression_auto");
 });
 
-test("AfterAgent ends the turn; only long ones are a signal", () => {
-  assert.deepEqual(mapGeminiEvent("AfterAgent", { prompt: "x" }, 120000), []);
-  assert.equal(one("AfterAgent", { prompt: "x" }, 90 * 60000).severity, "high");
+test("AfterAgent ends the turn; only long ones add agent_loop_long", () => {
+  const short = mapGeminiEvent("AfterAgent", { prompt: "x" }, 120000);
+  assert.deepEqual(short.map((e) => e.eventType), ["ai_turn_completed"]);
+  assert.equal(short[0].metadata.host, "gemini_cli");
+  const unmeasured = mapGeminiEvent("AfterAgent", { prompt: "x" }, undefined);
+  assert.equal("durationBucket" in unmeasured[0].metadata, false);
+  const long = mapGeminiEvent("AfterAgent", { prompt: "x" }, 90 * 60000);
+  assert.deepEqual(long.map((e) => e.eventType), ["agent_loop_long", "ai_turn_completed"]);
+  assert.equal(long[0].severity, "high");
 });
 
 test("per-inference hooks map to nothing", () => {

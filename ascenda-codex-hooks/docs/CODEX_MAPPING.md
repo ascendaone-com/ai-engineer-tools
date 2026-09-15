@@ -22,7 +22,7 @@ Codex rides the canonical `cli_agent` toolType/source (the registry has no codex
 | PreCompact auto | `context_compression_auto` | neutral |
 | PostCompact | `context_pressure_high` | risk |
 | Stop (turn ≥ 30 min) | `agent_loop_long` | risk |
-| Stop (shorter) | *(skipped)* | — |
+| Stop (every turn) | `ai_turn_completed` | neutral |
 | PermissionRequest | *(skipped — no catalog event)* | — |
 | SubagentStart / SubagentStop | *(skipped — no catalog event)* | — |
 
@@ -97,7 +97,7 @@ on every row.
 | PreToolUse | `ai_tool_call_started` | ❌ *(deduplicated — see below)* |
 | PostToolUse | `ai_file_edit`, `ai_tool_call_*`, `compile_error`, `editor_verification_activity` | ✅ |
 | PreCompact / PostCompact | `context_compression_*`, `context_pressure_high` | ❌ *(Codex sends no `permission_mode` on these two)* |
-| Stop | `agent_loop_long` | ✅ |
+| Stop | `agent_loop_long`, `ai_turn_completed` | ✅ |
 
 `PreToolUse` is skipped because it and `PostToolUse` are a pair over the same
 call under the same mode: carrying it once halves the cost on the

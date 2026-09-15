@@ -75,7 +75,8 @@
     "scope_change_declared",
     "review_requested_of_me",
     "review_given",
-    "pull_request_opened"
+    "pull_request_opened",
+    "ai_turn_completed"
   ],
   "sources": [
     "vscode_extension",

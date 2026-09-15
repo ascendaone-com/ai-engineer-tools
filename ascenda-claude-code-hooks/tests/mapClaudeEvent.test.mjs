@@ -181,13 +181,42 @@ test("PostCompact: context pressure signal", () => {
   assert.equal(events[0].eventType, "context_pressure_high");
 });
 
-test("Stop: only long sessions produce agent_loop_long", () => {
-  assert.deepEqual(mapClaudeEvent("Stop", { durationMs: 5 * 60000 }), []);
+test("Stop: every turn ends with ai_turn_completed; only long ones add agent_loop_long", () => {
+  const short = mapClaudeEvent("Stop", { durationMs: 5 * 60000 });
+  assert.deepEqual(short.map((e) => e.eventType), ["ai_turn_completed"]);
+  assert.equal(short[0].severity, "low");
+  assert.equal(short[0].metadata.durationBucket, "1-5m");
+
+  // The live Stop payload usually carries no duration. The turn still ended.
+  const unmeasured = mapClaudeEvent("Stop", { session_id: "s1", stop_hook_active: false });
+  assert.deepEqual(unmeasured.map((e) => e.eventType), ["ai_turn_completed"]);
+  assert.equal("durationBucket" in unmeasured[0].metadata, false);
+
+  // agent_loop_long goes first: the CLI stops at the first send that isn't
+  // accepted, and the long-loop signal must not ride behind the newer type.
   const long = mapClaudeEvent("Stop", { durationMs: 45 * 60000 });
-  assert.equal(long[0].eventType, "agent_loop_long");
+  assert.deepEqual(long.map((e) => e.eventType), ["agent_loop_long", "ai_turn_completed"]);
   assert.equal(long[0].severity, "medium");
+  assert.equal(long[1].metadata.durationBucket, "30-60m");
   const veryLong = mapClaudeEvent("Stop", { durationMs: 90 * 60000 });
   assert.equal(veryLong[0].severity, "high");
+});
+
+test("Stop: the turn-end event carries no content from the payload", () => {
+  const events = mapClaudeEvent("Stop", {
+    session_id: "s1",
+    cwd: "/nonexistent/secret-project",
+    transcript_path: "/nonexistent/secret-project/transcript.jsonl",
+    last_assistant_message: "Here is the fix for secret-project",
+    stop_hook_active: false,
+    permission_mode: "acceptEdits"
+  });
+  const end = events.find((e) => e.eventType === "ai_turn_completed");
+  assert.ok(end);
+  assert.equal(end.metadata.autonomyMode, "accept_edits");
+  const allowed = new Set(["host", "branchHash", "autonomyMode", "durationBucket"]);
+  assert.deepEqual(Object.keys(end.metadata).filter((k) => !allowed.has(k)), []);
+  assert.equal(JSON.stringify(end).includes("secret"), false, "payload content leaked into the event");
 });
 
 test("Notification: skipped (no catalog event)", () => {

@@ -69,10 +69,19 @@ test("preCompact: manual and auto are different signals", () => {
   assert.equal(one("preCompact", { trigger: "manual" }).eventType, "context_compression_manual");
 });
 
-test("stop: agent_loop_long only for long turns", () => {
-  assert.deepEqual(mapCursorEvent("stop", { status: "completed" }, 120000), []);
-  assert.equal(one("stop", { status: "completed" }, 45 * 60000).metadata.durationBucket, "30-60m");
-  assert.equal(one("stop", { status: "completed" }, 90 * 60000).severity, "high");
+test("stop: every turn ends with ai_turn_completed; only long ones add agent_loop_long", () => {
+  const short = mapCursorEvent("stop", { status: "completed" }, 120000);
+  assert.deepEqual(short.map((e) => e.eventType), ["ai_turn_completed"]);
+  assert.equal(short[0].metadata.durationBucket, "1-5m");
+
+  const unmeasured = mapCursorEvent("stop", { status: "completed" }, undefined);
+  assert.deepEqual(unmeasured.map((e) => e.eventType), ["ai_turn_completed"]);
+  assert.equal("durationBucket" in unmeasured[0].metadata, false);
+
+  const long = mapCursorEvent("stop", { status: "completed" }, 45 * 60000);
+  assert.deepEqual(long.map((e) => e.eventType), ["agent_loop_long", "ai_turn_completed"]);
+  assert.equal(long[0].metadata.durationBucket, "30-60m");
+  assert.equal(mapCursorEvent("stop", { status: "completed" }, 90 * 60000)[0].severity, "high");
 });
 
 test("specialised shell/MCP/file hooks map to nothing, so nothing double-counts", () => {
