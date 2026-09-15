@@ -1,0 +1,88 @@
+{
+  "schema": 6,
+  "extractionId": "extraction-before-interrupted-runs",
+  "generatedAt": "2026-09-13T00:00:00.000Z",
+  "timezone": "Etc/UTC",
+  "activeGapMinutes": 5,
+  "handsOnBoundary": "human_turn",
+  "activeTimeQuantities": {
+    "sessions[].activeMinutes": "coverage",
+    "sessions[].handsOnMinutes": "hands_on",
+    "sessions[].agentSupervisingMinutes": "supervising",
+    "sessions[].days[].activeMinutes": "coverage",
+    "sessions[].days[].handsOnMinutes": "hands_on",
+    "sessions[].days[].agentSupervisingMinutes": "supervising",
+    "projects[].handsOnMinutes": "hands_on_agent_hours",
+    "projects[].agentSupervisingMinutes": "supervising_agent_hours",
+    "projects[].elapsed.handsOnMinutes": "hands_on",
+    "projects[].elapsed.agentSupervisingMinutes": "supervising",
+    "projects[].elapsed.days[].handsOnMinutes": "hands_on",
+    "projects[].elapsed.days[].agentSupervisingMinutes": "supervising",
+    "projects[].elapsed.days[].summedHandsOnMinutes": "hands_on_agent_hours",
+    "projects[].elapsed.days[].summedAgentSupervisingMinutes": "supervising_agent_hours",
+    "projects[].elapsed.longestActiveRunMinutes": "block_coverage"
+  },
+  "store": "claude_code",
+  "windowOldest": "2026-09-08T12:00:00.000Z",
+  "windowNewest": "2026-09-08T12:00:05.000Z",
+  "sessions": [
+    {
+      "at": "2026-09-08T12:00:05.000Z",
+      "startedAt": "2026-09-08T12:00:00.000Z",
+      "sessionRef": "aaaaaaaa-bbbb-cccc-dddd-000000000078",
+      "projectLabel": "repo-interrupts",
+      "projectHash": "142f838f912c0bbc",
+      "promptCount": 1,
+      "durationBucket": "0-1m",
+      "afterHoursPrompts": 1,
+      "primaryModel": "claude-opus-5",
+      "activeMinutes": 0,
+      "handsOnMinutes": 0,
+      "agentSupervisingMinutes": 0,
+      "autonomySplit": {
+        "unknown": 0
+      },
+      "compactionCount": 0,
+      "toolFailureCount": 0,
+      "contextWindowPeakPct": 0,
+      "contextWindowPeakTokens": 0,
+      "userModifiedEditCount": null,
+      "toolCallCount": 0,
+      "subagentToolCallCount": 0,
+      "subagentTranscripts": 0,
+      "days": [
+        {
+          "day": "2026-09-08",
+          "prompts": 1,
+          "activeMinutes": 0,
+          "handsOnMinutes": 0,
+          "agentSupervisingMinutes": 0
+        }
+      ],
+      "provenance": "historical_derived"
+    }
+  ],
+  "projects": [
+    {
+      "projectHash": "142f838f912c0bbc",
+      "projectLabel": "repo-interrupts",
+      "sessions": 1,
+      "promptCount": 1,
+      "handsOnMinutes": 0,
+      "agentSupervisingMinutes": 0,
+      "autonomySplit": {
+        "unknown": 0
+      },
+      "activeDays": 1,
+      "elapsed": {
+        "handsOnMinutes": 0,
+        "agentSupervisingMinutes": 0,
+        "meanConcurrency": 1,
+        "peakConcurrency": 1,
+        "longestActiveRunMinutes": 0,
+        "longestActiveRunStartedOn": "2026-09-08",
+        "days": []
+      }
+    }
+  ]
+}

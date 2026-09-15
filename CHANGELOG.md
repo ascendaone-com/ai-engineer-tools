@@ -30,6 +30,25 @@ targets, error counts or internal resource names — this repository is public.
 - **Expect one more event per turn** in the local event log. It's classed as
   neutral workload.
 
+### The history import counts the runs you cut short
+
+- **Every Claude Code session now carries `interruptedRuns`.** It's the number
+  of times you pressed Escape while the agent was still working: mid-reply,
+  waiting on a tool, or before it had answered at all. Each day slice carries
+  its share, placed on the day you pressed it, the way prompts are.
+- **A keypress after the agent finished doesn't count.** Nothing was running,
+  so nothing was cut. The marker Claude Code writes when the app closes on a
+  running turn doesn't count either. You didn't do that.
+- **It's a count.** Not a rate, and not placed any finer than the day.
+- **`interruptedRunsCounted: true` on the handoff says it was counted.** With
+  the label, `0` means you cut nothing short. Without it, the file wasn't
+  counted: every handoff written before this release, and every store other
+  than Claude Code. Your existing handoffs still read fine. The schema number
+  doesn't move, because the label is additive.
+- **The desktop app counts by the same rule.** Until its importer ships the
+  same field, a handoff it writes won't carry the label, and the app reads that
+  as not counted.
+
 ## v0.1.22
 
 ### Hands-on time now runs from the agent's last output to your next prompt

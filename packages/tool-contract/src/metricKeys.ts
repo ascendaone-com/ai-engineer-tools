@@ -112,6 +112,11 @@ export const METRIC_KEYS = {
 
   // ── Read by the local handoff only ──────────────────────────────────────
   activeMinutes: { readBy: ["handoff"], unit: "minutes" },
+  interruptedRuns: {
+    readBy: ["handoff"],
+    unit: "runs",
+    note: "Agent turns the person cut short with an interrupt while the turn was still going. A count per session, never a rate. Claude Code only; a handoff that counted them says so with interruptedRunsCounted, and absent means not counted, never zero."
+  },
   /**
    * The two halves of `activeMinutes`, and deliberately two keys.
    *
