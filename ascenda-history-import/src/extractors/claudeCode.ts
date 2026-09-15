@@ -72,6 +72,12 @@
  *    `sessionMinutes` is idle-inflated for any session spanning hours;
  *    `activeMinutes` is the gap-split alternative.
  *
+ * A main-thread `user` line that isn't a tool result is still not always a
+ * prompt: the runtime writes notifications, its own bookkeeping, slash-command
+ * wrappers and interrupt markers on that role too. `isTypedPromptLine` in
+ * `interruptedRuns.ts` declines them, and `syntheticPromptLines` counts what
+ * it declined.
+ *
  * Emission (aggregate before shipping — never one event per line):
  *  - `ai_prompt_submitted` per HUMAN prompt (canonical type, so the existing
  *    demand/baseline readers count it natively), provenance historical_direct.
@@ -105,7 +111,7 @@ import {
   splitActiveTime,
   type ActiveInstant
 } from "../activeSplit.js";
-import { stepRun } from "../interruptedRuns.js";
+import { isTypedPromptLine, stepRun } from "../interruptedRuns.js";
 
 /** Line types the extractor reads fields from. */
 export const KNOWN_CLAUDE_LINE_TYPES = [
@@ -334,6 +340,9 @@ interface SessionFold {
   firstTs: string | null;
   lastTs: string | null;
   humanPrompts: number;
+  /** Main-thread `user` lines the runtime wrote on the person's behalf, left
+   * out of `humanPrompts`. See `isTypedPromptLine`. */
+  syntheticPromptLines: number;
   afterHoursPrompts: number;
   assistantTurns: number;
   toolResults: number;
@@ -401,6 +410,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     firstTs: null,
     lastTs: null,
     humanPrompts: 0,
+    syntheticPromptLines: 0,
     afterHoursPrompts: 0,
     assistantTurns: 0,
     toolResults: 0,
@@ -655,6 +665,17 @@ async function foldLinesInto(
             // the agent's output as far as the human turn is concerned.
             agentOutputHere = true;
             fold.subagentPrompts += 1;
+          } else if (!isTypedPromptLine(record)) {
+            // Written on the person's behalf: a notification, the runtime's
+            // bookkeeping, a slash command's wrapper, an interrupt marker. Not
+            // a prompt, and neither a person nor the agent as far as the split
+            // goes, so it bounds nothing. Counted so the prompts it left out
+            // are visible. Its posture is still a declaration of the session's
+            // mode, so it is read the way a prompt's is.
+            fold.syntheticPromptLines += 1;
+            if (typeof record.permissionMode === "string" && record.permissionMode !== "") {
+              postureHere = snakeCasePermissionMode(record.permissionMode);
+            }
           } else {
             fold.humanPrompts += 1;
             if (sniffed.occurredAt && isOutsideBusinessHours(new Date(sniffed.occurredAt))) {
@@ -978,6 +999,7 @@ export async function* extractClaudeCode(
       const split = activeSplitOf(fold);
       const sessionMetrics: NormalizedHistoricalEvent["metrics"] = {
         promptCount: fold.humanPrompts,
+        syntheticPromptLines: fold.syntheticPromptLines,
         assistantTurns: fold.assistantTurns,
         toolCallCount: fold.toolCallCount,
         toolResultCount: fold.toolResults,

@@ -152,6 +152,34 @@ line that closes the turn. The rule is in
 [`src/interruptedRuns.ts`](./src/interruptedRuns.ts), and the desktop app's
 importer counts by the same one.
 
+### What counts as a prompt
+
+`promptCount` on a Claude Code session counts the prompts you typed. Claude
+Code also writes `user` lines on your behalf, and none of these count:
+
+- a background task's notification, or another session speaking (`origin.kind`
+  of `task-notification` or `peer`);
+- its own bookkeeping: `isMeta`, and the summary a compaction leaves
+  (`isCompactSummary`);
+- a line that's empty once its wrapper elements are stripped: `system-reminder`,
+  `command-name`, `command-message`, `command-args`, `local-command-stdout`,
+  `local-command-stderr`, `local-command-caveat`. That's what a slash command
+  and its output look like. A prompt with typed text beside a wrapper still
+  counts, and so does one that merely starts with a tag's name;
+- the interrupt marker, `[Request interrupted by user]` and its `for tool use`
+  variant.
+
+Each session carries `syntheticPromptLines`, the number of lines it left out.
+The handoff stamps `promptBasis: "typed"`. A handoff without the stamp counted
+every `user` line that wasn't a tool result, so its prompt counts run higher for
+the same week. The schema number doesn't move.
+
+These lines aren't you, and they aren't the agent, so they don't start or end a
+hands-on span. Prompt events, after-hours prompts and quick re-prompts all
+follow the same count. The desktop app's importer declines the same lines; the
+test is `isTypedPromptLine` in
+[`src/interruptedRuns.ts`](./src/interruptedRuns.ts).
+
 ### Autonomy bands
 
 `permissionMode` is on the transcript's human-prompt lines and nowhere else —

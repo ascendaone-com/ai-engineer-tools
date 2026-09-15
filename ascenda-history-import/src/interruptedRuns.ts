@@ -81,17 +81,35 @@ export function isInterruptionMarkerLine(record: Record<string, unknown>): boole
   return remainder !== null && INTERRUPTION_MARKER.test(remainder);
 }
 
+/** The harness woke the session, or another session spoke. */
+function isRuntimeOrigin(record: Record<string, unknown>): boolean {
+  const origin = record.origin;
+  if (typeof origin !== "object" || origin === null) return false;
+  const kind = (origin as Record<string, unknown>).kind;
+  return kind === "task-notification" || kind === "peer";
+}
+
+/**
+ * Whether a main-thread `user` line that isn't a tool result is a prompt the
+ * person typed. The runtime writes some `user` lines on the person's behalf,
+ * and none of them is one: a notification or another session speaking
+ * (`origin.kind`), its own bookkeeping (`isMeta`, a compaction summary), a
+ * line that is nothing but wrapper elements, and an interrupt marker. The
+ * desktop app's importer declines exactly these, so both writers of the
+ * handoff count the same prompts. A line carrying an image is typed: nothing
+ * about it says otherwise.
+ */
+export function isTypedPromptLine(record: Record<string, unknown>): boolean {
+  if (isRuntimeOrigin(record)) return false;
+  if (record.isMeta === true || record.isCompactSummary === true) return false;
+  if (isInterruptionMarkerLine(record)) return false;
+  return typedRemainderOf(record) !== "";
+}
+
 /** Whether a main-thread `user` line that isn't a tool result or a marker starts a turn. */
 function userLineStartsTurn(record: Record<string, unknown>): boolean {
-  const origin = record.origin;
-  if (typeof origin === "object" && origin !== null) {
-    const kind = (origin as Record<string, unknown>).kind;
-    // The harness woke the session, or another session spoke: the agent runs.
-    if (kind === "task-notification" || kind === "peer") return true;
-  }
-  if (record.isMeta === true || record.isCompactSummary === true) return false;
-  // Nothing but a wrapper: a local slash command and its output.
-  return typedRemainderOf(record) !== "";
+  // A notification or a peer isn't typed, but the agent runs on it all the same.
+  return isRuntimeOrigin(record) || isTypedPromptLine(record);
 }
 
 /** A step of the turn state, one main-thread line at a time. */

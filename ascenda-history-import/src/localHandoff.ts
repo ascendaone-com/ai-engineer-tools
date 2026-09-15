@@ -157,6 +157,9 @@ export interface HandoffSession {
    * resolved to no repository. */
   projectHash: string | null;
   promptCount: number;
+  /** Main-thread `user` lines the runtime wrote on the person's behalf and
+   * `promptCount` left out. The receipt for the file's `promptBasis`. */
+  syntheticPromptLines: number;
   durationBucket: string;
   afterHoursPrompts: number;
   /** Runs the person cut short in this session. Read only beside the file's
@@ -377,6 +380,9 @@ export interface ProjectElapsedDay {
   peakConcurrency: number;
 }
 
+/** Which `user` lines a handoff's `promptCount` counts; see `HandoffFile.promptBasis`. */
+export type PromptBasis = "typed" | "every_user_line";
+
 export interface HandoffFile {
   schema: number;
   extractionId: string;
@@ -389,6 +395,15 @@ export interface HandoffFile {
    * Additive, so the schema number doesn't move.
    */
   interruptedRunsCounted: true;
+  /**
+   * Which `user` lines `promptCount` counts. `typed`: only prompts the person
+   * typed, with the lines the runtime writes on their behalf declined and
+   * tallied per session in `syntheticPromptLines`. Absent on a handoff written
+   * before this field, which means `every_user_line`: every main-thread `user`
+   * line that wasn't a tool result. Additive, so the schema number doesn't
+   * move.
+   */
+  promptBasis: PromptBasis;
   /**
    * The gap that ended a stretch of work when these figures were cut, in
    * minutes. Provenance, in the same spirit as `timezone` above: a reader must
@@ -949,6 +964,7 @@ export function buildHandoff(
       projectLabel: projectLabelOf(event.repoRef),
       projectHash: projectHashOf(event.repoRef),
       promptCount: Number(event.metrics.promptCount ?? 0),
+      syntheticPromptLines: Number(event.metrics.syntheticPromptLines ?? 0),
       durationBucket: String(event.metrics.durationBucket ?? "unknown"),
       afterHoursPrompts: Number(event.metrics.afterHoursPrompts ?? 0),
       primaryModel:
@@ -997,6 +1013,9 @@ export function buildHandoff(
     // This extractor counts the runs a person cut short, so a `0` on a session
     // or a day slice below means none, not "not looked for".
     interruptedRunsCounted: true,
+    // The extractor declines the lines the runtime writes on a person's behalf,
+    // so `promptCount` below is typed prompts only.
+    promptBasis: "typed",
     // And what each of those figures measures, keyed by the path a reader
     // walks. The `projects` rollup below is why this store needs the stamp
     // most: it carries the summed pair and the unioned pair under one
