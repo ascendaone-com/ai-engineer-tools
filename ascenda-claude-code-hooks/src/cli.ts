@@ -572,10 +572,10 @@ function outboxLines(toolInstallationId: string, state: CollectorState | undefin
     lines.push(`  Outbox unreadable     ${summary.unreadableLines} line(s) did not parse — discarded and journaled on the next hook`);
   }
 
-  // Off by default until the ingest doors are confirmed to dedupe live events
+  // On by default since 16 Sep 2026; the doors dedupe replays on idempotencyKey
   // on idempotencyKey; a drain against a door that does not would land every
   // queued event a second time.
-  lines.push(`  Outbox drain          ${outboxDrainEnabled() ? "on" : "off (queued events are kept and bounded, not sent)"} — ${OUTBOX_DRAIN_ENV_VAR}`);
+  lines.push(`  Outbox drain          ${outboxDrainEnabled() ? "on (queued events are replayed, oldest first)" : "off — queued events are kept and bounded, not sent"} — ${OUTBOX_DRAIN_ENV_VAR}`);
 
   const discarded = state?.outboxDiscarded;
   if (discarded) {

@@ -129,15 +129,39 @@ test("the next hook drains it when the drain is enabled, and the entry is gone o
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("with the drain off (the default), the next hook keeps the queue and sends nothing from it", async () => {
+test("with the drain on (the default), the next hook replays what was queued", async () => {
   const { dir, state, outbox, token } = scratch();
   const env = { ASCENDA_STATE_FILE: state, ASCENDA_OUTBOX_FILE: outbox, ASCENDA_EVENT_WRITE_TOKEN_FILE: token };
   await withServer({ single: () => ({ status: 503, body: "" }) }, async (apiBaseUrl) => {
     await run(["PostToolUse"], { input: EDIT_PAYLOAD, env: { ...env, ASCENDA_API_BASE_URL: apiBaseUrl } });
   });
+  assert.equal(readOutbox(outbox).length, 1, "the refused send is on disk");
+
+  await withServer({
+    single: () => ({ status: 200, body: JSON.stringify({ status: "accepted" }) }),
+    batch: () => ({ status: 200, body: JSON.stringify({ results: [{ index: 0, status: "accepted" }] }) })
+  }, async (apiBaseUrl, received) => {
+    await run(["PostToolUse"], { input: EDIT_PAYLOAD, env: { ...env, ASCENDA_API_BASE_URL: apiBaseUrl } });
+    assert.equal(received.batch.length, 1, "the queue was offered to the batch door");
+    assert.equal(readOutbox(outbox).length, 0, "and deleted once the server confirmed it");
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("with the drain turned off, the next hook keeps the queue and sends nothing from it", async () => {
+  const { dir, state, outbox, token } = scratch();
+  const env = {
+    ASCENDA_STATE_FILE: state,
+    ASCENDA_OUTBOX_FILE: outbox,
+    ASCENDA_EVENT_WRITE_TOKEN_FILE: token,
+    ASCENDA_OUTBOX_DRAIN: "0"
+  };
+  await withServer({ single: () => ({ status: 503, body: "" }) }, async (apiBaseUrl) => {
+    await run(["PostToolUse"], { input: EDIT_PAYLOAD, env: { ...env, ASCENDA_API_BASE_URL: apiBaseUrl } });
+  });
   await withServer({ single: () => ({ status: 200, body: JSON.stringify({ status: "accepted" }) }) }, async (apiBaseUrl, received) => {
     await run(["PostToolUse"], { input: EDIT_PAYLOAD, env: { ...env, ASCENDA_API_BASE_URL: apiBaseUrl } });
-    assert.equal(received.batch.length, 0, "gated off until the ingest door is confirmed to dedupe");
+    assert.equal(received.batch.length, 0, "the operator asked for the queue to be held");
     assert.equal(readOutbox(outbox).length, 1, "still waiting, still on disk");
   });
   fs.rmSync(dir, { recursive: true, force: true });
@@ -161,13 +185,31 @@ test("doctor reports outbox depth, the oldest entry's age, the drain flag and an
     const result = await run(["doctor"], { env: { ...env, ASCENDA_API_BASE_URL: apiBaseUrl } });
     assert.equal(result.status, 0);
     assert.match(result.stdout, /Outbox depth\s+2 waiting — oldest queued \S+ \(3h \d+m ago\)/);
-    assert.match(result.stdout, /Outbox drain\s+off .*ASCENDA_OUTBOX_DRAIN/);
+    assert.match(result.stdout, /Outbox drain\s+on .*ASCENDA_OUTBOX_DRAIN/);
     assert.doesNotMatch(result.stdout, /Outbox discarded/, "nothing has been thrown away");
   });
 
   // The doctor's own live round trip failed too and was queued: the depth
   // grows and the health answer stays honest.
   assert.equal(readOutbox(outbox).length, 3);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("doctor reports the drain as off when the operator has turned it off", async () => {
+  // The default is on since the ingest doors dedupe replays, so the switch
+  // that still needs pinning is the one an operator reaches for.
+  const { dir, state, outbox, token } = scratch();
+  const env = {
+    ASCENDA_STATE_FILE: state,
+    ASCENDA_OUTBOX_FILE: outbox,
+    ASCENDA_EVENT_WRITE_TOKEN_FILE: token,
+    ASCENDA_OUTBOX_DRAIN: "0"
+  };
+  await withServer({ single: () => ({ status: 503, body: "" }) }, async (apiBaseUrl) => {
+    const result = await run(["doctor"], { env: { ...env, ASCENDA_API_BASE_URL: apiBaseUrl } });
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /Outbox drain\s+off — queued events are kept and bounded, not sent/);
+  });
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

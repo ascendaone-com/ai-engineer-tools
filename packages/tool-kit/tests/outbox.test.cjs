@@ -303,12 +303,19 @@ test("with the drain off, nothing is sent from the outbox and the queue is kept 
   }
 });
 
-test("the flag defaults to off and reads the environment", () => {
-  assert.equal(outboxDrainEnabled({}), false);
-  assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "" }), false);
-  assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "false" }), false);
+test("the flag defaults to on and reads the environment", () => {
+  // Unset and empty both mean "the operator has not spoken", and since the
+  // ingest doors dedupe replays on idempotencyKey the honest default is to
+  // deliver what was queued rather than hold it until it ages out.
+  assert.equal(outboxDrainEnabled({}), true);
+  assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "" }), true);
   assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "true" }), true);
   assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "1" }), true);
+  // The off switch still exists, and every spelling of it still works.
+  assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "0" }), false);
+  assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "false" }), false);
+  assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "no" }), false);
+  assert.equal(outboxDrainEnabled({ ASCENDA_OUTBOX_DRAIN: "off" }), false);
 });
 
 test("bound eviction by count is journaled with its own outcome, never a silent truncation", async () => {
