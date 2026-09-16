@@ -10,6 +10,39 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.24
+
+### Queued events are delivered instead of held
+
+- **The outbox now sends what it holds.** When a send can't reach the ingest
+  endpoint, the collector keeps the event on disk and offers it again on a
+  later hook. That replay was switched off until now, so a queue only ever
+  grew, hit its cap and aged out — `doctor` would report thousands of events
+  "discarded" for anyone who had been offline or behind a flaky connection.
+- **It is safe because a replay is free.** Every event has carried a
+  client-minted `idempotencyKey` since it gained one; the ingest endpoint
+  matches a replay on that key, answers `duplicate` and writes nothing. That
+  was the single condition the old default was waiting on, and it has now been
+  confirmed against the deployed endpoint rather than assumed.
+- **The switch still exists, it has just changed sides.** Set
+  `ASCENDA_OUTBOX_DRAIN=0` (or `false`/`no`/`off`) to hold the queue instead.
+  Unset now means send.
+- **What you'll see:** a queue that has been sitting on your machine drains
+  100 events per hook invocation, oldest first, and `doctor` shows the depth
+  falling. Events the server already holds come back as duplicates and are
+  deleted rather than resent forever.
+
+### `status` stops saying nothing is installed when something is
+
+- **`status` checks one scope — the default is `project`.** On a machine set
+  up with `--scope user` it reported a flat `0/7 registered`, which reads as a
+  failed install rather than "you're looking in the other place". It now looks
+  in the other scope before saying nothing is there, and names the file where
+  the hooks actually are.
+- **`doctor` and `pair` are in `--help`.** Both have always worked and neither
+  was listed. `pair` prints a code and then waits for you to paste it into the
+  app, which looks like a hang if you pipe its output somewhere buffered.
+
 ## v0.1.23
 
 ### The hooks mark the end of every agent turn

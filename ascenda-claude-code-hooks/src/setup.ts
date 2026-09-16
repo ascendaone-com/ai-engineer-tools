@@ -39,8 +39,13 @@ type Options = {
 const USAGE = `ascenda-claude-hook setup — wire Claude Code to Ascenda telemetry
 
   npx @ascenda-one/claude-code-hooks setup [options]
-  npx @ascenda-one/claude-code-hooks status
+  npx @ascenda-one/claude-code-hooks status [--scope project|user]
+  npx @ascenda-one/claude-code-hooks doctor
+  npx @ascenda-one/claude-code-hooks pair [--tool-type <type>]
   npx @ascenda-one/claude-code-hooks uninstall
+
+  doctor  prints the send journal, outbox and one live round trip
+  pair    prints a code to paste into the app, then waits for confirmation
 
 Options
   --api-base-url <url>          ingest host (default ${DEFAULT_API_BASE_URL})
@@ -348,12 +353,8 @@ export function findStaleHookCommands(settings: Settings, binary: string): strin
 
 // --------------------------------------------------------------- lifecycle ---
 
-function printStatus(options: Options): number {
-  const credentials = readCredentials();
-  const settingsFile = settingsPath(options);
-  const binary = hookBinPath();
-  const tokenFile = credentials?.toolInstallationId ? defaultTokenFilePath(credentials.toolInstallationId) : undefined;
-
+/** Reads a settings file and counts our hooks in it. Missing or unparseable reads as none. */
+function countRegistered(settingsFile: string, binary: string): { settings: Settings; registered: number } {
   const settings = (() => {
     try {
       return JSON.parse(fs.readFileSync(settingsFile, "utf8")) as Settings;
@@ -361,7 +362,28 @@ function printStatus(options: Options): number {
       return {} as Settings;
     }
   })();
-  const registered = HOOK_EVENTS.filter((event) => (settings.hooks?.[event] ?? []).some(isOurs)).length;
+  return { settings, registered: HOOK_EVENTS.filter((event) => (settings.hooks?.[event] ?? []).some(isOurs)).length };
+}
+
+function printStatus(options: Options): number {
+  const credentials = readCredentials();
+  const settingsFile = settingsPath(options);
+  const binary = hookBinPath();
+  const tokenFile = credentials?.toolInstallationId ? defaultTokenFilePath(credentials.toolInstallationId) : undefined;
+
+  const here = countRegistered(settingsFile, binary);
+  const settings = here.settings;
+  const registered = here.registered;
+  // `status` checks one scope — the same default `setup` writes to, which is
+  // `project`. A machine set up with `--scope user` therefore reported a flat
+  // `0/7 registered` from a project directory, which reads as "the install
+  // failed" rather than "you are looking in the other place". Look in the
+  // other scope before saying nothing is there, and name where it actually is.
+  const otherScope: Options = { ...options, scope: options.scope === "user" ? "project" : "user" };
+  const otherFile = settingsPath(otherScope);
+  const elsewhere = registered === 0 && otherFile !== settingsFile
+    ? countRegistered(otherFile, binary)
+    : undefined;
   const stale = findStaleHookCommands(settings, binary);
 
   console.log(`api base url   ${credentials?.apiBaseUrl ?? "— not configured"}`);
@@ -369,6 +391,9 @@ function printStatus(options: Options): number {
   console.log(`token          ${tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
   console.log(`hooks          ${registered}/${HOOK_EVENTS.length} registered in ${settingsFile}`);
+  if (elsewhere && elsewhere.registered > 0) {
+    console.log(`               ${elsewhere.registered}/${HOOK_EVENTS.length} found in ${otherFile} (--scope ${otherScope.scope})`);
+  }
 
   if (stale.length) {
     console.log(`stale hooks    ${stale.length} not pointing at the installed binary — each one fails silently per event:`);

@@ -32,7 +32,13 @@ import { sanitizeFilePart } from "./tokenStore";
  * worse bug than the one it holds.
  */
 
-/** Set to `1`/`true` to let the drain send. Off by default until the ingest doors are confirmed to dedupe live events. */
+/**
+ * Set to `0`/`false` to stop the drain sending. **On by default since 16 Sep
+ * 2026**, when the deployed ingest doors were confirmed to dedupe live events:
+ * a replayed payload comes back `duplicate` and writes nothing. Until then this
+ * defaulted off, because a drain against a door without that guarantee would
+ * have landed every queued event a second time and inflated the demand rail.
+ */
 export const OUTBOX_DRAIN_ENV_VAR = "ASCENDA_OUTBOX_DRAIN";
 
 /**
@@ -72,7 +78,8 @@ export type OutboxDiscard = {
 
 export function outboxDrainEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const value = env[OUTBOX_DRAIN_ENV_VAR]?.trim().toLowerCase();
-  return value === "1" || value === "true" || value === "yes" || value === "on";
+  if (value === undefined || value === "") return true;
+  return !(value === "0" || value === "false" || value === "no" || value === "off");
 }
 
 /** Sibling of the journal: `<state dir>/<toolInstallationId>.outbox.jsonl`. */

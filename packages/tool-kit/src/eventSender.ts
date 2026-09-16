@@ -77,11 +77,12 @@ export type EventSenderConfig = {
   outboxFilePath?: string;
   /**
    * Whether the outbox may be *sent*, as opposed to kept and bounded. Defaults
-   * to `ASCENDA_OUTBOX_DRAIN`, which defaults to off: a drain against an
-   * ingest door that does not yet dedupe on `idempotencyKey` would land every
-   * queued event a second time, and that double-count is the reason this
-   * queue could not be built until the key existed. Turn it on once the
-   * deployed backend is confirmed to answer a replay with `duplicate`.
+   * to `ASCENDA_OUTBOX_DRAIN`, which defaults to **on** since 16 Sep 2026.
+   * It defaulted off until then: a drain against an ingest door that does not
+   * dedupe on `idempotencyKey` would land every queued event a second time,
+   * and that double-count is the reason this queue could not be built until
+   * the key existed. The deployed doors were then confirmed to answer a
+   * replay with `duplicate`, which is the condition that comment named.
    */
   outboxDrain?: boolean;
   outboxMaxEntries?: number;
