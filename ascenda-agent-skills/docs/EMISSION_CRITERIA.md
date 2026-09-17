@@ -12,7 +12,7 @@ Every criterion below is written to be checked against **observable interaction 
 
 **Fires when:** the same underlying problem has been attempted via **three or more materially different approaches** within one continuous working stretch, and none has resolved it.
 
-- "Materially different" means a different method, not a retry of the identical thing with a typo fixed — that's already covered by the deterministic `ai_correction_prompt`/retry-storm signals the hooks emit, and re-reporting it here would double-count.
+- "Materially different" means a different method, not a retry of the identical thing with a typo fixed — that's already covered by what the hooks emit deterministically: `ai_correction_prompt` when a prompt reads as a re-ask, and a failure event for each failed tool call or test run (`ai_tool_call_failed`, `compile_error`), from which a run of the same failure is counted. The hooks send no retry event of their own. Re-reporting any of this here would double-count.
 - "Same underlying problem" is a judgement call the skill makes from the conversation, not from string-matching error messages. State the basis for the judgement to yourself before emitting; if you can't name what's the same across attempts, don't emit.
 - Do **not** fire for legitimate exploration (trying three implementations to compare them, deliberately) — the tell is usually stated intent ("let me try a different approach and compare") versus escalating attempts at the same fix. When genuinely unsure, don't emit; a missed signal costs less than a wrong one.
 
