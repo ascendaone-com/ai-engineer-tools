@@ -12,7 +12,7 @@ const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // to be a deliberate change here too. SessionStart earns its place twice —
 // it maps to create_focus_session, and it is the hook that carries the
 // intention invite.
-const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PreCompact", "PostCompact", "Stop"];
+const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop"];
 
 function tempSettings(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-settings-"));
@@ -36,6 +36,24 @@ test("registers every hook event, and none we do not map", () => {
   assert.equal(hooks.Notification, undefined);
   assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse$/);
   assert.equal(hooks.PostToolUse[0].hooks[0].timeout, 5, "must not inherit the 600s default");
+});
+
+test("registers every event the mapper turns into telemetry", async () => {
+  // The list above is hand-written, which is how PostToolUseFailure went
+  // missing while the mapper already handled it. Cross-check against the
+  // mapper itself: any hook event that yields an event must be registered.
+  const { CLAUDE_HOOK_EVENT_NAMES } = await import("../dist/types.js");
+  const { mapClaudeEvent } = await import("../dist/mapClaudeEvent.js");
+  const file = tempSettings();
+  writeSettings(file, BINARY, false);
+  const registered = Object.keys(read(file).hooks);
+
+  const probe = { session_id: "s1", source: "startup", tool_name: "Bash", tool_input: { command: "npm test" }, prompt: "hi", trigger: "manual" };
+  for (const name of CLAUDE_HOOK_EVENT_NAMES) {
+    if (mapClaudeEvent(name, probe).length === 0) continue;
+    assert.ok(registered.includes(name), `${name} maps to telemetry but setup does not register it`);
+  }
+  assert.ok(registered.includes("PostToolUseFailure"));
 });
 
 test("preserves unrelated settings and other people's hooks", () => {
