@@ -12,6 +12,16 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.24
 
+### Failed tool calls get recorded
+
+- **`setup` now registers `PostToolUseFailure`.** Claude Code reports a
+  failed tool call on that hook, never on `PostToolUse`. `setup` left it out,
+  so failed commands, failed edits and failed test runs were never sent,
+  although the collector knew how to map them.
+- **Re-run `setup` to pick it up.** Existing installs keep their old hook list
+  until you do. `status` now counts 8 hooks, so an install from before this
+  release shows `7/8 registered`.
+
 ### Queued events now get delivered
 
 - **The outbox sends what it holds.** When a send can't reach the ingest

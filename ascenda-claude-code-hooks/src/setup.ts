@@ -11,8 +11,11 @@ import { ASCENDA_TOOL_TYPE } from "./types.js";
  * Hook events worth registering. `Notification` is deliberately absent: it maps
  * to no catalog event, so registering it would spawn a process per notification
  * and send nothing.
+ *
+ * `PostToolUseFailure` is where Claude Code reports a tool call that failed; a
+ * failure never reaches `PostToolUse`. Leaving it out drops every failed call.
  */
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PreCompact", "PostCompact", "Stop"] as const;
+const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop"] as const;
 
 /**
  * Claude Code's default timeout for `command` hooks is 600s. Telemetry that
