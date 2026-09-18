@@ -1,9 +1,10 @@
 /**
- * Which session counts a typed prompt.
+ * Which session counts a typed prompt, and which typed-looking lines a chip
+ * wrote.
  *
- * No single transcript can answer that, so the extractor reads the whole store
- * once for it before it folds any session. The read keeps line ids only, never
- * text.
+ * No single transcript can answer either question, so the extractor reads the
+ * whole store once for them before it folds any session. The read keeps line
+ * ids and hashes only, never text.
  *
  * **Resumed transcripts copy history.** Resuming or forking a session writes a
  * new transcript file that starts with the inherited history, and each copied
@@ -27,10 +28,60 @@
  * instant on the copying fold's timeline, so every fold on a lineage keeps its
  * inherited active and hands-on minutes. That is a separate decision with its
  * own reasoning, recorded where the minutes are computed.
+ *
+ * **Chip-launched sessions open on a line nobody typed.** A session started
+ * from a `spawn_task` chip has, as its first `user` line, the chip's `prompt`
+ * input verbatim, sometimes behind a runtime wrapper. Nothing structural tells
+ * it apart from a typed prompt: its origin, entrypoint and neighbouring lines
+ * read the same. The one piece of evidence is the text matching a chip that
+ * some session in the store issued. So the ledger keeps a SHA-256 of every
+ * chip's prompt, normalised as `typedRemainderOf` normalises a line, and a
+ * typed line whose remainder hashes into that set was dispatched, not typed.
+ * The extractor counts it in `dispatchedPromptLines` rather than dropping it,
+ * because clicking the chip was still a person's act.
+ *
+ * Known miss: when the store's 30-day cleanup has purged the transcript that
+ * issued a chip, nothing is left to match, and the opener still counts as
+ * typed.
  */
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import * as path from "node:path";
-import { isTypedPromptLine } from "./interruptedRuns.js";
+import { isTypedPromptLine, stripRuntimeWrappers, typedRemainderOf } from "./interruptedRuns.js";
+
+/** The tool a session calls to offer a chip that opens another session. */
+export const SPAWN_TASK_TOOL_NAME = "mcp__ccd_session__spawn_task";
+
+/** SHA-256 of already-normalised prompt text. The only form text is kept in. */
+export function promptFingerprint(normalised: string): string {
+  return createHash("sha256").update(normalised, "utf8").digest("hex");
+}
+
+/**
+ * The chip prompts issued on one assistant line, one per `spawn_task` call,
+ * each as its call id and a fingerprint. Reads the `prompt` input of that one
+ * tool and nothing else, and keeps only the hash.
+ */
+export function spawnTaskPromptsOf(
+  record: Record<string, unknown>
+): { callId: string | null; fingerprint: string }[] {
+  const message = record.message as Record<string, unknown> | undefined;
+  const content = message?.content;
+  if (!Array.isArray(content)) return [];
+  const out: { callId: string | null; fingerprint: string }[] = [];
+  for (const item of content) {
+    if (typeof item !== "object" || item === null) continue;
+    const entry = item as Record<string, unknown>;
+    if (entry.type !== "tool_use" || entry.name !== SPAWN_TASK_TOOL_NAME) continue;
+    const input = entry.input as Record<string, unknown> | undefined;
+    if (typeof input?.prompt !== "string") continue;
+    out.push({
+      callId: typeof entry.id === "string" ? entry.id : null,
+      fingerprint: promptFingerprint(stripRuntimeWrappers(input.prompt))
+    });
+  }
+  return out;
+}
 
 /** Whether a line's `sessionId` names the transcript it sits in. */
 export function isHomeTranscript(transcriptPath: string, sessionId: unknown): boolean {
@@ -45,6 +96,8 @@ interface Owner {
 export class PromptLedger {
   /** Line id to owning transcript; `null` once the owner has counted it. */
   private readonly owners = new Map<string, Owner | null>();
+  private readonly chipPrompts = new Set<string>();
+  private readonly chipCalls = new Set<string>();
 
   /**
    * Takes one line of the pre-read. Main-thread transcripts must be offered in
@@ -56,6 +109,18 @@ export class PromptLedger {
     transcript: string,
     opts: { isSidechain: boolean; isToolResult: (record: Record<string, unknown>) => boolean }
   ): void {
+    if (record.type === "assistant") {
+      // Either thread: a subagent can offer a chip as well as the main thread.
+      // A resumed transcript repeats the call, so the id is read once.
+      for (const { callId, fingerprint } of spawnTaskPromptsOf(record)) {
+        if (callId !== null) {
+          if (this.chipCalls.has(callId)) continue;
+          this.chipCalls.add(callId);
+        }
+        this.chipPrompts.add(fingerprint);
+      }
+      return;
+    }
     if (opts.isSidechain || record.type !== "user") return;
     if (typeof record.uuid !== "string") return;
     if (opts.isToolResult(record) || !isTypedPromptLine(record)) return;
@@ -64,6 +129,13 @@ export class PromptLedger {
     if (existing === undefined || (existing !== null && !existing.home && home)) {
       this.owners.set(record.uuid, { transcript, home });
     }
+  }
+
+  /** Whether a line that passes `isTypedPromptLine` is a chip's prompt. */
+  isDispatched(record: Record<string, unknown>): boolean {
+    if (this.chipPrompts.size === 0) return false;
+    const remainder = typedRemainderOf(record);
+    return remainder !== null && this.chipPrompts.has(promptFingerprint(remainder));
   }
 
   /**
@@ -84,17 +156,22 @@ export class PromptLedger {
     this.owners.set(uuid, null);
     return true;
   }
+
+  /** Distinct chip prompts seen, for tests and diagnostics. */
+  get chipPromptCount(): number {
+    return this.chipPrompts.size;
+  }
 }
 
 /**
- * Whether a line could matter to the ledger: it names a `user` record. A
- * necessary condition only, so it may pass a line that turns out not to
- * matter, but it can't skip one that does. Every line that passes is parsed and
- * classified in full. It exists because the pre-read covers the whole store and
- * most of its bytes are tool output.
+ * Whether a line could matter to the ledger: it names a `user` record or the
+ * chip tool. A necessary condition only, so it may pass a line that turns out
+ * not to matter, but it can't skip one that does. Every line that passes is
+ * parsed and classified in full. It exists because the pre-read covers the
+ * whole store and most of its bytes are tool output.
  */
 function mayMatter(line: string): boolean {
-  return line.includes('"user"');
+  return line.includes('"user"') || line.includes(SPAWN_TASK_TOOL_NAME);
 }
 
 /**
@@ -120,7 +197,8 @@ async function eachLine(transcript: string, onLine: (line: string) => void): Pro
 }
 
 /**
- * Reads every transcript once and keeps only line ids with their owners. A transcript that can't be read contributes nothing here,
+ * Reads every transcript once and keeps only line ids with their owners, plus
+ * chip prompt hashes. A transcript that can't be read contributes nothing here,
  * and the fold that follows handles it as it always has.
  */
 export async function readPromptLedger(

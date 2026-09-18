@@ -17,6 +17,7 @@ export function lineageFigures(events) {
     .map((e) => ({
       sessionRef: e.sessionRef,
       promptCount: e.metrics.promptCount,
+      dispatchedPromptLines: e.metrics.dispatchedPromptLines,
       syntheticPromptLines: e.metrics.syntheticPromptLines,
       interruptedRuns: e.metrics.interruptedRuns,
       activeMinutes: e.metrics.activeMinutes,

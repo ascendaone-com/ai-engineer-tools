@@ -12,7 +12,7 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.25
 
-### Each prompt counts once
+### Each prompt counts once, and a chip's prompt isn't one
 
 - **A resumed session's history counts in the session it came from.** Resuming
   or forking a Claude Code session writes a new transcript that copies the
@@ -20,6 +20,11 @@ targets, error counts or internal resource names — this repository is public.
   resume, so a long-running piece of work could show several times the
   prompts you typed. Each typed line now counts in one session: the one it was
   typed in, or the first transcript read where that one's gone.
+- **Sessions opened from a chip start on a prompt nobody typed.** Clicking a
+  suggested-task chip opens a session whose first line is the chip's prompt.
+  The import used to count it as yours. It's now counted per session as
+  `dispatchedPromptLines`, next to `syntheticPromptLines`. The agent still
+  runs on that line, so stopping its first turn early is still counted.
 - **Expect lower prompt counts after your next import.** Days you resumed a lot
   of sessions drop the most. After-hours prompts, quick re-prompts and the
   per-day prompt counts follow. Minutes don't move. A resumed session still
@@ -28,8 +33,10 @@ targets, error counts or internal resource names — this repository is public.
   reading.** `"typed"` is the previous rule. The schema number doesn't move,
   and your existing handoffs still read.
 - **The import reads your transcripts twice now.** The first pass keeps only
-  line ids, never text, and nothing is kept after the run.
-- **Both importers agree.** The desktop app counts by the same rule.
+  line ids and hashes of chip prompts, never text, and nothing is kept after
+  the run. A chip offered by a session the store has since cleaned up can't be
+  matched, so that session's opener still counts as typed.
+- **Both importers agree.** The desktop app counts by the same rules.
 
 ## v0.1.24
 

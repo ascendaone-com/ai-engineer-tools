@@ -78,9 +78,11 @@
  * `interruptedRuns.ts` declines them, and `syntheticPromptLines` counts what
  * it declined.
  *
- * One more rule needs the whole store, so `promptLedger.ts` reads it once
+ * Two more rules need the whole store, so `promptLedger.ts` reads it once
  * before any session is folded. A resumed transcript copies its ancestors'
- * lines, so each typed line (by `uuid`) is counted by one transcript only.
+ * lines, so each typed line (by `uuid`) is counted by one transcript only. And
+ * a session opened from a chip starts on the chip's prompt, which nobody typed,
+ * so that line is counted in `dispatchedPromptLines` and not as a prompt.
  *
  * Emission (aggregate before shipping — never one event per line):
  *  - `ai_prompt_submitted` per HUMAN prompt (canonical type, so the existing
@@ -348,6 +350,10 @@ interface SessionFold {
   /** Main-thread `user` lines the runtime wrote on the person's behalf, left
    * out of `humanPrompts`. See `isTypedPromptLine`. */
   syntheticPromptLines: number;
+  /** Main-thread lines that pass `isTypedPromptLine` but are a chip's prompt,
+   * left out of `humanPrompts`. Counted once per line, like a prompt. See
+   * `promptLedger.ts`. */
+  dispatchedPromptLines: number;
   afterHoursPrompts: number;
   assistantTurns: number;
   toolResults: number;
@@ -418,6 +424,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     lastTs: null,
     humanPrompts: 0,
     syntheticPromptLines: 0,
+    dispatchedPromptLines: 0,
     afterHoursPrompts: 0,
     assistantTurns: 0,
     toolResults: 0,
@@ -682,6 +689,17 @@ async function foldLinesInto(
             // are visible. Its posture is still a declaration of the session's
             // mode, so it is read the way a prompt's is.
             fold.syntheticPromptLines += 1;
+            if (typeof record.permissionMode === "string" && record.permissionMode !== "") {
+              postureHere = snakeCasePermissionMode(record.permissionMode);
+            }
+          } else if (opts.ledger.isDispatched(record)) {
+            // A chip's prompt, opening the session it launched. Nobody typed
+            // it, so it is not a prompt and not a person's instant; clicking
+            // the chip was a person's act, so it is counted rather than
+            // dropped, once per line as a prompt would be. It still starts the
+            // agent's first turn (`stepRun` above). Its posture is read the
+            // way a synthetic line's is.
+            if (opts.ledger.claim(record, filePath)) fold.dispatchedPromptLines += 1;
             if (typeof record.permissionMode === "string" && record.permissionMode !== "") {
               postureHere = snakeCasePermissionMode(record.permissionMode);
             }
@@ -1062,6 +1080,7 @@ export async function* extractClaudeCode(
       const sessionMetrics: NormalizedHistoricalEvent["metrics"] = {
         promptCount: fold.humanPrompts,
         syntheticPromptLines: fold.syntheticPromptLines,
+        dispatchedPromptLines: fold.dispatchedPromptLines,
         assistantTurns: fold.assistantTurns,
         toolCallCount: fold.toolCallCount,
         toolResultCount: fold.toolResults,

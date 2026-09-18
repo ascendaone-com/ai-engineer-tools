@@ -177,7 +177,7 @@ follow the same count. The desktop app's importer declines the same lines; the
 test is `isTypedPromptLine` in
 [`src/interruptedRuns.ts`](./src/interruptedRuns.ts).
 
-One more rule needs the whole store, so the extractor reads every transcript
+Two more rules need the whole store, so the extractor reads every transcript
 once before it folds any session ([`src/promptLedger.ts`](./src/promptLedger.ts)):
 
 - **Each typed line counts once.** Resuming or forking a session writes a new
@@ -187,9 +187,18 @@ once before it folds any session ([`src/promptLedger.ts`](./src/promptLedger.ts)
   sorted order. A line with no id is counted wherever it appears. Active and
   hands-on minutes aren't deduplicated this way. A resumed session still
   carries its ancestors' minutes.
+- **A chip's prompt isn't typed.** A session launched from a `spawn_task` chip
+  opens on the chip's prompt. When a line's text, wrappers stripped, matches a
+  chip that some session in the store offered, it counts in
+  `dispatchedPromptLines`, not `promptCount`. The agent still runs on it, so an
+  interrupt during that first turn is still a cut-short run. Only hashes of
+  chip prompts are kept, and only for the run. If the store's cleanup has
+  already removed the session that offered the chip, there's nothing to match
+  and the opener counts as typed.
 
 The handoff stamps `promptBasis: "typed_once"`. `"typed"` means the rules above
-the list, with every resumed copy counted again. A handoff without the stamp counted every `user` line that wasn't a tool
+the list, with every resumed copy counted again and chip prompts counted as
+typed. A handoff without the stamp counted every `user` line that wasn't a tool
 result. Prompt counts for the same week run highest under that rule and lowest
 under `typed_once`. The schema number doesn't move.
 
