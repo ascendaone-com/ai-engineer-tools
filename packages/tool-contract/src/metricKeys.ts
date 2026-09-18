@@ -115,7 +115,7 @@ export const METRIC_KEYS = {
   syntheticPromptLines: {
     readBy: ["handoff"],
     unit: "lines",
-    note: "Main-thread user lines the runtime wrote on the person's behalf (notifications, its own bookkeeping, slash-command wrappers, interrupt markers) and promptCount left out. Claude Code only; the receipt for the handoff's promptBasis: typed."
+    note: "Main-thread user lines the runtime wrote on the person's behalf (notifications, its own bookkeeping, slash-command wrappers, interrupt markers) and promptCount left out. Claude Code only; the receipt for the handoff's promptBasis. Counted per transcript, so a resumed transcript's copies count again."
   },
   interruptedRuns: {
     readBy: ["handoff"],

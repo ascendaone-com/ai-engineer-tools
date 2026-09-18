@@ -78,6 +78,10 @@
  * `interruptedRuns.ts` declines them, and `syntheticPromptLines` counts what
  * it declined.
  *
+ * One more rule needs the whole store, so `promptLedger.ts` reads it once
+ * before any session is folded. A resumed transcript copies its ancestors'
+ * lines, so each typed line (by `uuid`) is counted by one transcript only.
+ *
  * Emission (aggregate before shipping — never one event per line):
  *  - `ai_prompt_submitted` per HUMAN prompt (canonical type, so the existing
  *    demand/baseline readers count it natively), provenance historical_direct.
@@ -112,6 +116,7 @@ import {
   type ActiveInstant
 } from "../activeSplit.js";
 import { isTypedPromptLine, stepRun } from "../interruptedRuns.js";
+import { PromptLedger, readPromptLedger } from "../promptLedger.js";
 
 /** Line types the extractor reads fields from. */
 export const KNOWN_CLAUDE_LINE_TYPES = [
@@ -392,7 +397,9 @@ interface SessionFold {
    * are short by an unknown amount and only this says so. */
   undatedTimelineLines: number;
   /** Timestamps of HUMAN prompts only — the per-prompt events emitted later,
-   * and the source for rapid-reprompt detection. Timestamps, never text. */
+   * and the source for rapid-reprompt detection. Timestamps, never text. Only
+   * the prompts this transcript owns (`promptLedger.ts`): a prompt a resumed
+   * transcript copied from its ancestor is its ancestor's. */
   humanPromptTimestamps: (string | null)[];
   /** Runs the person cut short, main thread only. See `interruptedRuns.ts`. */
   interruptedRuns: number;
@@ -568,7 +575,7 @@ function contextWindowPeakPctOf(fold: SessionFold): number {
 async function foldLinesInto(
   fold: SessionFold,
   filePath: string,
-  opts: { isSidechain: boolean }
+  opts: { isSidechain: boolean; ledger: PromptLedger }
 ): Promise<void> {
   // Transcripts run to hundreds of MB; read line-wise, never whole-file.
   const handle = await fs.open(filePath);
@@ -596,8 +603,10 @@ async function foldLinesInto(
         continue;
       }
       // Trust the store's own id over the filename when they disagree — main
-      // thread only. A subagent's own sessionId already equals its parent's,
-      // so correcting off it here could only ever be a no-op or a mistake.
+      // thread only. A resumed transcript's copied lines come first and carry
+      // its ancestors' ids, so the fold ends on the id of the file's own lines.
+      // A subagent's own sessionId already equals its parent's, so correcting
+      // off it here could only ever be a no-op or a mistake.
       if (!opts.isSidechain && sniffed.sessionId && fold.sessionId !== sniffed.sessionId) {
         fold.sessionId = sniffed.sessionId;
       }
@@ -677,11 +686,17 @@ async function foldLinesInto(
               postureHere = snakeCasePermissionMode(record.permissionMode);
             }
           } else {
-            fold.humanPrompts += 1;
-            if (sniffed.occurredAt && isOutsideBusinessHours(new Date(sniffed.occurredAt))) {
-              fold.afterHoursPrompts += 1;
+            // Counted by one transcript only. A resumed transcript's copy of an
+            // ancestor's prompt is still a person's instant on this fold's
+            // timeline, so the minutes keep it; the count and the events do
+            // not. See `promptLedger.ts`.
+            if (opts.ledger.claim(record, filePath)) {
+              fold.humanPrompts += 1;
+              if (sniffed.occurredAt && isOutsideBusinessHours(new Date(sniffed.occurredAt))) {
+                fold.afterHoursPrompts += 1;
+              }
+              fold.humanPromptTimestamps.push(sniffed.occurredAt);
             }
-            fold.humanPromptTimestamps.push(sniffed.occurredAt);
             humanHere = true;
             // The transcript spells this `permissionMode`; the hook payloads
             // spell the same field `permission_mode`. Snake-casing here means
@@ -821,9 +836,13 @@ async function foldLinesInto(
   }
 }
 
-async function foldTranscript(filePath: string, projectSlug: string): Promise<SessionFold> {
+async function foldTranscript(
+  filePath: string,
+  projectSlug: string,
+  ledger: PromptLedger
+): Promise<SessionFold> {
   const fold = newFold(path.basename(filePath, ".jsonl"), projectSlug);
-  await foldLinesInto(fold, filePath, { isSidechain: false });
+  await foldLinesInto(fold, filePath, { isSidechain: false, ledger });
   return fold;
 }
 
@@ -854,6 +873,18 @@ async function walkJsonlFiles(root: string): Promise<{ files: string[]; otherFil
   }
   await walk(root);
   return { files: out, otherFiles };
+}
+
+/** One project directory's transcripts, listed before anything is read. */
+interface ProjectPlan {
+  slug: string;
+  dir: string;
+  /** Main-thread transcript names, sorted. */
+  topLevelFiles: string[];
+  /** Files at the top level that aren't transcripts. */
+  otherFiles: number;
+  /** Session directories, sorted, each with its subagent transcripts. */
+  sessionDirs: { name: string; files: string[]; otherFiles: number }[];
 }
 
 function topModel(models: Map<string, number>): string | null {
@@ -900,6 +931,10 @@ export async function* extractClaudeCode(
   // positive, and the reason the counter is worth having.
   let projectsWithNoReadableTranscript = 0;
 
+  // The whole walk is listed before anything is read, because the prompt
+  // ledger has to read every transcript, in this order, before the first
+  // session is folded. Paths only; nothing is held open.
+  const plan: ProjectPlan[] = [];
   for (const slug of projectSlugs.sort()) {
     const dir = path.join(projectsDir, slug);
     let entries;
@@ -912,28 +947,55 @@ export async function* extractClaudeCode(
       .filter((e) => e.isFile() && e.name.endsWith(".jsonl"))
       .map((e) => e.name)
       .sort();
-    let slugJsonlFiles = topLevelFiles.length;
-    let slugOtherFiles = entries.filter((e) => e.isFile() && !e.name.endsWith(".jsonl")).length;
-    const sessionDirNames = entries
+    const sessionDirs: ProjectPlan["sessionDirs"] = [];
+    for (const name of entries
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
-      .sort();
+      .sort()) {
+      const nested = await walkJsonlFiles(path.join(dir, name));
+      sessionDirs.push({ name, files: nested.files, otherFiles: nested.otherFiles });
+    }
+    plan.push({
+      slug,
+      dir,
+      topLevelFiles,
+      otherFiles: entries.filter((e) => e.isFile() && !e.name.endsWith(".jsonl")).length,
+      sessionDirs
+    });
+  }
 
-    // Keyed by the top-level filename's own basename — which is also the
-    // directory-naming convention subagent transcripts nest under — so a
-    // merge never depends on a session correcting its own id mid-file.
+  const ledger = await readPromptLedger(
+    plan.flatMap((p) => p.topLevelFiles.map((name) => path.join(p.dir, name))),
+    plan.flatMap((p) => p.sessionDirs.flatMap((d) => d.files)),
+    isToolResultUserLine
+  );
+
+  for (const { slug, dir, topLevelFiles, otherFiles, sessionDirs } of plan) {
+    let slugJsonlFiles = topLevelFiles.length;
+    let slugOtherFiles = otherFiles;
+
+    // Keyed by the top-level filename's own basename, which is also the
+    // directory-naming convention subagent transcripts nest under.
+    //
+    // A transcript whose lines carry a `sessionId` other than its filename is
+    // not a session that changed its id partway through. Every such file
+    // measured on a real store was a resumed or forked session: the runtime
+    // copies the inherited history into the new file, and the copied lines
+    // keep their original id and timestamp. Keying by line id would break a
+    // resumed file into fragments that each look like a session, so the
+    // filename stays the key. What the copies would otherwise inflate is
+    // handled where each figure is made: prompts are counted by one transcript
+    // only (`promptLedger.ts`); minutes still carry the inherited history.
     const foldsByKey = new Map<string, SessionFold>();
 
     for (const name of topLevelFiles) {
-      const fold = await foldTranscript(path.join(dir, name), slug);
+      const fold = await foldTranscript(path.join(dir, name), slug, ledger);
       foldsByKey.set(path.basename(name, ".jsonl"), fold);
     }
 
-    for (const sessionDirName of sessionDirNames) {
-      const nested = await walkJsonlFiles(path.join(dir, sessionDirName));
-      const nestedFiles = nested.files;
+    for (const { name: sessionDirName, files: nestedFiles, otherFiles: nestedOther } of sessionDirs) {
       slugJsonlFiles += nestedFiles.length;
-      slugOtherFiles += nested.otherFiles;
+      slugOtherFiles += nestedOther;
       if (nestedFiles.length === 0) continue;
       let fold = foldsByKey.get(sessionDirName);
       if (!fold) {
@@ -944,7 +1006,7 @@ export async function* extractClaudeCode(
       }
       for (const nestedPath of nestedFiles) {
         fold.subagentTranscripts += 1;
-        await foldLinesInto(fold, nestedPath, { isSidechain: true });
+        await foldLinesInto(fold, nestedPath, { isSidechain: true, ledger });
       }
     }
 

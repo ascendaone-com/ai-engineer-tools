@@ -10,6 +10,27 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.25
+
+### Each prompt counts once
+
+- **A resumed session's history counts in the session it came from.** Resuming
+  or forking a Claude Code session writes a new transcript that copies the
+  history it inherited. The import counted every copied prompt again, once per
+  resume, so a long-running piece of work could show several times the
+  prompts you typed. Each typed line now counts in one session: the one it was
+  typed in, or the first transcript read where that one's gone.
+- **Expect lower prompt counts after your next import.** Days you resumed a lot
+  of sessions drop the most. After-hours prompts, quick re-prompts and the
+  per-day prompt counts follow. Minutes don't move. A resumed session still
+  carries its inherited active and hands-on minutes.
+- **`promptBasis: "typed_once"` on the handoff says which count you're
+  reading.** `"typed"` is the previous rule. The schema number doesn't move,
+  and your existing handoffs still read.
+- **The import reads your transcripts twice now.** The first pass keeps only
+  line ids, never text, and nothing is kept after the run.
+- **Both importers agree.** The desktop app counts by the same rule.
+
 ## v0.1.24
 
 ### Failed tool calls get recorded

@@ -1,0 +1,57 @@
+{
+  "writtenBy": "ai-engineer-tools ascenda-history-import tests/lineageFigures.mjs, from fixtures/claude-store-lineage",
+  "figures": {
+    "sessions": [
+      {
+        "sessionRef": "s-alpha",
+        "promptCount": 1,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 3,
+        "handsOnMinutes": 1,
+        "agentSupervisingMinutes": 2,
+        "dayPrompts": 1
+      },
+      {
+        "sessionRef": "s-bravo",
+        "promptCount": 2,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 1,
+        "handsOnMinutes": 1,
+        "agentSupervisingMinutes": 0,
+        "dayPrompts": 2
+      },
+      {
+        "sessionRef": "s-charlie",
+        "promptCount": 3,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 1,
+        "handsOnMinutes": 1,
+        "agentSupervisingMinutes": 0,
+        "dayPrompts": 3
+      },
+      {
+        "sessionRef": "s-zulu",
+        "promptCount": 2,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 3,
+        "handsOnMinutes": 1,
+        "agentSupervisingMinutes": 1,
+        "dayPrompts": 2
+      }
+    ],
+    "promptInstants": [
+      "s-alpha 2026-09-08T03:00:00.000Z",
+      "s-bravo 2026-09-08T05:01:00.000Z",
+      "s-bravo 2026-09-08T07:00:00.000Z",
+      "s-charlie 2026-09-08T05:00:00.000Z",
+      "s-charlie 2026-09-08T05:01:00.000Z",
+      "s-charlie 2026-09-08T06:00:00.000Z",
+      "s-zulu 2026-09-08T01:00:00.000Z",
+      "s-zulu 2026-09-08T01:02:00.000Z"
+    ]
+  }
+}

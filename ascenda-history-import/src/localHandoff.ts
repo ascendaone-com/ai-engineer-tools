@@ -381,7 +381,7 @@ export interface ProjectElapsedDay {
 }
 
 /** Which `user` lines a handoff's `promptCount` counts; see `HandoffFile.promptBasis`. */
-export type PromptBasis = "typed" | "every_user_line";
+export type PromptBasis = "typed_once" | "typed" | "every_user_line";
 
 export interface HandoffFile {
   schema: number;
@@ -396,12 +396,16 @@ export interface HandoffFile {
    */
   interruptedRunsCounted: true;
   /**
-   * Which `user` lines `promptCount` counts. `typed`: only prompts the person
-   * typed, with the lines the runtime writes on their behalf declined and
-   * tallied per session in `syntheticPromptLines`. Absent on a handoff written
-   * before this field, which means `every_user_line`: every main-thread `user`
-   * line that wasn't a tool result. Additive, so the schema number doesn't
-   * move.
+   * Which `user` lines `promptCount` counts. Additive, so the schema number
+   * doesn't move; a reader keeps the value as written.
+   *
+   * - `typed_once` (this writer): prompts the person typed, each counted by one
+   *   session only. The lines the runtime writes on their behalf are tallied in
+   *   `syntheticPromptLines`. A resumed session's copies of its ancestors'
+   *   prompts count in the ancestor alone.
+   * - `typed`: the same, except that every resumed copy counted again.
+   * - absent, on a handoff written before this field, means `every_user_line`:
+   *   every main-thread `user` line that wasn't a tool result.
    */
   promptBasis: PromptBasis;
   /**
@@ -1013,9 +1017,10 @@ export function buildHandoff(
     // This extractor counts the runs a person cut short, so a `0` on a session
     // or a day slice below means none, not "not looked for".
     interruptedRunsCounted: true,
-    // The extractor declines the lines the runtime writes on a person's behalf,
-    // so `promptCount` below is typed prompts only.
-    promptBasis: "typed",
+    // The extractor declines the lines the runtime writes on a person's behalf
+    // and counts each typed line in one session only, so `promptCount` below
+    // is typed prompts, once each.
+    promptBasis: "typed_once",
     // And what each of those figures measures, keyed by the path a reader
     // walks. The `projects` rollup below is why this store needs the stamp
     // most: it carries the summed pair and the unioned pair under one
