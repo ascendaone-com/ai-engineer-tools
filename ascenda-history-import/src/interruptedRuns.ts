@@ -69,6 +69,16 @@ export function typedRemainderOf(record: Record<string, unknown>): string | null
   } else {
     return null;
   }
+  return stripRuntimeWrappers(text);
+}
+
+/**
+ * Text with the runtime's wrapper elements removed and trimmed. The one
+ * normalisation `typedRemainderOf` applies, exported so that anything compared
+ * against a remainder (a chip's prompt, in `promptLedger.ts`) is normalised
+ * the same way.
+ */
+export function stripRuntimeWrappers(text: string): string {
   for (const element of RUNTIME_WRAPPER_ELEMENTS) {
     text = text.replace(new RegExp(`<${element}>[\\s\\S]*?</${element}>`, "g"), "");
   }
@@ -109,6 +119,9 @@ export function isTypedPromptLine(record: Record<string, unknown>): boolean {
 /** Whether a main-thread `user` line that isn't a tool result or a marker starts a turn. */
 function userLineStartsTurn(record: Record<string, unknown>): boolean {
   // A notification or a peer isn't typed, but the agent runs on it all the same.
+  // So does a session's opener launched from a chip: the extractor declines it
+  // from `promptCount` (`promptLedger.ts`), but it passes this text test, and
+  // the agent's first turn runs on it, so it can be cut short like any other.
   return isRuntimeOrigin(record) || isTypedPromptLine(record);
 }
 

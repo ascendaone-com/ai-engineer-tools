@@ -153,7 +153,7 @@ test("a subagent's lines stay subagent prompts, never synthetic ones", async () 
 
 // ── The handoff and its stamp ──────────────────────────────────────────────
 
-test("the handoff stamps promptBasis typed and carries the receipt per session", async () => {
+test("the handoff stamps promptBasis typed_once and carries both receipts per session", async () => {
   const handoff = handoffOf(
     await extractLines([
       userAt("2026-09-08T12:00:00.000Z", "redacted"),
@@ -161,9 +161,10 @@ test("the handoff stamps promptBasis typed and carries the receipt per session",
       replyAt("2026-09-08T12:00:05.000Z")
     ])
   );
-  assert.equal(handoff.promptBasis, "typed");
+  assert.equal(handoff.promptBasis, "typed_once");
   assert.equal(handoff.sessions[0].promptCount, 1);
   assert.equal(handoff.sessions[0].syntheticPromptLines, 1);
+  assert.equal(handoff.sessions[0].dispatchedPromptLines, 0, "measured zero, not absent");
 });
 
 test("a handoff from before the stamp reads as every user line, and the schema doesn't move", async () => {
@@ -174,5 +175,5 @@ test("a handoff from before the stamp reads as every user line, and the schema d
 
   const after = handoffOf(await extractLines([userAt("2026-09-08T12:00:00.000Z", "redacted"), replyAt("2026-09-08T12:00:05.000Z")]));
   assert.equal(after.schema, before.schema);
-  assert.equal(promptBasisRead(after), "typed");
+  assert.equal(promptBasisRead(after), "typed_once");
 });

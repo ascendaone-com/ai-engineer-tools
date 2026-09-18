@@ -160,6 +160,10 @@ export interface HandoffSession {
   /** Main-thread `user` lines the runtime wrote on the person's behalf and
    * `promptCount` left out. The receipt for the file's `promptBasis`. */
   syntheticPromptLines: number;
+  /** Main-thread lines that read as typed but are the prompt of the chip that
+   * launched the session, which `promptCount` left out. Counted once per line
+   * across the store, as prompts are. */
+  dispatchedPromptLines: number;
   durationBucket: string;
   afterHoursPrompts: number;
   /** Runs the person cut short in this session. Read only beside the file's
@@ -381,7 +385,7 @@ export interface ProjectElapsedDay {
 }
 
 /** Which `user` lines a handoff's `promptCount` counts; see `HandoffFile.promptBasis`. */
-export type PromptBasis = "typed" | "every_user_line";
+export type PromptBasis = "typed_once" | "typed" | "every_user_line";
 
 export interface HandoffFile {
   schema: number;
@@ -396,12 +400,18 @@ export interface HandoffFile {
    */
   interruptedRunsCounted: true;
   /**
-   * Which `user` lines `promptCount` counts. `typed`: only prompts the person
-   * typed, with the lines the runtime writes on their behalf declined and
-   * tallied per session in `syntheticPromptLines`. Absent on a handoff written
-   * before this field, which means `every_user_line`: every main-thread `user`
-   * line that wasn't a tool result. Additive, so the schema number doesn't
-   * move.
+   * Which `user` lines `promptCount` counts. Additive, so the schema number
+   * doesn't move; a reader keeps the value as written.
+   *
+   * - `typed_once` (this writer): prompts the person typed, each counted by one
+   *   session only. The lines the runtime writes on their behalf are tallied in
+   *   `syntheticPromptLines`, and a chip's prompt opening the session it
+   *   launched in `dispatchedPromptLines`. A resumed session's copies of its
+   *   ancestors' prompts count in the ancestor alone.
+   * - `typed`: the same, except that every resumed copy counted again and chip
+   *   prompts counted as typed.
+   * - absent, on a handoff written before this field, means `every_user_line`:
+   *   every main-thread `user` line that wasn't a tool result.
    */
   promptBasis: PromptBasis;
   /**
@@ -965,6 +975,7 @@ export function buildHandoff(
       projectHash: projectHashOf(event.repoRef),
       promptCount: Number(event.metrics.promptCount ?? 0),
       syntheticPromptLines: Number(event.metrics.syntheticPromptLines ?? 0),
+      dispatchedPromptLines: Number(event.metrics.dispatchedPromptLines ?? 0),
       durationBucket: String(event.metrics.durationBucket ?? "unknown"),
       afterHoursPrompts: Number(event.metrics.afterHoursPrompts ?? 0),
       primaryModel:
@@ -1013,9 +1024,10 @@ export function buildHandoff(
     // This extractor counts the runs a person cut short, so a `0` on a session
     // or a day slice below means none, not "not looked for".
     interruptedRunsCounted: true,
-    // The extractor declines the lines the runtime writes on a person's behalf,
-    // so `promptCount` below is typed prompts only.
-    promptBasis: "typed",
+    // The extractor declines the lines the runtime writes on a person's behalf
+    // and the prompts chips write, and counts each typed line in one session
+    // only, so `promptCount` below is typed prompts, once each.
+    promptBasis: "typed_once",
     // And what each of those figures measures, keyed by the path a reader
     // walks. The `projects` rollup below is why this store needs the stamp
     // most: it carries the summed pair and the unioned pair under one

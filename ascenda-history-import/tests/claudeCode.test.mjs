@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { lineageFigures } from "./lineageFigures.mjs";
 import {
   sniffClaudeLine,
   KNOWN_CLAUDE_LINE_TYPES,
@@ -353,4 +355,145 @@ test("a session of nothing but notices reports no model, not an unknown one", as
     assert.equal(session.metrics.modelSwitchCount, 0);
     assert.equal("primaryModel" in session.metrics, false);
   });
+});
+
+// ── The prompt ledger: resumed copies and chip openers ─────────────────────
+//
+// `fixtures/claude-store-lineage` is a whole store, content-free, because
+// neither rule can be seen in one transcript. It holds:
+//
+//  - a resumed pair: `s-alpha` copies `s-zulu`'s two prompts (same uuid, same
+//    timestamp) and adds one. `s-alpha` sorts first, so the walk reaches the
+//    copies before the originals, and the home file must still win;
+//  - two resumes of a purged session, one per project: the first in walk
+//    order owns the inherited line, and a copied line with no uuid is counted
+//    by both, as before;
+//  - chips: `s-parent` offers two on its main thread and its subagent a third.
+//    Their sessions open on the prompt verbatim, behind the worktree wrapper,
+//    and from the subagent's chip. `s-near-miss` types something close to a
+//    chip's text but not it, and `s-chip-resumed` copies a chip-launched
+//    session's opener.
+//
+// The desktop app's importer is held to the same numbers:
+// `fixtures/claude-store-lineage.cli.json` is this writer's output for the
+// fixture, and the app's test copies both.
+
+const LINEAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "claude-store-lineage");
+
+async function extractStore(root) {
+  const events = [];
+  for await (const event of extractClaudeCode(root, "extraction-lineage")) events.push(event);
+  return events;
+}
+
+const sessionsByRef = (events) =>
+  Object.fromEntries(
+    events.filter((e) => e.eventKind === "create_focus_session").map((e) => [e.sessionRef, e.metrics])
+  );
+
+/** A copy of the fixture with only some of its transcripts, as a purge or a fresh machine would leave it. */
+async function lineageSubset(keep) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lineage-subset-"));
+  await fs.cp(LINEAGE, root, { recursive: true });
+  for (const slug of await fs.readdir(path.join(root, "projects"))) {
+    for (const name of await fs.readdir(path.join(root, "projects", slug))) {
+      if (name.endsWith(".jsonl") && !keep.includes(name.slice(0, -".jsonl".length))) {
+        await fs.rm(path.join(root, "projects", slug, name));
+      }
+    }
+  }
+  return root;
+}
+
+test("a resumed transcript's copies of its ancestor's prompts count once, in the ancestor", async () => {
+  const events = await extractStore(LINEAGE);
+  const s = sessionsByRef(events);
+  assert.equal(s["s-zulu"].promptCount, 2, "the home file owns its lines though it's walked last");
+  assert.equal(s["s-alpha"].promptCount, 1, "the resume counts only what was typed in it");
+  const prompts = events.filter(
+    (e) => e.eventKind === "ai_prompt_submitted" && (e.sessionRef === "s-alpha" || e.sessionRef === "s-zulu")
+  );
+  assert.equal(new Set(prompts.map((e) => e.occurredAt)).size, prompts.length, "no instant is emitted twice");
+  assert.equal(prompts.filter((e) => e.sessionRef === "s-alpha").length, 1);
+  assert.equal(prompts.filter((e) => e.sessionRef === "s-zulu").length, 2);
+});
+
+test("without its home file, the first transcript in walk order owns an inherited line", async () => {
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  // s-charlie's project sorts before s-bravo's, so it owns the inherited line.
+  // The copied line with no uuid has nothing to match, and both count it.
+  assert.equal(s["s-charlie"].promptCount, 3);
+  assert.equal(s["s-bravo"].promptCount, 2);
+});
+
+test("a resume alone in the store keeps every prompt it holds", async () => {
+  const root = await lineageSubset(["s-alpha"]);
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.equal(s["s-alpha"].promptCount, 3);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("minutes still carry the inherited history: the ledger moves counts, not time", async () => {
+  const root = await lineageSubset(["s-alpha"]);
+  try {
+    const alone = sessionsByRef(await extractStore(root))["s-alpha"];
+    const withHome = sessionsByRef(await extractStore(LINEAGE))["s-alpha"];
+    assert.notEqual(alone.promptCount, withHome.promptCount);
+    for (const key of ["activeMinutes", "handsOnMinutes", "agentSupervisingMinutes"]) {
+      assert.equal(withHome[key], alone[key], key);
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a chip's prompt opening its session is dispatched, not typed, with or without the wrapper", async () => {
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  assert.deepEqual(
+    [s["s-chip-plain"].promptCount, s["s-chip-plain"].dispatchedPromptLines],
+    [1, 1],
+    "verbatim opener declined; the prompt typed after it still counts"
+  );
+  assert.deepEqual([s["s-chip-wrapped"].promptCount, s["s-chip-wrapped"].dispatchedPromptLines], [0, 1]);
+  assert.deepEqual(
+    [s["s-chip-sub"].promptCount, s["s-chip-sub"].dispatchedPromptLines],
+    [0, 1],
+    "a chip a subagent offered matches too"
+  );
+  assert.deepEqual(
+    [s["s-near-miss"].promptCount, s["s-near-miss"].dispatchedPromptLines],
+    [1, 0],
+    "text close to a chip's is still typed"
+  );
+  assert.equal(s["s-parent"].promptCount, 1);
+  assert.equal(s["s-parent"].dispatchedPromptLines, 0);
+});
+
+test("a copied chip opener is dispatched once, in the session it opened", async () => {
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  assert.deepEqual([s["s-chip-resumed"].promptCount, s["s-chip-resumed"].dispatchedPromptLines], [1, 0]);
+});
+
+test("the agent runs on a chip's prompt, so cutting that first turn short counts", async () => {
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  assert.equal(s["s-chip-plain"].interruptedRuns, 1);
+});
+
+test("with the chip's issuer purged, its opener counts as typed (the known miss)", async () => {
+  const root = await lineageSubset(["s-chip-wrapped"]);
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.deepEqual([s["s-chip-wrapped"].promptCount, s["s-chip-wrapped"].dispatchedPromptLines], [1, 0]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the desktop app's copy of the expected output still matches this writer", async () => {
+  const expected = JSON.parse(await fs.readFile(`${LINEAGE}.cli.json`, "utf8"));
+  const events = await extractStore(LINEAGE);
+  assert.deepEqual(lineageFigures(events), expected.figures);
 });

@@ -170,15 +170,37 @@ Code also writes `user` lines on your behalf, and none of these count:
   variant.
 
 Each session carries `syntheticPromptLines`, the number of lines it left out.
-The handoff stamps `promptBasis: "typed"`. A handoff without the stamp counted
-every `user` line that wasn't a tool result, so its prompt counts run higher for
-the same week. The schema number doesn't move.
 
 These lines aren't you, and they aren't the agent, so they don't start or end a
 hands-on span. Prompt events, after-hours prompts and quick re-prompts all
 follow the same count. The desktop app's importer declines the same lines; the
 test is `isTypedPromptLine` in
 [`src/interruptedRuns.ts`](./src/interruptedRuns.ts).
+
+Two more rules need the whole store, so the extractor reads every transcript
+once before it folds any session ([`src/promptLedger.ts`](./src/promptLedger.ts)):
+
+- **Each typed line counts once.** Resuming or forking a session writes a new
+  transcript that copies the history it inherited, line ids and timestamps
+  included. The copy is counted by one transcript only: the one the line's
+  `sessionId` names, or, where that file is gone, the first in the walk's
+  sorted order. A line with no id is counted wherever it appears. Active and
+  hands-on minutes aren't deduplicated this way. A resumed session still
+  carries its ancestors' minutes.
+- **A chip's prompt isn't typed.** A session launched from a `spawn_task` chip
+  opens on the chip's prompt. When a line's text, wrappers stripped, matches a
+  chip that some session in the store offered, it counts in
+  `dispatchedPromptLines`, not `promptCount`. The agent still runs on it, so an
+  interrupt during that first turn is still a cut-short run. Only hashes of
+  chip prompts are kept, and only for the run. If the store's cleanup has
+  already removed the session that offered the chip, there's nothing to match
+  and the opener counts as typed.
+
+The handoff stamps `promptBasis: "typed_once"`. `"typed"` means the rules above
+the list, with every resumed copy counted again and chip prompts counted as
+typed. A handoff without the stamp counted every `user` line that wasn't a tool
+result. Prompt counts for the same week run highest under that rule and lowest
+under `typed_once`. The schema number doesn't move.
 
 ### Autonomy bands
 
