@@ -8,14 +8,25 @@ import { credentialsFilePath, hookBinPath, readCredentials, writeCredentials } f
 import { ASCENDA_TOOL_TYPE } from "./types.js";
 
 /**
- * Hook events worth registering. `Notification` is deliberately absent: it maps
- * to no catalog event, so registering it would spawn a process per notification
- * and send nothing.
+ * Hook events worth registering.
+ *
+ * **This list and the mapper are one change, always.** A hook mapped but not
+ * registered never fires; a hook registered but not mapped spawns a process to
+ * send nothing. Both halves have been wrong here before: `PostToolUseFailure`
+ * was mapped and unregistered, so every failed tool call was silently zero
+ * until v0.1.24, and `Notification` was unregistered *because* it mapped to
+ * nothing — two absences that each justified the other.
+ *
+ * `Notification` is how Claude Code signals it has stopped and is waiting on
+ * the person. That is the interruption leg, and it is not the same event as
+ * `AskUserQuestion`, which rides `ai_tool_call_started` and is counted
+ * separately. Registering it costs one process per wait — a rate bounded by
+ * how often a human is asked, not by tool volume.
  *
  * `PostToolUseFailure` is where Claude Code reports a tool call that failed; a
  * failure never reaches `PostToolUse`. Leaving it out drops every failed call.
  */
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop"] as const;
+const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification"] as const;
 
 /**
  * Claude Code's default timeout for `command` hooks is 600s. Telemetry that

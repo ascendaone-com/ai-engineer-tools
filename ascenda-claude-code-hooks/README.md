@@ -347,12 +347,19 @@ PostToolUseFailure -> compile_error / ai_tool_call_failed
 PreCompact         -> context_compression_manual / context_compression_auto
 PostCompact        -> context_pressure_high
 Stop               -> ai_turn_completed (every turn), agent_loop_long (long only)
-Notification       -> (skipped — no catalog event)
+Notification       -> supervision_interruption (interruptionKind only, never the message)
 ```
 
 ## Privacy defaults
 
 Metadata-only telemetry. Does not send raw prompts, responses, code, file names, repository names, branch names, or terminal output.
+
+When the agent stops and waits for you, `Notification` records only which kind
+of wait it was — `permission_request`, `idle_prompt` or `other`. The
+notification's own wording is read to pick one of those three labels and is
+then discarded; it never leaves the hook process, and neither does anything you
+answer. `tests/interruptionContentGuard.test.mjs` fails the build if that
+changes.
 
 Repository and branch identity travel only as machine-salted digests, derived
 in the hook process and never as text: `workspaceHash` and `projectHash` from

@@ -249,6 +249,7 @@ export type AscendaTelemetryEventType =
   | "ai_tool_call_completed"
   | "ai_tool_call_failed"
   | "ai_turn_completed"
+  | "supervision_interruption"
   | "context_pressure_high"
   | "agent_loop_long"
   | "after_hours_ai_session"
@@ -869,6 +870,17 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   // `ai_prompt_submitted` closes. Neutral so a marker sent once per turn
   // doesn't weigh on any workload leg.
   ai_turn_completed: "neutral",
+
+  // The agent stopped and is waiting on the person: Claude Code's
+  // `Notification`, Codex's `PermissionRequest`. Supervision, beside the other
+  // oversight overhead, because that is what it is — time the person spends
+  // attending to the agent rather than to the work.
+  //
+  // Deliberately NOT risk. Risk is the leg that reads as something going
+  // wrong, and being asked is not a failure; classifying it there is the first
+  // step toward an interruption count becoming a score, a streak, or something
+  // that fires on a miss. It must never become any of those.
+  supervision_interruption: "supervision",
 
   // Semantic (agent-observed) — see SEMANTIC_WORK_SIGNAL_EVENT_TYPES.
   approach_churn_detected: "risk",

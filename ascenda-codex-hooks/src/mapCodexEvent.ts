@@ -50,8 +50,18 @@ function mapEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurat
     // absence is the payload's, not a decision of ours.
     case "PostCompact": return [{ eventType: "context_pressure_high", severity: "medium", metadata: withHost({ trigger: "inferred", reason: "context_limit" }) }];
     case "Stop": return mapStop(input, turnDurationMs);
-    // No catalog events for approvals or subagent lifecycle; skip to avoid unclassified noise.
+    // Codex's approval gate: the agent has stopped and is waiting for the
+    // person to allow something. Same leg as Claude Code's `Notification`, and
+    // unambiguous in a way that one is not — this hook fires for approvals and
+    // nothing else, so the kind is a constant rather than a guess at wording.
+    //
+    // No part of the request is read. What is being approved would make this
+    // content-derived and move it out of the `ide_telemetry` scope it rides;
+    // the count is that a gate was reached, when, and in which session.
     case "PermissionRequest":
+      return [{ eventType: "supervision_interruption", severity: "low", metadata: withHost({ interruptionKind: "permission_request" }) }];
+    // The subagent lifecycle is still deliberately unmapped: it is not an
+    // interruption of the person, and it is out of scope here.
     case "SubagentStart":
     case "SubagentStop":
       return [];
