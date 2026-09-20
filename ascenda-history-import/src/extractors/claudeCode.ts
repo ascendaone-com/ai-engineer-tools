@@ -118,7 +118,7 @@ import {
   type ActiveInstant
 } from "../activeSplit.js";
 import { isTypedPromptLine, stepRun } from "../interruptedRuns.js";
-import { PromptLedger, readPromptLedger } from "../promptLedger.js";
+import { PromptLedger, TimelineOwnership, readPromptLedger } from "../promptLedger.js";
 
 /** Line types the extractor reads fields from. */
 export const KNOWN_CLAUDE_LINE_TYPES = [
@@ -163,6 +163,9 @@ export type SniffedClaudeLine =
       kind: ClaudeLineType;
       sourceVersion: string | null;
       occurredAt: string | null;
+      /** The line's own id, which a copy keeps. Read here so line ownership
+       * costs no second parse of lines the fold never re-parses. */
+      uuid: string | null;
       sessionId: string | null;
       model: string | null;
     }
@@ -202,6 +205,7 @@ export function sniffClaudeLine(line: string): SniffedClaudeLine {
     kind: type as ClaudeLineType,
     sourceVersion: typeof record.version === "string" ? record.version : null,
     occurredAt: typeof record.timestamp === "string" ? record.timestamp : null,
+    uuid: typeof record.uuid === "string" ? record.uuid : null,
     sessionId: typeof record.sessionId === "string" ? record.sessionId : null,
     model: message && typeof message.model === "string" ? message.model : null
   };
@@ -402,6 +406,11 @@ interface SessionFold {
    * not read. They are absent from `timelinePoints`, so both active figures
    * are short by an unknown amount and only this says so. */
   undatedTimelineLines: number;
+  /** Dated known lines this transcript holds a copy of and another fold owns
+   * (`TimelineOwnership`). They are absent from `timelinePoints` on purpose.
+   * A fold where this is the only thing the file held is a pure copy, and the
+   * emit loop counts it as unusable. */
+  inheritedTimelineLines: number;
   /** Timestamps of HUMAN prompts only — the per-prompt events emitted later,
    * and the source for rapid-reprompt detection. Timestamps, never text. Only
    * the prompts this transcript owns (`promptLedger.ts`): a prompt a resumed
@@ -456,6 +465,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     toolCalls: [],
     timelinePoints: [],
     undatedTimelineLines: 0,
+    inheritedTimelineLines: 0,
     humanPromptTimestamps: [],
     interruptedRuns: 0,
     interruptedRunTimestamps: []
@@ -582,7 +592,7 @@ function contextWindowPeakPctOf(fold: SessionFold): number {
 async function foldLinesInto(
   fold: SessionFold,
   filePath: string,
-  opts: { isSidechain: boolean; ledger: PromptLedger }
+  opts: { isSidechain: boolean; ledger: PromptLedger; ownership: TimelineOwnership }
 ): Promise<void> {
   // Transcripts run to hundreds of MB; read line-wise, never whole-file.
   const handle = await fs.open(filePath);
@@ -609,16 +619,28 @@ async function foldLinesInto(
         fold.unknownLines += 1;
         continue;
       }
+      // Whose timeline this line sits on. A resumed transcript opens with a
+      // copy of everything its ancestors held, and those lines belong to the
+      // sessions they were written in — see `TimelineOwnership`. Everything
+      // time-shaped below hangs off this: the session's window, its spans, its
+      // minutes and its day slices. The counts and tokens do not; they are
+      // each handled where they are made.
+      const owned = opts.ownership.owns(sniffed, filePath, { isSidechain: opts.isSidechain });
       // Trust the store's own id over the filename when they disagree — main
-      // thread only. A resumed transcript's copied lines come first and carry
-      // its ancestors' ids, so the fold ends on the id of the file's own lines.
-      // A subagent's own sessionId already equals its parent's, so correcting
-      // off it here could only ever be a no-op or a mistake.
-      if (!opts.isSidechain && sniffed.sessionId && fold.sessionId !== sniffed.sessionId) {
+      // thread only, and only from a line this file owns, which is the same
+      // thing as a line written here. A subagent's own sessionId already
+      // equals its parent's, so correcting off it here could only ever be a
+      // no-op or a mistake.
+      if (owned && !opts.isSidechain && sniffed.sessionId && fold.sessionId !== sniffed.sessionId) {
         fold.sessionId = sniffed.sessionId;
       }
       if (sniffed.sourceVersion) fold.sourceVersion = sniffed.sourceVersion;
-      if (sniffed.occurredAt) {
+      // The session's window, from its own lines only. `firstTs` is what
+      // `startedAt` ships: a resumed session starts when it was resumed, not
+      // when the oldest thing it inherited was typed. Before this rule 158 of
+      // 983 sessions on the reference store reported spanning more than a day,
+      // most of them reporting their ancestors' first instant.
+      if (owned && sniffed.occurredAt) {
         if (!fold.firstTs || sniffed.occurredAt < fold.firstTs) fold.firstTs = sniffed.occurredAt;
         if (!fold.lastTs || sniffed.occurredAt > fold.lastTs) fold.lastTs = sniffed.occurredAt;
       }
@@ -831,7 +853,12 @@ async function foldLinesInto(
           break; // attachment / last-prompt / custom-title: window only, and
         //           bookkeeping for the split — `agentOutputHere` stays false.
       }
-      if (sniffed.occurredAt) {
+      if (sniffed.occurredAt && !owned) {
+        // Someone else's instant, held here as a copy. Counted rather than
+        // dropped silently: a fold whose file held nothing else is a pure copy
+        // and the emit loop reports it.
+        fold.inheritedTimelineLines += 1;
+      } else if (sniffed.occurredAt) {
         const ms = Date.parse(sniffed.occurredAt);
         if (Number.isFinite(ms)) {
           fold.timelinePoints.push({
@@ -857,10 +884,11 @@ async function foldLinesInto(
 async function foldTranscript(
   filePath: string,
   projectSlug: string,
-  ledger: PromptLedger
+  ledger: PromptLedger,
+  ownership: TimelineOwnership
 ): Promise<SessionFold> {
   const fold = newFold(path.basename(filePath, ".jsonl"), projectSlug);
-  await foldLinesInto(fold, filePath, { isSidechain: false, ledger });
+  await foldLinesInto(fold, filePath, { isSidechain: false, ledger, ownership });
   return fold;
 }
 
@@ -948,6 +976,13 @@ export async function* extractClaudeCode(
   // sidecars outlived the transcript the 30-day purge took. That is a true
   // positive, and the reason the counter is worth having.
   let projectsWithNoReadableTranscript = 0;
+  // Transcripts holding nothing but a copy of an ancestor's history. A resume
+  // that was opened and never used writes one: every line in it belongs to the
+  // session it was resumed from, so it has no timeline of its own and is
+  // unusable for the same reason a transcript with no readable timestamp is.
+  // Reported rather than dropped in silence, because the count is the cost of
+  // the ownership rule and a reader is entitled to see it.
+  let sessionsWithOnlyInheritedLines = 0;
 
   // The whole walk is listed before anything is read, because the prompt
   // ledger has to read every transcript, in this order, before the first
@@ -982,11 +1017,16 @@ export async function* extractClaudeCode(
     });
   }
 
+  const mainTranscripts = plan.flatMap((p) => p.topLevelFiles.map((name) => path.join(p.dir, name)));
   const ledger = await readPromptLedger(
-    plan.flatMap((p) => p.topLevelFiles.map((name) => path.join(p.dir, name))),
+    mainTranscripts,
     plan.flatMap((p) => p.sessionDirs.flatMap((d) => d.files)),
     isToolResultUserLine
   );
+  // The file list is all this needs — no second pass over the store. It is
+  // consumed in the fold loop below, in the same order, because the rule for a
+  // line whose home file is gone is first-come.
+  const ownership = new TimelineOwnership(mainTranscripts);
 
   for (const { slug, dir, topLevelFiles, otherFiles, sessionDirs } of plan) {
     let slugJsonlFiles = topLevelFiles.length;
@@ -1002,12 +1042,14 @@ export async function* extractClaudeCode(
     // keep their original id and timestamp. Keying by line id would break a
     // resumed file into fragments that each look like a session, so the
     // filename stays the key. What the copies would otherwise inflate is
-    // handled where each figure is made: prompts are counted by one transcript
-    // only (`promptLedger.ts`); minutes still carry the inherited history.
+    // handled where each figure is made, by one rule in `promptLedger.ts`
+    // applied twice: a typed prompt is counted by one transcript, and a line's
+    // instant sits on one transcript's timeline, so minutes, spans and
+    // `startedAt` describe this session rather than its ancestry.
     const foldsByKey = new Map<string, SessionFold>();
 
     for (const name of topLevelFiles) {
-      const fold = await foldTranscript(path.join(dir, name), slug, ledger);
+      const fold = await foldTranscript(path.join(dir, name), slug, ledger, ownership);
       foldsByKey.set(path.basename(name, ".jsonl"), fold);
     }
 
@@ -1024,7 +1066,7 @@ export async function* extractClaudeCode(
       }
       for (const nestedPath of nestedFiles) {
         fold.subagentTranscripts += 1;
-        await foldLinesInto(fold, nestedPath, { isSidechain: true, ledger });
+        await foldLinesInto(fold, nestedPath, { isSidechain: true, ledger, ownership });
       }
     }
 
@@ -1033,8 +1075,12 @@ export async function* extractClaudeCode(
 
     for (const fold of foldsByKey.values()) {
       // A fold with no usable timeline is unusable regardless of its
-      // contents.
-      if (!fold.firstTs || !fold.lastTs) continue;
+      // contents — including one whose every dated line belongs to an
+      // ancestor, which is the same situation arrived at from the other side.
+      if (!fold.firstTs || !fold.lastTs) {
+        if (fold.inheritedTimelineLines > 0) sessionsWithOnlyInheritedLines += 1;
+        continue;
+      }
       sessionCount += 1;
       if (!windowOldest || fold.firstTs < windowOldest) windowOldest = fold.firstTs;
       if (!windowNewest || fold.lastTs > windowNewest) windowNewest = fold.lastTs;
@@ -1235,7 +1281,7 @@ export async function* extractClaudeCode(
   // this extractor could no longer read produced no diagnostic at all —
   // silence indistinguishable from "you did no work". Emit whenever there is
   // either a window or a read failure to declare.
-  if ((windowOldest && windowNewest) || projectsWithNoReadableTranscript > 0) {
+  if ((windowOldest && windowNewest) || projectsWithNoReadableTranscript > 0 || sessionsWithOnlyInheritedLines > 0) {
     const window: Record<string, string> =
       windowOldest && windowNewest ? { windowOldest, windowNewest } : {};
     yield {
@@ -1250,7 +1296,8 @@ export async function* extractClaudeCode(
       metrics: {
         ...window,
         sessionCount,
-        projectsWithNoReadableTranscript
+        projectsWithNoReadableTranscript,
+        sessionsWithOnlyInheritedLines
       },
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId

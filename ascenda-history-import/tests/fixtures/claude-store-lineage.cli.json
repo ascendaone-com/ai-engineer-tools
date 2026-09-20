@@ -4,28 +4,43 @@
     "sessions": [
       {
         "sessionRef": "s-alpha",
+        "startedAt": "2026-09-08T03:00:00.000Z",
         "promptCount": 1,
         "dispatchedPromptLines": 0,
         "syntheticPromptLines": 0,
         "interruptedRuns": 0,
-        "activeMinutes": 3,
-        "handsOnMinutes": 1,
-        "agentSupervisingMinutes": 2,
+        "activeMinutes": 0,
+        "handsOnMinutes": 0,
+        "agentSupervisingMinutes": 0,
+        "dayPrompts": 1
+      },
+      {
+        "sessionRef": "s-branch",
+        "startedAt": "2026-09-10T11:20:00.000Z",
+        "promptCount": 1,
+        "dispatchedPromptLines": 0,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 5,
+        "handsOnMinutes": 0,
+        "agentSupervisingMinutes": 5,
         "dayPrompts": 1
       },
       {
         "sessionRef": "s-bravo",
+        "startedAt": "2026-09-08T05:01:00.000Z",
         "promptCount": 2,
         "dispatchedPromptLines": 0,
         "syntheticPromptLines": 0,
         "interruptedRuns": 0,
-        "activeMinutes": 1,
-        "handsOnMinutes": 1,
+        "activeMinutes": 0,
+        "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
         "dayPrompts": 2
       },
       {
         "sessionRef": "s-charlie",
+        "startedAt": "2026-09-08T05:00:00.000Z",
         "promptCount": 3,
         "dispatchedPromptLines": 0,
         "syntheticPromptLines": 0,
@@ -37,6 +52,7 @@
       },
       {
         "sessionRef": "s-chip-plain",
+        "startedAt": "2026-09-09T00:01:00.000Z",
         "promptCount": 1,
         "dispatchedPromptLines": 1,
         "syntheticPromptLines": 1,
@@ -48,17 +64,19 @@
       },
       {
         "sessionRef": "s-chip-resumed",
+        "startedAt": "2026-09-09T02:00:00.000Z",
         "promptCount": 1,
         "dispatchedPromptLines": 0,
         "syntheticPromptLines": 1,
         "interruptedRuns": 1,
-        "activeMinutes": 1,
-        "handsOnMinutes": 1,
+        "activeMinutes": 0,
+        "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
         "dayPrompts": 1
       },
       {
         "sessionRef": "s-chip-sub",
+        "startedAt": "2026-09-09T00:03:00.000Z",
         "promptCount": 0,
         "dispatchedPromptLines": 1,
         "syntheticPromptLines": 0,
@@ -70,6 +88,7 @@
       },
       {
         "sessionRef": "s-chip-wrapped",
+        "startedAt": "2026-09-09T00:02:00.000Z",
         "promptCount": 0,
         "dispatchedPromptLines": 1,
         "syntheticPromptLines": 0,
@@ -81,6 +100,7 @@
       },
       {
         "sessionRef": "s-near-miss",
+        "startedAt": "2026-09-09T00:04:00.000Z",
         "promptCount": 1,
         "dispatchedPromptLines": 0,
         "syntheticPromptLines": 0,
@@ -92,6 +112,7 @@
       },
       {
         "sessionRef": "s-parent",
+        "startedAt": "2026-09-09T00:00:00.000Z",
         "promptCount": 1,
         "dispatchedPromptLines": 0,
         "syntheticPromptLines": 0,
@@ -102,7 +123,44 @@
         "dayPrompts": 1
       },
       {
+        "sessionRef": "s-trunk",
+        "startedAt": "2026-09-10T11:00:00.000Z",
+        "promptCount": 3,
+        "dispatchedPromptLines": 0,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 9,
+        "handsOnMinutes": 2,
+        "agentSupervisingMinutes": 7,
+        "dayPrompts": 3
+      },
+      {
+        "sessionRef": "s-warm",
+        "startedAt": "2026-09-10T09:00:00.000Z",
+        "promptCount": 2,
+        "dispatchedPromptLines": 0,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 5,
+        "handsOnMinutes": 2,
+        "agentSupervisingMinutes": 3,
+        "dayPrompts": 2
+      },
+      {
+        "sessionRef": "s-warm-resume",
+        "startedAt": "2026-09-10T09:08:00.000Z",
+        "promptCount": 1,
+        "dispatchedPromptLines": 0,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 5,
+        "handsOnMinutes": 0,
+        "agentSupervisingMinutes": 5,
+        "dayPrompts": 1
+      },
+      {
         "sessionRef": "s-zulu",
+        "startedAt": "2026-09-08T01:00:00.000Z",
         "promptCount": 2,
         "dispatchedPromptLines": 0,
         "syntheticPromptLines": 0,
@@ -115,6 +173,7 @@
     ],
     "promptInstants": [
       "s-alpha 2026-09-08T03:00:00.000Z",
+      "s-branch 2026-09-10T11:20:00.000Z",
       "s-bravo 2026-09-08T05:01:00.000Z",
       "s-bravo 2026-09-08T07:00:00.000Z",
       "s-charlie 2026-09-08T05:00:00.000Z",
@@ -124,8 +183,15 @@
       "s-chip-resumed 2026-09-09T02:00:00.000Z",
       "s-near-miss 2026-09-09T00:04:00.000Z",
       "s-parent 2026-09-09T00:00:00.000Z",
+      "s-trunk 2026-09-10T11:00:00.000Z",
+      "s-trunk 2026-09-10T11:04:00.000Z",
+      "s-trunk 2026-09-10T11:40:00.000Z",
+      "s-warm 2026-09-10T09:00:00.000Z",
+      "s-warm 2026-09-10T09:04:00.000Z",
+      "s-warm-resume 2026-09-10T09:08:00.000Z",
       "s-zulu 2026-09-08T01:00:00.000Z",
       "s-zulu 2026-09-08T01:02:00.000Z"
-    ]
+    ],
+    "sessionsWithOnlyInheritedLines": 1
   }
 }

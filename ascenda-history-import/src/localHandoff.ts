@@ -387,6 +387,9 @@ export interface ProjectElapsedDay {
 /** Which `user` lines a handoff's `promptCount` counts; see `HandoffFile.promptBasis`. */
 export type PromptBasis = "typed_once" | "typed" | "every_user_line";
 
+/** Which lines a handoff's minutes were built from; see `HandoffFile.minutesBasis`. */
+export type MinutesBasis = "owned_lines" | "every_line";
+
 export interface HandoffFile {
   schema: number;
   extractionId: string;
@@ -414,6 +417,28 @@ export interface HandoffFile {
    *   every main-thread `user` line that wasn't a tool result.
    */
   promptBasis: PromptBasis;
+  /**
+   * Which lines the minute figures were built from — every figure cut off a
+   * timeline, so `activeMinutes`, `handsOnMinutes`, `agentSupervisingMinutes`,
+   * `startedAt`, the day slices and the project rollups all rest on this.
+   * Additive, so the schema number doesn't move; a reader keeps the value as
+   * written.
+   *
+   * - `owned_lines` (this writer): each line counts on one session's timeline.
+   *   Resuming or forking a session writes a transcript that opens with a copy
+   *   of the inherited history, and those lines belong to the session they
+   *   were written in.
+   * - `every_line`: every line in a transcript counted there, so a resumed
+   *   session's minutes included its ancestors' and its `startedAt` was the
+   *   lineage's first instant. On the reference store that summed to 2.8x the
+   *   union of the same intervals.
+   * - absent, on a handoff written before this field, means `every_line`.
+   *
+   * A reader comparing minutes across handoffs has to gate on this: the two
+   * bases are not the same measurement of the same store, and a store's
+   * figures drop when it changes.
+   */
+  minutesBasis: MinutesBasis;
   /**
    * The gap that ended a stretch of work when these figures were cut, in
    * minutes. Provenance, in the same spirit as `timezone` above: a reader must
@@ -1028,6 +1053,10 @@ export function buildHandoff(
     // and the prompts chips write, and counts each typed line in one session
     // only, so `promptCount` below is typed prompts, once each.
     promptBasis: "typed_once",
+    // And the same lineage rule on the timeline: an inherited line's instant
+    // belongs to the session it was written in, so the minutes below are this
+    // session's own and `startedAt` is when it was resumed.
+    minutesBasis: "owned_lines",
     // And what each of those figures measures, keyed by the path a reader
     // walks. The `projects` rollup below is why this store needs the stamp
     // most: it carries the summed pair and the unioned pair under one

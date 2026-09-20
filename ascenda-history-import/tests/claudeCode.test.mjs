@@ -357,10 +357,10 @@ test("a session of nothing but notices reports no model, not an unknown one", as
   });
 });
 
-// ── The prompt ledger: resumed copies and chip openers ─────────────────────
+// ── Lineage: whose prompts, and whose minutes ──────────────────────────────
 //
 // `fixtures/claude-store-lineage` is a whole store, content-free, because
-// neither rule can be seen in one transcript. It holds:
+// none of these rules can be seen in one transcript. It holds:
 //
 //  - a resumed pair: `s-alpha` copies `s-zulu`'s two prompts (same uuid, same
 //    timestamp) and adds one. `s-alpha` sorts first, so the walk reaches the
@@ -368,6 +368,14 @@ test("a session of nothing but notices reports no model, not an unknown one", as
 //  - two resumes of a purged session, one per project: the first in walk
 //    order owns the inherited line, and a copied line with no uuid is counted
 //    by both, as before;
+//  - a resumed pair sized in minutes: `s-warm` works for five minutes and
+//    `s-warm-resume` copies it, then starts three minutes after the tail it
+//    copied — inside the five-minute gap, the one case where a descendant's
+//    first span could reach back into its ancestor's last;
+//  - a fork: `s-branch` copies the first half of `s-trunk` and diverges,
+//    while the trunk carries on;
+//  - `s-stub`, a resume opened and never used: every line in it belongs to
+//    `s-warm`, so it has no timeline of its own;
 //  - chips: `s-parent` offers two on its main thread and its subagent a third.
 //    Their sessions open on the prompt verbatim, behind the worktree wrapper,
 //    and from the subagent's chip. `s-near-miss` types something close to a
@@ -436,18 +444,79 @@ test("a resume alone in the store keeps every prompt it holds", async () => {
   }
 });
 
-test("minutes still carry the inherited history: the ledger moves counts, not time", async () => {
+// This test used to assert the opposite — that adding the home file moved the
+// counts and left the minutes where they were. Both figures now follow the one
+// ownership rule: a copied line's instant belongs to the session it was typed
+// in, so a resume's minutes, spans and start are its own. Measured on a real
+// store of 983 sessions, the old rule summed per-session active time to 2.8x
+// the union of the same intervals and made 158 sessions look like they ran
+// for more than a day.
+test("adding the home file moves the minutes too, not just the counts", async () => {
   const root = await lineageSubset(["s-alpha"]);
   try {
     const alone = sessionsByRef(await extractStore(root))["s-alpha"];
     const withHome = sessionsByRef(await extractStore(LINEAGE))["s-alpha"];
     assert.notEqual(alone.promptCount, withHome.promptCount);
     for (const key of ["activeMinutes", "handsOnMinutes", "agentSupervisingMinutes"]) {
-      assert.equal(withHome[key], alone[key], key);
+      assert.ok(withHome[key] < alone[key], `${key}: ${withHome[key]} is not below ${alone[key]}`);
     }
+    // And the resume starts when it was resumed. Alone in the store it owns
+    // everything it holds, so it starts where its ancestor did.
+    assert.equal(alone.sessionStartedAt, "2026-09-08T01:00:00.000Z");
+    assert.equal(withHome.sessionStartedAt, "2026-09-08T03:00:00.000Z");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test("a resume that continues inside the gap still starts its own first span", async () => {
+  const events = await extractStore(LINEAGE);
+  const session = events.find(
+    (e) => e.eventKind === "create_focus_session" && e.sessionRef === "s-warm-resume"
+  );
+  // The tail it copied ends at 09:05 and its own work starts at 09:08 — three
+  // minutes, inside the five-minute gap. Bridging them would hand the resume
+  // its ancestor's five minutes and three more nobody worked.
+  assert.equal(session.activeSpans[0].from, Date.parse("2026-09-10T09:08:00.000Z"));
+  assert.equal(session.metrics.activeMinutes, 5);
+  assert.equal(session.metrics.sessionStartedAt, "2026-09-10T09:08:00.000Z");
+  const warm = sessionsByRef(events)["s-warm"];
+  assert.deepEqual(
+    [warm.activeMinutes, warm.handsOnMinutes, warm.agentSupervisingMinutes],
+    [5, 2, 3],
+    "and the ancestor keeps every minute of its own"
+  );
+});
+
+test("a fork counts the half it copied in the trunk, and the trunk keeps working", async () => {
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  assert.deepEqual(
+    [s["s-branch"].activeMinutes, s["s-branch"].handsOnMinutes, s["s-branch"].promptCount],
+    [5, 0, 1]
+  );
+  assert.equal(s["s-branch"].sessionStartedAt, "2026-09-10T11:20:00.000Z");
+  // The trunk's hands-on minute is in the half the fork copied. It stays here.
+  assert.deepEqual(
+    [s["s-trunk"].activeMinutes, s["s-trunk"].handsOnMinutes, s["s-trunk"].promptCount],
+    [9, 2, 3]
+  );
+});
+
+test("a transcript holding nothing but a copy is unusable, and counted as one", async () => {
+  const events = await extractStore(LINEAGE);
+  assert.equal(sessionsByRef(events)["s-stub"], undefined, "no session is emitted for a pure copy");
+  const epoch = events.find((e) => e.eventKind === "extraction_epoch");
+  assert.equal(epoch.metrics.sessionsWithOnlyInheritedLines, 1);
+});
+
+test("a subagent transcript is never inherited, so its lines stay with its fold", async () => {
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  // agent-a1's lines carry the parent's sessionId, which is not their file's
+  // name — the shape an inherited line has. Read as one they would leave
+  // s-parent's timeline, and the two instants they contribute would vanish.
+  assert.equal(s["s-parent"].activeMinutes, 1);
+  assert.equal(s["s-parent"].subagentTranscripts, 1);
+  assert.equal(s["s-parent"].activeSplitInstants, 9);
 });
 
 test("a chip's prompt opening its session is dispatched, not typed, with or without the wrapper", async () => {
