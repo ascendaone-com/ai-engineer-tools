@@ -110,6 +110,25 @@ targets, error counts or internal resource names — this repository is public.
   rather than only the lines a prompt could hide in, and the files holding a
   contested id are read once more — 76 of 991 on that store. Measured end to
   end: 24s to 30s.
+### Days you worked show up even when you typed nothing that session
+
+- **A session with no prompt of its own still gets its day breakdown.** Sessions
+  opened from a chip have no typed prompt, and neither does a resume whose
+  prompts all belong to an ancestor, which v0.1.25 made common by counting
+  each typed prompt once. The per-day
+  slices stopped at the prompt list, so those sessions came back with no days
+  at all. Their session totals were right the whole time. Only the placement
+  went missing, which is why nothing looked wrong.
+- **What comes back.** On one 987-session store, 103 sessions had no prompt of
+  their own and every one of them reported an empty breakdown. Day-placed
+  active minutes go from 52,267 to 53,788, and six cut-short runs land on the
+  day they happened.
+- **Codex imports gain the same days.** Both extractors that measure active
+  time were affected. A store whose only timestamps are its prompts, Cursor
+  and VS Code, behaves as before.
+- **Anything summing the day breakdown will read higher.** The session figures
+  don't move, so a total built from `days[]` gets closer to the one built from
+  sessions.
 
 ## v0.1.25
 

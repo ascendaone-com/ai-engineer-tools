@@ -181,8 +181,21 @@ export function sliceSessionByLocalDay(
     .filter((d) => Number.isFinite(d.getTime()))
     .sort((a, b) => a.getTime() - b.getTime());
 
-  if (instants.length === 0) return [];
-
+  // No early return for an empty prompt list. There used to be one, and it
+  // ran before `activeInstants` and `interruptedRunTimestamps` were read, so a
+  // session with active time but no prompt of its own got no slices at all —
+  // silently, since the session's own `activeMinutes` were fine and only the
+  // placement of them vanished. Zero-prompt sessions are ordinary: one opened
+  // from a chip, or a resume whose prompts all belong to an ancestor. On the
+  // reference store 103 of 987 sessions have no prompt of their own, 97 of
+  // them hold active time, and 1,523 minutes were dropped from the day
+  // breakdown against 52,267 placed. Six cut-short runs went with them, which
+  // the option above promises a slice for "even with no prompt on it".
+  //
+  // Nothing replaces the guard, because nothing needs to: with no prompts, no
+  // instants and no cuts, `days` below is empty and the map returns `[]` on
+  // its own. "Nothing to place" is still an empty array, and it is now the
+  // answer to the whole question rather than to the first part of it.
   const prompts = new Map<string, number>();
   for (const t of instants) {
     const key = localDayKey(t);
