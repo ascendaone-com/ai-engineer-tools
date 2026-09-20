@@ -219,8 +219,18 @@ test("Stop: the turn-end event carries no content from the payload", () => {
   assert.equal(JSON.stringify(end).includes("secret"), false, "payload content leaked into the event");
 });
 
-test("Notification: skipped (no catalog event)", () => {
-  assert.deepEqual(mapClaudeEvent("Notification", { message: "hi" }), []);
+test("Notification: the agent stopped and is waiting on the person", () => {
+  const [event] = mapClaudeEvent("Notification", { message: "Claude needs your permission to use Bash" });
+  assert.equal(event.eventType, "supervision_interruption");
+  assert.equal(event.metadata.interruptionKind, "permission_request");
+});
+
+test("Notification: an idle wait is a different kind from a permission prompt", () => {
+  // Counted apart on purpose. This hook fires for more than permission
+  // prompts, so folding them together would report a question count that is
+  // partly something else. See interruptionContentGuard.test.mjs.
+  const [event] = mapClaudeEvent("Notification", { message: "Claude is waiting for your input" });
+  assert.equal(event.metadata.interruptionKind, "idle_prompt");
 });
 
 // ── git actions: the boundary signal that never existed ────────────────────

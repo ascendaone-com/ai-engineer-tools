@@ -12,7 +12,7 @@ const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // to be a deliberate change here too. SessionStart earns its place twice —
 // it maps to create_focus_session, and it is the hook that carries the
 // intention invite.
-const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop"];
+const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification"];
 
 function tempSettings(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-settings-"));
@@ -31,9 +31,11 @@ test("registers every hook event, and none we do not map", () => {
 
   const { hooks } = read(file);
   assert.deepEqual(Object.keys(hooks).sort(), [...EVENTS].sort());
-  // Notification maps to no catalog event; registering it would spawn a
-  // process per notification and send nothing.
-  assert.equal(hooks.Notification, undefined);
+  // Notification is registered now that it maps to supervision_interruption —
+  // the agent stopping to wait on the person. It was absent for as long as it
+  // mapped to nothing, and the two halves moved together.
+  assert.ok(hooks.Notification, "Notification must be registered or the interruption count is silently zero");
+  assert.match(hooks.Notification[0].hooks[0].command, /ascenda-claude-hook" Notification$/);
   assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse$/);
   assert.equal(hooks.PostToolUse[0].hooks[0].timeout, 5, "must not inherit the 600s default");
 });

@@ -149,7 +149,12 @@ Codex's PATH, use the absolute path to the binary.
 
 ## Supported Codex hook events
 
-`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `Stop`. (`PermissionRequest`, `SubagentStart`, `SubagentStop` have no catalog counterpart and are skipped.)
+`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `Stop`, `PermissionRequest`. (`SubagentStart` and `SubagentStop` have no catalog counterpart and are skipped.)
+
+`PermissionRequest` records that the agent stopped at an approval gate, and
+nothing about what it was asking to do — one field, `interruptionKind:
+"permission_request"`. The command, its arguments and the paths involved are
+never read.
 
 ## Turn duration
 

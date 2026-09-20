@@ -39,10 +39,20 @@ import {
  *    that makes a bump impossible to apply silently.
  *
  * The backend catalog is deliberately a SUPERSET of this list: it also
- * classifies `supervision_interruption` and the coarse workflow/HRIS types,
- * which the org activity-signals door produces internally rather than
- * accepting from a paired client. Those are not client-emittable, so they are
- * not here and must not be added to this union.
+ * classifies the coarse workflow/HRIS types (`email_activity`,
+ * `message_activity`, `calendar_block`), which the org activity-signals door
+ * produces internally rather than accepting from a paired client. Those are not
+ * client-emittable, so they are not here and must not be added to this union.
+ *
+ * `supervision_interruption` used to be named in that group and no longer is.
+ * It was server-side-only because nothing emitted it; now Claude Code's
+ * `Notification` hook and Codex's `PermissionRequest` hook do, so it is
+ * client-emittable and belongs in both lists. The ordering that made that safe
+ * is worth restating, because this test cannot enforce it: the backend catalog
+ * entry ships and reaches production FIRST, and only then is a collector
+ * release tagged. Ingest rejects an unknown event type per item and the
+ * collector does not retry, so a client that leads the catalog does not delay
+ * those events — it loses them.
  */
 
 const CONTRACT_PATH = path.resolve(

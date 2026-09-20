@@ -43,8 +43,7 @@ function mapEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): Mapped
     case "PreCompact": return mapPreCompact(input);
     case "PostCompact": return [{ eventType: "context_pressure_high", severity: "medium", metadata: { trigger: "inferred", reason: "context_limit" } }];
     case "Stop": return mapStop(input);
-    // No catalog event for notifications; skip to avoid unclassified noise.
-    case "Notification": return [];
+    case "Notification": return mapNotification(input);
     default: return [];
   }
 }
@@ -135,6 +134,53 @@ function mapUserPromptSubmit(input: ClaudeHookInput): MappedAscendaEvent[] {
 
 function mapPreToolUse(input: ClaudeHookInput): MappedAscendaEvent[] {
   return [{ eventType: "ai_tool_call_started", severity: "low", metadata: { toolName: sanitiseToolName(getToolName(input)) } }];
+}
+
+/**
+ * The agent stopped and is waiting on the person. `Notification` is how Claude
+ * Code says so — it is the *other* interruption, distinct from `AskUserQuestion`
+ * (which already rides `ai_tool_call_started` with a `toolName`) and it must be
+ * counted separately rather than folded in.
+ *
+ * **This hook does not mean "a question was asked", and nothing here may imply
+ * it does.** It fires on more than permission prompts, so `interruptionKind`
+ * splits what we can actually tell apart and reports `other` for everything
+ * else. `other` is deliberately not a wastebasket to be ignored: until the
+ * observed split is known, its share is the measurement, and a reader who
+ * cannot see it would be free to assume the whole count is permission prompts.
+ *
+ * Classification is on SHAPE, never content. See `notificationKind` — the
+ * message is read to pick one of three constant labels and is then discarded.
+ * It is never a metadata value, because the moment it were, this event would be
+ * content-derived and would belong under `semantic_work_signals` rather than
+ * the `ide_telemetry` scope it rides. `interruptionCollectorGuard.test.mjs`
+ * enforces that at source rather than leaving it to review.
+ */
+function mapNotification(input: ClaudeHookInput): MappedAscendaEvent[] {
+  return [{
+    eventType: "supervision_interruption",
+    // Low, always. Being asked is overhead to be counted, not a failure to be
+    // flagged, and a severity that climbed would make this the input to a score.
+    severity: "low",
+    metadata: { interruptionKind: notificationKind(getString(input, ["message"])) }
+  }];
+}
+
+/**
+ * One of three constant labels, chosen by matching the notification's own
+ * wording. Returns a label, never any part of the input.
+ *
+ * Matching on wording is admittedly brittle — Claude Code can reword these at
+ * any release, and a reworded permission prompt silently becomes `other`.
+ * That failure is visible (the `other` share moves) rather than silent (a
+ * permission prompt counted as an idle one), which is the right way round for
+ * a measurement whose whole purpose is to establish a distribution.
+ */
+function notificationKind(message: string | undefined): "permission_request" | "idle_prompt" | "other" {
+  const text = message?.toLowerCase() ?? "";
+  if (text.includes("permission")) return "permission_request";
+  if (text.includes("waiting for your input")) return "idle_prompt";
+  return "other";
 }
 
 function mapPostToolUse(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {

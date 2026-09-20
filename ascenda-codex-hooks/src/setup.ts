@@ -4,16 +4,26 @@ import type { CliAgentSetupSpec } from "@ascenda-one/tool-kit";
 import { ASCENDA_TOOL_TYPE, CODEX_HOST } from "./types.js";
 
 /**
- * Only the hooks that map to a catalog event. `PermissionRequest` and the
- * subagent lifecycle pair map to nothing, so registering them would spend a
- * process per approval to send an empty list.
+ * Only the hooks that map to a catalog event — and this list moves with the
+ * mapper, never after it. A hook mapped here but absent there sends nothing; a
+ * hook mapped there but absent here never fires at all, which is how Claude
+ * Code's `PostToolUseFailure` reported zero failures for months.
+ *
+ * `PermissionRequest` is Codex's approval gate: the agent has stopped and is
+ * waiting on the person. It now maps to `supervision_interruption`, the same
+ * leg as Claude Code's `Notification`. One process per approval is bounded by
+ * how often a human is asked, not by tool volume.
+ *
+ * The subagent lifecycle pair stays unregistered: it maps to nothing, and a
+ * subagent starting is not an interruption of the person.
  */
 export const HOOK_EVENTS = [
   "SessionStart",
   "UserPromptSubmit",
   "PreToolUse", "PostToolUse",
   "PreCompact", "PostCompact",
-  "Stop"
+  "Stop",
+  "PermissionRequest"
 ] as const;
 
 /**
