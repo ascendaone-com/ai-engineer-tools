@@ -9,13 +9,15 @@ import { fileURLToPath } from "node:url";
 
 /**
  * The fixture's figures that don't depend on the local timezone: per-session
- * counts and minutes, the day slices' prompt total, and the prompt instants.
+ * counts, minutes and start instants, the day slices' prompt total, the
+ * prompt instants, and the transcripts that held nothing of their own.
  */
 export function lineageFigures(events) {
   const sessions = events
     .filter((e) => e.eventKind === "create_focus_session")
     .map((e) => ({
       sessionRef: e.sessionRef,
+      startedAt: e.metrics.sessionStartedAt,
       promptCount: e.metrics.promptCount,
       dispatchedPromptLines: e.metrics.dispatchedPromptLines,
       syntheticPromptLines: e.metrics.syntheticPromptLines,
@@ -30,7 +32,12 @@ export function lineageFigures(events) {
     .filter((e) => e.eventKind === "ai_prompt_submitted")
     .map((e) => `${e.sessionRef} ${new Date(e.occurredAt).toISOString()}`)
     .sort();
-  return { sessions, promptInstants };
+  const epoch = events.find((e) => e.eventKind === "extraction_epoch");
+  return {
+    sessions,
+    promptInstants,
+    sessionsWithOnlyInheritedLines: epoch?.metrics.sessionsWithOnlyInheritedLines ?? 0
+  };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

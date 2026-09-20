@@ -24,10 +24,10 @@
  * A line with no `uuid` has nothing to match copies by, so every transcript
  * holding one still counts it, as before.
  *
- * Minutes are not deduplicated here. A copied prompt is still a person's
- * instant on the copying fold's timeline, so every fold on a lineage keeps its
- * inherited active and hands-on minutes. That is a separate decision with its
- * own reasoning, recorded where the minutes are computed.
+ * The same question is asked of every line, not just typed ones, by
+ * {@link TimelineOwnership} at the bottom of this file: a copied line's
+ * instant belongs to one fold too, so minutes and spans stop carrying the
+ * ancestor's work. Same rule, different material, and it needs no pre-read.
  *
  * **Chip-launched sessions open on a line nobody typed.** A session started
  * from a `spawn_task` chip has, as its first `user` line, the chip's `prompt`
@@ -227,4 +227,86 @@ export async function readPromptLedger(
   for (const transcript of mainTranscripts) await read(transcript, false);
   for (const transcript of subagentTranscripts) await read(transcript, true);
   return ledger;
+}
+
+/**
+ * Which fold a line's INSTANT belongs to.
+ *
+ * The rule above, applied to time rather than to prompts: every known line
+ * contributes a timeline point to one transcript only, so a resumed session's
+ * active minutes, hands-on minutes, day slices and `startedAt` describe what
+ * happened in it and not in its ancestors. Measured on one real store of 984
+ * transcripts: 151 carried inherited lines, per-session active minutes summed
+ * to 2.8x the union of the same intervals, and 30% of all active spans were
+ * an exact duplicate of another session's.
+ *
+ * The owner is the same one the ledger picks — the transcript named by the
+ * line's own `sessionId`, or the first in walk order where that file is gone —
+ * but this one is decided from the walk's file list and the line's two ids,
+ * with no pre-read behind it:
+ *
+ *  - a copied line keeps its original `sessionId`, so `sessionId` against the
+ *    file's own name answers almost every line on its own;
+ *  - only a line whose home file is missing needs an id remembered, and then
+ *    only until some transcript claims it.
+ *
+ * That distinction is why this holds ids at all rather than all of them. On
+ * the store above the full set of line ids is 605,501 entries and 52 MB of
+ * heap held for the length of the walk; the set this keeps held 0, because
+ * every inherited line's home file was still on disk. A store mid-purge holds
+ * one id per orphaned line and nothing else.
+ *
+ * Two lines are counted by every fold that holds them, exactly as before: one
+ * with no `uuid` (nothing to recognise a copy by) and one with no `sessionId`
+ * (nothing to name its home). Neither is guessed at. On the reference store
+ * the first is `queue-operation` and nothing else — 3.4% of known dated lines,
+ * 10,313 of them inherited — and no known dated line was missing a
+ * `sessionId`. So a copied queue operation still puts its instant on both
+ * timelines; it is one instant, usually inside a stretch the lines around it
+ * already cover, and inventing an id for it would be worse.
+ *
+ * A subagent transcript is never inherited — a resume copies the main thread's
+ * lines, not the `subagents/` directory beside it, and its lines carry the
+ * parent session's id rather than their own file's name, which would read as
+ * inherited under the rule above. Verified on the same store: no subagent line
+ * carries a `sessionId` other than its session directory's. So they are owned
+ * by the fold they were found under, unconditionally.
+ */
+export class TimelineOwnership {
+  /** Basenames of every main-thread transcript the walk listed. */
+  private readonly transcriptIds: ReadonlySet<string>;
+  /** Ids of inherited lines whose home file is gone, claimed as they're met. */
+  private readonly claimedOrphans = new Set<string>();
+
+  constructor(mainTranscripts: readonly string[]) {
+    this.transcriptIds = new Set(mainTranscripts.map((file) => path.basename(file, ".jsonl")));
+  }
+
+  /**
+   * Whether this transcript's fold counts this line's instant. Called once per
+   * known line, in the extractor's walk order — the orphan rule is first-come,
+   * so a different order would hand a purged lineage's minutes to a different
+   * fold.
+   */
+  owns(
+    line: { uuid: string | null; sessionId: string | null },
+    transcript: string,
+    opts: { isSidechain: boolean }
+  ): boolean {
+    if (opts.isSidechain) return true;
+    if (line.sessionId === null || line.uuid === null) return true;
+    if (isHomeTranscript(transcript, line.sessionId)) return true;
+    // Inherited. The file it was written in is still here and will count it.
+    if (this.transcriptIds.has(line.sessionId)) return false;
+    // Inherited from a session the purge took: the first transcript to reach
+    // it owns it, the way the ledger gives it the prompt.
+    if (this.claimedOrphans.has(line.uuid)) return false;
+    this.claimedOrphans.add(line.uuid);
+    return true;
+  }
+
+  /** Ids held for orphaned lines, for tests and diagnostics. */
+  get orphanLineCount(): number {
+    return this.claimedOrphans.size;
+  }
 }

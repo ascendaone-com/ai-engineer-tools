@@ -224,6 +224,10 @@ export const METRIC_KEYS = {
   orphanedBubbles: { readBy: ["diagnostic"] },
   orphanedSubagentBubbles: { readBy: ["diagnostic"] },
   sessionsWithoutTimeline: { readBy: ["diagnostic"] },
+  sessionsWithOnlyInheritedLines: {
+    readBy: ["diagnostic"],
+    note: "Claude Code transcripts holding nothing but a copy of an ancestor's history, so no line's instant is theirs and no session is emitted for them. Excluded by rule, not a read failure: the work is in the transcript that owns it."
+  },
   emptyComposers: { readBy: ["diagnostic"] },
   apiErrorCount: { readBy: ["diagnostic"] },
   assistantTurns: { readBy: ["diagnostic"] },

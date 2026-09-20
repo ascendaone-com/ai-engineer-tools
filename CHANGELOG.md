@@ -15,14 +15,14 @@ targets, error counts or internal resource names — this repository is public.
 ### When the agent stops and waits for you, that now counts
 
 - **Being interrupted is recorded as its own thing.** Claude Code fires a
-  notification when it stops and waits for you — asking permission to run
+  notification when it stops and waits for you: asking permission to run
   something, or simply waiting for input. Codex does the same at its approval
   gate. Neither was recorded before: both hooks were unregistered, so the
   number of times an agent stopped and waited on you was always zero, and zero
   looked exactly like never being interrupted.
 - **Nothing about what was asked leaves your machine.** The event carries one
-  field, `interruptionKind` — `permission_request`, `idle_prompt`, or `other` —
-  and nothing else. Not the notification's wording, not the command awaiting
+  field, `interruptionKind`, which is `permission_request`, `idle_prompt` or
+  `other`, and nothing else. Not the notification's wording, not the command awaiting
   approval, not the path it touches, not your answer. A test in each adapter
   fails the build if a future change adds any of them.
 - **It rides the telemetry permission you already gave.** No new consent to
@@ -31,13 +31,40 @@ targets, error counts or internal resource names — this repository is public.
   reaches a gate, and no content is read to send it.
 - **`other` is a real answer, not a leftover.** These notifications get reworded
   between releases, and a wording we don't recognise is reported as `other`
-  rather than guessed at. If that share climbs, the labels need updating — it
+  rather than guessed at. If that share climbs, the labels need updating. It
   is meant to be visible.
 - **Codex users merging hooks by hand:** `examples/hooks.json` gains a
   `PermissionRequest` entry. `setup` writes it for you; a hand-merged file needs
   the line added.
 - **What this is not.** A count of interruptions, and nothing built on top of
   it. There is no score, no streak, and nothing that fires when a number moves.
+
+### A resumed session's minutes are its own
+
+- **Active time stops at the session boundary.** Resuming or forking a Claude
+  Code session writes a transcript that opens with a copy of everything it
+  inherited. Those copied lines were counted twice: once in the session they
+  were typed in, once in every session resumed from it. v0.1.25 fixed the
+  prompt counts and left the minutes alone. They're fixed now.
+- **Your session totals drop. Your week doesn't.** On one 983-session store the
+  per-session active minutes summed to 70,212 and now sum to 53,600, while the
+  union of the same intervals moved by a single minute. Hands-on falls
+  furthest, 12,238 minutes to 8,006. Every minute of work is still in there,
+  counted once, where it happened.
+- **A session starts when you started it.** `startedAt` was the oldest
+  timestamp anywhere in the file, which on a resume is whenever the first
+  ancestor began. 127 of 978 sessions on that store now show a later start, 13
+  of them by more than an hour.
+- **Counts of agents running at once get honest.** Exact-duplicate spans were
+  30% of every active span in the store and are now 3.5%. A duplicated span
+  reads as a second agent, so any concurrency figure was partly reading copies.
+- **`minutesBasis: "owned_lines"` on the handoff says which minutes you're
+  reading.** `"every_line"`, and a missing stamp, mean the old figures. Gate on
+  it before you compare two handoffs. The schema number stays where it is.
+- **Resume a session, type nothing, and there's no session to report.** The
+  file holds the copy and that's all, so the import counts it in
+  `sessionsWithOnlyInheritedLines` and moves on.
+- **Both importers agree.** The desktop app reads by the same rule.
 
 ## v0.1.25
 
