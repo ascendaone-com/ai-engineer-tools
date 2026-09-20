@@ -228,8 +228,10 @@ once before it folds any session ([`src/promptLedger.ts`](./src/promptLedger.ts)
   order. The owner counts the prompt, and the owner's timeline carries the
   instant — so `activeMinutes`, the hands-on split, the day slices and
   `startedAt` describe the session you resumed rather than everything behind
-  it. A line with no id is counted wherever it appears; on the reference store
-  that's `queue-operation` lines and nothing else.
+  it. Two files can both name themselves on one line, which "When two files
+  both say a line is theirs" above settles. A line with no id is counted
+  wherever it appears; on the reference store that's `queue-operation` lines
+  and nothing else.
 - **A chip's prompt isn't typed.** A session launched from a `spawn_task` chip
   opens on the chip's prompt. When a line's text, wrappers stripped, matches a
   chip that some session in the store offered, it counts in
@@ -272,6 +274,11 @@ dropped: what went was the copy of it. Duplicate spans fell from 30% of the
 store to 3.5%, which matters to any count of how many agents were running at
 once, since a duplicate reads as a second agent. 127 sessions now start when
 they were resumed, 13 of them more than an hour later than they used to.
+
+That 3.5% was not the floor, and it was not coincidence: four fifths of it was
+the copy path settled above. On a later and slightly larger snapshot of the
+same store, the duplicate spans go from 21,982 to 4,087 once contested lines
+are settled.
 
 An earlier reading of this exposure put it at 0.72% of sessions. It counted
 repeated `sessionRef`s, and a resumed transcript carries a fresh one, so it saw
