@@ -81,6 +81,42 @@ test("unusable timestamps are dropped, never placed on a guessed day", () => {
 test("a session with nothing to place yields no days at all", () => {
   assert.deepEqual(sliceSessionByLocalDay([]), []);
   assert.deepEqual(sliceSessionByLocalDay([null, "nonsense"]), []);
+  assert.deepEqual(
+    sliceSessionByLocalDay([], { activeGapMs: 5 * 60_000, activeInstants: [], interruptedRunTimestamps: [] }),
+    [],
+    "and an empty answer to every question is still no days"
+  );
+});
+
+// A session nobody typed in is ordinary: one opened from a chip, or a resume
+// whose prompts all belong to an ancestor. 103 of 987 sessions on the
+// reference store have no prompt of their own and 97 of those hold active
+// time. The slices used to stop at the prompt list and return nothing for all
+// of them, dropping 1,523 minutes of placement that the session totals
+// reported perfectly well.
+test("a session with active time and no prompt is still placed on its days", () => {
+  const slices = sliceSessionByLocalDay([], {
+    activeGapMs: 5 * 60_000,
+    activeInstants: [
+      { at: new Date(at(2026, 7, 1, 9)).getTime(), human: false, agentOutput: true, autonomyMode: null },
+      { at: new Date(at(2026, 7, 1, 9, 4)).getTime(), human: false, agentOutput: true, autonomyMode: null },
+      { at: new Date(at(2026, 7, 2, 11)).getTime(), human: false, agentOutput: true, autonomyMode: null },
+      { at: new Date(at(2026, 7, 2, 11, 3)).getTime(), human: false, agentOutput: true, autonomyMode: null }
+    ]
+  });
+  assert.deepEqual(slices, [
+    { day: "2026-07-01", prompts: 0, activeMinutes: 4, handsOnMinutes: 0, agentSupervisingMinutes: 4 },
+    { day: "2026-07-02", prompts: 0, activeMinutes: 3, handsOnMinutes: 0, agentSupervisingMinutes: 3 }
+  ]);
+});
+
+test("a run cut short gets its day even when nobody typed that session", () => {
+  // The option's own contract: "A cut's day is a day the session held work, so
+  // it gets a slice even with no prompt on it."
+  const slices = sliceSessionByLocalDay([], {
+    interruptedRunTimestamps: [at(2026, 7, 3, 14), null]
+  });
+  assert.deepEqual(slices, [{ day: "2026-07-03", prompts: 0, interruptedRuns: 1 }]);
 });
 
 test("out-of-order timestamps are sorted before slicing", () => {

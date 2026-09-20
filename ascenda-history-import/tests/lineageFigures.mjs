@@ -9,8 +9,9 @@ import { fileURLToPath } from "node:url";
 
 /**
  * The fixture's figures that don't depend on the local timezone: per-session
- * counts, minutes and start instants, the day slices' prompt total, the
- * prompt instants, and the transcripts that held nothing of their own.
+ * counts, minutes and start instants, the day slices' prompt total and whether
+ * there were any, the prompt instants, and the transcripts that held nothing
+ * of their own.
  */
 export function lineageFigures(events) {
   const sessions = events
@@ -25,7 +26,15 @@ export function lineageFigures(events) {
       activeMinutes: e.metrics.activeMinutes,
       handsOnMinutes: e.metrics.handsOnMinutes,
       agentSupervisingMinutes: e.metrics.agentSupervisingMinutes,
-      dayPrompts: (e.dayBreakdown ?? []).reduce((sum, d) => sum + d.prompts, 0)
+      dayPrompts: (e.dayBreakdown ?? []).reduce((sum, d) => sum + d.prompts, 0),
+      // Whether the session was placed on any day at all. A boolean, not a
+      // count: how many local days a session falls across depends on the
+      // extracting machine's timezone, and whether it falls on one at all
+      // does not. It is here because the prompt sum above cannot see this —
+      // a session nobody typed in sums to 0 whether it was placed on its days
+      // or dropped entirely, which is how both writers could disagree about
+      // 103 sessions while this file reported them identical.
+      hasDays: (e.dayBreakdown ?? []).length > 0
     }))
     .sort((a, b) => a.sessionRef.localeCompare(b.sessionRef));
   const promptInstants = events
