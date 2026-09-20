@@ -141,6 +141,17 @@ export interface RunStep {
  * `isToolResult` is the extractor's own tool-result test, passed in so there is
  * one definition of that too.
  */
+/**
+ * Whose count a cut belongs to is decided by the caller, not here.
+ *
+ * This machine answers "did that marker end a turn that was running", which is
+ * a question about one transcript read in order. It says nothing about which
+ * session should carry the answer: a resumed transcript replays its ancestors'
+ * markers, and each replay is a real cut correctly detected — in the wrong
+ * fold. The extractor asks `TimelineOwnership` and counts the cut only where
+ * the marker line is owned, while still stepping this machine over every line
+ * so the running state stays continuous across the inherited head.
+ */
 export function stepRun(
   running: boolean,
   record: Record<string, unknown>,

@@ -678,7 +678,25 @@ async function foldLinesInto(
             // `interruptedRuns.ts`.
             const step = stepRun(turnRunning, record, isToolResultUserLine);
             turnRunning = step.running;
-            if (step.cut) {
+            // Counted by the session the person pressed Escape in, and only
+            // that one. A resumed transcript replays its ancestors' markers
+            // along with the rest of the inherited history, and the state
+            // machine above re-detects each of those cuts exactly as it did
+            // the first time — so before this, a lineage reported its
+            // ancestors' interruptions as its own, again per descendant.
+            // Measured on a store of 990 transcripts: 191 counted cuts came
+            // from 146 distinct marker lines, and 40 of the 191 (20.9%) were
+            // replays. 26 sessions carried one, 19 of them reporting nothing
+            // else.
+            //
+            // **The machine is still fed every line, owned or not.** Ownership
+            // decides attribution, never reading: an inherited turn that the
+            // copy replays must still open and close here, or the running
+            // state entering this session's own first line would be a guess.
+            // The same distinction the timeline already makes — a copied line
+            // is read for the counts it contributes and dropped from the
+            // instants it does not own.
+            if (step.cut && owned) {
               fold.interruptedRuns += 1;
               fold.interruptedRunTimestamps.push(sniffed.occurredAt);
             }

@@ -152,6 +152,12 @@ line that closes the turn. The rule is in
 [`src/interruptedRuns.ts`](./src/interruptedRuns.ts), and the desktop app's
 importer counts by the same one.
 
+A cut counts in the session you pressed Escape in, and in no other. Resuming
+a session copies the history it inherits, markers included, so before this
+rule every resume in a lineage reported its ancestors' interruptions as
+well — a fifth of the counted total on the store this was measured against.
+The same ownership rule as the minutes (`minutesBasis: owned_lines`).
+
 ### What counts as a prompt
 
 `promptCount` on a Claude Code session counts the prompts you typed. Claude

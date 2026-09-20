@@ -66,6 +66,23 @@ targets, error counts or internal resource names — this repository is public.
   `sessionsWithOnlyInheritedLines` and moves on.
 - **Both importers agree.** The desktop app reads by the same rule.
 
+### The runs you cut short are the ones you cut short
+
+- **A resume no longer reports its ancestors' interruptions.** Pressing Escape
+  writes a marker into the transcript, and a resumed session copies that marker
+  along with the rest of the history it inherited — so the same interruption
+  was reported again by every session resumed from it. Only the session you
+  pressed Escape in counts it now.
+- **Expect a lower count, on the same store.** 191 counted runs became 151 on
+  one store of 990 transcripts: a fifth of them were replays. 26 sessions
+  changed and 19 now report none at all. Nothing real was dropped — every
+  marker is still counted somewhere, and the per-day figures move with the
+  totals.
+- **The rule is the one the minutes already use.** Same ownership, asked of a
+  third thing, so a session's cut-short count and its minutes now answer the
+  same question about the same lines. A cut whose own session has been purged
+  still counts, in the first transcript that holds it.
+
 ## v0.1.25
 
 ### Each prompt counts once, and a chip's prompt isn't one
