@@ -180,13 +180,15 @@ test is `isTypedPromptLine` in
 Two more rules need the whole store, so the extractor reads every transcript
 once before it folds any session ([`src/promptLedger.ts`](./src/promptLedger.ts)):
 
-- **Each typed line counts once.** Resuming or forking a session writes a new
-  transcript that copies the history it inherited, line ids and timestamps
-  included. The copy is counted by one transcript only: the one the line's
-  `sessionId` names, or, where that file is gone, the first in the walk's
-  sorted order. A line with no id is counted wherever it appears. Active and
-  hands-on minutes aren't deduplicated this way. A resumed session still
-  carries its ancestors' minutes.
+- **Each line belongs to one session.** Resuming or forking a session writes a
+  new transcript that copies the history it inherited, line ids and timestamps
+  included. Each copy has one owner: the transcript the line's `sessionId`
+  names, or, where the purge took that file, the first in the walk's sorted
+  order. The owner counts the prompt, and the owner's timeline carries the
+  instant — so `activeMinutes`, the hands-on split, the day slices and
+  `startedAt` describe the session you resumed rather than everything behind
+  it. A line with no id is counted wherever it appears; on the reference store
+  that's `queue-operation` lines and nothing else.
 - **A chip's prompt isn't typed.** A session launched from a `spawn_task` chip
   opens on the chip's prompt. When a line's text, wrappers stripped, matches a
   chip that some session in the store offered, it counts in
@@ -201,6 +203,38 @@ the list, with every resumed copy counted again and chip prompts counted as
 typed. A handoff without the stamp counted every `user` line that wasn't a tool
 result. Prompt counts for the same week run highest under that rule and lowest
 under `typed_once`. The schema number doesn't move.
+
+Beside it, `minutesBasis: "owned_lines"` says the minutes were cut the same
+way. `"every_line"` — and an absent stamp — means a transcript's whole
+contents counted there, inherited history included. Gate on this before
+comparing minutes across two handoffs: a store's figures drop when it changes,
+and nothing else in the file says so.
+
+### How much history a resume carries
+
+Enough to matter, which is why the rule above covers the minutes and not only
+the counts. On one real store of 984 transcripts, 151 carried inherited lines:
+275,801 of them, 29% of every dated line in the store. They held the whole of
+the gap between what the sessions claimed and what the clock allowed. Both
+columns are the same 983 sessions, read from one snapshot:
+
+| | Every line | Owned lines |
+|---|---|---|
+| Summed active minutes | 70,212 | 53,600 |
+| Summed hands-on minutes | 12,238 | 8,006 |
+| Union of every active interval | 25,078 | 25,077 |
+| Exact-duplicate spans | 262,500 of 873,599 | 21,982 of 635,126 |
+| Sessions apparently spanning over a day | 158 | 154 |
+
+The union is the control. It holds to the minute, so no work anyone did was
+dropped: what went was the copy of it. Duplicate spans fell from 30% of the
+store to 3.5%, which matters to any count of how many agents were running at
+once, since a duplicate reads as a second agent. 127 sessions now start when
+they were resumed, 13 of them more than an hour later than they used to.
+
+An earlier reading of this exposure put it at 0.72% of sessions. It counted
+repeated `sessionRef`s, and a resumed transcript carries a fresh one, so it saw
+three sessions where 151 transcripts were affected.
 
 ### Autonomy bands
 

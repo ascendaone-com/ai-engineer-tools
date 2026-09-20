@@ -10,6 +10,35 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.26
+
+### A resumed session's minutes are its own
+
+- **Active time stops at the session boundary.** Resuming or forking a Claude
+  Code session writes a transcript that opens with a copy of everything it
+  inherited. Those copied lines were counted twice: once in the session they
+  were typed in, once in every session resumed from it. v0.1.25 fixed the
+  prompt counts and left the minutes alone. They're fixed now.
+- **Your session totals drop. Your week doesn't.** On one 983-session store the
+  per-session active minutes summed to 70,212 and now sum to 53,600, while the
+  union of the same intervals moved by a single minute. Hands-on falls
+  furthest, 12,238 minutes to 8,006. Every minute of work is still in there,
+  counted once, where it happened.
+- **A session starts when you started it.** `startedAt` was the oldest
+  timestamp anywhere in the file, which on a resume is whenever the first
+  ancestor began. 127 of 978 sessions on that store now show a later start, 13
+  of them by more than an hour.
+- **Counts of agents running at once get honest.** Exact-duplicate spans were
+  30% of every active span in the store and are now 3.5%. A duplicated span
+  reads as a second agent, so any concurrency figure was partly reading copies.
+- **`minutesBasis: "owned_lines"` on the handoff says which minutes you're
+  reading.** `"every_line"`, and a missing stamp, mean the old figures. Gate on
+  it before you compare two handoffs. The schema number stays where it is.
+- **Resume a session, type nothing, and there's no session to report.** The
+  file holds the copy and that's all, so the import counts it in
+  `sessionsWithOnlyInheritedLines` and moves on.
+- **Both importers agree.** The desktop app reads by the same rule.
+
 ## v0.1.25
 
 ### Each prompt counts once, and a chip's prompt isn't one

@@ -251,7 +251,7 @@ export async function readPromptLedger(
  *    only until some transcript claims it.
  *
  * That distinction is why this holds ids at all rather than all of them. On
- * the store above the full set of line ids is 605,096 entries and 52 MB of
+ * the store above the full set of line ids is 605,501 entries and 52 MB of
  * heap held for the length of the walk; the set this keeps held 0, because
  * every inherited line's home file was still on disk. A store mid-purge holds
  * one id per orphaned line and nothing else.
