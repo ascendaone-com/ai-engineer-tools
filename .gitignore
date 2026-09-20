@@ -15,6 +15,11 @@ local.devauth.env
 
 # Build / deps (package-level ignores also apply)
 **/node_modules/
+# And the same name as a SYMLINK. The line above ends in a slash, so it matches
+# directories only: a `node_modules` symlink into another checkout is not
+# ignored, gets committed unremarked, and then resolves to that checkout on
+# anyone else's machine. It has cost two of them their real node_modules.
+node_modules
 **/dist/
 **/out/
 *.tsbuildinfo

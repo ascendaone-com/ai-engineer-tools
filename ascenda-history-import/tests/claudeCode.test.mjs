@@ -551,6 +551,41 @@ test("the agent runs on a chip's prompt, so cutting that first turn short counts
   assert.equal(s["s-chip-plain"].interruptedRuns, 1);
 });
 
+test("a resume does not report the interruptions it inherited", async () => {
+  // `s-chip-resumed` copies `s-chip-plain`'s opener AND the marker that cut
+  // its first turn short. The marker is real and correctly detected in both
+  // files; it belongs to the session the person pressed Escape in. Until 21
+  // Sep 2026 both counted it, which on a real store was 40 of 191 counted
+  // cuts.
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  assert.equal(s["s-chip-plain"].interruptedRuns, 1);
+  assert.equal(s["s-chip-resumed"].interruptedRuns, 0);
+});
+
+test("a resume alone in the store still reports the cut it holds", async () => {
+  // The ancestor purged, the copy is all there is, and first-in-walk-order
+  // owns the orphaned line — the same rule the prompts and the minutes use.
+  // A cut is dropped from a descendant because another fold counts it, never
+  // because it stopped being a cut.
+  const root = await lineageSubset(["s-chip-resumed"]);
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.equal(s["s-chip-resumed"].interruptedRuns, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an inherited marker still closes the turn it replays", async () => {
+  // Ownership decides attribution, not reading. The machine is stepped over
+  // every line, so the turn the copy replays opens and closes here too, and
+  // this session's own first line starts from the state it really resumed
+  // from rather than from a guess.
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  assert.equal(s["s-chip-resumed"].promptCount, 1);
+  assert.equal(s["s-chip-resumed"].interruptedRuns, 0);
+});
+
 test("with the chip's issuer purged, its opener counts as typed (the known miss)", async () => {
   const root = await lineageSubset(["s-chip-wrapped"]);
   try {

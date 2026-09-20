@@ -68,7 +68,7 @@
         "promptCount": 1,
         "dispatchedPromptLines": 0,
         "syntheticPromptLines": 1,
-        "interruptedRuns": 1,
+        "interruptedRuns": 0,
         "activeMinutes": 0,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
