@@ -12,7 +12,8 @@
         "activeMinutes": 0,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
-        "dayPrompts": 1
+        "dayPrompts": 1,
+        "hasDays": true
       },
       {
         "sessionRef": "s-branch",
@@ -24,7 +25,8 @@
         "activeMinutes": 5,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 5,
-        "dayPrompts": 1
+        "dayPrompts": 1,
+        "hasDays": true
       },
       {
         "sessionRef": "s-bravo",
@@ -36,7 +38,8 @@
         "activeMinutes": 0,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
-        "dayPrompts": 2
+        "dayPrompts": 2,
+        "hasDays": true
       },
       {
         "sessionRef": "s-charlie",
@@ -48,7 +51,8 @@
         "activeMinutes": 1,
         "handsOnMinutes": 1,
         "agentSupervisingMinutes": 0,
-        "dayPrompts": 3
+        "dayPrompts": 3,
+        "hasDays": true
       },
       {
         "sessionRef": "s-chip-plain",
@@ -60,7 +64,8 @@
         "activeMinutes": 1,
         "handsOnMinutes": 1,
         "agentSupervisingMinutes": 0,
-        "dayPrompts": 1
+        "dayPrompts": 1,
+        "hasDays": true
       },
       {
         "sessionRef": "s-chip-resumed",
@@ -72,7 +77,8 @@
         "activeMinutes": 0,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
-        "dayPrompts": 1
+        "dayPrompts": 1,
+        "hasDays": true
       },
       {
         "sessionRef": "s-chip-sub",
@@ -84,7 +90,8 @@
         "activeMinutes": 0,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
-        "dayPrompts": 0
+        "dayPrompts": 0,
+        "hasDays": true
       },
       {
         "sessionRef": "s-chip-wrapped",
@@ -96,7 +103,8 @@
         "activeMinutes": 0,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
-        "dayPrompts": 0
+        "dayPrompts": 0,
+        "hasDays": true
       },
       {
         "sessionRef": "s-near-miss",
@@ -108,7 +116,8 @@
         "activeMinutes": 0,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 0,
-        "dayPrompts": 1
+        "dayPrompts": 1,
+        "hasDays": true
       },
       {
         "sessionRef": "s-parent",
@@ -120,7 +129,8 @@
         "activeMinutes": 1,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 1,
-        "dayPrompts": 1
+        "dayPrompts": 1,
+        "hasDays": true
       },
       {
         "sessionRef": "s-recast-a",
@@ -156,7 +166,8 @@
         "activeMinutes": 9,
         "handsOnMinutes": 2,
         "agentSupervisingMinutes": 7,
-        "dayPrompts": 3
+        "dayPrompts": 3,
+        "hasDays": true
       },
       {
         "sessionRef": "s-warm",
@@ -168,7 +179,8 @@
         "activeMinutes": 5,
         "handsOnMinutes": 2,
         "agentSupervisingMinutes": 3,
-        "dayPrompts": 2
+        "dayPrompts": 2,
+        "hasDays": true
       },
       {
         "sessionRef": "s-warm-resume",
@@ -180,7 +192,8 @@
         "activeMinutes": 5,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 5,
-        "dayPrompts": 1
+        "dayPrompts": 1,
+        "hasDays": true
       },
       {
         "sessionRef": "s-zulu",
@@ -192,7 +205,8 @@
         "activeMinutes": 3,
         "handsOnMinutes": 1,
         "agentSupervisingMinutes": 1,
-        "dayPrompts": 2
+        "dayPrompts": 2,
+        "hasDays": true
       }
     ],
     "promptInstants": [

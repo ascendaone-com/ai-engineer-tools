@@ -399,6 +399,55 @@ test("active time is split, and every supervising minute is in the unknown band"
   );
 });
 
+// This extractor passes `activeInstants` too, so it had the same hole the
+// Claude Code one did: a rollout nobody typed in got no day slices, although
+// its active minutes were measured and reported. A rollout with agent work and
+// no `user_message` is ordinary — one driven by an injected context, or resumed
+// somewhere its prompts already counted.
+test("a rollout with work and no prompt is still placed on its day", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-noprompt-"));
+  const dir = path.join(root, "sessions", "2026", "07", "21");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, `rollout-2026-07-21T08-00-00-${FILE_ID}.jsonl`),
+    [
+      line("2026-07-21T08:00:00.000Z", "session_meta", {
+        id: META_ID,
+        session_id: META_ID,
+        timestamp: "2026-07-21T08:00:00.000Z",
+        cwd: CWD,
+        originator: "codex_vscode",
+        cli_version: V,
+        source: "vscode",
+        model_provider: "openai"
+      }),
+      line("2026-07-21T08:01:00.000Z", "response_item", {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "redacted" }]
+      }),
+      line("2026-07-21T08:03:00.000Z", "event_msg", {
+        type: "task_complete",
+        turn_id: "t1",
+        last_agent_message: null,
+        duration_ms: 180_000
+      })
+    ].join("\n") + "\n"
+  );
+  const events = await collect(extractCodex(root, "x-noprompt"));
+  const session = events.find((e) => e.eventKind === "create_focus_session");
+  await fs.rm(root, { recursive: true, force: true });
+  assert.equal(session.metrics.promptCount, 0);
+  assert.ok(session.metrics.activeMinutes > 0, "it measured active time");
+  assert.equal(session.dayBreakdown.length, 1, "and placed it on the day it happened");
+  assert.equal(session.dayBreakdown[0].prompts, 0);
+  assert.equal(
+    session.dayBreakdown[0].activeMinutes,
+    session.metrics.activeMinutes,
+    "the one day carries every minute the session reported"
+  );
+});
+
 test("a rollout whose build wrote only context_compacted events still counts compactions", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-snap-"));
   const dir = path.join(root, "sessions", "2026", "07", "21");
