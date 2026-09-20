@@ -551,6 +551,52 @@ test("the agent runs on a chip's prompt, so cutting that first turn short counts
   assert.equal(s["s-chip-plain"].interruptedRuns, 1);
 });
 
+test("a copy that rewrote its sessionId keeps only what it wrote", async () => {
+  // `s-recast-a` holds three lines byte for byte identical to `s-recast-b`'s
+  // except for the sessionId, which names the copy. Both files therefore say
+  // "this line is mine". Before this rule both counted them: 6 minutes and 2
+  // minutes became 8 and 8.
+  const s = sessionsByRef(await extractStore(LINEAGE));
+  assert.equal(s["s-recast-b"].activeMinutes, 6);
+  assert.equal(s["s-recast-a"].activeMinutes, 2);
+  assert.equal(s["s-recast-a"].sessionStartedAt, "2026-09-11T09:20:00.000Z");
+});
+
+test("the file that wrote the line keeps it, though the copy is walked first",
+  async () => {
+    // The point of the fixture's names. `s-recast-a` sorts first, so first in
+    // walk order — the tie-break an orphan gets — would hand it its ancestor's
+    // three lines and leave `s-recast-b` with one instant and no span. On a
+    // real store that tie-break picked the copy for 39% of contested lines.
+    // What settles it instead is that `s-recast-b` holds a line nobody else
+    // claims, so its own history has started and everything after it is its
+    // own; the copy's contested lines all sit in its head.
+    const s = sessionsByRef(await extractStore(LINEAGE));
+    assert.equal(s["s-recast-b"].sessionStartedAt, "2026-09-11T09:00:00.000Z");
+    assert.equal(s["s-recast-b"].handsOnMinutes, 2);
+    assert.equal(s["s-recast-a"].handsOnMinutes, 0);
+  });
+
+test("a contested prompt is counted by the same session that holds its instant",
+  async () => {
+    // The ledger picks an owner by sessionId too, so a rewritten copy reads as
+    // home there as well. It never double-counted — the id is the key — but it
+    // could put the prompt in one session and the minute it happened in in
+    // another.
+    const s = sessionsByRef(await extractStore(LINEAGE));
+    assert.equal(s["s-recast-b"].promptCount, 2);
+    assert.equal(s["s-recast-a"].promptCount, 1);
+    const instants = (await extractStore(LINEAGE))
+      .filter((e) => e.eventKind === "ai_prompt_submitted" && e.sessionRef.startsWith("s-recast"))
+      .map((e) => `${e.sessionRef} ${new Date(e.occurredAt).toISOString()}`)
+      .sort();
+    assert.deepEqual(instants, [
+      "s-recast-a 2026-09-11T09:20:00.000Z",
+      "s-recast-b 2026-09-11T09:00:00.000Z",
+      "s-recast-b 2026-09-11T09:04:00.000Z"
+    ]);
+  });
+
 test("a resume does not report the interruptions it inherited", async () => {
   // `s-chip-resumed` copies `s-chip-plain`'s opener AND the marker that cut
   // its first turn short. The marker is real and correctly detected in both

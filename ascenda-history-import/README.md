@@ -158,6 +158,16 @@ rule every resume in a lineage reported its ancestors' interruptions as
 well — a fifth of the counted total on the store this was measured against.
 The same ownership rule as the minutes (`minutesBasis: owned_lines`).
 
+Some copies rewrite the `sessionId` on the lines they take, to the copying
+file's own name, keeping the original id and timestamp — so two files both
+say a line is theirs. Those lines belong to the file that wrote them, which is
+the one still holding a line nobody else claims: its own history has started,
+and everything it holds from there on it wrote. Where the file that wrote a
+line has been purged, the first in walk order keeps it, as with any orphan.
+On the store this was measured against, 3.7% of the lines claiming their own
+file were claimed by two, and counting them once takes 3.9% off the summed
+active minutes.
+
 ### What counts as a prompt
 
 `promptCount` on a Claude Code session counts the prompts you typed. Claude

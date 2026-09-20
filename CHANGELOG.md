@@ -83,6 +83,32 @@ targets, error counts or internal resource names — this repository is public.
   same question about the same lines. A cut whose own session has been purged
   still counts, in the first transcript that holds it.
 
+### Minutes a second file also claimed
+
+- **Some copies rewrite the session id, and both files claimed the line.** The
+  rule that stopped a resumed session counting its ancestors' minutes trusts
+  the id each line carries. Most copies keep it; some rewrite it to the
+  copying file's own name while keeping everything else, down to the original
+  timestamp — so both files said the line was theirs and both counted it. It
+  isn't a version quirk: the transcripts carrying it span fourteen Claude Code
+  releases.
+- **Another 3.9% comes off your session totals, and your week still doesn't
+  move.** On one store of 991 transcripts, 3.7% of the lines claiming their own
+  file were claimed by two. Summed active minutes fall 53,945 to 51,865 and
+  hands-on 8,052 to 7,599. 42 sessions change and 34 now start later.
+- **The minutes land on the session that did the work.** The file that wrote a
+  line is the one still holding a line nobody else claims — its own history has
+  started there. Where that file has been purged, the first in walk order keeps
+  it, as with any orphan. Picking by walk order alone would have moved a third
+  of these lines onto the copy instead.
+- **A prompt and the minute it happened in now agree about whose they are.**
+  The prompt count never double-counted these, but it could put the prompt in
+  one session and its instant in another.
+- **Imports take a little longer.** The pre-read now reads every line's id
+  rather than only the lines a prompt could hide in, and the files holding a
+  contested id are read once more — 76 of 991 on that store. Measured end to
+  end: 24s to 30s.
+
 ## v0.1.25
 
 ### Each prompt counts once, and a chip's prompt isn't one

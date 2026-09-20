@@ -118,7 +118,12 @@ import {
   type ActiveInstant
 } from "../activeSplit.js";
 import { isTypedPromptLine, stepRun } from "../interruptedRuns.js";
-import { PromptLedger, TimelineOwnership, readPromptLedger } from "../promptLedger.js";
+import {
+  PromptLedger,
+  TimelineOwnership,
+  readPromptLedger,
+  resolveContestedOwners
+} from "../promptLedger.js";
 
 /** Line types the extractor reads fields from. */
 export const KNOWN_CLAUDE_LINE_TYPES = [
@@ -1036,15 +1041,23 @@ export async function* extractClaudeCode(
   }
 
   const mainTranscripts = plan.flatMap((p) => p.topLevelFiles.map((name) => path.join(p.dir, name)));
-  const ledger = await readPromptLedger(
+  const { ledger, claims } = await readPromptLedger(
     mainTranscripts,
     plan.flatMap((p) => p.sessionDirs.flatMap((d) => d.files)),
     isToolResultUserLine
   );
-  // The file list is all this needs — no second pass over the store. It is
-  // consumed in the fold loop below, in the same order, because the rule for a
-  // line whose home file is gone is first-come.
-  const ownership = new TimelineOwnership(mainTranscripts);
+  // Which transcript wrote each line that two of them claim. Only the files
+  // holding a contested id are opened again — none at all on a store where no
+  // copy rewrote a `sessionId` — and the pre-read's full map of claims is
+  // dropped once this is built. See `HomeClaims`.
+  const contestedOwners = await resolveContestedOwners(claims, mainTranscripts);
+  // The prompts follow the same answer. A contested line is one line: the
+  // session that wrote it counts the prompt AND holds the instant.
+  ledger.applyContestedOwners(contestedOwners);
+  // The file list and the contested owners above are all this needs. It is
+  // consumed in the fold loop below, in the same order the pre-read used,
+  // because the rule for a line whose home file is gone is first-come.
+  const ownership = new TimelineOwnership(mainTranscripts, contestedOwners);
 
   for (const { slug, dir, topLevelFiles, otherFiles, sessionDirs } of plan) {
     let slugJsonlFiles = topLevelFiles.length;
