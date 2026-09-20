@@ -95,7 +95,9 @@ targets, error counts or internal resource names — this repository is public.
 - **Another 3.9% comes off your session totals, and your week still doesn't
   move.** On one store of 991 transcripts, 3.7% of the lines claiming their own
   file were claimed by two. Summed active minutes fall 53,945 to 51,865 and
-  hands-on 8,052 to 7,599. 42 sessions change and 34 now start later.
+  hands-on 8,052 to 7,599, while the union of the same intervals holds to a
+  minute — 25,248 to 25,247 — which is what says a line was dropped and not a
+  minute of work. 42 sessions change and 34 now start later.
 - **The minutes land on the session that did the work.** The file that wrote a
   line is the one still holding a line nobody else claims — its own history has
   started there. Where that file has been purged, the first in walk order keeps
