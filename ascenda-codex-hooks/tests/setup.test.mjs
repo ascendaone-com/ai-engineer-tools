@@ -28,9 +28,12 @@ test("registers every hook that maps to a catalog event, in Codex's own file sha
   // event from argv, so the name has to survive onto the command line.
   assert.equal(settings.hooks.Stop[0].hooks[0].type, "command");
   assert.match(settings.hooks.Stop[0].hooks[0].command, /ascenda-codex-hook" Stop$/);
-  // Approvals and subagent lifecycle map to nothing; registering them would
-  // spend a process per approval to send an empty list.
-  assert.equal(settings.hooks.PermissionRequest, undefined);
+  // PermissionRequest is registered now that it maps to supervision_interruption.
+  // Mapped-but-unregistered is the failure that made Claude Code report zero
+  // tool failures for months: the hook never fires, and silence reads as calm.
+  assert.ok(settings.hooks.PermissionRequest, "PermissionRequest must be registered, not just mapped");
+  assert.match(settings.hooks.PermissionRequest[0].hooks[0].command, /ascenda-codex-hook" PermissionRequest$/);
+  // The subagent lifecycle still maps to nothing, so it stays unregistered.
   assert.equal(settings.hooks.SubagentStart, undefined);
   for (const event of HOOK_EVENTS) {
     assert.ok(mapCodexEvent(event, { prompt: "x", tool_name: "shell" }, 90 * 60000).length > 0, `${event} is registered but maps to nothing`);

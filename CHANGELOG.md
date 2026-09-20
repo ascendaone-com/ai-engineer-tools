@@ -10,6 +10,35 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.26
+
+### When the agent stops and waits for you, that now counts
+
+- **Being interrupted is recorded as its own thing.** Claude Code fires a
+  notification when it stops and waits for you — asking permission to run
+  something, or simply waiting for input. Codex does the same at its approval
+  gate. Neither was recorded before: both hooks were unregistered, so the
+  number of times an agent stopped and waited on you was always zero, and zero
+  looked exactly like never being interrupted.
+- **Nothing about what was asked leaves your machine.** The event carries one
+  field, `interruptionKind` — `permission_request`, `idle_prompt`, or `other` —
+  and nothing else. Not the notification's wording, not the command awaiting
+  approval, not the path it touches, not your answer. A test in each adapter
+  fails the build if a future change adds any of them.
+- **It rides the telemetry permission you already gave.** No new consent to
+  grant, because producing it needs nothing that the tool-call and file events
+  covered by that permission didn't already need: a hook fires when the agent
+  reaches a gate, and no content is read to send it.
+- **`other` is a real answer, not a leftover.** These notifications get reworded
+  between releases, and a wording we don't recognise is reported as `other`
+  rather than guessed at. If that share climbs, the labels need updating — it
+  is meant to be visible.
+- **Codex users merging hooks by hand:** `examples/hooks.json` gains a
+  `PermissionRequest` entry. `setup` writes it for you; a hand-merged file needs
+  the line added.
+- **What this is not.** A count of interruptions, and nothing built on top of
+  it. There is no score, no streak, and nothing that fires when a number moves.
+
 ## v0.1.25
 
 ### Each prompt counts once, and a chip's prompt isn't one

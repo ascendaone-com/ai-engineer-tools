@@ -68,8 +68,15 @@ test("Stop: every turn ends with ai_turn_completed; only long ones add agent_loo
   assert.equal(mapCodexEvent("Stop", {}, 90 * 60000)[0].severity, "high");
 });
 
-test("hooks without catalog counterparts map to nothing", () => {
-  assert.deepEqual(mapCodexEvent("PermissionRequest", { tool_name: "Bash" }), []);
+test("PermissionRequest is the interruption leg: the agent stopped at a gate", () => {
+  const [event] = mapCodexEvent("PermissionRequest", { tool_name: "Bash" });
+  assert.equal(event.eventType, "supervision_interruption");
+  assert.equal(event.metadata.interruptionKind, "permission_request");
+});
+
+test("the subagent lifecycle still maps to nothing", () => {
+  // A subagent starting is not an interruption of the person, and this stays
+  // out of scope deliberately rather than by omission.
   assert.deepEqual(mapCodexEvent("SubagentStart", { agent_id: "a" }), []);
   assert.deepEqual(mapCodexEvent("SubagentStop", { agent_id: "a" }), []);
 });
