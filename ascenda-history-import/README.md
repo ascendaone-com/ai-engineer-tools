@@ -158,6 +158,41 @@ rule every resume in a lineage reported its ancestors' interruptions as
 well — a fifth of the counted total on the store this was measured against.
 The same ownership rule as the minutes (`minutesBasis: owned_lines`).
 
+### When two files both say a line is theirs
+
+Most copies keep the session id the line was written with, which is how the
+import tells a copy from the real thing. Some rewrite it to the file the copy
+now sits in, keeping the line's own id and its original timestamp — so the
+test that settles every other copy answers "written here" in both places, and
+both sessions counted the line. Nothing on the line says which of the two
+wrote it: the two records are identical apart from the fields the copy
+rewrote.
+
+Where the line sits is what settles it. A line two files claim is contested.
+Inside a file, the run of contested lines at the top is the history it
+inherited, and it ends at the first line that file claims and nobody else
+does — from there on, what it holds it wrote. So a contested line belongs to
+the file still holding it after its own history has started.
+
+Not simply the first file the import reaches, which would be the easy rule and
+the wrong one: on the store this was measured against it would hand two fifths
+of these lines to the copy instead, which is the error this whole rule exists
+to remove.
+
+**What that leaves.** A lineage whose earliest file the 30-day cleanup has
+already taken has no file that wrote those lines — every one still holding
+them holds them in its inherited head, and nothing left on disk says which
+session did the work. The line is still counted once, by the first file the
+import reaches, the same answer any orphaned line gets. The total is right and
+the session it lands on is a guess. That was 16.1% of contested lines here.
+
+Sizes, on the same store: 3.7% of the lines claiming their own file were
+claimed by two of them, and counting each once takes 3.9% off the summed
+active minutes. **Your week doesn't move** — the union of your active time
+holds to a minute, because a line counted twice was one minute counted twice.
+Hands-on shifts a little more than that: a span changes sides when the lines
+around it move, so the unioned hands-on figure moved by 19 minutes in 6,734.
+
 ### What counts as a prompt
 
 `promptCount` on a Claude Code session counts the prompts you typed. Claude

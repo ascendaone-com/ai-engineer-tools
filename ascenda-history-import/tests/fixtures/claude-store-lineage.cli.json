@@ -123,6 +123,30 @@
         "dayPrompts": 1
       },
       {
+        "sessionRef": "s-recast-a",
+        "startedAt": "2026-09-11T09:20:00.000Z",
+        "promptCount": 1,
+        "dispatchedPromptLines": 0,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 2,
+        "handsOnMinutes": 0,
+        "agentSupervisingMinutes": 2,
+        "dayPrompts": 1
+      },
+      {
+        "sessionRef": "s-recast-b",
+        "startedAt": "2026-09-11T09:00:00.000Z",
+        "promptCount": 2,
+        "dispatchedPromptLines": 0,
+        "syntheticPromptLines": 0,
+        "interruptedRuns": 0,
+        "activeMinutes": 6,
+        "handsOnMinutes": 2,
+        "agentSupervisingMinutes": 4,
+        "dayPrompts": 2
+      },
+      {
         "sessionRef": "s-trunk",
         "startedAt": "2026-09-10T11:00:00.000Z",
         "promptCount": 3,
@@ -183,6 +207,9 @@
       "s-chip-resumed 2026-09-09T02:00:00.000Z",
       "s-near-miss 2026-09-09T00:04:00.000Z",
       "s-parent 2026-09-09T00:00:00.000Z",
+      "s-recast-a 2026-09-11T09:20:00.000Z",
+      "s-recast-b 2026-09-11T09:00:00.000Z",
+      "s-recast-b 2026-09-11T09:04:00.000Z",
       "s-trunk 2026-09-10T11:00:00.000Z",
       "s-trunk 2026-09-10T11:04:00.000Z",
       "s-trunk 2026-09-10T11:40:00.000Z",
