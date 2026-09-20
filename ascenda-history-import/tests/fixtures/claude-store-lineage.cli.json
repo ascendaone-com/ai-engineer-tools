@@ -142,7 +142,8 @@
         "activeMinutes": 2,
         "handsOnMinutes": 0,
         "agentSupervisingMinutes": 2,
-        "dayPrompts": 1
+        "dayPrompts": 1,
+        "hasDays": true
       },
       {
         "sessionRef": "s-recast-b",
@@ -154,7 +155,8 @@
         "activeMinutes": 6,
         "handsOnMinutes": 2,
         "agentSupervisingMinutes": 4,
-        "dayPrompts": 2
+        "dayPrompts": 2,
+        "hasDays": true
       },
       {
         "sessionRef": "s-trunk",
