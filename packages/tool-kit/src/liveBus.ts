@@ -138,20 +138,37 @@ export function liveBusSocketCandidates(): string[] {
 }
 
 /**
- * The first candidate that actually exists, or the preferred one when none
- * do — connecting to a missing socket is already a silent no-op, so there
- * is no need for a distinct "nowhere to send" branch.
+ * The candidates that currently exist as socket files, in authority order —
+ * or, under the override, the override alone whether or not it exists.
+ *
+ * Existence is all this can say. A socket file outlives its listener when
+ * the listener is killed, crashes or is uninstalled without unlinking, so a
+ * candidate on this list may refuse every connection. {@link emitLiveSignal}
+ * therefore treats the list as an order to try, never as the answer.
+ */
+function existingSocketCandidates(): string[] {
+  const candidates = liveBusSocketCandidates();
+  if (process.env.ASCENDA_LIVE_BUS_SOCKET) return candidates;
+  return candidates.filter((candidate) => {
+    try {
+      return fs.statSync(candidate).isSocket();
+    } catch {
+      return false; // Not there.
+    }
+  });
+}
+
+/**
+ * The first candidate that exists as a socket file, or the preferred one
+ * when none do.
+ *
+ * Kept for callers that want to show where the bus probably is. It checks
+ * that a file exists, not that anything is listening on it, so it can name
+ * a stale socket; {@link emitLiveSignal} does not use it, and falls through
+ * past a candidate that refuses the connection.
  */
 export function liveBusSocketPath(): string {
-  const candidates = liveBusSocketCandidates();
-  for (const candidate of candidates) {
-    try {
-      if (fs.statSync(candidate).isSocket()) return candidate;
-    } catch {
-      // Not there; try the next.
-    }
-  }
-  return candidates[0];
+  return existingSocketCandidates()[0] ?? liveBusSocketCandidates()[0];
 }
 
 /**
@@ -172,9 +189,23 @@ export function bucketPromptSize(text: string | undefined): PromptSizeBucket {
 }
 
 /**
+ * Connection errors that mean "nobody is listening at this path", so the
+ * next candidate may still be. Anything else, or any error once a
+ * connection is up, ends the emit: a listener that accepted has the signal
+ * or has lost it, and sending it again elsewhere would count it twice.
+ */
+const NOBODY_LISTENING = new Set(["ECONNREFUSED", "ENOENT"]);
+
+/**
  * Whisper one signal to the app. Never throws, never rejects, and resolves
  * as soon as the write lands or is abandoned — callers may ignore the
  * promise entirely.
+ *
+ * Candidates are tried in authority order and the first one that accepts
+ * the connection gets the signal; nothing fans out to the rest. A candidate
+ * that refuses (a stale socket file) or has vanished since it was listed is
+ * skipped. All of it shares one {@link WRITE_TIMEOUT_MS} budget: the
+ * deadline is for the whole emit, not for each candidate.
  *
  * A fresh connection per signal is deliberate: hook processes are
  * short-lived (one per lifecycle event), so there is no long-lived process
@@ -183,44 +214,73 @@ export function bucketPromptSize(text: string | undefined): PromptSizeBucket {
  */
 export function emitLiveSignal(signal: LiveBusSignal): Promise<void> {
   return new Promise<void>((resolve) => {
-    let settled = false;
-    const done = () => {
-      if (settled) return;
-      settled = true;
-      try {
-        socket.destroy();
-      } catch {
-        // Already gone. Nothing to do, and nothing worth reporting.
-      }
-      resolve();
-    };
-
-    let socket: net.Socket;
-    try {
-      socket = net.createConnection(liveBusSocketPath());
-    } catch {
-      // No socket file, wrong permissions, malformed path — the app simply
-      // isn't listening. That is the ordinary case for anyone who doesn't
-      // run the desktop app, and it is not an error.
+    // No socket file anywhere: the app simply isn't running. That is the
+    // ordinary case for anyone who doesn't use it, and it is not an error.
+    const candidates = existingSocketCandidates();
+    if (candidates.length === 0) {
       resolve();
       return;
     }
 
+    let settled = false;
+    let socket: net.Socket | undefined;
+    const drop = () => {
+      try {
+        socket?.destroy();
+      } catch {
+        // Already gone. Nothing to do, and nothing worth reporting.
+      }
+      socket = undefined;
+    };
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      drop();
+      resolve();
+    };
+
     const timer = setTimeout(done, WRITE_TIMEOUT_MS);
     if (typeof timer.unref === "function") timer.unref();
-    if (typeof socket.unref === "function") socket.unref();
 
-    socket.on("error", done);
-    socket.on("connect", () => {
-      try {
-        socket.write(`${JSON.stringify(signal)}\n`, () => {
-          clearTimeout(timer);
-          done();
-        });
-      } catch {
-        clearTimeout(timer);
+    const tryFrom = (index: number) => {
+      if (settled) return;
+      if (index >= candidates.length) {
         done();
+        return;
       }
-    });
+      let attempt: net.Socket;
+      try {
+        attempt = net.createConnection(candidates[index]);
+      } catch {
+        // Wrong permissions, malformed path: this one can't be reached.
+        tryFrom(index + 1);
+        return;
+      }
+      socket = attempt;
+      if (typeof attempt.unref === "function") attempt.unref();
+
+      let connected = false;
+      attempt.on("error", (error: NodeJS.ErrnoException) => {
+        if (settled || socket !== attempt) return;
+        if (!connected && error.code && NOBODY_LISTENING.has(error.code)) {
+          drop();
+          tryFrom(index + 1);
+          return;
+        }
+        done();
+      });
+      attempt.on("connect", () => {
+        if (settled || socket !== attempt) return;
+        connected = true;
+        try {
+          attempt.write(`${JSON.stringify(signal)}\n`, done);
+        } catch {
+          done();
+        }
+      });
+    };
+
+    tryFrom(0);
   });
 }

@@ -10,6 +10,26 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.27
+
+### A leftover socket file can't swallow live signals
+
+- **The hooks skip a dead socket.** Every hook sends a small live signal
+  to a local socket so a desktop listener knows an agent is working right
+  now. It went to the first socket file it found, and a file stays behind
+  when its listener is force-quit, crashes or is removed without cleaning
+  up. From then on every signal went into that dead file, a listener
+  further down the list heard nothing, and nothing said so.
+- **Now a refused connection moves on.** The hooks try each socket file in
+  the same order as before and send to the first one that answers. One
+  listener gets each signal, never several.
+- **Your agent turn still doesn't wait.** The whole attempt, however many
+  files it tries, still gives up after 50 ms and never raises an error.
+- **`ASCENDA_LIVE_BUS_SOCKET` is unchanged.** Set it and that path is the
+  only one tried.
+- **Nothing gets deleted.** The hooks leave a stale socket file where it
+  is. Cleaning it up is the listener's job.
+
 ## v0.1.26
 
 ### When the agent stops and waits for you, that now counts
