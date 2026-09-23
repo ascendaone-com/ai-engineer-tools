@@ -30,8 +30,12 @@
  * - `backend`  — a server-side reader resolves it. `backendAliases` lists the
  *                spellings that reader accepts, canonical first. If this is
  *                wrong the key is silently dropped, which is the bug above.
- * - `handoff`  — `localHandoff.ts` reads it for the desktop app. Never leaves
- *                the machine.
+ * - `handoff`  — `localHandoff.ts` reads it for the desktop app, on the
+ *                machine. This names a READER, not an egress rule: `ship.ts`
+ *                copies every `metrics` entry into wire metadata, so a
+ *                `handoff` key still travels. Read the other way round —
+ *                "handoff means it stays local" — this list would be a
+ *                disclosure claim it cannot keep.
  * - `diagnostic` — read by neither, and meant to be. These are the honesty
  *                counters: unparsed lines, unreadable files, which timeline
  *                fallback dated a session. They exist so a reader can tell
@@ -187,7 +191,11 @@ export const METRIC_KEYS = {
   humanChangesCount: { readBy: ["handoff"] },
   linesAdded: { readBy: ["handoff"] },
   linesRemoved: { readBy: ["handoff"] },
-  primaryModel: { readBy: ["handoff"] },
+  primaryModel: {
+    readBy: ["backend", "handoff"],
+    backendAliases: ["primaryModel", "primary_model"],
+    note: "Read twice: the desktop's local handoff folds it, and a server-side reader resolves it to group a bucket's sessions by the model that served them. Declared handoff-only until 23 Sep 2026 — see toolName for why that direction of mistake has no symptom."
+  },
   requestCount: { readBy: ["handoff"] },
   sessionStartedAt: { readBy: ["handoff"] },
   subagentComposers: { readBy: ["handoff"] },
@@ -252,8 +260,9 @@ export const METRIC_KEYS = {
   subagentPrompts: { readBy: ["diagnostic"] },
   subagentTokensTotal: { readBy: ["diagnostic"] },
   toolName: {
-    readBy: ["diagnostic"],
-    note: "Set per ai_tool_call_started event by #43's extractors and shipped in wire metadata, but no reader resolves it server-side yet (the backend's ToolName column is MCP audit, not telemetry). Registered after the fact: #38 and #43 merged past each other, and the union caught it on the next compile — metaLines all over again."
+    readBy: ["backend"],
+    backendAliases: ["toolName", "tool_name"],
+    note: "Set per ai_tool_call_started event by #43's extractors. Declared diagnostic until 23 Sep 2026 on the belief that nothing resolved it server-side; two backend readers do — one to see a sub-agent dispatch, one composing per-tool metrics. This is the inverse of the mismatch this module was written for: contextUsagePercent was a key nobody read, and a key a reader resolves without being declared drops nothing, so it has no symptom at all. What it costs is that readBy stops being a true census of what the server sees, which is what you consult when deciding what a collector should stop sending. Registered after the fact in the first place: #38 and #43 merged past each other, and the union caught it on the next compile — metaLines all over again."
   },
   toolResultCount: { readBy: ["diagnostic"] },
   toolResultErrorCount: { readBy: ["diagnostic"] },
