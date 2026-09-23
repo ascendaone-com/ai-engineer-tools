@@ -24,6 +24,11 @@ test("credentials round-trip, owner-readable only", () => {
   }
 });
 
+test("eventLogPath round-trips alongside the pairing fields", () => {
+  writeCredentials({ apiBaseUrl: "http://localhost:4477", toolInstallationId: "claude_code:abc", eventLogPath: "~/.ascenda/events.jsonl" });
+  assert.equal(readCredentials().eventLogPath, "~/.ascenda/events.jsonl");
+});
+
 test("config falls back to the credentials file when the environment is empty", () => {
   writeCredentials({ apiBaseUrl: "http://localhost:4477", toolInstallationId: "claude_code:abc" });
   persistEventWriteToken(defaultTokenFilePath("claude_code:abc"), "tok_123");

@@ -19,6 +19,7 @@ import {
   readCollectorState,
   recordSendOutcome,
   resolveEventLogPath,
+  resolveEventLogSource,
   shouldAnnounceFailure,
   unresolvedToolInstallationId,
   outboxDrainEnabled,
@@ -460,6 +461,10 @@ async function runDoctor(): Promise<void> {
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
 
   lines.push(`  API base URL          ${apiBaseUrl}`);
+  // Independent of pairing: an unpaired install is a supported mode for the
+  // log (see main()'s MissingInstallationIdError branch), so this must be
+  // visible even when the block below returns early for want of an id.
+  lines.push(`  Event log             ${describeEventLog()}`);
 
   // Resolved exactly as a hook would, so `doctor` reports the installation the
   // hooks actually use — and says where it came from, because "the id is set
@@ -528,6 +533,22 @@ function describeIdSource(resolved: ResolvedInstallationId): string {
     case "credentials": return "credentials file (~/.ascenda/credentials.json)";
     case "disk": return `disk (token file ${defaultTokenFilePath(resolved.toolInstallationId)})`;
   }
+}
+
+/**
+ * Named separately from `describeIdSource` because this one answers a
+ * different question a stalled collector raises: not "which installation
+ * sent this", but "was there ever a local copy to check". A hook spawned
+ * with no shell environment resolves this from credentials.json instead of
+ * ASCENDA_EVENT_LOG_FILE — see resolveEventLogPath — so a "configured but
+ * unreachable" gap (the env var set in a shell this process never inherits)
+ * is what this line exists to make visible, not just the happy path.
+ */
+function describeEventLog(): string {
+  const path = resolveEventLogPath();
+  if (!path) return "off — enable with `setup --event-log` or export ASCENDA_EVENT_LOG_FILE";
+  const source = resolveEventLogSource() === "env" ? "env ASCENDA_EVENT_LOG_FILE" : "credentials file (~/.ascenda/credentials.json)";
+  return `${path} (${source})`;
 }
 
 /**

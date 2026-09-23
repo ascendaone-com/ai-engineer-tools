@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const { writeSettings, findStaleHookCommands } = await import("../dist/setup.js");
+const { writeSettings, findStaleHookCommands, parseArgs, nextEventLogPath } = await import("../dist/setup.js");
 
 const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // Written out rather than imported from setup.js: this is the independent
@@ -147,4 +147,39 @@ test("the same stale command across events is reported once", () => {
   const settings = { hooks: { Stop: [{ hooks: [{ type: "command", command: shared }] }], PreCompact: [{ hooks: [{ type: "command", command: shared }] }] } };
 
   assert.deepEqual(findStaleHookCommands(settings, BINARY), [shared]);
+});
+
+// --event-log: optional local diagnostic log, off by default. See
+// packages/tool-kit/tests/eventLog.test.cjs for how the resolved path is
+// actually consumed; this covers only turning the flag into an option.
+
+test("--event-log with no value enables at the default path", () => {
+  assert.equal(parseArgs(["setup", "--event-log"]).eventLogPath, "~/.ascenda/events.jsonl");
+});
+
+test("--event-log <path> enables at that path", () => {
+  assert.equal(parseArgs(["setup", "--event-log", "~/custom/events.jsonl"]).eventLogPath, "~/custom/events.jsonl");
+});
+
+test("--event-log off is a distinct value from omitting the flag", () => {
+  assert.equal(parseArgs(["setup", "--event-log", "off"]).eventLogPath, null);
+  assert.equal(parseArgs(["setup"]).eventLogPath, undefined, "omitted must not be confused with explicitly off");
+});
+
+test("--event-log does not swallow the next flag as its value", () => {
+  const options = parseArgs(["setup", "--event-log", "--dry-run"]);
+  assert.equal(options.eventLogPath, "~/.ascenda/events.jsonl");
+  assert.equal(options.dryRun, true);
+});
+
+test("nextEventLogPath: an explicit flag always wins", () => {
+  assert.equal(nextEventLogPath("~/new.jsonl", "~/old.jsonl"), "~/new.jsonl");
+  assert.equal(nextEventLogPath(null, "~/old.jsonl"), undefined, "off clears whatever was persisted");
+});
+
+test("nextEventLogPath: an omitted flag preserves what setup already persisted", () => {
+  // The case this guards: re-running setup for an unrelated reason (a moved
+  // binary, a re-pair) must not silently turn a diagnostic log on or off.
+  assert.equal(nextEventLogPath(undefined, "~/old.jsonl"), "~/old.jsonl");
+  assert.equal(nextEventLogPath(undefined, undefined), undefined);
 });

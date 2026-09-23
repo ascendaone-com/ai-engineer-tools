@@ -16,6 +16,16 @@ export type HostCredentials = {
   apiBaseUrl?: string;
   toolInstallationId?: string;
   pairedAt?: string;
+  /**
+   * Opt-in local diagnostic log path (see eventLog.ts), persisted so a hook
+   * spawned with an empty environment — a Desktop-app / GUI-launched session,
+   * same reasoning as the rest of this file — can still find it.
+   * `ASCENDA_EVENT_LOG_FILE` still wins when set. Machine-wide like
+   * `apiBaseUrl`, not per-host: read only from the top level, never from a
+   * `tools.<host>` entry, because every adapter on a machine has always
+   * shared one log file.
+   */
+  eventLogPath?: string;
 };
 
 export type MachineCredentials = HostCredentials & {

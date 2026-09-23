@@ -74,6 +74,7 @@ npx @ascenda-one/claude-code-hooks uninstall   # removes hooks and the binary
 | `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
 | `--scope project\|user` | register in this project (default) or in `~/.claude/settings.json` |
 | `--project-dir <path>` | project root for `--scope project` (default cwd) |
+| `--event-log [path]` | opt-in local JSONL diagnostic log (default `~/.ascenda/events.jsonl`); `--event-log off` disables |
 | `--dry-run` | print what would change, write nothing |
 
 From a clone, `./scripts/setup-local.sh` builds the workspace, starts the dev
@@ -86,7 +87,7 @@ DevAuth. Stop it with `./scripts/setup-local.sh --stop`. See
 | Path | |
 | --- | --- |
 | `~/.ascenda/bin/ascenda-claude-hook` | the self-contained bundle — no `npm -g`, no sudo, no PATH edit |
-| `~/.ascenda/credentials.json` | `apiBaseUrl` + `toolInstallationId`, `0600` |
+| `~/.ascenda/credentials.json` | `apiBaseUrl` + `toolInstallationId`, plus `eventLogPath` if `--event-log` was given, `0600` |
 | `~/.ascenda/tokens/<id>` | the event write token, `0600`, rotated in place on renew |
 | `.claude/settings.local.json` | one hook entry per lifecycle event, `timeout: 5` |
 
@@ -101,6 +102,11 @@ Claude Code spawns hooks with whatever environment it was launched from, so
 anything depending on shell exports stops working the moment the editor is
 opened from a launcher rather than a terminal. The variables below still
 override the file when set.
+
+This is also why `--event-log` writes to the credentials file rather than
+telling you to export `ASCENDA_EVENT_LOG_FILE`: a shell export in `~/.zshrc`
+never reaches a hook spawned by a Dock-launched or Desktop-app session, so
+that path alone left exactly those sessions unable to turn the local log on.
 
 `status` also flags hook entries pointing at a binary that no longer exists —
 those fail silently on every event otherwise.
@@ -149,6 +155,7 @@ Optional environment:
 
 | Variable | Purpose |
 | --- | --- |
+| `ASCENDA_EVENT_LOG_FILE` | Opt-in local JSONL log of every event, same effect as `setup --event-log`. Wins when both are set |
 | `ASCENDA_API_BASE_URL` | Backend to send to. Defaults to `https://api.ascenda.one`; use `http://localhost:5002` or the Azure Dev host for development |
 | `ASCENDA_EVENT_WRITE_TOKEN` | Only if you have no prior pairing to reuse — normally the token file supplies this |
 | `ASCENDA_EVENT_WRITE_TOKEN_FILE` | Override token file path (default `~/.ascenda/tokens/<toolInstallationId>`) |
@@ -193,10 +200,12 @@ npx -y @ascenda-one/claude-code-hooks doctor
 ```
 
 `doctor` prints the installation id and where it came from (environment,
-credentials file, or the token store on disk), the token's presence and age,
-the last recorded send outcome, any sends skipped for want of an installation
-id, and the result of a live round trip against the real ingest endpoint. It is the first thing to run when the Ascenda app shows a
-connected tool that is not producing data.
+credentials file, or the token store on disk), whether the local diagnostic
+log is on and which of `ASCENDA_EVENT_LOG_FILE`/the credentials file turned it
+on, the token's presence and age, the last recorded send outcome, any sends
+skipped for want of an installation id, and the result of a live round trip
+against the real ingest endpoint. It is the first thing to run when the
+Ascenda app shows a connected tool that is not producing data.
 
 A telemetry failure never blocks your turn: **every hook invocation exits `0`**,
 including one that failed to send. Do not read the exit code — or stderr, which

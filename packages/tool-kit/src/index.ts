@@ -15,8 +15,8 @@ export {
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection, mintIdempotencyKey } from "./payload";
 export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
-export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";
-export type { EventLogEntry } from "./eventLog";
+export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath, resolveEventLogSource } from "./eventLog";
+export type { EventLogEntry, EventLogSource } from "./eventLog";
 export {
   DEFAULT_API_BASE_URL,
   MissingInstallationIdError,
