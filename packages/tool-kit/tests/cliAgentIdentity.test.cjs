@@ -158,3 +158,31 @@ test("a delivery with no resolvable id is journalled as skipped_no_installation_
     assert.ok(Number.isInteger(logged.payload.utcOffsetMinutes), "even an unsent record carries the offset the wire would");
   });
 });
+
+test("an install that was asked not to pair delivers nothing, and journals nothing", async () => {
+  await isolated(async (home) => {
+    // What `setup --no-pair` leaves behind: an id, the flag, no token.
+    writeHostCredentials("cursor", {
+      apiBaseUrl: "https://example.test",
+      toolInstallationId: `cli_agent:${UUID_A}`,
+      localOnly: true,
+      installedAt: new Date().toISOString()
+    });
+    const event = { eventType: "ai_tool_call_started", severity: "low", metadata: { host: "cursor", toolName: "Shell" } };
+
+    // No throw, no journal, no state directory. Before this, every event on
+    // an unpaired install wrote a skipped-send line, and `doctor` read a
+    // chosen state as a collector that had never worked.
+    await deliverHookEvents([event], { toolType: "cli_agent", host: "cursor", source: "cli_agent" });
+    await deliverHookEvents([event], { toolType: "cli_agent", host: "cursor", source: "cli_agent" });
+    assert.equal(fs.existsSync(path.join(home, "state")), false);
+
+    // A token arriving later wins over the flag: pairing happened, so the
+    // delivery path runs again. The send fails against a host that does not
+    // exist, and that outcome is recorded — which is the point: once paired,
+    // faults are reported again.
+    persistEventWriteToken(defaultTokenFilePath(`cli_agent:${UUID_A}`), "tok_a");
+    await deliverHookEvents([event], { toolType: "cli_agent", host: "cursor", source: "cli_agent" });
+    assert.ok(fs.existsSync(path.join(home, "state")), "a paired install records what happened to its send");
+  });
+});

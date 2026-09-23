@@ -143,12 +143,12 @@ function sandbox(run) {
 const credentialsOf = (home, host) =>
   JSON.parse(fs.readFileSync(path.join(home, "credentials.json"), "utf8")).tools[host];
 
-test("setup --no-pairing installs the hooks and never reaches the network", async () => {
+test("setup --no-pair installs the hooks and never reaches the network", async () => {
   await sandbox(async ({ home, project, log }) => {
     // An unreachable base url: anything that tried to pair would fail here,
     // so a pass proves nothing was attempted rather than that it succeeded.
     const code = await runCliAgentSetup(
-      ["setup", "--no-pairing", "--project-dir", project, "--api-base-url", "http://127.0.0.1:1"],
+      ["setup", "--no-pair", "--project-dir", project, "--api-base-url", "http://127.0.0.1:1"],
       flat
     );
 
@@ -160,37 +160,95 @@ test("setup --no-pairing installs the hooks and never reaches the network", asyn
 
     const credentials = credentialsOf(home, flat.host);
     assert.equal(credentials.localOnly, true);
-    assert.equal(credentials.toolInstallationId, undefined, "there is no pairing to record");
+    assert.ok(credentials.installedAt, "when it was installed is recorded");
+    assert.equal(credentials.pairedAt, undefined, "nothing fabricates a pairing that did not happen");
+    // The id is what a later `pair` attaches to. Without it the hooks above
+    // end up orphaned beside a freshly minted one.
+    assert.match(credentials.toolInstallationId, /^cli_agent:/);
     assert.ok(log.join("\n").includes("nothing is sent"), "the person is told what they get");
   });
 });
 
-test("a local-only install reports healthy; a lost pairing still fails", async () => {
+test("status names the local-only mode, and stops naming it once paired", async () => {
   await sandbox(async ({ home, project, log }) => {
-    await runCliAgentSetup(["setup", "--no-pairing", "--project-dir", project], flat);
+    await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], flat);
     log.length = 0;
 
     assert.equal(await runCliAgentSetup(["status", "--project-dir", project], flat), 0);
-    assert.ok(log.join("\n").includes("local only"), "status says which state this is");
+    const unpaired = log.join("\n");
+    assert.ok(unpaired.includes("installed, not paired"), "status says which state this is");
+    assert.ok(unpaired.includes("none needed until this install is paired"), "and that the missing token is not a fault");
 
-    // The same shape minus the marker is a pairing that went missing, and it
-    // must keep failing: `status` gates CI steps.
+    // Pairing later drops the flag and keeps the id. The mode must stop being
+    // announced, and a token missing from here on is a fault like any other.
     const file = path.join(home, "credentials.json");
     const stored = JSON.parse(fs.readFileSync(file, "utf8"));
     delete stored.tools[flat.host].localOnly;
+    stored.tools[flat.host].pairedAt = new Date().toISOString();
     fs.writeFileSync(file, JSON.stringify(stored));
-    assert.equal(await runCliAgentSetup(["status", "--project-dir", project], flat), 1);
+
+    log.length = 0;
+    await runCliAgentSetup(["status", "--project-dir", project], flat);
+    const paired = log.join("\n");
+    assert.ok(!paired.includes("installed, not paired"));
+    assert.ok(paired.includes("token          — missing"), "a token that is gone is still reported");
   });
 });
 
 test("uninstall clears a local-only install like any other", async () => {
   await sandbox(async ({ home, project }) => {
-    await runCliAgentSetup(["setup", "--no-pairing", "--project-dir", project], flat);
+    await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], flat);
     assert.equal(await runCliAgentSetup(["uninstall", "--project-dir", project], flat), 0);
 
     const settings = JSON.parse(fs.readFileSync(path.join(project, "hooks.json"), "utf8"));
     assert.equal((settings.hooks?.start ?? []).length, 0);
     const machine = JSON.parse(fs.readFileSync(path.join(home, "credentials.json"), "utf8"));
     assert.equal(machine.tools?.[flat.host], undefined);
+  });
+});
+
+test("a pairing that cannot finish degrades to the same install, and says so", async () => {
+  await sandbox(async ({ home, project, log }) => {
+    // No flag: this is the interrupted case — nothing is listening on that
+    // port, which is what an unreachable host, an unconfirmed code or an
+    // expired session all come down to here.
+    const code = await runCliAgentSetup(
+      ["setup", "--project-dir", project, "--api-base-url", "http://127.0.0.1:1"],
+      flat
+    );
+
+    assert.equal(code, 0, "the hooks install rather than the whole setup failing");
+    const settings = JSON.parse(fs.readFileSync(path.join(project, "hooks.json"), "utf8"));
+    assert.equal(settings.hooks.start.length, 1);
+    assert.equal(credentialsOf(home, flat.host).localOnly, true);
+    const said = log.join("\n");
+    assert.ok(said.includes("pairing did not finish"), "the degrade is named, not silent");
+    assert.ok(said.includes("Pair later"), "and the way out is offered");
+  });
+});
+
+test("the old --no-pairing spelling still works", async () => {
+  await sandbox(async ({ home, project }) => {
+    assert.equal(await runCliAgentSetup(["setup", "--no-pairing", "--project-dir", project], flat), 0);
+    assert.equal(credentialsOf(home, flat.host).localOnly, true);
+  });
+});
+
+test("a paired install that loses its token is still reported as broken", async () => {
+  await sandbox(async ({ home, project }) => {
+    await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], flat);
+
+    // Paired later: the flag goes, the id stays. A token that then disappears
+    // is a fault — revoked, deleted — and must not read as "chosen".
+    const file = path.join(home, "credentials.json");
+    const stored = JSON.parse(fs.readFileSync(file, "utf8"));
+    const entry = stored.tools[flat.host];
+    delete entry.localOnly;
+    delete entry.installedAt;
+    entry.pairedAt = new Date().toISOString();
+    fs.writeFileSync(file, JSON.stringify(stored));
+
+    const { isLocalOnlyHostInstall } = require("../out/index.js");
+    assert.equal(isLocalOnlyHostInstall(flat.host, () => false), false);
   });
 });

@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { credentialsFilePath, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
+import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
 import { DEFAULT_API_BASE_URL } from "./hookAdapter";
 import { createPairingSession, getPairingStatus } from "./http";
 import { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
@@ -64,7 +64,7 @@ type SetupOptions = {
   scope: SetupScope;
   projectDir: string;
   dryRun: boolean;
-  /** Install the hooks without pairing — see `--no-pairing` in the usage. */
+  /** True under `--no-pair`: install the local half and stop there. */
   skipPairing: boolean;
   action: SetupAction;
 };
@@ -99,8 +99,7 @@ Options
   --local [port]                shorthand for the local dev server (default port 4477)
   --tool-installation-id <id>   reuse an existing pairing instead of creating one
   --token <eventWriteToken>     reuse an existing token (stored 0600, never printed)
-  --no-pairing                  install the hooks without pairing: the local
-                                signal only, nothing sent to ${DEFAULT_API_BASE_URL}
+  --no-pair                     install without pairing: local features on, nothing sent
   --scope project|user          where hooks are registered (default project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
@@ -127,31 +126,52 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   const apiBaseUrl = (options.apiBaseUrl ?? readHostCredentials(spec.host)?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
   console.log(`Ascenda setup for ${spec.displayName} — ${apiBaseUrl}`);
 
-  // `--no-pairing` stops before the only step that needs a person and a
-  // network: everything below installs the same either way, because the hook
-  // bundle and the agent's hooks file know nothing about a pairing. The
-  // hooks then emit the local live signal (which owes nothing to a backend)
-  // and skip the cloud send, which is exactly what an unpaired hook already
-  // did — this only lets someone reach that state without an account.
+  // Pairing is the only step that needs a person and a network, and the only
+  // one that can be left out: the hook bundle and the agent's hooks file know
+  // nothing about a pairing. An install that stops here still runs the local
+  // half — the live signal to a socket on this machine — and sends nothing,
+  // which is what an unpaired hook already did.
+  //
+  // Two ways to arrive, and both say so: asked for (`--no-pair`), or a
+  // pairing that could not finish (host unreachable, code unconfirmed,
+  // session expired). A degrade nobody is told about is how someone comes to
+  // believe they paired.
   let identity: Identity | undefined;
+  let unpairedReason: string | undefined;
   if (options.skipPairing) {
-    console.log("  pairing      skipped (--no-pairing) — local signal only, nothing is sent");
+    unpairedReason = "asked not to pair (--no-pair)";
   } else {
     identity = await resolveIdentity(apiBaseUrl, options, spec);
-    if (!identity) return 1;
-    console.log(`  pairing      ${identity.toolInstallationId}${identity.paired ? " (new)" : " (existing)"}`);
+    if (identity) {
+      console.log(`  pairing      ${identity.toolInstallationId}${identity.paired ? " (new)" : " (existing)"}`);
+    } else {
+      unpairedReason = "pairing did not finish — installing the local half anyway";
+    }
+  }
+  if (unpairedReason) {
+    console.log(`  pairing      none: ${unpairedReason}`);
+    console.log("               local features on, nothing is sent");
   }
 
   const binary = installBinary(spec, options.dryRun);
   console.log(`  hook binary  ${binary}`);
 
   if (!options.dryRun) {
-    // `localOnly` is what `status` reads to tell "deliberately unpaired" from
-    // "pairing lost", which otherwise look identical: both are an entry with
-    // no installation id.
-    writeHostCredentials(spec.host, identity
-      ? { apiBaseUrl, toolInstallationId: identity.toolInstallationId, pairedAt: new Date().toISOString() }
-      : { apiBaseUrl, localOnly: true });
+    // An unpaired install still records an id: it is what a later `pair`
+    // attaches to, so the hooks registered above end up under the id they
+    // were installed with rather than orphaned beside a freshly minted one.
+    // `localOnly` is the positive evidence that the missing pairing was
+    // chosen, and `pairedAt` replaces it, so the two never appear together.
+    const now = new Date().toISOString();
+    const toolInstallationId = identity?.toolInstallationId
+      ?? options.toolInstallationId
+      ?? readHostCredentials(spec.host)?.toolInstallationId
+      ?? `${spec.toolType}:${crypto.randomUUID()}`;
+    writeHostCredentials(spec.host, {
+      apiBaseUrl,
+      toolInstallationId,
+      ...(identity ? { pairedAt: now } : { localOnly: true, installedAt: now })
+    });
   }
   console.log(`  credentials  ${credentialsFilePath()} (tools.${spec.host})`);
 
@@ -166,7 +186,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   }
 
   console.log(`\nDone. ${spec.restartHint}`);
-  if (options.skipPairing) {
+  if (!identity) {
     console.log(`Pair later:     npx ${spec.packageName} setup`);
   }
   console.log(`Check anytime:  npx ${spec.packageName} status`);
@@ -230,6 +250,11 @@ function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
       case "--dry-run":
         options.dryRun = true;
         break;
+      case "--no-pair":
+      // `--no-pairing` is the spelling this landed under first. Both appeared
+      // only in an unreleased changelog, so this alias exists to spare anyone
+      // reading that draft, and `--no-pair` — the Claude Code adapter's own
+      // spelling — is the documented one.
       case "--no-pairing":
         options.skipPairing = true;
         break;
@@ -436,11 +461,13 @@ function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): number {
   const registered = spec.hookEvents.filter((event) => (settings.hooks?.[event] ?? []).some((entry) => isOurs(entry, spec))).length;
   const stale = findStaleHookCommands(settings, binary, spec);
 
-  const localOnly = credentials?.localOnly === true && !credentials?.toolInstallationId;
+  // The flag, never "no token": a revoked or deleted token looks the same
+  // from here and has to keep being reported.
+  const localOnly = isLocalOnlyHostInstall(spec.host, (id) => readTokenFile(defaultTokenFilePath(id)) !== undefined);
 
   console.log(`api base url   ${credentials?.apiBaseUrl ?? "— not configured"}`);
-  console.log(`pairing        ${credentials?.toolInstallationId ?? (localOnly ? "— local only (--no-pairing)" : "— not paired")}`);
-  console.log(`token          ${localOnly ? "— not needed while local only" : tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
+  console.log(`pairing        ${credentials?.toolInstallationId ?? "— not paired"}${localOnly ? " (installed, not paired — local features active, telemetry inactive)" : ""}`);
+  console.log(`token          ${localOnly ? "— none needed until this install is paired" : tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
   console.log(`hooks          ${registered}/${spec.hookEvents.length} registered in ${settingsFile}`);
 
@@ -450,11 +477,13 @@ function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): number {
     console.log(`               Remove them from ${settingsFile} by hand; setup cannot tell them from a hook you wrote.`);
   }
 
-  // A local-only install is healthy without a pairing: it was asked for, and
-  // the hooks it registered do their one job. Anything else still needs an
-  // installation id, so a pairing that silently went missing keeps failing
-  // the check that gates a CI step.
-  const paired = credentials?.toolInstallationId !== undefined || localOnly;
+  // A local-only install is healthy without a pairing: it was asked for, or
+  // was told it degraded, and the hooks it registered do their one job.
+  // Anything else still needs an installation id, so a pairing that silently
+  // went missing keeps failing the check that gates a CI step. Deliberately
+  // not also requiring a token here: an exported ASCENDA_EVENT_WRITE_TOKEN is
+  // a supported way to hold one, and this check has never read it.
+  const paired = localOnly || credentials?.toolInstallationId !== undefined;
   const healthy = paired && registered === spec.hookEvents.length && fs.existsSync(binary) && !stale.length;
   return healthy ? 0 : 1;
 }
