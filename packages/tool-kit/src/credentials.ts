@@ -16,6 +16,13 @@ export type HostCredentials = {
   apiBaseUrl?: string;
   toolInstallationId?: string;
   pairedAt?: string;
+  /**
+   * Set by `setup --no-pairing`: the hooks are installed and emit the local
+   * signal, and nothing is sent. There is no installation id to record, so
+   * this is what tells a deliberately unpaired install from one whose
+   * pairing went missing — the two are otherwise the same empty entry.
+   */
+  localOnly?: boolean;
 };
 
 export type MachineCredentials = HostCredentials & {
