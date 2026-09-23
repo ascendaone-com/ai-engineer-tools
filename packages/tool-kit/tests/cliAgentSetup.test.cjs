@@ -16,6 +16,10 @@ const BINARY = "/home/dev/.ascenda/bin/ascenda-flat-hook";
 const flat = {
   host: "flat", displayName: "Flat", toolType: "cli_agent", packageName: "@ascenda-one/flat-hooks",
   binaryName: "ascenda-flat-hook", hookEvents: ["start", "stop"], restartHint: "",
+  // Required on a real spec: the disclosure families setup prints before it
+  // pairs. A .cjs fixture gets no help from the compiler, so an omission here
+  // surfaces as a runtime throw rather than a type error.
+  sends: [],
   settings: {
     settingsPath: (scope, dir) => path.join(dir, "hooks.json"),
     scaffold: { version: 1 },

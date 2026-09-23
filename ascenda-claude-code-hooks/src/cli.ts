@@ -23,9 +23,10 @@ import {
   unresolvedToolInstallationId,
   outboxDrainEnabled,
   readOutboxSummary,
-  OUTBOX_DRAIN_ENV_VAR
+  OUTBOX_DRAIN_ENV_VAR,
+  renderSetupDisclosure
 } from "@ascenda-one/tool-kit";
-import type { CollectorState, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
+import type { CollectorState, DisclosureFamily, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import {
   MissingInstallationIdError,
@@ -97,8 +98,28 @@ async function runPair(): Promise<void> {
   const reusable = existing && existing.includes(":") && (!requestedType || existing.startsWith(`${requestedType}:`));
   const toolInstallationId = reusable ? existing : `${toolType}:${randomUUID()}`;
 
+  // `setup` says this before it pairs, and until now `pair` said nothing —
+  // which mattered more, not less, because the recommended install is the
+  // Claude Code plugin and the plugin registers its hooks itself. Someone
+  // taking the documented path reached a pairing code having been told
+  // nothing about what those hooks would send.
+  //
+  // Printed before the request, not after it: a disclosure a person reads
+  // only once a code is already on screen is a notice, and one that never
+  // prints because the host was unreachable is nothing at all.
+  //
+  // Only the default type can claim Claude Code's families. `--tool-type` is
+  // the door for anything CLI-shaped, and this process cannot know what that
+  // something sends, so it discloses the shared set and no more.
+  const isClaudeCode = toolType === ASCENDA_TOOL_TYPE;
+  const { SENDS } = isClaudeCode ? await import("./setup.js") : { SENDS: [] as DisclosureFamily[] };
+  await writeStdout(
+    `\n${renderSetupDisclosure({ sends: SENDS, displayName: isClaudeCode ? "Claude Code" : toolType })}\n`
+  );
+
   const session = await createPairingSession(apiBaseUrl, toolInstallationId, toolType, toolType === ASCENDA_TOOL_TYPE ? "Claude Code" : toolType);
   const code = session.deviceCode ?? session.code;
+
   await writeStdout(
     `\nPairing code: ${code}\n\n` +
     `In the Ascenda app: Connections -> Ingest telemetry -> paste the code -> Pair tool.\n` +

@@ -28,6 +28,9 @@ export const SETUP: CliAgentSetupSpec = {
   binaryName: "ascenda-gemini-hook",
   hookEvents: HOOK_EVENTS,
   restartHint: "Restart Gemini CLI to load the hooks.",
+  // Nothing beyond the shared set: Gemini's hooks expose no posture, no
+  // model, no git action and no context figure.
+  sends: [],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".gemini", "settings.json") : path.join(projectDir, ".gemini", "settings.json"),
