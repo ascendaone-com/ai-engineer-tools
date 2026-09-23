@@ -5,6 +5,8 @@ import * as path from "path";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
 import { DEFAULT_API_BASE_URL } from "./hookAdapter";
 import { createPairingSession, getPairingStatus } from "./http";
+import { renderSetupDisclosure } from "./setupDisclosure";
+import type { DisclosureFamily } from "./setupDisclosure";
 import { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 
 /**
@@ -50,6 +52,15 @@ export type CliAgentSetupSpec = {
   hookEvents: readonly string[];
   /** What to do once hooks are registered, e.g. `Restart Cursor to load the hooks.` */
   restartHint: string;
+  /**
+   * The disclosure families this adapter sends beyond `ALWAYS_SENT`, which
+   * decide the sentences `setup` prints before it pairs.
+   *
+   * Hand-written today, and the thing to widen when a mapper starts sending
+   * something new — see the module docblock on `setupDisclosure.ts` for why
+   * nothing yet fails when it is not widened.
+   */
+  sends: readonly DisclosureFamily[];
   settings: HookSettingsFormat;
 };
 
@@ -125,6 +136,16 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
 
   const apiBaseUrl = (options.apiBaseUrl ?? readHostCredentials(spec.host)?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
   console.log(`Ascenda setup for ${spec.displayName} — ${apiBaseUrl}`);
+
+  // Before pairing, not after: pairing is where the consent is given, and a
+  // statement printed underneath a completed pairing is a notification rather
+  // than a disclosure.
+  //
+  // Printed on an unpaired install too, and the heading carries it: "once
+  // paired" is the true tense for an install that sends nothing yet, whether
+  // that was asked for (`--no-pair`) or a pairing that could not finish. The
+  // lines below say what is true now.
+  console.log(`\n${renderSetupDisclosure({ sends: spec.sends, displayName: spec.displayName })}\n`);
 
   // Pairing is the only step that needs a person and a network, and the only
   // one that can be left out: the hook bundle and the agent's hooks file know

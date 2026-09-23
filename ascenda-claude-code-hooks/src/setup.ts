@@ -2,7 +2,8 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, defaultTokenFilePath, getPairingStatus, persistEventWriteToken, readTokenFile } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, defaultTokenFilePath, getPairingStatus, persistEventWriteToken, readTokenFile, renderSetupDisclosure } from "@ascenda-one/tool-kit";
+import type { DisclosureFamily } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL } from "./config.js";
 import { credentialsFilePath, hookBinPath, readCredentials, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
@@ -37,6 +38,20 @@ const HOOK_TIMEOUT_SECONDS = 5;
 
 /** Identifies our entries so re-running replaces them instead of appending duplicates. */
 const HOOK_MARKER = "ascenda-claude-hook";
+
+/**
+ * What this adapter sends beyond the families every collector sends.
+ *
+ * Claude Code is the richest emitter in the repo, and each of these is a key
+ * its mapper actually writes: `modelId`/`modelClass` on SessionStart, the
+ * `autonomyMode` posture on most events, `gitAction` and `milestoneKind` off a
+ * recognised bash command, `linesChangedBucket` and `userModified` on a file
+ * write, and `interruptionKind` on a Notification.
+ *
+ * It omits `context` deliberately: compaction and pressure events are sent,
+ * but no occupancy figure rides them, and the context line would claim one.
+ */
+export const SENDS: readonly DisclosureFamily[] = ["model", "posture", "git", "edits", "waiting"];
 
 type Scope = "project" | "user";
 
@@ -91,6 +106,11 @@ export async function runSetup(argv: string[]): Promise<number> {
   const apiBaseUrl = (options.apiBaseUrl ?? readCredentials()?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
 
   console.log(`Ascenda setup — ${apiBaseUrl}`);
+
+  // Before pairing, not after: pairing is where the consent is given, and a
+  // statement printed underneath a completed pairing is a notification rather
+  // than a disclosure.
+  console.log(`\n${renderSetupDisclosure({ sends: SENDS, displayName: "Claude Code" })}\n`);
 
   const identity = await resolveIdentity(apiBaseUrl, options);
   if (!identity) return 1;

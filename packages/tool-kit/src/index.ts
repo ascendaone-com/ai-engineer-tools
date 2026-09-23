@@ -34,6 +34,8 @@ export {
   writeHookSettings
 } from "./cliAgentSetup";
 export type { CliAgentSetupSpec, HookSettingsFormat, SetupScope } from "./cliAgentSetup";
+export { ALWAYS_SENT, FAMILY_SENTENCES, FREE_TEXT_KEYS, REFUSALS, renderSetupDisclosure } from "./setupDisclosure";
+export type { DisclosureFamily, SetupDisclosureOptions } from "./setupDisclosure";
 export {
   credentialsFilePath,
   isLocalOnlyHostInstall,

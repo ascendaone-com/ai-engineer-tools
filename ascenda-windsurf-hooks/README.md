@@ -56,6 +56,19 @@ transmitted before connecting anything. Every payload carries the UTC offset
 and an idempotency key; both come from the shared sender in `tool-kit`, so
 this adapter holds only its mapping.
 
+## Privacy defaults
+
+Metadata-only. Does not send prompts, responses, code, file paths, command
+text, repository names or branch names. Correction detection runs locally on
+prompt text; only the classification is transmitted.
+
+`setup` prints the full list before it pairs — every family this adapter sends,
+the refusals, and how to turn it off. That block is generated from the
+adapter's own declaration in `src/setup.ts`, and a guard test
+(`packages/tool-kit/tests/setupDisclosure.test.mjs`) runs the mapper and fails
+the build when the declaration claims a family the mapper does not send, or
+omits one it does.
+
 ## Event mapping
 
 See [docs/WINDSURF_MAPPING.md](docs/WINDSURF_MAPPING.md).

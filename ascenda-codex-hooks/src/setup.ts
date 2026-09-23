@@ -44,6 +44,9 @@ export const SETUP: CliAgentSetupSpec = {
   binaryName: "ascenda-codex-hook",
   hookEvents: HOOK_EVENTS,
   restartHint: "Restart Codex, then open /hooks to review and trust the Ascenda hooks. Registration alone does not enable execution. After a session, verify the cli_agent send journal and metadata.host: codex in the event log.",
+  // Codex reports the posture it was working under and its approval gate; it
+  // sends no model, no git action and no per-file change size.
+  sends: ["posture", "waiting"],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".codex", "hooks.json") : path.join(projectDir, ".codex", "hooks.json"),
