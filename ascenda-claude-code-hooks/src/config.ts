@@ -48,6 +48,33 @@ export function resolveStateFilePath(toolInstallationId?: string): string {
     ?? (toolInstallationId ? defaultStateFilePath(toolInstallationId) : unresolvedStateFilePath(ASCENDA_TOOL_TYPE));
 }
 
+/**
+ * Whether this machine holds an installation that has never been paired:
+ * `setup` recorded one and no write token has arrived since.
+ *
+ * Read from the flag `setup` writes, never inferred from the missing token
+ * alone. "No token" is also what a revoked or deleted one looks like, and the
+ * collector must go on reporting that loudly; only the flag says the absence
+ * was chosen. A token that turns up later wins over the flag, so a `pair`
+ * that wrote the token and nothing else still counts as paired.
+ *
+ * What it buys the hook: delivery becomes a deliberate no-op. The local half
+ * — the session prompts, the live signal to a socket on this machine, the
+ * opt-in event log — has already run by the time this is consulted.
+ *
+ * The CLI agents apply the same rule to `tools.<host>` in tool-kit's
+ * {@link isLocalOnlyHostInstall}. Two small readers rather than one shared
+ * one, because they read different sections of the same file: this adapter
+ * owns the top level, and that one is keyed by host. Change them together.
+ */
+export function localOnlyInstall(credentials: MachineCredentials | undefined = readCredentials()): boolean {
+  if (!credentials?.localOnly) return false;
+  if (envOverride("ASCENDA_EVENT_WRITE_TOKEN")) return false;
+  const tokenFilePath = process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE
+    ?? (credentials.toolInstallationId ? defaultTokenFilePath(credentials.toolInstallationId) : undefined);
+  return !(tokenFilePath && readTokenFile(tokenFilePath));
+}
+
 export type InstallationIdSource = "env" | "credentials" | "disk";
 
 export type ResolvedInstallationId = {

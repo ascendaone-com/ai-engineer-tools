@@ -1,5 +1,6 @@
+import * as fs from "fs";
 import * as path from "path";
-import { ascendaHome, readMachineCredentials, writeTopLevelCredentials } from "@ascenda-one/tool-kit";
+import { ascendaHome, credentialsFilePath as credentialsFile, readMachineCredentials, writeMachineCredentials, writeTopLevelCredentials } from "@ascenda-one/tool-kit";
 import type { HostCredentials } from "@ascenda-one/tool-kit";
 
 export { credentialsFilePath } from "@ascenda-one/tool-kit";
@@ -30,4 +31,22 @@ export function readCredentials(): MachineCredentials | undefined {
 
 export function writeCredentials(credentials: MachineCredentials): void {
   writeTopLevelCredentials(credentials);
+}
+
+/**
+ * Drops Claude Code's pairing record, keeping every other agent's.
+ *
+ * `uninstall` used to delete the whole file, which took the `tools` section
+ * with it: uninstalling one agent left the others pointing at an identity
+ * that no longer existed on disk. The file goes only when nothing else is in
+ * it.
+ */
+export function removeCredentials(): void {
+  const credentials = readMachineCredentials();
+  if (!credentials) return;
+  if (credentials.tools && Object.keys(credentials.tools).length > 0) {
+    writeMachineCredentials({ tools: credentials.tools });
+    return;
+  }
+  fs.rmSync(credentialsFile(), { force: true });
 }

@@ -171,6 +171,9 @@ id is recorded, so running `setup` again later pairs the hooks you already
 have instead of leaving them under an id nothing uses. `status` reports the
 state as `installed, not paired — local features active, telemetry inactive`.
 
+Every adapter takes the flag, Claude Code included. On that one,
+`claude-code-hooks pair` finishes the job as well as re-running `setup`, and it
+attaches to the installation id already on file.
 Nothing to add to a shell profile: each agent's pairing lands under its own key
 in `~/.ascenda/credentials.json`, which is what lets several agents run on one
 machine without one inheriting another's identity. (`ASCENDA_TOOL_INSTALLATION_ID`
