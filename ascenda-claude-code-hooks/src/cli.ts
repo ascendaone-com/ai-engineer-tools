@@ -32,13 +32,14 @@ import {
   MissingInstallationIdError,
   envOverride,
   loadConfigFromEnv,
+  localOnlyInstall,
   resolveOutboxFilePath,
   resolveStateFilePath,
   resolveToolInstallationId
 } from "./config.js";
 import type { ResolvedInstallationId } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
-import { credentialsFilePath, writeCredentials } from "./paths.js";
+import { credentialsFilePath, readCredentials, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 
 const INTENTION_INVITE =
@@ -77,7 +78,12 @@ const MILESTONE_DEBRIEF_INVITE =
  * the hooks and MCP server still need.
  */
 async function runPair(): Promise<void> {
-  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
+  const credentials = readCredentials();
+  // The credentials file is consulted for the host too, in the same order the
+  // hooks use. `setup --local` followed by `pair` used to pair against
+  // production while the file still named the dev server, which is a pairing
+  // the hooks cannot use.
+  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? "https://api.ascenda.one").replace(/\/$/, "");
   // `pair --tool-type <type>` lets anything CLI-shaped pair under its honest
   // identity; the server rejects unknown types, so no allow-list is
   // duplicated here. Every agent with a `setup` of its own should use that
@@ -94,7 +100,12 @@ async function runPair(): Promise<void> {
   // `--tool-type cli_agent`, and on a machine with Claude Code already
   // paired the export in their shell profile won, so Codex events were
   // filed under Claude Code. An explicit type therefore beats the reuse.
-  const existing = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim();
+  //
+  // The credentials file is the second source, and it is what makes a
+  // `setup` that never paired attachable: that install already registered its
+  // hooks under an id, so pairing has to claim the same one or the id in the
+  // settings file stays unpaired for good.
+  const existing = process.env.ASCENDA_TOOL_INSTALLATION_ID?.trim() || credentials?.toolInstallationId?.trim();
   const reusable = existing && existing.includes(":") && (!requestedType || existing.startsWith(`${requestedType}:`));
   const toolInstallationId = reusable ? existing : `${toolType}:${randomUUID()}`;
 
@@ -268,16 +279,34 @@ async function main(): Promise<void> {
   try {
     config = loadConfigFromEnv();
   } catch (error) {
+    // An install with no pairing is a mode, not a fault. `setup` records it in
+    // the credentials file, either because it was asked not to pair or because
+    // pairing could not finish, and delivery here is then a deliberate no-op:
+    // nothing journalled, nothing thrown, nothing retried on the next event.
+    // There is no backend to be unreachable and no token to be rejected, so
+    // there is no outage to report — and a line per hook event would report one
+    // several hundred times a day. `status` and `doctor` read the same file and
+    // say which half is running.
+    //
+    // Everything local has already happened above: the session prompts, and the
+    // live socket signal that never depended on a pairing in the first place.
+    const unpaired = localOnlyInstall();
+
     // A skipped send must leave a trace. Without this line the journal's last
     // entry stays the last *successful* ship, and `doctor` reports a healthy
     // collector while every event is lost — twelve hours' worth on 26 Aug 2026.
-    if (error instanceof MissingInstallationIdError) journalSkippedSend(error);
+    // It stays for every *unintended* absence: a revoked token, a cleared
+    // token store, an id nobody can resolve. Those are outages and must shout.
+    if (!unpaired && error instanceof MissingInstallationIdError) journalSkippedSend(error);
 
     // With a log file configured, an unpaired install is a supported mode, not
     // a failure: you can watch exactly what this tool would transmit before
     // deciding to pair. Without one there is nowhere for the event to go.
     const logFile = resolveEventLogPath();
-    if (!logFile) throw error;
+    if (!logFile) {
+      if (unpaired) return;
+      throw error;
+    }
     for (const event of mappedEvents) {
       logUnsent(logFile, event, workContext, getString(input, ["session_id", "sessionId"]) ?? null);
     }
@@ -479,6 +508,10 @@ function writeStdout(text: string): Promise<void> {
 async function runDoctor(): Promise<void> {
   const lines: string[] = ["Ascenda collector doctor", ""];
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
+  // An install with no pairing has to read as installed here, because it is.
+  // Every line below that would otherwise report a missing token as a fault
+  // checks this first.
+  const unpaired = localOnlyInstall();
 
   lines.push(`  API base URL          ${apiBaseUrl}`);
 
@@ -501,15 +534,27 @@ async function runDoctor(): Promise<void> {
   lines.push(`  Id source             ${describeIdSource(resolved)}`);
   const tokenFilePath = process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(toolInstallationId);
   lines.push(`  Token file            ${tokenFilePath}`);
-  lines.push(`  Token                 ${describeToken(tokenFilePath)}`);
+  lines.push(`  Token                 ${describeToken(tokenFilePath, unpaired)}`);
+  // Stated after the token, because the token is what decides it: "paired" on
+  // a machine holding none can send nothing, and saying otherwise here would
+  // contradict the line above it.
+  const hasToken = fs.existsSync(tokenFilePath) || Boolean(process.env.ASCENDA_EVENT_WRITE_TOKEN);
+  lines.push(`  Mode                  ${unpaired
+    ? "installed, not paired — local features active, telemetry inactive"
+    : hasToken
+      ? "paired — local features and telemetry active"
+      : "paired, but no token on this machine — local features active, nothing can be sent"}`);
 
   const stateFilePath = resolveStateFilePath(toolInstallationId);
   lines.push(`  Journal               ${stateFilePath}`);
   const state = readCollectorState(stateFilePath);
   if (!state) {
     // Now a distinguishable state rather than an ambiguous silence: no journal
-    // means no send was ever attempted by a build that writes one.
-    lines.push("  Last outcome          (no journal yet — no send attempted since this version was installed)");
+    // means no send was ever attempted by a build that writes one. On an
+    // install with no pairing that is the resting state, not a gap.
+    lines.push(unpaired
+      ? "  Last outcome          (none — nothing is sent from an install with no pairing)"
+      : "  Last outcome          (no journal yet — no send attempted since this version was installed)");
   } else {
     lines.push(`  Last attempt          ${state.lastAttemptAt}`);
     lines.push(`  Last success          ${state.lastSuccessAt ?? "never"}`);
@@ -521,6 +566,18 @@ async function runDoctor(): Promise<void> {
   }
   lines.push(...skippedSendLines(stateFilePath));
   lines.push(...outboxLines(toolInstallationId, state));
+
+  if (unpaired) {
+    lines.push(
+      "",
+      "  Nothing is sent from this install, and nothing is queued for later. The",
+      "  session prompts and the live signal to a socket on this machine run",
+      "  without a pairing. To turn delivery on:",
+      "    npx @ascenda-one/claude-code-hooks pair"
+    );
+    await writeStdout(`${lines.join("\n")}\n`);
+    return;
+  }
 
   lines.push("", "  Live round trip...");
   lines.push(`  ${await liveRoundTrip()}`);
@@ -617,10 +674,13 @@ function describeAge(isoTimestamp: string): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
-function describeToken(tokenFilePath: string): string {
+function describeToken(tokenFilePath: string, unpaired: boolean): string {
   try {
     if (!fs.existsSync(tokenFilePath)) {
-      return process.env.ASCENDA_EVENT_WRITE_TOKEN ? "from ASCENDA_EVENT_WRITE_TOKEN (no file)" : "MISSING — run `pair`";
+      if (process.env.ASCENDA_EVENT_WRITE_TOKEN) return "from ASCENDA_EVENT_WRITE_TOKEN (no file)";
+      // Absent because nobody paired, which is not the same fault as absent
+      // from an install that did.
+      return unpaired ? "none — this install has no pairing" : "MISSING — run `pair`";
     }
     const stat = fs.statSync(tokenFilePath);
     const ageDays = Math.floor((Date.now() - stat.mtimeMs) / 86_400_000);

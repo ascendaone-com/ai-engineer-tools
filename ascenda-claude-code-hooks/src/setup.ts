@@ -4,8 +4,9 @@ import * as os from "os";
 import * as path from "path";
 import { ascendaHome, createPairingSession, defaultTokenFilePath, getPairingStatus, persistEventWriteToken, readTokenFile, renderSetupDisclosure } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily } from "@ascenda-one/tool-kit";
-import { DEFAULT_API_BASE_URL } from "./config.js";
-import { credentialsFilePath, hookBinPath, readCredentials, writeCredentials } from "./paths.js";
+import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
+import { credentialsFilePath, hookBinPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
+import type { MachineCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
 
 /**
@@ -62,6 +63,8 @@ type Options = {
   scope: Scope;
   projectDir: string;
   dryRun: boolean;
+  /** False under `--no-pair`: install the local half and stop there. */
+  pair: boolean;
   action: "install" | "status" | "uninstall" | "help";
 };
 
@@ -81,6 +84,8 @@ Options
   --local [port]                shorthand for the local dev server (default port 4477)
   --tool-installation-id <id>   reuse an existing pairing instead of creating one
   --token <eventWriteToken>     reuse an existing token (stored 0600, never printed)
+  --no-pair                     install without pairing: local features on, nothing sent
+                                (--no-pairing is accepted too)
   --scope project|user          where hooks are registered (default project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
@@ -110,17 +115,33 @@ export async function runSetup(argv: string[]): Promise<number> {
   // Before pairing, not after: pairing is where the consent is given, and a
   // statement printed underneath a completed pairing is a notification rather
   // than a disclosure.
+  //
+  // On a run that will not pair, the same sentences are true of nothing yet, so
+  // they are introduced as what pairing would start rather than as a statement
+  // about this install. Suppressing them instead would be worse: someone
+  // choosing to stay local is entitled to know what pairing costs.
+  if (!options.pair) console.log("\n  Nothing is sent from an install with no pairing. What pairing would start sending:");
   console.log(`\n${renderSetupDisclosure({ sends: SENDS, displayName: "Claude Code" })}\n`);
 
   const identity = await resolveIdentity(apiBaseUrl, options);
-  if (!identity) return 1;
-  console.log(`  pairing      ${identity.toolInstallationId}${identity.paired ? " (new)" : " (existing)"}`);
+  const unpaired = identity.pairing === "local-only";
+
+  console.log(`  pairing      ${unpaired ? `none — ${identity.reason}` : `${identity.toolInstallationId}${identity.pairing === "new" ? " (new)" : " (existing)"}`}`);
+  if (unpaired) console.log(`  installation ${identity.toolInstallationId} (recorded, so a later pair attaches to it)`);
 
   const binary = installBinary(options.dryRun);
   console.log(`  hook binary  ${binary}`);
 
   if (!options.dryRun) {
-    writeCredentials({ apiBaseUrl, toolInstallationId: identity.toolInstallationId, pairedAt: new Date().toISOString() });
+    const now = new Date().toISOString();
+    writeCredentials({
+      apiBaseUrl,
+      toolInstallationId: identity.toolInstallationId,
+      // No fabricated `pairedAt` on an install that has no pairing, and no
+      // token file either. The id is the whole record, and it is what `pair`
+      // picks up.
+      ...(unpaired ? { localOnly: true, installedAt: now } : { pairedAt: now })
+    });
   }
   console.log(`  credentials  ${credentialsFilePath()}`);
 
@@ -134,7 +155,19 @@ export async function runSetup(argv: string[]): Promise<number> {
     return 0;
   }
 
-  console.log("\nDone. Restart Claude Code in this project to load the hooks.");
+  // Which half is live, spelled out. A degrade that reads like a success is
+  // worse than a failed install: someone who believes they paired stops
+  // looking for the reason their work is not arriving.
+  if (unpaired) {
+    console.log("\nInstalled, not paired.");
+    console.log("  active       the session prompts, and the live signal to a socket on this machine");
+    console.log(`  inactive     delivery to ${apiBaseUrl}. Nothing is sent, and nothing is queued for later.`);
+    if (identity.hint) console.log(`  note         ${identity.hint}`);
+    console.log("  pair later   npx @ascenda-one/claude-code-hooks pair");
+    console.log("\nRestart Claude Code in this project to load the hooks.");
+  } else {
+    console.log("\nDone. Restart Claude Code in this project to load the hooks.");
+  }
   console.log(`Check anytime:  npx @ascenda-one/claude-code-hooks status`);
   return 0;
 }
@@ -146,6 +179,7 @@ function parseArgs(argv: string[]): Options {
     scope: "project",
     projectDir: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
     dryRun: false,
+    pair: true,
     action: "install"
   };
 
@@ -192,6 +226,14 @@ function parseArgs(argv: string[]): Options {
       case "--project-dir":
         options.projectDir = path.resolve(next());
         break;
+      case "--no-pair":
+      // `--no-pairing` is the spelling the CLI agents' setup landed under
+      // first, and the one their README still showed for a day. Both parse
+      // everywhere, so a person who read either page gets the install rather
+      // than "unknown argument".
+      case "--no-pairing":
+        options.pair = false;
+        break;
       case "--dry-run":
         options.dryRun = true;
         break;
@@ -208,56 +250,110 @@ function parseArgs(argv: string[]): Options {
 
 // -------------------------------------------------------------- identity ---
 
-type Identity = { toolInstallationId: string; paired: boolean };
+/**
+ * What the install turned out to be.
+ *
+ * `local-only` is a finished install with the delivery half dormant: the hook
+ * binary, the hook registration and an installation id, and no token. It is
+ * reached either on request (`--no-pair`) or because pairing could not
+ * complete, and `reason` records which — the summary prints it, because a
+ * degrade nobody is told about is how someone comes to believe they paired.
+ */
+type Identity = {
+  toolInstallationId: string;
+  pairing: "new" | "existing" | "local-only";
+  /** Why there is no pairing. Present on `local-only` only. */
+  reason?: string;
+  /** Extra advice for this particular reason, when there is any. */
+  hint?: string;
+};
 
 /**
  * Reuse an existing pairing when one is already on the machine, otherwise
  * create one. The local dev server auto-confirms; a real backend needs the
  * 6-digit code confirmed in the Ascenda app, so we print it and poll.
+ *
+ * Nothing here fails the install. A backend that cannot be reached, a code
+ * nobody confirms, an expired session: each leaves a local-only install
+ * rather than an empty one. The hooks' local half needs no pairing at all —
+ * the session prompts and the live socket signal run before any of this is
+ * consulted — so the person who has not paired yet is precisely the person
+ * refusing to install would strand.
  */
-async function resolveIdentity(apiBaseUrl: string, options: Options): Promise<Identity | undefined> {
+async function resolveIdentity(apiBaseUrl: string, options: Options): Promise<Identity> {
   const existingId = options.toolInstallationId ?? readCredentials()?.toolInstallationId;
 
   if (existingId && options.token) {
     if (!options.dryRun) persistEventWriteToken(defaultTokenFilePath(existingId), options.token);
-    return { toolInstallationId: existingId, paired: false };
+    return { toolInstallationId: existingId, pairing: "existing" };
   }
   if (existingId && readTokenFile(defaultTokenFilePath(existingId))) {
-    return { toolInstallationId: existingId, paired: false };
-  }
-  if (options.dryRun) {
-    return { toolInstallationId: existingId ?? `${ASCENDA_TOOL_TYPE}:<paired at run time>`, paired: false };
+    return { toolInstallationId: existingId, pairing: "existing" };
   }
 
-  const toolInstallationId = existingId ?? `${ASCENDA_TOOL_TYPE}:${crypto.randomUUID()}`;
+  // Minted before pairing is attempted, and recorded either way. `pair` reads
+  // the same field, so finishing later attaches to this id instead of minting
+  // a second one — which is what would leave the registered hooks naming an
+  // installation nothing will ever pair.
+  const toolInstallationId = existingId
+    ?? (options.dryRun ? `${ASCENDA_TOOL_TYPE}:<minted at run time>` : `${ASCENDA_TOOL_TYPE}:${crypto.randomUUID()}`);
+
+  if (!options.pair) {
+    return { toolInstallationId, pairing: "local-only", reason: "asked not to pair (--no-pair)" };
+  }
+  if (options.dryRun) {
+    return { toolInstallationId, pairing: "existing" };
+  }
+
   let session;
   try {
     session = await createPairingSession(apiBaseUrl, toolInstallationId, ASCENDA_TOOL_TYPE, `Claude Code on ${os.hostname()}`);
   } catch (error) {
-    console.error(`\nCould not reach ${apiBaseUrl} to pair: ${error instanceof Error ? error.message : String(error)}`);
-    console.error("Start the local dev server and use --local, or pass --api-base-url for your backend.");
-    return undefined;
+    return {
+      toolInstallationId,
+      pairing: "local-only",
+      reason: `could not reach ${apiBaseUrl} (${error instanceof Error ? error.message : String(error)})`,
+      hint: "for a local dev server use --local, or name your backend with --api-base-url"
+    };
   }
 
-  const token = await pollForToken(apiBaseUrl, session.pairingSessionId, session.code, session.expiresAt);
-  if (!token) return undefined;
+  const outcome = await pollForToken(apiBaseUrl, session.pairingSessionId, session.code, session.expiresAt);
+  if ("reason" in outcome) return { toolInstallationId, pairing: "local-only", reason: outcome.reason };
 
-  persistEventWriteToken(defaultTokenFilePath(toolInstallationId), token);
-  return { toolInstallationId, paired: true };
+  persistEventWriteToken(defaultTokenFilePath(toolInstallationId), outcome.token);
+  return { toolInstallationId, pairing: "new" };
 }
 
-async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, expiresAt: string): Promise<string | undefined> {
+/** The token, or why the wait ended without one. */
+type PairingOutcome = { token: string } | { reason: string };
+
+/** Polls that may fail in a row before the wait is abandoned. */
+const POLL_ERROR_TOLERANCE = 3;
+
+async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, expiresAt: string): Promise<PairingOutcome> {
   const deadline = Math.min(Date.parse(expiresAt) || Date.now() + 300_000, Date.now() + 300_000);
   let announced = false;
+  let failures = 0;
 
   while (Date.now() < deadline) {
-    const status = await getPairingStatus(apiBaseUrl, pairingSessionId);
-    // Contract: the token is returned once, on the first paired poll.
-    if (status.status === "paired" && status.eventWriteToken) return status.eventWriteToken;
-    if (status.status === "expired" || status.status === "cancelled") {
-      console.error(`\nPairing ${status.status}. Run setup again.`);
-      return undefined;
+    // A dropped wifi link mid-wait used to throw straight out of setup, past
+    // the binary and the hook registration, leaving nothing installed. A few
+    // failed polls are a blip; a run of them is the network, and either way
+    // the install still finishes.
+    let status;
+    try {
+      status = await getPairingStatus(apiBaseUrl, pairingSessionId);
+      failures = 0;
+    } catch (error) {
+      if (++failures >= POLL_ERROR_TOLERANCE) {
+        return { reason: `lost contact while waiting (${error instanceof Error ? error.message : String(error)})` };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      continue;
     }
+    // Contract: the token is returned once, on the first paired poll.
+    if (status.status === "paired" && status.eventWriteToken) return { token: status.eventWriteToken };
+    if (status.status === "expired" || status.status === "cancelled") return { reason: `pairing ${status.status}` };
     if (!announced) {
       console.log(`\n  Confirm in the Ascenda app — code ${code}`);
       console.log("  Waiting...");
@@ -266,8 +362,7 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
-  console.error("\nPairing timed out. Run setup again.");
-  return undefined;
+  return { reason: "no confirmation within 5 minutes" };
 }
 
 // ---------------------------------------------------------------- binary ---
@@ -404,6 +499,7 @@ function printStatus(options: Options): number {
   const settingsFile = settingsPath(options);
   const binary = hookBinPath();
   const tokenFile = credentials?.toolInstallationId ? defaultTokenFilePath(credentials.toolInstallationId) : undefined;
+  const unpaired = localOnlyInstall(credentials);
 
   const here = countRegistered(settingsFile, binary);
   const settings = here.settings;
@@ -421,8 +517,17 @@ function printStatus(options: Options): number {
   const stale = findStaleHookCommands(settings, binary);
 
   console.log(`api base url   ${credentials?.apiBaseUrl ?? "— not configured"}`);
-  console.log(`pairing        ${credentials?.toolInstallationId ?? "— not paired"}`);
-  console.log(`token          ${tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
+  console.log(`pairing        ${describePairing(credentials, unpaired)}`);
+  // The environment counts as a token here, the same way it does for a hook.
+  // Reading only the file made `delivery` claim nothing could be sent on a
+  // machine that was sending perfectly well from an exported token.
+  const fileToken = Boolean(tokenFile && readTokenFile(tokenFile));
+  const token = fileToken || Boolean(envOverride("ASCENDA_EVENT_WRITE_TOKEN"));
+  console.log(`token          ${fileToken ? "present" : token ? "from ASCENDA_EVENT_WRITE_TOKEN (no file)" : unpaired ? "— none until this install is paired" : "— missing"}`);
+  console.log(`delivery       ${token ? "active" : unpaired
+    ? "inactive — nothing is sent, and nothing is queued for later"
+    : "— no token for this pairing, so nothing can be sent"}`);
+  console.log("local features active — the session prompts and the live socket signal need no pairing");
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
   console.log(`hooks          ${registered}/${HOOK_EVENTS.length} registered in ${settingsFile}`);
   if (elsewhere && elsewhere.registered > 0) {
@@ -435,12 +540,39 @@ function printStatus(options: Options): number {
     console.log(`               Remove them from ${settingsFile} by hand; setup cannot tell them from a hook you wrote.`);
   }
 
-  const healthy = credentials?.toolInstallationId && registered === HOOK_EVENTS.length && fs.existsSync(binary) && !stale.length;
+  if (unpaired) {
+    console.log("\nInstalled, not paired. Pair when you want the telemetry half:");
+    console.log("  npx @ascenda-one/claude-code-hooks pair");
+  }
+
+  // User settings apply in every project, so hooks found there answer a
+  // project-scope check and the install is not broken. The reverse does not
+  // hold: one project's file says nothing about the machine, so a `--scope
+  // user` check that finds only project hooks still reports them missing.
+  const wired = registered === HOOK_EVENTS.length
+    || (options.scope === "project" && elsewhere?.registered === HOOK_EVENTS.length);
+  const healthy = credentials?.toolInstallationId && wired && fs.existsSync(binary) && !stale.length;
   return healthy ? 0 : 1;
+}
+
+/**
+ * The pairing line. An installation with no pairing is a state this command
+ * has to be able to describe as installed, because it is one: the hooks are
+ * registered and the local half of them works.
+ */
+function describePairing(credentials: MachineCredentials | undefined, unpaired: boolean): string {
+  if (!credentials?.toolInstallationId) return "— not paired";
+  if (!unpaired) return credentials.toolInstallationId;
+  const when = credentials.installedAt ? `, installed ${credentials.installedAt}` : "";
+  return `${credentials.toolInstallationId} (not paired${when})`;
 }
 
 /** Removes our hook entries and the installed binary. Tokens are left alone: revocation is app-side. */
 function uninstall(options: Options): number {
+  // Read before the record goes: an install that was never paired has no
+  // token to revoke, and saying otherwise sends someone looking in the app
+  // for a tool that was never there.
+  const unpaired = localOnlyInstall();
   const settingsFile = settingsPath(options);
 
   if (fs.existsSync(settingsFile)) {
@@ -468,11 +600,15 @@ function uninstall(options: Options): number {
     fs.rmSync(binary);
     console.log(`removed ${binary}`);
   }
-  const credentials = credentialsFilePath();
-  if (fs.existsSync(credentials)) {
-    fs.rmSync(credentials);
-    console.log(`removed ${credentials}`);
+  const credentialsFile = credentialsFilePath();
+  if (fs.existsSync(credentialsFile)) {
+    removeCredentials();
+    console.log(fs.existsSync(credentialsFile)
+      ? `cleared the Claude Code pairing from ${credentialsFile} (other tools' pairings kept)`
+      : `removed ${credentialsFile}`);
   }
-  console.log(`tokens left in ${path.join(ascendaHome(), "tokens")} — revoke in the Ascenda app to invalidate them`);
+  console.log(unpaired
+    ? "this install was never paired, so there is no token here and nothing to revoke"
+    : `tokens left in ${path.join(ascendaHome(), "tokens")} — revoke in the Ascenda app to invalidate them`);
   return 0;
 }

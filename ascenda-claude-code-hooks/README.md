@@ -72,6 +72,7 @@ npx @ascenda-one/claude-code-hooks uninstall   # removes hooks and the binary
 | `--api-base-url <url>` | ingest host (default `https://api.ascenda.one`) |
 | `--local [port]` | shorthand for a local [dev server](../ascenda-dev-server/) (default `4477`) |
 | `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
+| `--no-pair` | install the local half only: hooks work, nothing is sent |
 | `--scope project\|user` | register in this project (default) or in `~/.claude/settings.json` |
 | `--project-dir <path>` | project root for `--scope project` (default cwd) |
 | `--dry-run` | print what would change, write nothing |
@@ -86,7 +87,7 @@ DevAuth. Stop it with `./scripts/setup-local.sh --stop`. See
 | Path | |
 | --- | --- |
 | `~/.ascenda/bin/ascenda-claude-hook` | the self-contained bundle — no `npm -g`, no sudo, no PATH edit |
-| `~/.ascenda/credentials.json` | `apiBaseUrl` + `toolInstallationId`, `0600` |
+| `~/.ascenda/credentials.json` | `apiBaseUrl` + `toolInstallationId`, `0600` (plus `localOnly` on an install with no pairing) |
 | `~/.ascenda/tokens/<id>` | the event write token, `0600`, rotated in place on renew |
 | `.claude/settings.local.json` | one hook entry per lifecycle event, `timeout: 5` |
 
@@ -103,7 +104,56 @@ opened from a launcher rather than a terminal. The variables below still
 override the file when set.
 
 `status` also flags hook entries pointing at a binary that no longer exists —
-those fail silently on every event otherwise.
+those fail silently on every event otherwise. It checks one scope, defaulting
+to `project` like `setup`; if it finds nothing there it looks in the other one
+and says where the hooks actually are. User settings apply in every project, so
+hooks found there answer a project-scope check.
+
+#### Installing without a pairing
+
+`--no-pair` installs the hooks and stops before pairing. A `setup` that tried
+to pair and couldn't finish — the backend unreachable, nobody at the keyboard
+to confirm the code, the session expired — lands in the same place instead of
+failing. The install completes either way, and the summary names which half is
+running:
+
+```text
+Installed, not paired.
+  active       the session prompts, and the live signal to a socket on this machine
+  inactive     delivery to https://api.ascenda.one. Nothing is sent, and nothing is queued for later.
+  pair later   npx @ascenda-one/claude-code-hooks pair
+```
+
+Two things work with no pairing at all, which is why this mode exists. The
+session prompts are composed locally in the hook process. The live signal goes
+to a socket on your own machine, so a listener there sees an agent working the
+moment it starts. Neither owes anything to a backend, and gating the install on
+one kept them from the people still setting Ascenda up.
+
+What that install holds: the hook binary, the registered events, and a
+credentials file with an installation id, `localOnly: true` and `installedAt`.
+No `pairedAt` and no token — nothing here fabricates a credential it doesn't
+have. The id is the part that matters later. `pair` claims that same id, so the
+hooks already registered in your settings file end up paired; the flag is
+dropped and `pairedAt` takes its place.
+
+Delivery is a deliberate no-op until then. Nothing is sent, nothing is queued,
+and the send journal stays empty rather than recording an outage on every hook
+event. An absent token on an install that *was* paired is a different matter:
+that's a revoked or deleted credential, and it goes on being reported. `status`
+and `doctor` both distinguish the two:
+
+```text
+pairing        claude_code:… (not paired, installed 2026-09-23T05:13:40.907Z)
+token          — none until this install is paired
+delivery       inactive — nothing is sent, and nothing is queued for later
+local features active — the session prompts and the live socket signal need no pairing
+hooks          9/9 registered in ~/.claude/settings.json
+```
+
+`uninstall` removes an unpaired install the same way, and says there is no
+token to revoke. It leaves any other agent's pairing in the credentials file
+where it is.
 
 ### Pairing by hand (if you skip `setup`)
 
@@ -120,6 +170,10 @@ Claude Code; there is nothing to add to a shell profile. The token itself is
 never copied around — every CLI tool reads it from the file `pair` wrote. (The
 editor extension's pairing cannot be reused here: its token lives in the
 editor's private secret storage.)
+
+Run on a machine `setup` has already touched, `pair` attaches to the
+installation that file names instead of minting a second one, and pairs against
+the host recorded there. That's what finishes a `--no-pair` install.
 
 `--tool-type <type>` pairs something else CLI-shaped that has no `setup` of its
 own. An explicit type always mints its own id: naming a different tool is

@@ -21,8 +21,8 @@ targets, error counts or internal resource names — this repository is public.
   reads to know an agent is working right now. Nothing is sent anywhere,
   which was already what an unpaired hook did.
 - **A pairing that cannot finish now installs the local half anyway**, and
-  says so, instead of leaving you with nothing. An unreachable host, an
-  unconfirmed code and an expired session all land in the same place.
+  says so. Before, you got nothing at all. An unreachable host, an unconfirmed
+  code and an expired session all land in the same place.
 - **Your installation id is recorded either way**, so pairing later attaches
   the hooks you already installed rather than minting a second id beside
   them. Pair whenever you like by running `setup` again.
@@ -30,6 +30,19 @@ targets, error counts or internal resource names — this repository is public.
   no journal entry per event, and `status` says `installed, not paired —
   local features active, telemetry inactive`. A token that is revoked or
   deleted after pairing is still reported, loudly, as before.
+- **Claude Code is in this too.** Its adapter takes the same flag, records the
+  same installation id and reads the same way in `status` and `doctor`, which
+  now name the mode: `installed, not paired`.
+- **The session prompts keep working unpaired.** The lines these hooks add to a
+  Claude Code session are written on your machine, so they never needed an
+  account either. Same for the live signal.
+- **`status` stops calling a good install broken when you ask about the wrong
+  scope.** Hooks in `~/.claude/settings.json` apply to every project, so a
+  check run in a project now finds them and says where they are.
+- **`uninstall` leaves your other agents alone.** It used to delete the whole
+  credentials file, taking any other agent's pairing with it. It clears its own
+  entry now, and on an unpaired install it tells you there is no token to
+  revoke.
 
 ## v0.1.27
 
