@@ -21,11 +21,13 @@ export class AscendaConfig {
   static get queueMaxEntries(): number { return vscode.workspace.getConfiguration("ascenda").get<number>("telemetry.queueMaxEntries", DEFAULT_QUEUE_MAX_ENTRIES); }
   static get queueMaxAgeMs(): number { return vscode.workspace.getConfiguration("ascenda").get<number>("telemetry.queueMaxAgeDays", DEFAULT_QUEUE_MAX_AGE_MS / DAY_MS) * DAY_MS; }
   /**
-   * Local JSONL sink. The hook adapters take this from ASCENDA_EVENT_LOG_FILE
-   * because each hook is a freshly spawned process, but an editor is launched
-   * once — from a dock icon, with no shell environment — so a setting is the
-   * only channel a user can actually reach. The env var still wins when set,
-   * to keep one override working across every tool.
+   * Local JSONL sink. `resolveEventLogPath()` already checks
+   * ASCENDA_EVENT_LOG_FILE and, since the hook adapters can persist it there
+   * too, ~/.ascenda/credentials.json — both reachable from a process with no
+   * shell environment except this one: an editor is launched once, from a
+   * dock icon, and holds no ~/.ascenda pairing of its own. This setting is
+   * the channel left for it. Either upstream source still wins when set, to
+   * keep one override working across every tool.
    */
   static get eventLogFile(): string | undefined {
     return resolveEventLogPath() ?? expandUserPath(vscode.workspace.getConfiguration("ascenda").get<string>("eventLogFile", ""));

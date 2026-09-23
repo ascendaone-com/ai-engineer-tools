@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { AscendaEventPayload, IngestResult } from "@ascenda-one/tool-contract";
+import { readMachineCredentials } from "./credentials";
 
 /**
  * Opt-in local sink: one JSON object per line, holding the exact payload that
@@ -9,8 +10,10 @@ import { AscendaEventPayload, IngestResult } from "@ascenda-one/tool-contract";
  * ingest path cannot do — see what a tool emits with no backend running, and
  * audit what actually left the machine against the metadata-only claim.
  *
- * Off unless ASCENDA_EVENT_LOG_FILE is set. Nothing here may throw: a sink that
- * can break telemetry, or the user's turn, is worse than no sink.
+ * Off unless ASCENDA_EVENT_LOG_FILE is set, or `eventLogPath` is persisted in
+ * ~/.ascenda/credentials.json (see {@link resolveEventLogPath}). Nothing here
+ * may throw: a sink that can break telemetry, or the user's turn, is worse
+ * than no sink.
  */
 export const EVENT_LOG_ENV_VAR = "ASCENDA_EVENT_LOG_FILE";
 
@@ -42,8 +45,28 @@ export function expandUserPath(configured: string | undefined): string | undefin
   return path.resolve(value);
 }
 
+/**
+ * Env var first, then the path (if any) `setup`/`pair` persisted to
+ * `~/.ascenda/credentials.json` — the same fallback the IDE extension's
+ * `ascenda.eventLogFile` setting already uses, and for the same reason: a
+ * process spawned with no shell environment (a Desktop-app hook, a
+ * GUI-launched editor) never sees an rc-file export, so the env var alone
+ * left exactly those sessions unable to turn this on. Checking the file
+ * costs one read per hook invocation and is never itself a reason to enable
+ * logging — an absent or unreadable file resolves to `undefined`, same as
+ * today.
+ */
 export function resolveEventLogPath(): string | undefined {
-  return expandUserPath(process.env[EVENT_LOG_ENV_VAR]);
+  return expandUserPath(process.env[EVENT_LOG_ENV_VAR]) ?? expandUserPath(readMachineCredentials()?.eventLogPath);
+}
+
+export type EventLogSource = "env" | "credentials" | "off";
+
+/** Which of the two sources above is active, for `doctor`/`status` to name. */
+export function resolveEventLogSource(): EventLogSource {
+  if (expandUserPath(process.env[EVENT_LOG_ENV_VAR])) return "env";
+  if (expandUserPath(readMachineCredentials()?.eventLogPath)) return "credentials";
+  return "off";
 }
 
 export function appendEventLog(logFilePath: string, entry: EventLogEntry): void {

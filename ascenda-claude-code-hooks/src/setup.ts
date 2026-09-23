@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, defaultTokenFilePath, getPairingStatus, persistEventWriteToken, readTokenFile } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, defaultTokenFilePath, getPairingStatus, persistEventWriteToken, readTokenFile, resolveEventLogPath, resolveEventLogSource } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL } from "./config.js";
 import { credentialsFilePath, hookBinPath, readCredentials, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
@@ -44,11 +44,16 @@ type Options = {
   apiBaseUrl?: string;
   toolInstallationId?: string;
   token?: string;
+  /** undefined = leave whatever is persisted alone; null = the `off` flag value; a string = enable at that path. */
+  eventLogPath?: string | null;
   scope: Scope;
   projectDir: string;
   dryRun: boolean;
   action: "install" | "status" | "uninstall" | "help";
 };
+
+/** Same location `TESTING.md` and the codex adapter's handoff doc already point at. */
+const DEFAULT_EVENT_LOG_PATH = "~/.ascenda/events.jsonl";
 
 const USAGE = `ascenda-claude-hook setup — wire Claude Code to Ascenda telemetry
 
@@ -68,6 +73,7 @@ Options
   --token <eventWriteToken>     reuse an existing token (stored 0600, never printed)
   --scope project|user          where hooks are registered (default project)
   --project-dir <path>          project root for --scope project (default cwd)
+  --event-log [path]            opt-in local JSONL diagnostic log (default ${DEFAULT_EVENT_LOG_PATH}); "off" disables
   --dry-run                     print what would change, write nothing
   -h, --help
 `;
@@ -99,10 +105,19 @@ export async function runSetup(argv: string[]): Promise<number> {
   const binary = installBinary(options.dryRun);
   console.log(`  hook binary  ${binary}`);
 
+  const eventLogPath = nextEventLogPath(options.eventLogPath, readCredentials()?.eventLogPath);
   if (!options.dryRun) {
-    writeCredentials({ apiBaseUrl, toolInstallationId: identity.toolInstallationId, pairedAt: new Date().toISOString() });
+    writeCredentials({
+      apiBaseUrl,
+      toolInstallationId: identity.toolInstallationId,
+      pairedAt: new Date().toISOString(),
+      ...(eventLogPath ? { eventLogPath } : {})
+    });
   }
   console.log(`  credentials  ${credentialsFilePath()}`);
+  if (options.eventLogPath !== undefined) {
+    console.log(`  event log    ${eventLogPath ?? "off"}`);
+  }
 
   const settingsFile = settingsPath(options);
   const written = writeSettings(settingsFile, binary, options.dryRun);
@@ -119,9 +134,20 @@ export async function runSetup(argv: string[]): Promise<number> {
   return 0;
 }
 
+/**
+ * `--event-log` follows every other option here: an explicit flag wins, an
+ * omitted one leaves whatever this machine already had alone. Without that
+ * rule, re-running `setup` for an unrelated reason (a moved binary, a
+ * re-pair) would silently turn a diagnostic log on or off as a side effect.
+ */
+export function nextEventLogPath(requested: string | null | undefined, existing: string | undefined): string | undefined {
+  if (requested === undefined) return existing;
+  return requested ?? undefined;
+}
+
 // ------------------------------------------------------------------ args ---
 
-function parseArgs(argv: string[]): Options {
+export function parseArgs(argv: string[]): Options {
   const options: Options = {
     scope: "project",
     projectDir: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
@@ -172,6 +198,15 @@ function parseArgs(argv: string[]): Options {
       case "--project-dir":
         options.projectDir = path.resolve(next());
         break;
+      case "--event-log": {
+        // Optional value, like --local: bare enables at the default path, a
+        // path enables at that path, "off" disables and forgets what was
+        // persisted before.
+        const peek = argv[i + 1];
+        const value = peek !== undefined && !peek.startsWith("-") ? argv[++i] : DEFAULT_EVENT_LOG_PATH;
+        options.eventLogPath = value === "off" ? null : value;
+        break;
+      }
       case "--dry-run":
         options.dryRun = true;
         break;
@@ -403,6 +438,8 @@ function printStatus(options: Options): number {
   console.log(`api base url   ${credentials?.apiBaseUrl ?? "— not configured"}`);
   console.log(`pairing        ${credentials?.toolInstallationId ?? "— not paired"}`);
   console.log(`token          ${tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
+  const eventLogPath = resolveEventLogPath();
+  console.log(`event log      ${eventLogPath ? `${eventLogPath} (${resolveEventLogSource()})` : "off — opt in with `setup --event-log`"}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
   console.log(`hooks          ${registered}/${HOOK_EVENTS.length} registered in ${settingsFile}`);
   if (elsewhere && elsewhere.registered > 0) {

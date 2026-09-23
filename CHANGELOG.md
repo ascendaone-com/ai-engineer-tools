@@ -10,6 +10,30 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.28
+
+### The diagnostic log now works even when you didn't launch from a shell
+
+- **`ASCENDA_EVENT_LOG_FILE` needed an interactive shell to reach a hook.**
+  Setting it in `~/.zshrc` (or an equivalent rc file) worked for a terminal
+  session, but a hook Claude Code spawns from a Dock-launched or
+  Desktop-app session never sources that file, so the local diagnostic log
+  stayed silent for exactly the sessions hardest to debug any other way —
+  with no error, because logging is opt-in and a silent "off" looks the
+  same as "never configured".
+- **`setup --event-log [path]` persists it instead.** It writes the path to
+  `~/.ascenda/credentials.json`, the same file `setup`/`pair` already use so
+  hooks need no environment at all. Bare `--event-log` uses
+  `~/.ascenda/events.jsonl`; `--event-log off` turns it back off.
+  `ASCENDA_EVENT_LOG_FILE` still wins when both are set, so nothing that
+  already relies on the environment variable changes.
+- **`status` and `doctor` now say where the log is, or that it's off** —
+  both name whether it came from the environment or the credentials file,
+  so a "configured but this process can't see it" gap shows up instead of
+  reading as an unrelated zero.
+- **Still opt-in.** Nothing is logged for anyone who hasn't set the
+  environment variable or run `setup --event-log`.
+
 ## v0.1.27
 
 ### A leftover socket file can't swallow live signals

@@ -16,7 +16,9 @@ const {
   EVENT_LOG_ENV_VAR,
   appendEventLog,
   buildEventPayload,
-  resolveEventLogPath
+  resolveEventLogPath,
+  resolveEventLogSource,
+  writeTopLevelCredentials
 } = require("../out/index.js");
 
 const IDENTITY = { toolInstallationId: "claude_code:abc", source: "claude_code" };
@@ -62,6 +64,75 @@ test("a relative path resolves against cwd, not the hook's install directory", (
   withEnv("events.jsonl", () => {
     assert.equal(resolveEventLogPath(), path.resolve("events.jsonl"));
   });
+});
+
+// The gap this closes: a hook spawned with no shell environment (a
+// Desktop-app / GUI-launched session) never sees ASCENDA_EVENT_LOG_FILE even
+// when a user turned logging on, because the export lived only in an rc file
+// that process never sourced. `setup`/`pair` can instead persist the path to
+// credentials.json, which needs no environment to read.
+
+function withHome(run) {
+  const previous = process.env.ASCENDA_HOME;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-eventlog-home-"));
+  process.env.ASCENDA_HOME = home;
+  try {
+    return run();
+  } finally {
+    if (previous === undefined) delete process.env.ASCENDA_HOME;
+    else process.env.ASCENDA_HOME = previous;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+test("resolves via the env var alone, unchanged from before this existed", () => {
+  const file = path.join(tempDir(), "events.jsonl");
+  withHome(() => withEnv(file, () => {
+    assert.equal(resolveEventLogPath(), file);
+    assert.equal(resolveEventLogSource(), "env");
+  }));
+});
+
+test("resolves via credentials.json alone, with no env var set", () => {
+  withHome(() => withEnv(undefined, () => {
+    const dir = tempDir();
+    const file = path.join(dir, "events.jsonl");
+    writeTopLevelCredentials({ toolInstallationId: "claude_code:abc", eventLogPath: file });
+
+    assert.equal(resolveEventLogPath(), file);
+    assert.equal(resolveEventLogSource(), "credentials");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }));
+});
+
+test("neither source set means logging stays off — no ambient default", () => {
+  withHome(() => withEnv(undefined, () => {
+    writeTopLevelCredentials({ toolInstallationId: "claude_code:abc" });
+    assert.equal(resolveEventLogPath(), undefined);
+    assert.equal(resolveEventLogSource(), "off");
+  }));
+});
+
+test("the env var wins when both are configured — one override still works across every tool", () => {
+  withHome(() => {
+    const dir = tempDir();
+    writeTopLevelCredentials({ toolInstallationId: "claude_code:abc", eventLogPath: path.join(dir, "from-credentials.jsonl") });
+    withEnv(path.join(dir, "from-env.jsonl"), () => {
+      assert.equal(resolveEventLogPath(), path.join(dir, "from-env.jsonl"));
+      assert.equal(resolveEventLogSource(), "env");
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+test("a credentials path also expands ~ and whitespace-only is treated as unset", () => {
+  withHome(() => withEnv(undefined, () => {
+    writeTopLevelCredentials({ toolInstallationId: "claude_code:abc", eventLogPath: "~/logs/events.jsonl" });
+    assert.equal(resolveEventLogPath(), path.join(os.homedir(), "logs", "events.jsonl"));
+
+    writeTopLevelCredentials({ toolInstallationId: "claude_code:abc", eventLogPath: "   " });
+    assert.equal(resolveEventLogPath(), undefined, "whitespace is not a path");
+  }));
 });
 
 test("appends one parseable JSON object per line, creating missing directories", () => {
