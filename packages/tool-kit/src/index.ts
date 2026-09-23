@@ -36,6 +36,7 @@ export {
 export type { CliAgentSetupSpec, HookSettingsFormat, SetupScope } from "./cliAgentSetup";
 export {
   credentialsFilePath,
+  isLocalOnlyHostInstall,
   readHostCredentials,
   readMachineCredentials,
   removeHostCredentials,

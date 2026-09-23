@@ -17,12 +17,19 @@ export type HostCredentials = {
   toolInstallationId?: string;
   pairedAt?: string;
   /**
-   * Set by `setup --no-pairing`: the hooks are installed and emit the local
-   * signal, and nothing is sent. There is no installation id to record, so
-   * this is what tells a deliberately unpaired install from one whose
-   * pairing went missing — the two are otherwise the same empty entry.
+   * This installation is set up but has no pairing, so nothing is sent from
+   * it. A `setup` that was asked not to pair, or whose pairing could not
+   * finish, writes this; `pair` and any later `setup` replace it with
+   * `pairedAt`, so the two never appear together.
+   *
+   * Positive evidence, and that is the point. A missing token on its own is
+   * also what a revoked or deleted one looks like, and that is a fault a
+   * collector must keep reporting loudly. Only this flag says the absence was
+   * chosen, which is what lets the hooks stay quiet about it.
    */
-  localOnly?: boolean;
+  localOnly?: true;
+  /** When `setup` ran, on an installation that has no `pairedAt` yet. */
+  installedAt?: string;
 };
 
 export type MachineCredentials = HostCredentials & {
@@ -62,6 +69,24 @@ export function writeMachineCredentials(credentials: MachineCredentials): void {
 export function writeTopLevelCredentials(credentials: HostCredentials): void {
   const existing = readMachineCredentials();
   writeMachineCredentials({ ...credentials, ...(existing?.tools ? { tools: existing.tools } : {}) });
+}
+
+/**
+ * Whether this host's installation was set up and deliberately left unpaired.
+ *
+ * The same rule the Claude Code adapter's `localOnlyInstall` applies to its
+ * own top-level record, against `tools.<host>` instead: read the flag, never
+ * infer from a missing token, and let a token that arrives later win — so a
+ * `pair` that wrote only the token still counts as paired.
+ */
+export function isLocalOnlyHostInstall(
+  host: string,
+  hasToken: (toolInstallationId: string) => boolean
+): boolean {
+  const credentials = readHostCredentials(host);
+  if (!credentials?.localOnly) return false;
+  if (process.env.ASCENDA_EVENT_WRITE_TOKEN) return false;
+  return !(credentials.toolInstallationId && hasToken(credentials.toolInstallationId));
 }
 
 export function readHostCredentials(host: string): HostCredentials | undefined {

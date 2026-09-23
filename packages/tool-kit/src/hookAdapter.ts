@@ -1,6 +1,6 @@
 import { AscendaTelemetrySource } from "@ascenda-one/tool-contract";
 import { recordWorkContext } from "./contextRegistry";
-import { readHostCredentials } from "./credentials";
+import { isLocalOnlyHostInstall, readHostCredentials } from "./credentials";
 import { recordForgeProjectAlias } from "./forgeProject";
 import { appendEventLog, resolveEventLogPath } from "./eventLog";
 import { AscendaEventSender, MappedEvent, buildEventPayload } from "./eventSender";
@@ -206,6 +206,15 @@ export type HookDeliveryOptions = CliAgentIdentity & {
 export async function deliverHookEvents(events: MappedEvent[], options: HookDeliveryOptions): Promise<void> {
   if (events.length === 0) return;
   const notice = options.onNotice ?? ((message: string) => console.error(message));
+
+  // An install that was asked not to pair has nothing to deliver with, and
+  // that is not a fault worth reporting: without this it journals a skipped
+  // send on every event for the life of the install, and `doctor` reads a
+  // chosen state as a broken one. The local half — the live signal to a
+  // socket on this machine — has already run by the time we reach here.
+  const hasToken = (id: string) =>
+    readTokenFile(process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(id)) !== undefined;
+  if (options.host && isLocalOnlyHostInstall(options.host, hasToken)) return;
 
   let config: CliAgentConfig;
   try {

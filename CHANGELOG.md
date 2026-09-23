@@ -14,16 +14,22 @@ targets, error counts or internal resource names — this repository is public.
 
 ### Install the CLI hooks without an account
 
-- **`setup --no-pairing`.** Every CLI agent's `setup` stopped at a pairing
-  code you confirm in the Ascenda app, so the hooks could not be installed
-  at all without an account. With the new flag they install and register as
-  usual, and emit only the local live signal — the message a listener on
-  this machine reads to know an agent is working right now. Nothing is sent
-  anywhere, which was already what an unpaired hook did.
-- `status` calls that install `local only` and reports it healthy, rather
-  than showing a pairing that looks lost. An install whose pairing really
-  did go missing still fails, so a `status` gate in CI keeps working.
-- Pair later at any time by running `setup` again without the flag.
+- **`setup --no-pair`.** Every CLI agent's `setup` stopped at a pairing code
+  you confirm in the Ascenda app, so the hooks could not be installed at all
+  without an account. With the flag they install and register as usual, and
+  emit only the local live signal — the message a listener on this machine
+  reads to know an agent is working right now. Nothing is sent anywhere,
+  which was already what an unpaired hook did.
+- **A pairing that cannot finish now installs the local half anyway**, and
+  says so, instead of leaving you with nothing. An unreachable host, an
+  unconfirmed code and an expired session all land in the same place.
+- **Your installation id is recorded either way**, so pairing later attaches
+  the hooks you already installed rather than minting a second id beside
+  them. Pair whenever you like by running `setup` again.
+- On such an install the hooks stop reporting the absent pairing as a fault:
+  no journal entry per event, and `status` says `installed, not paired —
+  local features active, telemetry inactive`. A token that is revoked or
+  deleted after pairing is still reported, loudly, as before.
 
 ## v0.1.27
 
