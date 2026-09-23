@@ -152,6 +152,19 @@ code to confirm in the app), installs the hook bundle, and registers the hooks:
 npx -y @ascenda-one/claude-code-hooks setup     # or codex-, cursor-, gemini-, windsurf-hooks
 ```
 
+To install the hooks **without an account**, add `--no-pairing`:
+
+```bash
+npx -y @ascenda-one/codex-hooks setup --no-pairing
+```
+
+The hooks are registered exactly as above, and they emit only the local live
+signal — the small message a listener on this machine reads to show that an
+agent is working right now. Nothing is sent to Ascenda, because there is no
+pairing to send it under; that was already true of an unpaired hook, and this
+is the supported way to ask for it. `status` reports such an install as
+`local only`, and running `setup` again without the flag pairs it.
+
 Nothing to add to a shell profile: each agent's pairing lands under its own key
 in `~/.ascenda/credentials.json`, which is what lets several agents run on one
 machine without one inheriting another's identity. (`ASCENDA_TOOL_INSTALLATION_ID`

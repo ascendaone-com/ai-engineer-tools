@@ -10,6 +10,21 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.28
+
+### Install the CLI hooks without an account
+
+- **`setup --no-pairing`.** Every CLI agent's `setup` stopped at a pairing
+  code you confirm in the Ascenda app, so the hooks could not be installed
+  at all without an account. With the new flag they install and register as
+  usual, and emit only the local live signal — the message a listener on
+  this machine reads to know an agent is working right now. Nothing is sent
+  anywhere, which was already what an unpaired hook did.
+- `status` calls that install `local only` and reports it healthy, rather
+  than showing a pairing that looks lost. An install whose pairing really
+  did go missing still fails, so a `status` gate in CI keeps working.
+- Pair later at any time by running `setup` again without the flag.
+
 ## v0.1.27
 
 ### A leftover socket file can't swallow live signals
