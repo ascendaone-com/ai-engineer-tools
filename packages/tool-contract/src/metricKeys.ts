@@ -53,9 +53,32 @@
  * impossible; it makes drift *visible*, which is strictly more than the
  * nothing that was there before.
  *
- * Adding a key: declare it here first. If it is `backend`, add the spelling to
- * the backend's reader in the same change, or it will not be read.
+ * ## `family` is the other half
+ *
+ * `readBy` answers who reads a key. It cannot answer who was TOLD about it,
+ * and nothing here could, so nothing did. A key could be declared, typed,
+ * resolved by a backend reader and shipped for months while the sentence a
+ * person read at pairing listed three families and reads shut.
+ *
+ * That defect does not look like a defect at any point. Every key arrives in
+ * its own reviewed change; each is defensible on its own; no test fails,
+ * because no test knows the list of what leaves was meant to be complete. The
+ * promise decays by addition somewhere else entirely.
+ *
+ * So `family` is required, and it sits here rather than beside the copy: the
+ * declaration site that already refuses an unregistered key is the one that
+ * should refuse an undisclosed one. `diagnostic` keys need a family too — read
+ * by nobody is not the same as sent to nobody.
+ *
+ * Adding a key: declare it here first, with both halves. If it is `backend`,
+ * add the spelling to the backend's reader in the same change, or it will not
+ * be read. If its family is one the collector's pairing disclosure does not
+ * already name, widen that copy — `setupDisclosure.test.mjs` fails until it is
+ * widened, or until the key is classified `transport`/`local` with a written
+ * reason. Classifying it is the point; the reason is the artefact.
  */
+
+import type { Disclosure } from "./index";
 
 /** Who consumes a metric key. See the module docblock — `diagnostic` is a
  * declared destination, not a gap. */
@@ -63,6 +86,21 @@ export type MetricReader = "backend" | "handoff" | "diagnostic";
 
 export interface MetricKeySpec {
   readonly readBy: readonly MetricReader[];
+  /**
+   * What the person was told about this key, as a disclosure family — or
+   * `transport`/`local` with a reason in {@link MetricKeySpec.note}.
+   *
+   * `readBy` says who consumes a key. This says who was told it leaves, which
+   * is the half that had no home: a key could be registered here, resolved by
+   * a backend reader and shipped, and nothing could ask whether the person had
+   * ever been told. Required, so a new key is classified at the declaration
+   * site rather than defaulting to undisclosed.
+   *
+   * A `diagnostic` key still needs one. Read by nobody is not the same as
+   * sent to nobody, and every key in this file that a live collector emits
+   * reaches the wire whatever resolves it on the other side.
+   */
+  readonly family: Disclosure;
   /** Only for `backend` keys: the spellings the server-side reader accepts,
    * canonical first. Mirrors the C# alias list; the backend pins the same. */
   readonly backendAliases?: readonly string[];
@@ -93,40 +131,45 @@ const CONTEXT_WINDOW_CURSOR_PERCENT_ALIASES = ["contextUsagePercent"] as const;
 export const METRIC_KEYS = {
   // ── Read by a backend reader ────────────────────────────────────────────
   contextWindowPeakPct: {
+    family: "context",
     readBy: ["backend", "handoff"],
     backendAliases: CONTEXT_WINDOW_CANONICAL_ALIASES,
     unit: "fraction of the context window (0–1; uncapped for >200k contexts)",
     note: "Claude Code reports a true per-session peak. Cursor reports its composer's last known occupancy under the same key — the closest its store can answer, and not the same measurement."
   },
   contextUsagePercent: {
+    family: "context",
     readBy: ["backend", "handoff"],
     backendAliases: CONTEXT_WINDOW_CURSOR_PERCENT_ALIASES,
     unit: "percent (0–100)",
     note: "Cursor's own column name. Superseded by contextWindowPeakPct on the wire; kept because the handoff reads it and imported rows carry it. Unit-explicit on the backend: always divided by 100, never put through the fraction-or-percent heuristic."
   },
-  promptCount: { readBy: ["backend", "handoff"], backendAliases: ["promptCount", "prompt_count"] },
-  sessionMinutes: { readBy: ["backend"], backendAliases: ["sessionMinutes", "session_minutes"], unit: "minutes" },
-  durationBucket: { readBy: ["backend", "handoff"], backendAliases: ["durationBucket", "duration_bucket"] },
-  afterHoursPrompts: { readBy: ["backend", "handoff"], backendAliases: ["afterHoursPrompts", "after_hours_prompts"] },
-  inputTokens: { readBy: ["backend"], backendAliases: ["inputTokens", "input_tokens"], unit: "tokens" },
-  outputTokens: { readBy: ["backend"], backendAliases: ["outputTokens", "output_tokens"], unit: "tokens" },
-  cacheReadTokens: { readBy: ["backend"], backendAliases: ["cacheReadTokens", "cache_read_tokens"], unit: "tokens" },
-  queuedPrompts: { readBy: ["backend"], backendAliases: ["queuedPrompts", "queued_prompts"] },
-  linesChangedBucket: { readBy: ["backend"], backendAliases: ["linesChangedBucket", "lines_changed_bucket"] },
+  promptCount: { family: "counts", readBy: ["backend", "handoff"], backendAliases: ["promptCount", "prompt_count"] },
+  sessionMinutes: { family: "session", readBy: ["backend"], backendAliases: ["sessionMinutes", "session_minutes"], unit: "minutes" },
+  durationBucket: { family: "session", readBy: ["backend", "handoff"], backendAliases: ["durationBucket", "duration_bucket"] },
+  afterHoursPrompts: { family: "clock", readBy: ["backend", "handoff"], backendAliases: ["afterHoursPrompts", "after_hours_prompts"] },
+  inputTokens: { family: "context", readBy: ["backend"], backendAliases: ["inputTokens", "input_tokens"], unit: "tokens" },
+  outputTokens: { family: "context", readBy: ["backend"], backendAliases: ["outputTokens", "output_tokens"], unit: "tokens" },
+  cacheReadTokens: { family: "context", readBy: ["backend"], backendAliases: ["cacheReadTokens", "cache_read_tokens"], unit: "tokens" },
+  queuedPrompts: { family: "counts", readBy: ["backend"], backendAliases: ["queuedPrompts", "queued_prompts"] },
+  linesChangedBucket: { family: "edits", readBy: ["backend"], backendAliases: ["linesChangedBucket", "lines_changed_bucket"] },
 
   // ── Read by the local handoff only ──────────────────────────────────────
-  activeMinutes: { readBy: ["handoff"], unit: "minutes" },
+  activeMinutes: { family: "session", readBy: ["handoff"], unit: "minutes" },
   syntheticPromptLines: {
+    family: "reading",
     readBy: ["handoff"],
     unit: "lines",
     note: "Main-thread user lines the runtime wrote on the person's behalf (notifications, its own bookkeeping, slash-command wrappers, interrupt markers) and promptCount left out. Claude Code only; the receipt for the handoff's promptBasis. Counted per transcript, so a resumed transcript's copies count again."
   },
   dispatchedPromptLines: {
+    family: "reading",
     readBy: ["handoff"],
     unit: "lines",
     note: "Main-thread user lines that read as typed but are the prompt of a chip that launched the session, so promptCount left them out. Counted once per line across the store, as prompts are. Claude Code only; written beside promptBasis: typed_once."
   },
   interruptedRuns: {
+    family: "waiting",
     readBy: ["handoff"],
     unit: "runs",
     note: "Agent turns the person cut short with an interrupt while the turn was still going. A count per session, never a rate. Claude Code only; a handoff that counted them says so with interruptedRunsCounted, and absent means not counted, never zero."
@@ -142,11 +185,13 @@ export const METRIC_KEYS = {
    * they are.
    */
   handsOnMinutes: {
+    family: "session",
     readBy: ["handoff"],
     unit: "minutes",
     note: "Active time immediately preceding a human prompt — the only interval a transcript can show a person present for, because the prompt at its end is the evidence."
   },
   agentSupervisingMinutes: {
+    family: "session",
     readBy: ["handoff"],
     unit: "minutes",
     note: "The remaining active time: the agent was working and the person was not typing. NOT a claim that anyone watched it — nothing in a transcript could show that. Never render as attention."
@@ -156,133 +201,148 @@ export const METRIC_KEYS = {
   // a complete one, and a reader that ignores them is choosing to, rather than
   // being unable to.
   activeSplitInstants: {
+    family: "session",
     readBy: ["diagnostic"],
     note: "Distinct timestamps the split ran over, after collapsing ties. The denominator: two minutes off four instants and off four hundred are not the same measurement."
   },
   activeSplitUndatedLines: {
+    family: "session",
     readBy: ["diagnostic"],
     note: "Known lines carrying a timestamp that would not parse. Absent from the timeline, so both halves are short by an unknown amount and only this says so."
   },
   activeSplitUnposturedInstants: {
+    family: "posture",
     readBy: ["diagnostic"],
     note: "Instants reached before any permissionMode had been declared. Their supervising time lands in the unknown band, which is a blind spot rather than a posture."
   },
-  afterHoursRequests: { readBy: ["handoff"] },
-  approximateLintErrorsCount: { readBy: ["handoff"] },
-  canceledCount: { readBy: ["handoff"] },
-  chatEditCount: { readBy: ["handoff"] },
+  afterHoursRequests: { family: "clock", readBy: ["handoff"] },
+  approximateLintErrorsCount: { family: "outcome", readBy: ["handoff"] },
+  canceledCount: { family: "outcome", readBy: ["handoff"] },
+  chatEditCount: { family: "edits", readBy: ["handoff"] },
   compactionCount: {
+    family: "context",
     readBy: ["handoff"],
     note: "The backend counts context_compression_* event rows, not this key. Both are emitted; this one is for the handoff."
   },
   contextWindowPeakTokens: {
+    family: "context",
     readBy: ["handoff"],
     unit: "tokens",
     note: "The measured quantity, with no assumed denominator. Prefer this to the ratio for any within-person baseline."
   },
   contextWindowTokens: {
+    family: "context",
     readBy: ["handoff"],
     unit: "tokens",
     note: "Codex only: the model_context_window the rollout itself recorded — the real denominator its contextWindowPeakPct was computed against. Claude Code records no window and its ratio assumes 200k; absent here means the store never said."
   },
-  date: { readBy: ["handoff"] },
-  errorCount: { readBy: ["handoff"] },
-  filesChangedCount: { readBy: ["handoff"] },
-  humanChangesCount: { readBy: ["handoff"] },
-  linesAdded: { readBy: ["handoff"] },
-  linesRemoved: { readBy: ["handoff"] },
+  date: { family: "clock", readBy: ["handoff"] },
+  errorCount: { family: "outcome", readBy: ["handoff"] },
+  filesChangedCount: { family: "edits", readBy: ["handoff"] },
+  humanChangesCount: { family: "edits", readBy: ["handoff"] },
+  linesAdded: { family: "edits", readBy: ["handoff"] },
+  linesRemoved: { family: "edits", readBy: ["handoff"] },
   primaryModel: {
+    family: "model",
     readBy: ["backend", "handoff"],
     backendAliases: ["primaryModel", "primary_model"],
     note: "Read twice: the desktop's local handoff folds it, and a server-side reader resolves it to group a bucket's sessions by the model that served them. Declared handoff-only until 23 Sep 2026 — see toolName for why that direction of mistake has no symptom."
   },
-  requestCount: { readBy: ["handoff"] },
-  sessionStartedAt: { readBy: ["handoff"] },
-  subagentComposers: { readBy: ["handoff"] },
+  requestCount: { family: "counts", readBy: ["handoff"] },
+  sessionStartedAt: { family: "session", readBy: ["handoff"] },
+  subagentComposers: { family: "counts", readBy: ["handoff"] },
   subagentToolCallCount: {
+    family: "tools",
     readBy: ["handoff"],
     note: "Claude Code only: calls made inside subagent transcripts, kept out of toolCallCount so the main-loop count matches what the wire events carry."
   },
-  subagentTranscripts: { readBy: ["handoff"] },
+  subagentTranscripts: { family: "counts", readBy: ["handoff"] },
   toolCallCount: {
+    family: "tools",
     readBy: ["handoff"],
     note: "The backend counts ai_tool_call_started event rows, not this key — same split as compactionCount. Deduplicated on the tool-call id; see each extractor for what one call means in its store."
   },
   toolCallsUndated: {
+    family: "tools",
     readBy: ["handoff"],
     note: "Cursor only: calls whose every record carries an empty createdAt. Counted in toolCallCount, but no event exists for them — the wire total is smaller than this session count by exactly this number."
   },
-  toolFailureCount: { readBy: ["handoff"] },
-  totalEntryCount: { readBy: ["handoff"] },
+  toolFailureCount: { family: "outcome", readBy: ["handoff"] },
+  totalEntryCount: { family: "counts", readBy: ["handoff"] },
   userModifiedEditCount: {
+    family: "edits",
     readBy: ["handoff"],
     note: "Null, never 0 — Claude Code never sets userModified true, so 0 would assert 'no AI edit was ever corrected by hand'."
   },
 
   // ── Diagnostic: read by nobody, on purpose ──────────────────────────────
-  abandonedPromptCount: { readBy: ["diagnostic"] },
+  abandonedPromptCount: { family: "counts", readBy: ["diagnostic"] },
   // Epoch-marker metrics. The marker is local-only and never reaches the wire
   // (see EXTRACTION_EPOCH_KIND), but it travels as a NormalizedHistoricalEvent
   // and so is keyed by the same vocabulary.
-  windowOldest: { readBy: ["handoff"], note: "Oldest event the extraction saw — the marker's left edge." },
-  windowNewest: { readBy: ["handoff"], note: "Newest event the extraction saw — the marker's right edge." },
-  projectsWithNoReadableTranscript: { readBy: ["diagnostic"] },
-  unparsedComposerHeaders: { readBy: ["diagnostic"] },
-  unknownComposerHeaderTypes: { readBy: ["diagnostic"] },
-  orphanedBubbles: { readBy: ["diagnostic"] },
-  orphanedSubagentBubbles: { readBy: ["diagnostic"] },
-  sessionsWithoutTimeline: { readBy: ["diagnostic"] },
+  windowOldest: { family: "session", readBy: ["handoff"], note: "Oldest event the extraction saw — the marker's left edge." },
+  windowNewest: { family: "session", readBy: ["handoff"], note: "Newest event the extraction saw — the marker's right edge." },
+  projectsWithNoReadableTranscript: { family: "reading", readBy: ["diagnostic"] },
+  unparsedComposerHeaders: { family: "reading", readBy: ["diagnostic"] },
+  unknownComposerHeaderTypes: { family: "reading", readBy: ["diagnostic"] },
+  orphanedBubbles: { family: "reading", readBy: ["diagnostic"] },
+  orphanedSubagentBubbles: { family: "reading", readBy: ["diagnostic"] },
+  sessionsWithoutTimeline: { family: "reading", readBy: ["diagnostic"] },
   sessionsWithOnlyInheritedLines: {
+    family: "reading",
     readBy: ["diagnostic"],
     note: "Claude Code transcripts holding nothing but a copy of an ancestor's history, so no line's instant is theirs and no session is emitted for them. Excluded by rule, not a read failure: the work is in the transcript that owns it."
   },
-  emptyComposers: { readBy: ["diagnostic"] },
-  apiErrorCount: { readBy: ["diagnostic"] },
-  assistantTurns: { readBy: ["diagnostic"] },
-  compactionAutoCount: { readBy: ["diagnostic"] },
-  compactionManualCount: { readBy: ["diagnostic"] },
-  editDayCount: { readBy: ["diagnostic"] },
-  emptyChatSessions: { readBy: ["diagnostic"] },
-  gitBranch: { readBy: ["diagnostic"] },
-  linesChanged: { readBy: ["diagnostic"] },
-  malformedChatSessionLines: { readBy: ["diagnostic"] },
-  malformedHistoryEntries: { readBy: ["diagnostic"] },
-  mode: { readBy: ["diagnostic"] },
-  modelCount: { readBy: ["diagnostic"] },
-  modelSwitchCount: { readBy: ["diagnostic"] },
-  rapidRepromptCount: { readBy: ["diagnostic"] },
-  schemaUnreadable: { readBy: ["diagnostic"] },
-  sessionCount: { readBy: ["diagnostic"] },
-  sessionsFromBubbleTimeline: { readBy: ["diagnostic"] },
-  sessionsFromCheckpointTimeline: { readBy: ["diagnostic"] },
-  sessionsFromRecencyTimeline: { readBy: ["diagnostic"] },
-  subagentAssistantTurns: { readBy: ["diagnostic"] },
-  subagentPrompts: { readBy: ["diagnostic"] },
-  subagentTokensTotal: { readBy: ["diagnostic"] },
+  emptyComposers: { family: "reading", readBy: ["diagnostic"] },
+  apiErrorCount: { family: "outcome", readBy: ["diagnostic"] },
+  assistantTurns: { family: "counts", readBy: ["diagnostic"] },
+  compactionAutoCount: { family: "context", readBy: ["diagnostic"] },
+  compactionManualCount: { family: "context", readBy: ["diagnostic"] },
+  editDayCount: { family: "clock", readBy: ["diagnostic"] },
+  emptyChatSessions: { family: "reading", readBy: ["diagnostic"] },
+  gitBranch: { family: "repo", readBy: ["diagnostic"] },
+  linesChanged: { family: "edits", readBy: ["diagnostic"] },
+  malformedChatSessionLines: { family: "reading", readBy: ["diagnostic"] },
+  malformedHistoryEntries: { family: "reading", readBy: ["diagnostic"] },
+  mode: { family: "posture", readBy: ["diagnostic"] },
+  modelCount: { family: "model", readBy: ["diagnostic"] },
+  modelSwitchCount: { family: "model", readBy: ["diagnostic"] },
+  rapidRepromptCount: { family: "counts", readBy: ["diagnostic"] },
+  schemaUnreadable: { family: "reading", readBy: ["diagnostic"] },
+  sessionCount: { family: "session", readBy: ["diagnostic"] },
+  sessionsFromBubbleTimeline: { family: "reading", readBy: ["diagnostic"] },
+  sessionsFromCheckpointTimeline: { family: "reading", readBy: ["diagnostic"] },
+  sessionsFromRecencyTimeline: { family: "reading", readBy: ["diagnostic"] },
+  subagentAssistantTurns: { family: "counts", readBy: ["diagnostic"] },
+  subagentPrompts: { family: "counts", readBy: ["diagnostic"] },
+  subagentTokensTotal: { family: "context", readBy: ["diagnostic"] },
   toolName: {
+    family: "tools",
     readBy: ["backend"],
     backendAliases: ["toolName", "tool_name"],
     note: "Set per ai_tool_call_started event by #43's extractors. Declared diagnostic until 23 Sep 2026 on the belief that nothing resolved it server-side; two backend readers do — one to see a sub-agent dispatch, one composing per-tool metrics. This is the inverse of the mismatch this module was written for: contextUsagePercent was a key nobody read, and a key a reader resolves without being declared drops nothing, so it has no symptom at all. What it costs is that readBy stops being a true census of what the server sees, which is what you consult when deciding what a collector should stop sending. Registered after the fact in the first place: #38 and #43 merged past each other, and the union caught it on the next compile — metaLines all over again."
   },
-  toolResultCount: { readBy: ["diagnostic"] },
-  toolResultErrorCount: { readBy: ["diagnostic"] },
-  unknownBubbles: { readBy: ["diagnostic"] },
-  unknownLines: { readBy: ["diagnostic"] },
+  toolResultCount: { family: "tools", readBy: ["diagnostic"] },
+  toolResultErrorCount: { family: "outcome", readBy: ["diagnostic"] },
+  unknownBubbles: { family: "reading", readBy: ["diagnostic"] },
+  unknownLines: { family: "reading", readBy: ["diagnostic"] },
   metaLines: {
+    family: "reading",
     readBy: ["diagnostic"],
     note: "Recognised-but-skipped transcript machinery (file-history-snapshot, queued-command, …). Split out of unknownLines by #43 so that number keeps meaning \"a type nobody has looked at\". Registered here after the fact: #41 and #43 merged past each other, and the union caught it on the next compile — which is this module doing its job."
   },
-  unparsedBubbles: { readBy: ["diagnostic"] },
-  unparsedChatSessionFiles: { readBy: ["diagnostic"] },
-  unparsedHistoryFiles: { readBy: ["diagnostic"] },
-  unparsedLines: { readBy: ["diagnostic"] },
-  unreadableChatSessionFiles: { readBy: ["diagnostic"] },
-  unreadableHistoryFiles: { readBy: ["diagnostic"] },
+  unparsedBubbles: { family: "reading", readBy: ["diagnostic"] },
+  unparsedChatSessionFiles: { family: "reading", readBy: ["diagnostic"] },
+  unparsedHistoryFiles: { family: "reading", readBy: ["diagnostic"] },
+  unparsedLines: { family: "reading", readBy: ["diagnostic"] },
+  unreadableChatSessionFiles: { family: "reading", readBy: ["diagnostic"] },
+  unreadableHistoryFiles: { family: "reading", readBy: ["diagnostic"] },
   unreadableRolloutFiles: {
+    family: "reading",
     readBy: ["diagnostic"],
     note: "Codex only: rollout files the extractor meant to read and could not open. Summed into the import's read-failure warning, so a store that is partly unreadable says so rather than reporting a short window as the whole."
   },
-  unrecognisedChatSessionFiles: { readBy: ["diagnostic"] }
+  unrecognisedChatSessionFiles: { family: "reading", readBy: ["diagnostic"] }
 } as const satisfies Record<string, MetricKeySpec>;
 
 /** Every key an extractor may place in `metrics{}`. Anything else is a

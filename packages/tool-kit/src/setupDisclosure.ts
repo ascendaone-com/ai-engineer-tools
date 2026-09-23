@@ -20,34 +20,27 @@
  * families it actually sends. The sentence a person reads is composed from that
  * declaration and nothing else.
  *
- * ## What this module deliberately does NOT yet do
+ * ## What binds a declaration to the wire
  *
- * It does not verify that a declaration covers the keys the adapter emits.
- * Today {@link CliAgentSetupSpec.sends} is hand-written, and a new metadata key
- * can still reach the wire without widening any family — which is precisely the
- * failure this module exists to start closing, not one it has closed. The
- * binding half is a `family` on each entry of the metric-key registry plus a
- * per-adapter guard that fails when an emitted key belongs to no declared
- * family. Families are named here first so that guard has something to bind to.
+ * An adapter's `sends` is still hand-written, but it is no longer unchecked.
+ * Every metadata field and every metric key now carries a family on the
+ * contract itself (`EVENT_METADATA_DISCLOSURE` and `METRIC_KEYS[k].family`),
+ * so the compiler refuses an unclassified key at the same declaration site
+ * where it already refuses an unregistered one. `setupDisclosure.test.mjs`
+ * then runs each mapper and resolves every key it emits to a family, and
+ * fails when that family is not one the adapter declares — or when the
+ * adapter declares a family nothing it emits belongs to.
  *
  * Read {@link FAMILY_SENTENCES} as product copy: it is the wording a person
- * sees, and changing it changes what they were told.
+ * sees, and changing it changes what they were told. The families themselves
+ * live in `@ascenda-one/tool-contract`, beside the keys they classify — the
+ * taxonomy is a property of the wire, the wording is a property of the
+ * surface that prints it.
  */
 
-/** A named group of facts a collector may send. */
-export type DisclosureFamily =
-  | "session"
-  | "counts"
-  | "tools"
-  | "outcome"
-  | "clock"
-  | "repo"
-  | "model"
-  | "posture"
-  | "git"
-  | "edits"
-  | "context"
-  | "waiting";
+import type { DisclosureFamily } from "@ascenda-one/tool-contract";
+
+export type { DisclosureFamily };
 
 /**
  * One spelling per family, in the second person, stated as fact.
@@ -67,7 +60,8 @@ export const FAMILY_SENTENCES: Readonly<Record<DisclosureFamily, string>> = {
   git: "that a commit, push or revert happened, and when a pull request opened or merged",
   edits: "roughly how much a file changed, as a bucket, and whether you edited it after the agent wrote it",
   context: "how full the context window got",
-  waiting: "that your agent stopped and waited for you, as one word: permission_request, idle_prompt, or other"
+  waiting: "that your agent stopped and waited for you, as one word: permission_request, idle_prompt, or other",
+  reading: "what the reader could not make sense of — lines it failed to parse, files it could not open, and prompts it judged machine-written rather than typed"
 };
 
 /**

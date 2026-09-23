@@ -12,13 +12,14 @@
  * sends; this file runs its mapper and asserts the declaration is neither
  * short nor long.
  *
- * What it does NOT yet check: that every *key* is covered by some family.
- * Family membership is asserted here for the handful of keys that make a
- * family true — the binding of the whole key vocabulary to families is the
- * `family` field on the metric-key registry, and is the next change.
+ * Every key is resolved through the contract, not through a list kept here:
+ * `EVENT_METADATA_DISCLOSURE` for a named metadata field, `METRIC_KEYS[k].family`
+ * for a metric key. A key in neither is a key nothing downstream can read and
+ * nobody was told about, and fails on its own.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EVENT_METADATA_DISCLOSURE, METRIC_KEYS } from "@ascenda-one/tool-contract";
 import {
   ALWAYS_SENT,
   FAMILY_SENTENCES,
@@ -42,21 +43,18 @@ const { SETUP: WINDSURF } = await import(`${R}ascenda-windsurf-hooks/dist/setup.
 
 const CWD = process.cwd();
 
+/** Never a family: these say which install sent what, not how the work went. */
+const NOT_A_FAMILY = new Set(["transport", "local"]);
+
 /**
- * The key that makes each optional family true on the wire.
+ * The family a key belongs to, resolved through the contract.
  *
- * One key per family is enough: the question a declaration answers is "does
- * this adapter send this kind of thing at all", and a family with none of its
- * keys present is a sentence about nothing.
+ * `undefined` means the key is in neither registry, which is its own failure —
+ * an unregistered key is read by nothing and disclosed by nothing at once.
  */
-const FAMILY_EVIDENCE = {
-  model: ["modelId", "modelClass"],
-  posture: ["autonomyMode"],
-  git: ["gitAction", "milestoneKind"],
-  edits: ["linesChangedBucket", "userModified"],
-  context: ["contextWindowPeakPct", "contextUsagePercent", "tokenPressureBucket"],
-  waiting: ["interruptionKind"]
-};
+function familyOf(key) {
+  return EVENT_METADATA_DISCLOSURE[key] ?? METRIC_KEYS[key]?.family;
+}
 
 const ADAPTERS = [
   {
@@ -133,12 +131,21 @@ function keysOf(events) {
 for (const { spec, emit } of ADAPTERS) {
   const name = spec.displayName;
 
+  test(`${name}: every key it emits is registered and classified`, () => {
+    const unclassified = [...keysOf(emit())].filter((key) => familyOf(key) === undefined);
+    assert.deepEqual(
+      unclassified,
+      [],
+      `${name} puts these on the wire and neither registry names them:\n  ${unclassified.join(", ")}\n\n` +
+        "A key in neither EVENT_METADATA_DISCLOSURE nor METRIC_KEYS is read by nothing " +
+        "and disclosed by nothing. Classify it where it is declared — with a family if it " +
+        "says something about how the work went, or as transport/local with the reason."
+    );
+  });
+
   test(`${name}: the disclosure claims no family this adapter does not send`, () => {
-    const keys = keysOf(emit());
-    const unsupported = spec.sends.filter((family) => {
-      const evidence = FAMILY_EVIDENCE[family];
-      return evidence && !evidence.some((key) => keys.has(key));
-    });
+    const sent = new Set([...keysOf(emit())].map(familyOf));
+    const unsupported = spec.sends.filter((family) => !sent.has(family));
     assert.deepEqual(
       unsupported,
       [],
@@ -150,11 +157,15 @@ for (const { spec, emit } of ADAPTERS) {
   });
 
   test(`${name}: the disclosure omits no family this adapter does send`, () => {
-    const keys = keysOf(emit());
     const declared = new Set([...ALWAYS_SENT, ...spec.sends]);
-    const undisclosed = Object.entries(FAMILY_EVIDENCE)
-      .filter(([family, evidence]) => !declared.has(family) && evidence.some((key) => keys.has(key)))
-      .map(([family]) => family);
+    const undisclosed = [
+      ...new Set(
+        [...keysOf(emit())]
+          .map((key) => [key, familyOf(key)])
+          .filter(([, family]) => family !== undefined && !NOT_A_FAMILY.has(family) && !declared.has(family))
+          .map(([key, family]) => `${family} (${key})`)
+      )
+    ].sort();
     assert.deepEqual(
       undisclosed,
       [],
@@ -176,17 +187,23 @@ for (const { spec, emit } of ADAPTERS) {
   });
 }
 
-test("every declared family has a sentence, and every sentence is reachable", () => {
-  const declared = new Set(ADAPTERS.flatMap(({ spec }) => [...ALWAYS_SENT, ...spec.sends]));
-  for (const family of declared) {
-    assert.ok(FAMILY_SENTENCES[family], `${family} is declared by an adapter and has no sentence`);
+test("every family a key claims has a sentence, and every sentence has a key", () => {
+  const onKeys = new Set(
+    [...Object.values(EVENT_METADATA_DISCLOSURE), ...Object.values(METRIC_KEYS).map((spec) => spec.family)]
+      .filter((family) => !NOT_A_FAMILY.has(family))
+  );
+  for (const family of onKeys) {
+    assert.ok(FAMILY_SENTENCES[family], `a key claims the family "${family}" and no sentence exists for it`);
   }
-  const orphans = Object.keys(FAMILY_SENTENCES).filter((family) => !declared.has(family));
+  // The other direction, and the one that rots quietly: copy outliving the
+  // thing it described. A family no key belongs to is a sentence about
+  // nothing, printed to people who then believe it.
+  const orphans = Object.keys(FAMILY_SENTENCES).filter((family) => !onKeys.has(family));
   assert.deepEqual(
     orphans,
     [],
-    `these sentences are written and no adapter prints them:\n  ${orphans.join(", ")}\n\n` +
-      "A family nobody declares is copy nobody reads. Delete it, or find the adapter that should be declaring it."
+    `these sentences are written and no key on the wire belongs to them:\n  ${orphans.join(", ")}\n\n` +
+      "Delete the sentence, or find the key that should be claiming it."
   );
 });
 

@@ -501,6 +501,94 @@ export type ModelClass =
   | "router:auto"
   | "unknown";
 
+/**
+ * What a person was told, as a property of the key itself.
+ *
+ * `metricKeys.ts` records who READS a key. This records who was TOLD about it,
+ * which is the half nothing in this repo had. A key could be registered,
+ * typed, resolved by a backend reader and shipped, and no test anywhere could
+ * ask whether the person whose machine produced it had ever been told it
+ * leaves — because no list of what leaves was ever a closed one.
+ *
+ * The collectors print a disclosure at pairing composed from these families
+ * (`setupDisclosure.ts` in tool-kit holds the one spelling of each sentence).
+ * Binding the family to the key here, rather than keeping a second list beside
+ * the copy, is deliberate: the declaration site that already refuses an
+ * unregistered key is the site that should refuse an undisclosed one.
+ *
+ * Two values are not families:
+ *
+ * - `transport` — says which install sent which batch under which consent, and
+ *   nothing about how the work went. If it carries something about the work it
+ *   is a family's problem, not this value's.
+ * - `local` — read on the machine and never put on a wire event.
+ *
+ * Both require a written reason. Classifying a key is the point; the reason is
+ * the artefact.
+ */
+export type DisclosureFamily =
+  | "session"
+  | "counts"
+  | "tools"
+  | "outcome"
+  | "clock"
+  | "repo"
+  | "model"
+  | "posture"
+  | "git"
+  | "edits"
+  | "context"
+  | "waiting"
+  | "reading";
+
+export type Disclosure = DisclosureFamily | "transport" | "local";
+
+/**
+ * The family each named metadata field belongs to, and the reason where it
+ * belongs to none.
+ *
+ * Every entry of {@link EVENT_METADATA_FIELDS} appears here — pinned by
+ * `eventMetadataFields.test.mjs`, so a field added to one and not the other
+ * fails rather than defaulting to undisclosed.
+ */
+export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
+  language: "edits",
+  fileType: "edits",
+  durationBucket: "session",
+  tokenPressureBucket: "context",
+  linesChangedBucket: "edits",
+  commandClass: "counts",
+  gitAction: "git",
+  milestoneKind: "git",
+  branchHash: "repo",
+  autonomyMode: "posture",
+  modelClass: "model",
+  modelId: "model",
+  userModified: "edits",
+  outcome: "outcome",
+  trigger: "outcome",
+  promptClass: "counts",
+  reason: "outcome",
+  afterHours: "clock",
+  activity: "counts",
+  interruptionKind: "waiting",
+  // Free text by type, and written by no hook mapper — the IDE extension's
+  // test signal is the only producer. The setup disclosure's third refusal
+  // line says as much, and tool-kit's guard test fails if a mapper starts.
+  message: "counts",
+  host: "session",
+  toolName: "tools",
+  simulated: "transport",
+  relatedEventType: "transport",
+  skillVersion: "transport",
+  // A hash computed before it reaches any collector; the task itself is never
+  // seen by this code, so there is nothing about the work here to disclose.
+  taskFingerprint: "transport",
+  importKey: "transport",
+  extractionId: "transport",
+  importSchema: "transport"
+};
+
 export type AscendaEventMetadata = Record<string, string | number | boolean | null | undefined> & {
   language?: string | null;
   fileType?: string | null;
@@ -661,6 +749,31 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   message?: string;
   host?: string;
   toolName?: string;
+
+  /**
+   * Which kind of wait an agent stopped on: `permission_request`,
+   * `idle_prompt` or `other`, and never anything else.
+   *
+   * The only payload field `supervision_interruption` carries. It was emitted
+   * by the Claude Code and Codex mappers for months and registered in neither
+   * this list nor the metric-key registry, so ingestion accepted it and no
+   * reader resolved it — the same silent shape as a `metrics` key spelled the
+   * way a host spells it rather than the way the reader does. Neither of those
+   * two adapters had a wire-vocabulary guard, which is why nothing raised.
+   *
+   * The event row itself was always countable — `eventType` is an indexed
+   * column, not metadata — so what was lost is the split between the three
+   * labels. That matters more than it sounds: the v0.1.26 notes tell people
+   * these notifications get reworded between releases, that an unrecognised
+   * wording is reported as `other` rather than guessed at, and that "if that
+   * share climbs, the labels need updating. It is meant to be visible." It was
+   * visible to nobody. Registering the key here is what makes that sentence
+   * true rather than aspirational.
+   *
+   * The notification's own wording is read on the machine to choose one of the
+   * three labels and is then discarded; it never leaves the hook process.
+   */
+  interruptionKind?: "permission_request" | "idle_prompt" | "other";
   simulated?: boolean;
   relatedEventType?: string;
 
@@ -733,6 +846,7 @@ export const EVENT_METADATA_FIELDS = [
   "message",
   "host",
   "toolName",
+  "interruptionKind",
   "simulated",
   "relatedEventType",
   "skillVersion",
