@@ -27,8 +27,14 @@ import { ASCENDA_TOOL_TYPE } from "./types.js";
  *
  * `PostToolUseFailure` is where Claude Code reports a tool call that failed; a
  * failure never reaches `PostToolUse`. Leaving it out drops every failed call.
+ *
+ * `SessionEnd` closes the session `SessionStart` opened. It writes the end to
+ * the outbox and never waits on the network, so it fits the shared 1.5s
+ * Claude Code gives these hooks by default. It gets the same 5s timeout as
+ * the rest anyway: Node's startup, or npx resolving the package on the plugin
+ * channel, can eat most of 1.5s on a slow machine.
  */
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification"] as const;
+const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification", "SessionEnd"] as const;
 
 /**
  * Claude Code's default timeout for `command` hooks is 600s. Telemetry that

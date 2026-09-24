@@ -52,6 +52,20 @@ targets, error counts or internal resource names — this repository is public.
   a checkout says `unreleased`.
 - **`status` prints it first**, for Claude Code and the other CLI agents alike.
 
+### Claude Code sessions end
+
+- **The Claude Code hooks send a session end** when Claude Code exits, the
+  same `session_ended` event Cursor, Gemini and the editor extensions send.
+  Until now a Claude Code session only ever started.
+- It carries Claude Code's own reason, one word: `clear`, `resume`, `logout`,
+  `prompt_input_exit` or `other`. A word it doesn't recognise goes out as
+  `unknown`. The setup screen says so.
+- **Exiting never waits on the network.** The end goes into the outbox, and
+  the next hook to send delivers it: another open session's next tool call, or
+  your next `SessionStart`. It keeps the time it was written.
+- **Run `setup` again to pick it up.** It registers ten hooks now, and
+  `status` counts `10/10`. The plugin registers the same ten.
+
 ## v0.1.27
 
 ### A leftover socket file can't swallow live signals

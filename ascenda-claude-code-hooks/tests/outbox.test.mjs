@@ -238,3 +238,80 @@ test("doctor surfaces a journaled discard, and it survives the recovery that fol
   });
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// ── SessionEnd: the outbox first, and nothing that can hold up the exit ─────
+
+/** Accepts every connection and never answers: the worst a network can do. */
+async function withHungServer(run) {
+  const connections = [];
+  const server = http.createServer((req) => { connections.push(req.url); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    return await run(`http://127.0.0.1:${server.address().port}`, connections);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+const SESSION_END = { session_id: "s1", hook_event_name: "SessionEnd", reason: "logout" };
+
+test("SessionEnd against a hung server: the end is in the outbox and the hook returns well inside its 5s timeout", async () => {
+  const { dir, state, outbox, token } = scratch();
+  // Something already waiting, so an outbox pass would have a reason to knock.
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(outbox, `${JSON.stringify({
+    queuedAt: new Date().toISOString(),
+    payload: { toolInstallationId: INSTALLATION_ID, source: "claude_code", eventType: "ai_file_edit", occurredAt: new Date().toISOString(), idempotencyKey: "waiting-key", severity: "low", consentScope: "ide_telemetry", provenance: "ai_work_telemetry", privacyMode: "metadata_only", metadata: {} }
+  })}\n`);
+
+  await withHungServer(async (apiBaseUrl, connections) => {
+    const started = Date.now();
+    const result = await run(["SessionEnd"], {
+      input: SESSION_END,
+      env: { ASCENDA_API_BASE_URL: apiBaseUrl, ASCENDA_STATE_FILE: state, ASCENDA_OUTBOX_FILE: outbox, ASCENDA_EVENT_WRITE_TOKEN_FILE: token },
+      timeout: 5_000
+    });
+    const elapsed = Date.now() - started;
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(elapsed < 1_500, `SessionEnd took ${elapsed}ms; Claude Code waits on it while exiting`);
+    assert.deepEqual(connections, [], "no live send and no outbox pass");
+  });
+
+  const queued = readOutbox(outbox);
+  assert.equal(queued.length, 2, "the waiting entry is kept and the end joins it");
+  const [ended] = queued.filter((entry) => entry.payload.eventType === "recovery_offline_period");
+  assert.ok(ended, "the session end is on disk");
+  assert.equal(ended.payload.metadata.activity, "session_ended");
+  assert.equal(ended.payload.metadata.sessionEndReason, "logout");
+  assert.equal(ended.payload.sessionId, "s1");
+  assert.equal(fs.existsSync(state), false, "nothing was attempted, so nothing is journaled as failing");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("SessionEnd against a healthy server: the next hook delivers the end, once", async () => {
+  const { dir, state, outbox, token } = scratch();
+  const env = { ASCENDA_STATE_FILE: state, ASCENDA_OUTBOX_FILE: outbox, ASCENDA_EVENT_WRITE_TOKEN_FILE: token };
+
+  await withServer({
+    single: () => ({ status: 200, body: JSON.stringify({ status: "accepted" }) }),
+    batch: (body) => ({ status: 200, body: JSON.stringify({ results: body.events.map((_, index) => ({ index, status: "accepted" })) }) })
+  }, async (apiBaseUrl, received) => {
+    const ended = await run(["SessionEnd"], { input: SESSION_END, env: { ...env, ASCENDA_API_BASE_URL: apiBaseUrl } });
+    assert.equal(ended.status, 0, ended.stderr);
+    assert.equal(received.single.length + received.batch.length, 0, "SessionEnd itself never waits on the network");
+    const [queued] = readOutbox(outbox);
+    assert.equal(queued.payload.eventType, "recovery_offline_period");
+
+    const next = await run(["SessionStart"], { input: { session_id: "s2", hook_event_name: "SessionStart", source: "startup" }, env: { ...env, ASCENDA_API_BASE_URL: apiBaseUrl } });
+    assert.equal(next.status, 0, next.stderr);
+    assert.equal(received.batch.length, 1, "the next hook's outbox pass carried it");
+    assert.equal(received.batch[0].events.length, 1);
+    assert.equal(received.batch[0].events[0].idempotencyKey, queued.payload.idempotencyKey);
+    assert.equal(received.batch[0].events[0].metadata.sessionEndReason, "logout");
+    assert.equal(received.single[0].eventType, "create_focus_session", "and the new session's start went through its own door");
+    assert.equal(readOutbox(outbox).length, 0, "delivered and evicted");
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});

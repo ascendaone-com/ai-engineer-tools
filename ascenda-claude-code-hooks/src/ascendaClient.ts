@@ -31,6 +31,11 @@ export class AscendaClient {
     return this.sender.send(mapped);
   }
 
+  /** Outbox only, no network. See {@link AscendaEventSender.queue}. */
+  queue(mapped: MappedAscendaEvent): boolean {
+    return this.sender.queue(mapped);
+  }
+
   async renewEventToken(): Promise<boolean> {
     return this.sender.renewEventToken();
   }

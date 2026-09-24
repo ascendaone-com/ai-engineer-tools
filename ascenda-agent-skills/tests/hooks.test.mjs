@@ -32,6 +32,16 @@ test("the plugin registers exactly the events `setup` does", () => {
   assert.deepEqual([...Object.keys(hooks)].sort(), [...setupHookEvents()].sort());
 });
 
+test("both channels close the session they open", () => {
+  // SessionStart without SessionEnd leaves every plugin-installed session
+  // open until something guesses its end from the last event.
+  for (const event of ["SessionStart", "SessionEnd"]) {
+    assert.ok(hooks[event], `the plugin does not register ${event}`);
+    assert.ok(setupHookEvents().includes(event), `setup does not register ${event}`);
+  }
+  assert.equal(hooks.SessionEnd[0].hooks[0].command, "npx -y @ascenda-one/claude-code-hooks SessionEnd");
+});
+
 test("every plugin hook carries a timeout", () => {
   // Claude Code's default for a command hook is 600s, and each of these
   // resolves `@ascenda-one/claude-code-hooks` through npx before it runs.
