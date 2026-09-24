@@ -77,7 +77,7 @@ test("SessionEnd: only the reason leaves, never the transcript path or the postu
   const values = JSON.stringify(event);
   assert.ok(!values.includes("transcript"), values);
   assert.ok(!values.includes("abc123"), values);
-  assert.deepEqual(Object.keys(event.metadata).filter((k) => k !== "branchHash").sort(), ["activity", "host", "sessionEndReason"]);
+  assert.deepEqual(Object.keys(event.metadata).filter((k) => k !== "branchHash").sort(), ["activity", "host", "runtime", "sessionEndReason"]);
 });
 
 test("classifySessionEndReason is total and forgiving of case and whitespace", () => {
@@ -266,7 +266,7 @@ test("Stop: the turn-end event carries no content from the payload", () => {
   const end = events.find((e) => e.eventType === "ai_turn_completed");
   assert.ok(end);
   assert.equal(end.metadata.autonomyMode, "accept_edits");
-  const allowed = new Set(["host", "branchHash", "autonomyMode", "durationBucket"]);
+  const allowed = new Set(["host", "runtime", "branchHash", "autonomyMode", "durationBucket"]);
   assert.deepEqual(Object.keys(end.metadata).filter((k) => !allowed.has(k)), []);
   assert.equal(JSON.stringify(end).includes("secret"), false, "payload content leaked into the event");
 });
@@ -707,4 +707,32 @@ test("captured fixtures: the shipped examples now produce all three signals they
   const bashEvents = mapClaudeEvent("PostToolUse", bash);
   assert.equal(bashEvents[0].eventType, "editor_verification_activity");
   assert.equal(bashEvents[0].metadata.autonomyMode, "default");
+});
+
+// A hosted session's transcript never reaches the person's machine, so these
+// events are its only record. Every event says which side it came from, read
+// from the variable Claude Code sets in its hosted sessions.
+test("runtime: every event says local unless Claude Code says it is hosted", () => {
+  const saved = process.env.CLAUDE_CODE_REMOTE;
+  try {
+    delete process.env.CLAUDE_CODE_REMOTE;
+    for (const event of mapClaudeEvent("SessionStart", { source: "startup" })) assert.equal(event.metadata.runtime, "local");
+
+    process.env.CLAUDE_CODE_REMOTE = "true";
+    const hosted = [
+      ...mapClaudeEvent("SessionStart", { source: "startup" }),
+      ...mapClaudeEvent("UserPromptSubmit", { prompt: "hello" }),
+      ...mapClaudeEvent("PostToolUseFailure", failurePayload())
+    ];
+    assert.ok(hosted.length >= 3);
+    for (const event of hosted) assert.equal(event.metadata.runtime, "cloud", event.eventType);
+
+    for (const value of ["false", "", "0"]) {
+      process.env.CLAUDE_CODE_REMOTE = value;
+      for (const event of mapClaudeEvent("SessionStart", { source: "startup" })) assert.equal(event.metadata.runtime, "local", value);
+    }
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CODE_REMOTE;
+    else process.env.CLAUDE_CODE_REMOTE = saved;
+  }
 });

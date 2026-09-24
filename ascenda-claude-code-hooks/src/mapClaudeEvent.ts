@@ -1,6 +1,6 @@
 import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason } from "@ascenda-one/tool-contract";
-import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
+import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent, claudeRuntime } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
 
 /**
@@ -15,6 +15,11 @@ import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNe
  * does not have to — and is omitted entirely when no branch is observable
  * (detached HEAD, no checkout, no readable salt). See the derivation in
  * tool-kit for why absence is never an empty string.
+ *
+ * `runtime` rides on every event for the same reason: a hosted session's
+ * transcript never reaches the person's machine, so these events are the only
+ * record of it, and a reader comparing them against a history import has to
+ * know which rows the import could never have seen.
  */
 export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {
   const events = mapEvent(hookName, input);
@@ -23,9 +28,10 @@ export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookI
   if (events.length === 0) return events;
 
   const branchHash = deriveBranchHashForCwd(getString(input, ["cwd"]) ?? process.cwd());
+  const runtime = claudeRuntime();
   return events.map((event) => ({
     ...event,
-    metadata: { host: CLAUDE_HOST, ...(branchHash ? { branchHash } : {}), ...event.metadata }
+    metadata: { host: CLAUDE_HOST, runtime, ...(branchHash ? { branchHash } : {}), ...event.metadata }
   }));
 }
 

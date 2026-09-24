@@ -96,6 +96,19 @@ export type EventSenderConfig = {
    * question about the fixture rather than about today's date.
    */
   timeProvider?: TimeProvider;
+  /**
+   * Whether a rejected token may be renewed. Defaults to true.
+   *
+   * Renewal rotates the token and revokes the one it replaced, which is safe
+   * only where the replacement outlives this process. An ephemeral host (a
+   * hosted cloud session, say, whose token arrives through its environment on
+   * every start) loses the replacement with the container, and the revoke
+   * then takes the environment's copy down for every later session and every
+   * concurrent one. Such a caller turns this off: a rejected token stays a
+   * journalled `auth_failed`, and the fix is a fresh token in that
+   * environment, not a rotation nobody keeps.
+   */
+  renewToken?: boolean;
 };
 
 /** Who an event is from. The subset of sender config a payload is built out of. */
@@ -558,6 +571,7 @@ export class AscendaEventSender {
 
   /** Never throws: a renewal that errors is a failed renewal, not a failed turn. */
   async renewEventToken(): Promise<boolean> {
+    if (this.config.renewToken === false) return false;
     try {
       const renewed = await renewToolToken(this.config.apiBaseUrl, this.eventWriteToken, this.signal());
       if (!renewed) return false;

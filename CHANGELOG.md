@@ -52,6 +52,17 @@ targets, error counts or internal resource names — this repository is public.
   a checkout says `unreleased`.
 - **`status` prints it first**, for Claude Code and the other CLI agents alike.
 
+### Cloud sessions are told apart from local ones
+
+- **Claude Code events say where the agent ran**: `runtime` is `local` on your
+  machine and `cloud` in a hosted session such as Claude Code on the web. A
+  cloud session's transcript never reaches your machine, so a history import
+  can't see it and the hooks are its only record. The setup screen says so.
+- **In a cloud session the hooks never rotate their token.** Each session
+  starts from the token you put in that environment's settings, and a rotation
+  would revoke that copy for every later session. A rejected token there is
+  recorded as a failed send. Pair again and replace the token.
+
 ### Claude Code sessions end
 
 - **The Claude Code hooks send a session end** when Claude Code exits, the
