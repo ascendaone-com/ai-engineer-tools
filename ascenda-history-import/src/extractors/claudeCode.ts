@@ -568,8 +568,8 @@ function rapidRepromptCountOf(fold: SessionFold): number {
  * **The clamp this function used to apply was not honest under-reporting —
  * it was signal destruction, and it was measured.** Clipping the ratio at
  * 1.0 made a 600k-token session and a 200k-token session report the
- * identical value, and on a real machine that collapsed 214 of 363 sessions
- * (59%) onto exactly 1.0. A field with no variance across the majority of
+ * identical value, and on a heavy user's store that collapses most sessions
+ * onto exactly 1.0. A field with no variance across the majority of
  * its observations carries no within-person information at all, which is
  * why the state engine excludes `contextWindowPeakPct` as an input.
  *

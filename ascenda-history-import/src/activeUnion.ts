@@ -8,10 +8,9 @@
  * overlap: two agents running in one repo from 14:00 to 16:00 are two hours of
  * the person's week and four hours of session time, and the sum reports four.
  *
- * On the reference machine the sum came to 713 hours of supervising across a
- * 168-hour week — 4.2x wall clock, with a single project claiming 390 hours on
- * its own. A figure larger than the period it describes is not an
- * over-estimate, it is a category error: it is agent-hours worked, rendered
+ * With a few agents running side by side the sum readily exceeds the hours in
+ * the week it covers, and a single busy project can do so on its own. A
+ * figure larger than the period it describes is not an over-estimate, it is a category error: it is agent-hours worked, rendered
  * under a heading about where the person's week went.
  *
  * The same loop that sums the minutes already unions the *days* ("two sessions

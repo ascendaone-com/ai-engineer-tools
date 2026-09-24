@@ -1,15 +1,15 @@
 /**
  * Per-local-day slices of a session.
  *
- * A session is not an event at a point in time — 487 of the 1,858 sessions on
- * the reference machine span more than one local day. Placing such a session
- * on a single day forces a choice, and two of the three answers are wrong:
+ * A session is not an event at a point in time — a long-lived or resumed
+ * session routinely spans more than one local day. Placing such a session on
+ * a single day forces a choice, and two of the three answers are wrong:
  *
  *  - **its end day only** (what the handoff used to allow, since it carried
- *    nothing else) drops 16 days that genuinely held prompts;
- *  - **every day from start to end** claims 283 of 283 days on that machine —
- *    51 of them with no prompt at all. A session opened 22 Jun and last
- *    touched 5 Jul would assert fourteen days of work on the strength of two.
+ *    nothing else) drops days that genuinely held prompts;
+ *  - **every day from start to end** claims days with no prompt at all. A
+ *    session opened 22 Jun and last touched 5 Jul would assert fourteen days
+ *    of work on the strength of two.
  *  - **the days it actually holds prompts on** is exact, needs no rule, and
  *    is what this module produces.
  *

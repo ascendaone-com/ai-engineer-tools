@@ -38,10 +38,9 @@ test("bucketDurationMs rejects non-durations", () => {
  *
  * `bucketDurationMs` is the only producer of `durationBucket` on the wire —
  * every hook adapter and every history-import extractor routes through it. The
- * backend reads that field in `DurationBuckets.ToMinutes`
- * (asc-core-be `Services/DurationBuckets.cs`), and for a long time read a
- * vocabulary this function has never produced: `"0-15" | "15-30" | "30-60" |
- * "60+"`. Zero overlap, so bucket-derived session minutes were 0 for every
+ * backend reads that field to turn it back into minutes, and for a long time
+ * read a vocabulary this function has never produced: `"0-15" | "15-30" |
+ * "30-60" | "60+"`. Zero overlap, so bucket-derived session minutes were 0 for every
  * user and the metric reported "no evidence" rather than a wrong number.
  *
  * Nothing raised. An unrecognised bucket and an absent one are the same 0 on
@@ -49,9 +48,9 @@ test("bucketDurationMs rejects non-durations", () => {
  * understood — so a runtime guard here is the only thing that can catch the
  * drift from the emitting end.
  *
- * READER_VOCABULARY mirrors the C# switch. asc-core-be pins the same set from
- * its side in `AscendaCore.Tests/DurationBucketVocabularyTests.cs`. Changing
- * the union means changing both; either one alone goes red.
+ * READER_VOCABULARY mirrors the set the backend accepts, and the backend pins
+ * the same set from its side. Changing the union means changing both; either
+ * one alone goes red.
  */
 const READER_VOCABULARY = new Set(["0-1m", "1-5m", "5-10m", "10-30m", "30-60m", "60m+"]);
 

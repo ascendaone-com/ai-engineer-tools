@@ -24,15 +24,15 @@ The repro offered in §2 was also not one. `npx … Stop </dev/null` supplies an
 empty payload, so no event is mapped and no send is attempted. The silence
 proved nothing.
 
-**2. The token was never rejected.** Posting to prod `/v1/tool-events` with the
-stored 7 Aug token returned `200 {"status":"accepted"}`. Replaying the hook's
+**2. The token was never rejected.** Posting to the live `/v1/tool-events` with
+the stored token returned `200 {"status":"accepted"}`. Replaying the hook's
 own captured payloads — `ai_file_edit` and `editor_verification_activity` under
 scope `ide_telemetry` — returned 200 as well. The token-rotation hypothesis has
 no support, and a fix aimed at rotation would have been aimed at nothing.
 
 The handoff's *inference method* was fine, though, and worth keeping: the
-backend sets `LastSeenAt` only on the accepted path of `IngestToolEventAsync`,
-so a stale `lastSeenAt` really does mean no event landed.
+backend advances a device's `lastSeenAt` only when it accepts an event, so a
+stale `lastSeenAt` really does mean no event landed.
 
 ## What was actually broken
 
@@ -76,7 +76,7 @@ separate components precisely because each was left to notice its own failures.
 - One notice per outage reaches the user through `additionalContext`, the only
   channel that survives an exit-0 hook.
 
-Verified end to end against prod on 17 Aug 2026, following §6 of the handoff:
+Exercised end to end against the live API, following §6 of the handoff:
 success journalled, a simulated 401 journalled with status and error code,
 `doctor` reporting it, the notice appearing exactly once, and recovery clearing
 the episode.

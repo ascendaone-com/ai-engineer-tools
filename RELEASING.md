@@ -187,7 +187,7 @@ time, after the GitHub Release has already been created.
 
 ### Transferring the repo to another owner is a repo-side change only
 
-`asc-core-be` moved to the `Ascenda-One-Pty-Ltd` org; this repo has not. When it
+This repo may one day move to a different GitHub owner. When it
 moves, **nothing changes on any registry**. The npm scope `@ascenda-one`, the
 Marketplace publisher `ascenda-one` and the Open VSX namespace `ascenda-one` are
 identities in those systems, not on GitHub, and all three publish steps

@@ -3,7 +3,7 @@ import { LiveBusEvent } from "@ascenda-one/tool-kit";
 
 /**
  * Maps this extension's catalog events onto the desktop waterline's much
- * smaller vocabulary (docs/MACOS_LIVE_DEMAND_WATERLINE.md in the app repo).
+ * smaller vocabulary (`LiveBusEvent` in `@ascenda-one/tool-kit`).
  *
  * Deliberately partial. The waterline reads **AI work in progress**, so
  * only events that evidence an agent doing something map to a signal;

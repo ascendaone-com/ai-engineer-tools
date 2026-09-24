@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "VENDORED COPY. asc-core-be owns this file at Contracts/tool-telemetry-contract.v2.json; re-vendor it there rather than editing here. Everything below is that file's own comment, unchanged.",
+    "VENDORED COPY. The backend owns the original of this file; re-vendor it from there rather than editing here. Everything below is that file's own comment, unchanged.",
     "The vocabularies a paired client is allowed to put on the wire: event types,",
     "sources, and tool types.",
     "",

@@ -12,10 +12,9 @@
  * of the seven-day window, and three tests that pin real behaviour started
  * failing on a date rather than on a change.
  *
- * asc-core-be took the same fix for the same defect, giving its three
- * trailing-window writers (TelemetryBaselineWriter 28d, WorkDivergenceWriter
- * 14d, AIWorkloadAggregateWriter 84d) a `TimeProvider` instead of
- * `DateTime.UtcNow`. This is that pattern, in the shape this package needs.
+ * This is the standard injected-clock pattern (.NET's `TimeProvider`, for
+ * instance, rather than reading `DateTime.UtcNow`), in the shape this package
+ * needs.
  *
  * Deliberately one method. The outbox needs an instant, not timers or time
  * zones, and a wider surface would be an invitation to route more of the

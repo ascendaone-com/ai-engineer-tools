@@ -5,8 +5,7 @@ import type { AutonomyBand } from "@ascenda-one/tool-kit";
 /**
  * Shared shapes for the retrospective import.
  *
- * The design rules these encode come from the research note in the Flow
- * workspace (`docs/HISTORICAL_TELEMETRY_IMPORT.md`): copy-then-parse,
+ * The design rules these encode: copy-then-parse,
  * per-record schema sniffing, UNPARSED over guessing, and provenance class
  * carried as data on every event so downstream charts can render HISTORICAL
  * bars distinctly from LIVE ones.

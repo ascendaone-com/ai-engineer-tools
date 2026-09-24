@@ -11,7 +11,7 @@ Against a **Development** backend (`ASPNETCORE_ENVIRONMENT=Development`):
 | Host | Notes |
 | --- | --- |
 | `http://localhost:5002` | Local BE |
-| `https://app-asc-dev-api-aue.azurewebsites.net` | Deployed Dev (same DevAuth behaviour) |
+| `https://<deployed-dev-api-host>` | Deployed Dev (same DevAuth behaviour; host from the BE handoff) |
 
 - SmartAuth routes any **non-JWT** bearer to **DevAuth**
 - DevAuth maps known bearer strings to a GUID `sub` (required by confirm)
@@ -81,7 +81,7 @@ node dist/cli.js e2e --tool-type cursor_mcp
 ```bash
 cp local.devauth.env.example local.devauth.env
 # Fill DevAuth tokens from BE handoff (never commit)
-# ASCENDA_API_BASE_URL=https://app-asc-dev-api-aue.azurewebsites.net
+# ASCENDA_API_BASE_URL=https://<deployed-dev-api-host>
 ```
 
 The CLI loads `local.devauth.env` automatically.
@@ -90,7 +90,7 @@ The CLI loads `local.devauth.env` automatically.
 
 ### A. Pair a running extension
 
-1. Point the extension at Dev (`ascenda.apiBaseUrl` = `http://localhost:5002` or `https://app-asc-dev-api-aue.azurewebsites.net`)
+1. Point the extension at Dev (`ascenda.apiBaseUrl` = `http://localhost:5002` or your deployed Dev host)
 2. **Ascenda: Connect App** — note the 6-digit code
 3. Confirm as the app:
 

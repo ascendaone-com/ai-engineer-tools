@@ -13,7 +13,7 @@ import type { WorkContext } from "./workContext";
 // deleted and renamed, so the honest time to record a name is the moment the
 // hash is computed. Deleting this file orphans no data; it only costs the
 // names (a surface reading it would show "Context a1b2…" instead of
-// "asc-core-be" until the context is seen again).
+// "acme-api" until the context is seen again).
 //
 // This is deliberately groundwork: no shipped surface reads it yet. It is the
 // half of the project-visibility design that cannot be built retroactively.

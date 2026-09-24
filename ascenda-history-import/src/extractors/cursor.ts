@@ -464,19 +464,18 @@ export interface ResolvedTimeline {
 /**
  * The end of a composer's timeline, falling back when `lastUpdatedAt` is null.
  *
- * `lastUpdatedAt` is nullable and Cursor leaves it unset on real conversations
- * — 42 of 151 headers on the reference machine. This function exists because
- * the emit loop used to `continue` past exactly those, silently: no event, no
- * counter, and no way to tell a dropped conversation from one that never
- * happened. On that machine the 15 non-subagent casualties were all empty, so
- * nothing was lost; nothing in the schema ties a null `lastUpdatedAt` to
- * emptiness, so on another machine they would not be.
+ * `lastUpdatedAt` is nullable and Cursor leaves it unset on a real share of
+ * conversations. This function exists because the emit loop used to
+ * `continue` past exactly those, silently: no event, no counter, and no way to
+ * tell a dropped conversation from one that never happened. Nothing in the
+ * schema ties a null `lastUpdatedAt` to an empty conversation, so a dropped
+ * one can hold real prompts.
  *
  * Order is by how directly each field witnesses the conversation ending:
  *  - `bubbles` — the newest message's own timestamp. Content truth: a message
  *    exists and it happened then. Preferred over any header field.
- *  - `recency` — a millisecond epoch that equals `lastUpdatedAt` on all 109
- *    reference-machine headers carrying both, which is why it is trusted at
+ *  - `recency` — a millisecond epoch that has been observed to equal
+ *    `lastUpdatedAt` on headers carrying both, which is why it is trusted at
  *    all; the name still suggests it could track opening rather than editing,
  *    so a bubble outranks it.
  *  - `checkpointAt` — last, present on only 27 of the 42 and describing a
