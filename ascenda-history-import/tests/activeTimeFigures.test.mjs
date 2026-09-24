@@ -23,8 +23,8 @@ import {
  *
  * The thing this guards is not hypothetical in this file. `handsOnMinutes` is
  * summed on `HandoffProjectDigest` and unioned on `ProjectElapsedActive` — same
- * spelling, one nesting level apart, 4.2x apart in value on the reference
- * machine. Both are deliberate and documented, and nothing mechanical told them
+ * spelling, one nesting level apart, several-fold apart in value whenever
+ * sessions overlap. Both are deliberate and documented, and nothing mechanical told them
  * apart until this table.
  */
 
@@ -43,8 +43,8 @@ const SRC_DIR = path.resolve(
 
 /**
  * Figure-shaped field names. Name-based because these are bare `number` fields,
- * indistinguishable by type from a count — the same trade asc-core-be's
- * `LooksLikeActiveTimeFigure` makes, with the same escape hatch for a false
+ * indistinguishable by type from a count — the same trade the backend's own
+ * figure registry makes, with the same escape hatch for a false
  * positive: an entry in `NOT_ACTIVE_TIME_FIGURES` with a reason.
  *
  * **`Minutes` is not anchored, and that is the correction.** The comment above
@@ -114,8 +114,8 @@ test("the scan actually reads the handoff source", () => {
 });
 
 test("the name test matches what the sibling rails would match", () => {
-  // The divergence this pins shut. asc-core-be tests `Contains("Minutes")` and
-  // the app workspace `contains('Minutes')`; this tested `/Minutes$/`, so the
+  // The divergence this pins shut. The backend and the app workspace both
+  // match `Minutes` anywhere in the name; this tested `/Minutes$/`, so the
   // three registries the cross-repo ritual depends on were not looking for the
   // same thing. A rail whose discovery is narrower than its siblings' cannot
   // catch a defect they would, and it says nothing while failing to.
@@ -123,10 +123,10 @@ test("the name test matches what the sibling rails would match", () => {
   // These four names are real in the sibling repos. None is declared here
   // today; all four must be figure-shaped if one ever is.
   for (const name of [
-    "sessionMinutesMeasured", // asc-core-be, ToolTelemetryDemandBucket
-    "minutesFollowingMeetings", // app workspace, ProjectWeekRecord
+    "sessionMinutesMeasured", // the backend
+    "minutesFollowingMeetings", // the app workspace
     "summedHandsOnMinutes", // this package, ProjectElapsedDay
-    "longestPromptBlockHours" // asc-core-be, TlxWeeklySignals
+    "longestPromptBlockHours" // the backend
   ]) {
     assert.ok(looksLikeFigure(name), `${name} is figure-shaped in a sibling rail`);
   }

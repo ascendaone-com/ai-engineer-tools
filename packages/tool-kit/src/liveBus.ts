@@ -12,8 +12,7 @@ import * as path from "path";
  * The app's waterline gauges need sub-second latency, so the adapters
  * additionally whisper to a Unix domain socket on the same machine.
  *
- * Design constraints, all load-bearing (docs/MACOS_LIVE_DEMAND_WATERLINE.md
- * in the app repo):
+ * Design constraints, all load-bearing:
  *
  *  - **A Unix socket, not a TCP port.** Nothing on the network can reach
  *    it, and no other local process can post spoofed presence data just by
@@ -79,9 +78,7 @@ export interface LiveBusSignal {
    * and processed*, so it says "the turn starting now was waiting" — it is
    * not a queue *depth*, and nothing anywhere emits at the moment a message
    * is queued. It is therefore evidence that the user stacks work up, never
-   * a guarantee that more is pending, and the app must not treat it as one
-   * (see the settle bell's offer gate,
-   * `docs/MACOS_WATERLINE_SETTLE_BELL.md`).
+   * a guarantee that more is pending, and the app must not treat it as one.
    */
   queued?: boolean;
 }

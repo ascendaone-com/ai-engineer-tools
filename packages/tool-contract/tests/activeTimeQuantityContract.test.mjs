@@ -11,17 +11,16 @@ import {
 } from "../out/index.js";
 
 /**
- * Pins `AscendaActiveTimeQuantity` to the quantity vocabulary asc-core-be owns,
- * at `Contracts/active-time-quantities.v1.json`. The file in `contracts/` here is
- * a vendored copy of it — edit it there, not here.
+ * Pins `AscendaActiveTimeQuantity` to the quantity vocabulary the backend owns.
+ * `contracts/active-time-quantities.v1.json` here is a vendored copy of it —
+ * edit it there, not here.
  *
  * The same shape as `wireVocabularyContract.test.mjs`, for the same reason and
  * with the same limit: it fails when a name is added on one side and not the
- * other. Nothing here can still reach `asc-core-be` — it is private and in
- * another org, and this repo holds no token for it — so the staleness half of
- * the problem is answered from the other end. `asc-core-be`'s own
- * `Vendored contract fanout` workflow fetches THIS file (this repo is public,
- * so no credential is needed) and diffs it. That closes the direction that
+ * other. Nothing here can reach the backend's copy — this repo holds no
+ * credential for it — so the staleness half of the problem is answered from the
+ * other end: the backend fetches THIS file (this repo is public, so no
+ * credential is needed) and diffs it. That closes the direction that
  * actually matters: the drift starts with an edit there.
  *
  * What is left for this file is the direction that check cannot see — someone
@@ -32,8 +31,8 @@ import {
  * the new projection here.
  *
  * What makes this vocabulary worth pinning is the history of the one it
- * replaces. Before asc-core-be#208 the four names existed in a markdown table
- * and nowhere else — a grep for them across all three repos returned nothing —
+ * replaces. Before the backend published this contract, the four names existed
+ * in a markdown table and nowhere else — a grep for them across all three repos returned nothing —
  * while `gapMinutes` and `basis`, the other two thirds of the same documented
  * triple, were both shipped and both tested. A vocabulary that lives only in
  * prose is the `TOOL_TYPES` failure one level up: `ascenda-dev-server` kept the
@@ -53,11 +52,10 @@ test("the vendored contract is the version this vocabulary was written against",
 });
 
 /**
- * The exact contract asc-core-be owns, as of 8 Sep 2026.
+ * The exact contract the backend owns, as of 8 Sep 2026.
  *
- * Print the current value there with
- *   `python3 Scripts/check_vendored_contracts.py --projection`
- * and paste it whole. It is deliberately the string and not a hash of it: the
+ * Re-derive it from the owner's copy with the same canonicalisation as
+ * `canonicalise` below (`$comment` stripped, keys sorted) and paste it whole. It is deliberately the string and not a hash of it: the
  * whole contract fits on a line, so a failure here diffs into something you
  * can read instead of two digests that differ by an unknown amount.
  *
@@ -104,7 +102,7 @@ const canonicalise = (node) =>
         "}"
       : JSON.stringify(node);
 
-test("the vendored copy is byte-for-byte the contract asc-core-be owns", () => {
+test("the vendored copy is byte-for-byte the contract the backend owns", () => {
   const missing = SEMANTIC_FIELDS.filter((field) => !(field in contract));
   assert.deepEqual(missing, [], "the vendored copy is missing semantic field(s)");
 
@@ -115,8 +113,8 @@ test("the vendored copy is byte-for-byte the contract asc-core-be owns", () => {
   assert.equal(
     projection,
     OWNER_PROJECTION,
-    "contracts/active-time-quantities.v1.json no longer matches the copy in " +
-      "asc-core-be that OWNER_PROJECTION was pinned from. Either it was edited " +
+    "contracts/active-time-quantities.v1.json no longer matches the backend's " +
+      "copy that OWNER_PROJECTION was pinned from. Either it was edited " +
       "here — don't; edit it there and re-vendor — or it was re-vendored " +
       "without updating OWNER_PROJECTION above."
   );

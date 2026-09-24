@@ -19,9 +19,9 @@
  *    the bug;
  *  - that no key claims a reader it does not have.
  *
- * The cross-repo half cannot be checked from here: the reader is C# in
- * asc-core-be. `backendAliases` mirrors it and `MetadataKeyRegistryTests`
- * there pins the same list from the other side. Two mirrors, each self-checked
+ * The cross-repo half cannot be checked from here: the reader lives in the
+ * backend. `backendAliases` mirrors it and the backend's own tests pin the
+ * same list from the other side. Two mirrors, each self-checked
  * — drift stays possible, but it stops being invisible.
  */
 import { test } from "node:test";

@@ -19,10 +19,11 @@ import {
  * `packages/tool-contract/contracts/active-time-quantities.v1.json`, so a name
  * used here that the backend does not own fails a build rather than a dashboard.
  *
- * **The assignments are not vendored — three repos keep three of these by hand,
- * and changing one means reading the other two.** See asc-core-be
- * `docs/ACTIVE_TIME.md`, "The vocabulary is shared; the assignments are three
- * hand-kept registries", for the sibling paths and the one-line test.
+ * **The assignments are not vendored.** The contract fixes which quantity
+ * names exist, not which field carries which one; the backend and the desktop
+ * app each keep their own field-to-quantity table by hand. A reassignment here
+ * is a change to what the collector puts on the wire, so it needs the same
+ * change on the reading side.
  */
 export const ACTIVE_TIME_FIGURES: Readonly<Record<string, AscendaActiveTimeQuantity>> = {
   // One session cannot overlap itself, so its figures are already elapsed.
@@ -36,9 +37,9 @@ export const ACTIVE_TIME_FIGURES: Readonly<Record<string, AscendaActiveTimeQuant
   "CodexHandoffSession.handsOnMinutes": "hands_on",
   "CodexHandoffSession.agentSupervisingMinutes": "supervising",
 
-  // Summed over sessions, from the sessions' own minute figures. On the
-  // reference machine these came to 4.2x the wall clock of the period they
-  // described, which is why they are agent-hours and not time.
+  // Summed over sessions, from the sessions' own minute figures. Sessions
+  // overlap, so these routinely exceed the wall clock of the period they
+  // describe, which is why they are agent-hours and not time.
   "HandoffProjectDigest.handsOnMinutes": "hands_on_agent_hours",
   "HandoffProjectDigest.agentSupervisingMinutes": "supervising_agent_hours",
 

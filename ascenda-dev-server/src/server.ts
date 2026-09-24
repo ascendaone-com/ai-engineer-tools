@@ -149,8 +149,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       code: session.code,
       deviceCode: session.code,
       secret: session.secret,
-      // Query form with both session and secret — matches the real backend's
-      // fallback shape (ToolPairingService.cs, unconfigured PairingWebOptions).
+      // Query form with both session and secret — matches the `qrUrl` the
+      // real backend returns when it has no pairing web page configured.
       // This drifted to a path-only form with no session id, which the app's
       // parser rejects with "Invalid pairing link" — a mock that produces an
       // unusable link is worse than no mock.

@@ -25,7 +25,7 @@ import type { WorkContext } from "./workContext";
 // WHAT THIS DOES AND DOES NOT BUY. The registry is a machine-local hash→name
 // dictionary; it is never transmitted, and nothing on the wire carries an
 // alias. So this makes the forge digest NAMEABLE on this machine — a surface
-// reading the dictionary can see that both digests are "asc-core-be" — and it
+// reading the dictionary can see that both digests are "acme-api" — and it
 // does NOT merge the two keys anywhere they are counted apart from this
 // machine. Grouping happens by shared label, which is why the alias is
 // deliberately recorded under the project's own label rather than under

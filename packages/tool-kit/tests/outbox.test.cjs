@@ -41,8 +41,7 @@ const ID = "claude_code:outbox-test";
 // 2026-09-01 exercises the bound for seven days and then silently stops: the
 // entries age out, the drain finds nothing, and assertions about batching and
 // count eviction start reporting the calendar instead of the code. That is
-// exactly how main went red on 2026-09-08 with no commit behind it — the same
-// defect asc-core-be fixed by giving its trailing-window writers a TimeProvider.
+// exactly how main went red on 2026-09-08 with no commit behind it.
 //
 // So the sender is told what time it is. Fixtures are dated from ANCHOR, and
 // these tests mean the same thing on every date they are ever run.

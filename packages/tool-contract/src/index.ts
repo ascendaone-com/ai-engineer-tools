@@ -112,26 +112,25 @@ export type AscendaToolType = (typeof ASCENDA_TOOL_TYPES)[number];
  *
  * **This is the axis that decides comparability, and it is not the gap.**
  * `activeGapMinutes` says how a figure was cut, not what was cut. `coverage` and
- * `block_coverage` share a gap in asc-core-be and are still incomparable;
+ * `block_coverage` share a gap on the backend and are still incomparable;
  * `hands_on` is cut at 5 here and 30 there and is still the same quantity on a
  * different corpus. So the gap is deliberately not folded into the identity.
  *
- * **`_agent_hours` is a quantity, not a presentation.** `docs/ACTIVE_TIME.md`
- * calls it one twice — "Both quantities are real; only the union is elapsed
- * time" — while its own four-name table had no name for the summed form. That
+ * **`_agent_hours` is a quantity, not a presentation.** The contract's own
+ * comment says so — both quantities are real; only the union is elapsed time —
+ * and an earlier four-name vocabulary had no name for the summed form. That
  * omission covered the two figures in this repo that most need telling apart:
- * `Project.handsOnMinutes` is summed across sessions (4.2x wall clock on the
- * reference machine) and `Project.elapsed.handsOnMinutes` is unioned, one
- * nesting level apart under one spelling.
+ * `Project.handsOnMinutes` is summed across sessions (several times wall clock
+ * whenever sessions overlap) and `Project.elapsed.handsOnMinutes` is unioned,
+ * one nesting level apart under one spelling.
  *
  * Declared as a runtime array with the type derived from it, for the reason
  * `ASCENDA_TELEMETRY_SOURCES` gives: a type alone cannot be pinned against the
  * vendored contract, and a list that exists twice can disagree with itself.
  *
- * **asc-core-be owns the contract file**, at
- * `Contracts/active-time-quantities.v1.json`. The copy here is vendored, exactly
- * as the wire contract is. It briefly was not: the vocabulary first shipped there
- * as C# constants with no file to copy, this package wrote its own, and the two
+ * **The backend owns the contract file**; `contracts/active-time-quantities.v1.json`
+ * here is a vendored copy, exactly as the wire contract is. It briefly was not:
+ * the vocabulary first shipped on the backend with no file to copy, this package wrote its own, and the two
  * disagreed within the hour — four names against six.
  */
 export const ASCENDA_ACTIVE_TIME_QUANTITIES = [
@@ -149,8 +148,8 @@ export type AscendaActiveTimeQuantity = (typeof ASCENDA_ACTIVE_TIME_QUANTITIES)[
  * Which quantities are elapsed time, and which are summed agent-hours.
  *
  * A surface that quotes a summed figure as "where your week went" is the defect
- * this split exists to prevent: on the reference machine the sums came to 4.2x
- * the wall clock of the period they described.
+ * this split exists to prevent: sessions overlap, so the sums can exceed the
+ * wall clock of the period they describe several times over.
  */
 export const ASCENDA_ELAPSED_QUANTITIES: Readonly<Record<AscendaActiveTimeQuantity, boolean>> = {
   coverage: true,
@@ -166,8 +165,8 @@ export const ASCENDA_ELAPSED_QUANTITIES: Readonly<Record<AscendaActiveTimeQuanti
  *
  * The one legal cross-quantity addition. `ProjectElapsedActive` has always
  * documented this pair as "disjoint, and their sum is elapsed active time, not a
- * double count", and asc-core-be's `SplitActiveMinutes` confirms it: each
- * gap-split span is assigned entirely to one side.
+ * double count", and the backend splits the same way: each gap-split span is
+ * assigned entirely to one side.
  */
 const DISJOINT_HALVES: ReadonlyArray<
   readonly [AscendaActiveTimeQuantity, AscendaActiveTimeQuantity, AscendaActiveTimeQuantity]
@@ -920,10 +919,9 @@ export type AscendaEventPayload = {
    *
    * It exists because `occurredAt` is UTC and carries no offset, so a
    * consumer had no way to recover the person's own clock — and the backend
-   * was reading UTC hours as if they were local. On the reference machine
-   * (UTC+10) that flagged the working day as after-hours and missed the
-   * actual evenings: 83% of prompts marked after-hours against a true 15%,
-   * the two rules agreeing on 14% of 22,535 prompts.
+   * was reading UTC hours as if they were local. Far from UTC that flags the
+   * working day as after-hours and misses the actual evenings — the two rules
+   * barely agree.
    *
    * An offset rather than an IANA zone, deliberately. It answers every
    * question a consumer actually has — after-hours, which local day, which

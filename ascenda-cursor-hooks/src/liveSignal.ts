@@ -7,8 +7,7 @@ export type LiveSignalBody = Omit<LiveBusSignal, "tool" | "session">;
 
 /**
  * Maps Cursor agent hooks onto the desktop waterline's much smaller
- * vocabulary (`LiveBusEvent` in `@ascenda-one/tool-kit`;
- * `docs/MACOS_LIVE_DEMAND_WATERLINE.md` in the app repo).
+ * vocabulary (`LiveBusEvent` in `@ascenda-one/tool-kit`).
  *
  * This is **not** the telemetry mapping and shares nothing with
  * `mapCursorEvent`. That one feeds daily buckets read hours later; this one

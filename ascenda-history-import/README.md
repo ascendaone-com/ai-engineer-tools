@@ -56,14 +56,14 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 | `scan` (per-store inventory, content never opened) | implemented |
 | `fix-retention` (Claude `cleanupPeriodDays`, merge-not-clobber) | implemented |
 | Staging/snapshot (copy-then-parse, WAL-aware, **torn down by the run that makes it**) | implemented |
-| `archive` (durable content-addressed copy, dedup, verify, restore, prune) | **implemented, verified on a real 4.1 GB store** |
-| **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented, verified live** |
+| `archive` (durable content-addressed copy, dedup, verify, restore, prune) | **implemented; exercised against a real multi-GB store** |
+| **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented; exercised end to end against the ingest API** |
 | **Codex extractor** (`~/.codex/sessions` and `archived_sessions` rollouts: `user_message` prompts, per-turn model mix, issued tool calls, tool and runtime failures, cumulative tokens, context peak against the window the rollout itself records, compaction items, long turns, gap-split active minutes, epoch marker) | **implemented; fixture-tested and run against a developer machine's rollouts** |
-| **Active-time split** (hands-on vs agent-supervising, per session, per local day and per project digest; autonomy bands off the transcript's own `permissionMode`) | **implemented, verified against a real 400-session store** |
+| **Active-time split** (hands-on vs agent-supervising, per session, per local day and per project digest; autonomy bands off the transcript's own `permissionMode`) | **implemented; exercised against a real store** |
 | **Tool-call counting, all four stores** (`tool_use` items / tool-call `response_item`s / `toolFormerData` / `toolInvocationSerialized`, one `ai_tool_call_started` per call) | **implemented; exercised end to end against all four stores on a developer machine** |
-| **Batch shipper** (`POST /v1/tool-events/batch`, salted hashes, stable importKey) | **implemented, verified live** |
-| **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, epoch marker) | **implemented, verified live** |
-| **VS Code extractor** (Timeline-history Chat-Edit day×workspace aggregation, Copilot chatSessions folding, workspace identity via `workspace.json` longest-prefix match, epoch marker) | **implemented, verified live** |
+| **Batch shipper** (`POST /v1/tool-events/batch`, salted hashes, stable importKey) | **implemented; exercised end to end against the ingest API** |
+| **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, epoch marker) | **implemented; exercised end to end against the ingest API** |
+| **VS Code extractor** (Timeline-history Chat-Edit day×workspace aggregation, Copilot chatSessions folding, workspace identity via `workspace.json` longest-prefix match, epoch marker) | **implemented; exercised end to end against the ingest API** |
 | `import [--ship]` end to end | **implemented; exercised end to end against all three stores, dry run and `--ship`, on a developer machine** |
 | git extractor | stub — throws with a pointer |
 | zsh `EXTENDED_HISTORY` apply | snippet only |
@@ -352,7 +352,7 @@ grants the lease. Without that grant every event of a backfill is rejected
   the case a re-run is. The source record is the stable identity, so it is the
   whole key; a re-run with a fresh `extractionId` over the same records
   therefore still dedups, and the first run's extraction stays on record.
-  Pinned by `HistoricalImportIngestTests` in asc-core-be.
+  The backend's ingest tests pin this on its side.
 - **The key survives a changing store.** `ordinal` numbers an event only
   among events sharing its whole identity — store, session, kind, instant —
   so it separates genuine same-millisecond duplicates without encoding the

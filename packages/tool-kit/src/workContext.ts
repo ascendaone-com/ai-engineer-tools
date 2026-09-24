@@ -9,7 +9,7 @@ import { hashWithMachineSalt } from "./salt";
 // ever sees the digests.
 //
 //   workspaceHash — hash of the BASENAME of the CHECKOUT the work happened in:
-//     the folder that owns the nearest `.git` ("asc-core-be-wt",
+//     the folder that owns the nearest `.git` ("acme-api-wt",
 //     "quizzical-thompson"), so a cwd three directories deep still names the
 //     checkout, not `src`. Matches what the VS Code extension has always sent
 //     (`vscode.workspace.name` is the opened folder's name), so live IDE rows

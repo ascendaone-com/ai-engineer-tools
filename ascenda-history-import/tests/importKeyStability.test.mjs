@@ -120,9 +120,8 @@ test("kind and session are part of the identity, not just the instant", () => {
 });
 
 test("the key is the FULL sha256 hex of the identity preimage — no truncation", () => {
-  // The in-app Dart pipeline (asc-ascenda-app-workspace, wire_event.dart's
-  // assignImportKeys) ships all 64 hex chars of the same preimage, and the
-  // backend dedups on the verbatim key string. Both pipelines ship as the
+  // The desktop app's own import pipeline ships all 64 hex chars of the same
+  // preimage, and the backend dedups on the verbatim key string. Both pipelines ship as the
   // same tool installation, so a truncated CLI key can never match an
   // app-shipped key for the same record: a mixed-pipeline re-run would land
   // everything twice. This pins the CLI to the app's convention,

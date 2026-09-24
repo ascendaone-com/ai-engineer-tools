@@ -7,8 +7,7 @@ export type LiveSignalBody = Omit<LiveBusSignal, "tool" | "session">;
 
 /**
  * Maps Gemini CLI hooks onto the desktop waterline's much smaller vocabulary
- * (`LiveBusEvent` in `@ascenda-one/tool-kit`;
- * `docs/MACOS_LIVE_DEMAND_WATERLINE.md` in the app repo).
+ * (`LiveBusEvent` in `@ascenda-one/tool-kit`).
  *
  * This is **not** the telemetry mapping and shares nothing with
  * `mapGeminiEvent`. That one feeds daily buckets read hours later; this one

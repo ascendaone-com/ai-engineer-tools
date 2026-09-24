@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "VENDORED COPY. asc-core-be owns this file at Contracts/active-time-quantities.v1.json; re-vendor it there rather than editing here. Everything below is that file's own comment, unchanged.",
+    "VENDORED COPY. The backend owns the original of this file; re-vendor it from there rather than editing here. Everything below is that file's own comment, unchanged.",
     "What an active-time figure is a measurement OF. This backend OWNS this file;",
     "ai-engineer-tools and the app workspace vendor copies and pin them in their own",
     "tests, the same arrangement as tool-telemetry-contract.v2.json.",

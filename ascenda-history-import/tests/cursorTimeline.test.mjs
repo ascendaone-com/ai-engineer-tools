@@ -7,15 +7,14 @@ import { execFileSync } from "node:child_process";
 import { extractCursor, resolveTimeline } from "../dist/extractors/cursor.js";
 
 // `composerHeaders.lastUpdatedAt` is nullable and Cursor really does leave it
-// unset: 42 of 151 headers on the reference machine. The emit loop used to
-// `continue` past every one of them without a counter, so a dropped
-// conversation and one that never happened rendered identically.
+// unset on real conversations. The emit loop used to `continue` past every one
+// of them without a counter, so a dropped conversation and one that never
+// happened rendered identically.
 //
-// On that machine the 15 non-subagent casualties all had zero bubbles, so no
-// prompt was actually lost — which is exactly why the bug survived a live run
-// that reported success. Nothing in the schema ties a null `lastUpdatedAt` to
-// emptiness, so these fixtures cover the case that machine happened not to
-// have: an undated header with real messages under it.
+// An undated header is often an empty one, which is how a bug like this
+// survives a run that reports success. Nothing in the schema ties a null
+// `lastUpdatedAt` to emptiness, so these fixtures cover the case that matters:
+// an undated header with real messages under it.
 
 const CREATED_AT_MS = Date.UTC(2026, 6, 20, 10, 0, 0);
 

@@ -286,8 +286,8 @@ export interface HandoffProjectDigest {
    *
    * **This is the figure to render as time.** `handsOnMinutes` and
    * `agentSupervisingMinutes` above are sums over sessions, and sessions run
-   * concurrently: on the reference machine they came to 4.2x the wall clock of
-   * the period they described. They are kept because agent-hours is a real
+   * concurrently, so they can exceed the wall clock of the period they
+   * describe several times over. They are kept because agent-hours is a real
    * quantity and because removing them would silently change every existing
    * reader, but a surface that says "where your week went" wants this.
    */
@@ -479,12 +479,12 @@ export interface HandoffFile {
    * `activeGapMinutes` above says how the figures were cut and cannot say what
    * was cut. In this file `projects[].handsOnMinutes` is summed across the
    * project's overlapping sessions and `projects[].elapsed.handsOnMinutes` is
-   * unioned over them — one spelling, one nesting level apart, 4.2x apart on
-   * the reference machine, and the same gap rule produced both.
+   * unioned over them — one spelling, one nesting level apart, several-fold
+   * apart whenever sessions overlap, and the same gap rule produced both.
    *
    * Read off `handoffActiveTime.ts`, whose values come from the vocabulary
-   * asc-core-be owns; never spelled here, for the reason the gap rule is never
-   * spelled here.
+   * the backend owns (vendored in `packages/tool-contract/contracts/`); never
+   * spelled here, for the reason the gap rule is never spelled here.
    *
    * Absent on a handoff written before this field, which means "this handoff
    * makes no claim" — never "these are all coverage". Additive within the
@@ -606,12 +606,12 @@ export interface CodexHandoffFile {
    * `activeGapMinutes` above says how the figures were cut and cannot say what
    * was cut. In this file `projects[].handsOnMinutes` is summed across the
    * project's overlapping sessions and `projects[].elapsed.handsOnMinutes` is
-   * unioned over them — one spelling, one nesting level apart, 4.2x apart on
-   * the reference machine, and the same gap rule produced both.
+   * unioned over them — one spelling, one nesting level apart, several-fold
+   * apart whenever sessions overlap, and the same gap rule produced both.
    *
    * Read off `handoffActiveTime.ts`, whose values come from the vocabulary
-   * asc-core-be owns; never spelled here, for the reason the gap rule is never
-   * spelled here.
+   * the backend owns (vendored in `packages/tool-contract/contracts/`); never
+   * spelled here, for the reason the gap rule is never spelled here.
    *
    * Absent on a handoff written before this field, which means "this handoff
    * makes no claim" — never "these are all coverage". Additive within the
@@ -760,8 +760,7 @@ export interface VsCodeHandoffFile {
  * Folding matters more here than on the wire: the desktop app counts
  * distinct labels as "projects", and a Claude Code session leaves a fresh
  * `.claude/worktrees/<name>` behind every time, so an unfolded label turns
- * one repository into dozens of projects on the Reveal. On a real machine
- * 77 of 86 Claude labels were worktree names before this folded them.
+ * one repository into dozens of projects on the Reveal.
  *
  * Memoised: the handoff walks thousands of events over a few dozen refs,
  * and the derivation stats the filesystem.

@@ -46,10 +46,9 @@
  * ## Keeping it true
  *
  * `readBy: "handoff"` is checked against `localHandoff.ts` by the guard test
- * in this repo. `readBy: "backend"` cannot be — the reader is C# in another
- * repo — so `backendAliases` mirrors it by hand and the counterpart test
- * (`MetadataKeyRegistryTests` in asc-core-be) pins the same list from the
- * other side. Two mirrors, each self-checked. That does not make drift
+ * in this repo. `readBy: "backend"` cannot be — the reader lives in the
+ * backend — so `backendAliases` mirrors it by hand and a counterpart test on
+ * the backend pins the same list from the other side. Two mirrors, each self-checked. That does not make drift
  * impossible; it makes drift *visible*, which is strictly more than the
  * nothing that was there before.
  *

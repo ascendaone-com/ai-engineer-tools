@@ -6,8 +6,8 @@
  * figures were cut; it has never told them *what was cut*, and that is the axis
  * that decides comparability. `projects[].handsOnMinutes` and
  * `projects[].elapsed.handsOnMinutes` sit in one file under one spelling and
- * were 4.2x apart on the reference machine — **the same gap rule cut both**, so
- * no gap stamp could ever separate them. Only the quantity can.
+ * can differ several-fold whenever sessions overlap — **the same gap rule cut
+ * both**, so no gap stamp could ever separate them. Only the quantity can.
  *
  * **Keyed by the path a reader walks**, not by the interface that wrote it.
  * That is the difference between this file and `activeTimeFigures.ts`, and the
@@ -17,7 +17,7 @@
  * because it guards declarations; this keys on paths because it describes a
  * file. Lists collapse to `[]`.
  *
- * **The vocabulary is asc-core-be's**, reached through the vendored copy in
+ * **The vocabulary is the backend's**, reached through the vendored copy in
  * `packages/tool-contract/contracts/active-time-quantities.v1.json` rather than
  * restated here. A name this file invents fails a build, on the same terms the
  * gap stamp already has with `DEFAULT_ACTIVE_GAP_MS`: read the rule, never
