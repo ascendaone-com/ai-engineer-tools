@@ -16,12 +16,19 @@ const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist"
 // checkout. Never the 0.1.0 an unstamped package.json carries.
 const EXPECTED = process.env.ASCENDA_COLLECTOR_VERSION?.trim().replace(/^v/, "") || "unreleased";
 
-test("every payload the built CLI writes names the collector version", () => {
+const HOOKS = [
+  ["PreToolUse", { tool_name: "Bash", session_id: "s1" }, "ai_tool_call_started"],
+  // The newest hook, run through the same bundle so it can't reach the wire
+  // by a path that skips the stamp.
+  ["SessionEnd", { reason: "logout", session_id: "s1" }, "recovery_offline_period"]
+];
+
+for (const [hook, fields, expectedType] of HOOKS) test(`every payload the built CLI writes names the collector version (${hook})`, () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-version-"));
   const logFile = path.join(home, "events.jsonl");
   try {
-    const result = spawnSync("node", [CLI, "PreToolUse"], {
-      input: JSON.stringify({ tool_name: "Bash", cwd: home, session_id: "s1" }),
+    const result = spawnSync("node", [CLI, hook], {
+      input: JSON.stringify({ ...fields, cwd: home }),
       encoding: "utf8",
       env: {
         ...process.env,
@@ -36,6 +43,7 @@ test("every payload the built CLI writes names the collector version", () => {
     assert.equal(result.status, 0, result.stderr);
     const lines = fs.readFileSync(logFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     assert.ok(lines.length >= 1, "the CLI logged nothing");
+    assert.ok(lines.some(({ payload }) => payload.eventType === expectedType), `${hook} logged no ${expectedType}`);
     for (const { payload } of lines) assert.equal(payload.metadata.collectorVersion, EXPECTED, payload.eventType);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

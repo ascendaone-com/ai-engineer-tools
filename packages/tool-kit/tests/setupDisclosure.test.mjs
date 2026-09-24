@@ -70,7 +70,8 @@ const ADAPTERS = [
       ["PostToolUseFailure", { tool_name: "Bash", tool_input: { command: "npm run build" }, cwd: CWD }],
       ["PreCompact", { trigger: "auto", cwd: CWD }],
       ["Stop", { cwd: CWD }],
-      ["Notification", { message: "Claude needs your permission to use Bash", cwd: CWD }]
+      ["Notification", { message: "Claude needs your permission to use Bash", cwd: CWD }],
+      ["SessionEnd", { reason: "prompt_input_exit", cwd: CWD }]
     ].flatMap(([hook, input]) => mapClaudeEvent(hook, input))
   },
   {

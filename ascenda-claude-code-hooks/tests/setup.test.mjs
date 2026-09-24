@@ -12,7 +12,7 @@ const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // to be a deliberate change here too. SessionStart earns its place twice —
 // it maps to create_focus_session, and it is the hook that carries the
 // intention invite.
-const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification"];
+const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification", "SessionEnd"];
 
 function tempSettings(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-settings-"));
@@ -38,6 +38,10 @@ test("registers every hook event, and none we do not map", () => {
   assert.match(hooks.Notification[0].hooks[0].command, /ascenda-claude-hook" Notification$/);
   assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse$/);
   assert.equal(hooks.PostToolUse[0].hooks[0].timeout, 5, "must not inherit the 600s default");
+  // SessionEnd closes what SessionStart opened. Its 5s timeout matters more
+  // than most: without one, Claude Code gives SessionEnd hooks 1.5s in total.
+  assert.match(hooks.SessionEnd[0].hooks[0].command, /ascenda-claude-hook" SessionEnd$/);
+  assert.equal(hooks.SessionEnd[0].hooks[0].timeout, 5);
 });
 
 test("registers every event the mapper turns into telemetry", async () => {

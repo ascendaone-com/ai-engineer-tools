@@ -1,5 +1,5 @@
 import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd } from "@ascenda-one/tool-kit";
-import type { AutonomyMode } from "@ascenda-one/tool-contract";
+import type { AutonomyMode, SessionEndReason } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
 
@@ -44,6 +44,7 @@ function mapEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): Mapped
     case "PostCompact": return [{ eventType: "context_pressure_high", severity: "medium", metadata: { trigger: "inferred", reason: "context_limit" } }];
     case "Stop": return mapStop(input);
     case "Notification": return mapNotification(input);
+    case "SessionEnd": return mapSessionEnd(input);
     default: return [];
   }
 }
@@ -121,6 +122,45 @@ function mapSessionStart(input: ClaudeHookInput): MappedAscendaEvent[] {
     }
   }];
 }
+
+/**
+ * The close of a session, in the vocabulary Cursor, Gemini and the IDE
+ * extensions already send it: `recovery_offline_period` with `activity:
+ * "session_ended"`. Without it a Claude Code session has a start and no end,
+ * and the end can only be guessed from whichever event came last.
+ *
+ * Sent for every reason, `clear` included. Claude Code reports a `/clear` as
+ * an end, and this passes that on as reported; the `SessionStart` that
+ * follows one is still skipped above as a context reset.
+ *
+ * The reason is one of Claude Code's own five words. Apart from `cwd`, which
+ * every event reads for the branch digest, it's the only field read here.
+ */
+function mapSessionEnd(input: ClaudeHookInput): MappedAscendaEvent[] {
+  const raw = input["reason"];
+  return [{
+    eventType: "recovery_offline_period",
+    severity: "low",
+    metadata: {
+      activity: "session_ended",
+      ...(raw === undefined || raw === null ? {} : { sessionEndReason: classifySessionEndReason(raw) })
+    }
+  }];
+}
+
+/**
+ * Claude Code's `SessionEnd` reason onto {@link SessionEndReason}. Total, the
+ * same way {@link classifyAutonomyMode} is: a value we don't recognise becomes
+ * `unknown` and is still sent, so a sixth upstream reason is visible as a
+ * count rather than lost.
+ */
+export function classifySessionEndReason(raw: unknown): SessionEndReason {
+  if (typeof raw !== "string") return "unknown";
+  const value = raw.trim().toLowerCase();
+  return (SESSION_END_REASONS as readonly string[]).includes(value) ? value as SessionEndReason : "unknown";
+}
+
+const SESSION_END_REASONS: readonly SessionEndReason[] = ["clear", "resume", "logout", "prompt_input_exit", "other"];
 
 function mapUserPromptSubmit(input: ClaudeHookInput): MappedAscendaEvent[] {
   const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]]);

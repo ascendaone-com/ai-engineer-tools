@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyAutonomyMode, classifyModelClass, isNewSessionStart, mapClaudeEvent } from "../dist/mapClaudeEvent.js";
+import { classifyAutonomyMode, classifyModelClass, classifySessionEndReason, isNewSessionStart, mapClaudeEvent } from "../dist/mapClaudeEvent.js";
 
 // ── Real payload shapes ────────────────────────────────────────────────────
 //
@@ -33,6 +33,58 @@ test("SessionStart: startup and resume open a focus session", () => {
     assert.equal(events.length, 1);
     assert.equal(events[0].eventType, "create_focus_session");
   }
+});
+
+// The documented SessionEnd payload: the common fields plus `reason`.
+const sessionEndPayload = (over = {}) => ({
+  session_id: "abc123",
+  transcript_path: "/path/to/transcript.jsonl",
+  cwd: "/current/working/directory",
+  permission_mode: "default",
+  hook_event_name: "SessionEnd",
+  reason: "prompt_input_exit",
+  ...over
+});
+
+test("SessionEnd: closes the session in the same vocabulary the other collectors use", () => {
+  const events = mapClaudeEvent("SessionEnd", sessionEndPayload());
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "recovery_offline_period");
+  assert.equal(events[0].severity, "low");
+  assert.equal(events[0].metadata.activity, "session_ended");
+  assert.equal(events[0].metadata.host, "claude_code");
+  assert.equal(events[0].metadata.sessionEndReason, "prompt_input_exit");
+});
+
+test("SessionEnd: each documented reason is carried as itself, clear included", () => {
+  for (const reason of ["clear", "resume", "logout", "prompt_input_exit", "other"]) {
+    const [event] = mapClaudeEvent("SessionEnd", sessionEndPayload({ reason }));
+    assert.equal(event.eventType, "recovery_offline_period", reason);
+    assert.equal(event.metadata.sessionEndReason, reason);
+  }
+});
+
+test("SessionEnd: an unrecognised reason is sent as unknown, and a missing one is omitted", () => {
+  assert.equal(mapClaudeEvent("SessionEnd", sessionEndPayload({ reason: "bypass_permissions_disabled" }))[0].metadata.sessionEndReason, "unknown");
+  assert.equal(mapClaudeEvent("SessionEnd", sessionEndPayload({ reason: 7 }))[0].metadata.sessionEndReason, "unknown");
+  const [bare] = mapClaudeEvent("SessionEnd", sessionEndPayload({ reason: undefined }));
+  assert.equal(bare.eventType, "recovery_offline_period", "the end is still sent");
+  assert.ok(!("sessionEndReason" in bare.metadata), "no reason reported means no key, not unknown");
+});
+
+test("SessionEnd: only the reason leaves, never the transcript path or the posture word", () => {
+  const [event] = mapClaudeEvent("SessionEnd", sessionEndPayload());
+  const values = JSON.stringify(event);
+  assert.ok(!values.includes("transcript"), values);
+  assert.ok(!values.includes("abc123"), values);
+  assert.deepEqual(Object.keys(event.metadata).filter((k) => k !== "branchHash").sort(), ["activity", "host", "sessionEndReason"]);
+});
+
+test("classifySessionEndReason is total and forgiving of case and whitespace", () => {
+  assert.equal(classifySessionEndReason(" Logout "), "logout");
+  assert.equal(classifySessionEndReason(null), "unknown");
+  assert.equal(classifySessionEndReason({}), "unknown");
+  assert.equal(classifySessionEndReason(""), "unknown");
 });
 
 test("SessionStart: clear and compact are not new sessions", () => {

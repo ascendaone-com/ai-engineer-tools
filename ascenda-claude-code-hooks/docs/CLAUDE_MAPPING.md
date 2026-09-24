@@ -25,6 +25,7 @@ This adapter is the **primary Phase 1 source for `AIInteractionLoad`** and workf
 | Stop (every turn) | `ai_turn_completed` | neutral |
 | Stop (long duration only) | `agent_loop_long` | risk |
 | Notification | *(skipped — no catalog event)* | — |
+| SessionEnd (every reason) | `recovery_offline_period` (`activity: session_ended`, `sessionEndReason`) | neutral |
 
 ## Outcome comes from the event, not the payload
 

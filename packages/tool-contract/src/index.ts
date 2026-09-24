@@ -502,6 +502,25 @@ export type ModelClass =
   | "unknown";
 
 /**
+ * Why an agent session ended, as the agent itself reported it. Claude Code's
+ * `SessionEnd` hook documents five values, mirrored 1:1: `clear` (`/clear`),
+ * `resume` (the session was suspended, to be resumed later), `logout`,
+ * `prompt_input_exit` (the input stream closed) and `other`.
+ *
+ * `unknown` is not an upstream value. It marks a reason that was sent and not
+ * recognised, so a new upstream value shows up as a rising `unknown` count
+ * rather than being dropped. When the payload carries no reason, the key is
+ * omitted.
+ */
+export type SessionEndReason =
+  | "clear"
+  | "resume"
+  | "logout"
+  | "prompt_input_exit"
+  | "other"
+  | "unknown";
+
+/**
  * What a person was told, as a property of the key itself.
  *
  * `metricKeys.ts` records who READS a key. This records who was TOLD about it,
@@ -571,6 +590,8 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   reason: "outcome",
   afterHours: "clock",
   activity: "counts",
+  // One constant word, from the agent itself. The session sentence names it.
+  sessionEndReason: "session",
   interruptionKind: "waiting",
   // Free text by type, and written by no hook mapper — the IDE extension's
   // test signal is the only producer. The setup disclosure's third refusal
@@ -754,6 +775,18 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   toolName?: string;
 
   /**
+   * Why the session ended, on the `recovery_offline_period` event with
+   * `activity: "session_ended"`. Claude Code is the only collector that
+   * reports a reason; the others send the end without one, and the key is
+   * absent there. See {@link SessionEndReason}.
+   *
+   * Its own key rather than a value of `reason`: `reason` names why a risk
+   * event fired, and a reader counting it by value shouldn't find `logout`
+   * among `tool_failure` and `long_session`.
+   */
+  sessionEndReason?: SessionEndReason;
+
+  /**
    * Which kind of wait an agent stopped on: `permission_request`,
    * `idle_prompt` or `other`, and never anything else.
    *
@@ -862,6 +895,7 @@ export const EVENT_METADATA_FIELDS = [
   "message",
   "host",
   "toolName",
+  "sessionEndReason",
   "interruptionKind",
   "simulated",
   "relatedEventType",
