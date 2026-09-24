@@ -202,6 +202,31 @@ export class AscendaEventSender {
   }
 
   /**
+   * Writes the event to the outbox and returns without touching the network.
+   * The next outbox pass delivers it, from whichever hook of this
+   * installation sends next.
+   *
+   * For a hook whose host is exiting. A process the host may kill at any
+   * moment can't wait on a send, and one killed mid-send dies before
+   * {@link post} gets to queue the payload, so the event goes with it. Here
+   * the payload is on disk before anything can go wrong.
+   *
+   * Returns whether it is. When the write fails the journal says the event
+   * was lost; nothing else could have kept it.
+   */
+  queue(mapped: MappedEvent): boolean {
+    const payload = buildEventPayload(this.config, mapped);
+    const queued = this.enqueue(payload);
+    if (!queued) {
+      this.lastState = recordSendOutcome(this.stateFilePath(), this.config.toolInstallationId, "other", {
+        detail: `${payload.eventType}: outbox write failed, event lost`
+      });
+    }
+    this.log(payload, "not_sent", queued ? "queued" : undefined);
+    return queued;
+  }
+
+  /**
    * Sends one of the six agent-observed types (dark-flow-gap-analysis §2.1).
    * Distinct from {@link send} rather than an option on it, because the
    * differences are non-negotiable, not caller preference:
@@ -525,7 +550,7 @@ export class AscendaEventSender {
    * It is now `transport_error` through the ordinary path, because the
    * transport returns that outcome instead of throwing.
    */
-  private log(payload: AscendaEventPayload, delivery: IngestResult, outbox?: EventLogEntry["outbox"]): void {
+  private log(payload: AscendaEventPayload, delivery: EventLogEntry["delivery"], outbox?: EventLogEntry["outbox"]): void {
     const logFile = this.config.eventLogFile === undefined ? resolveEventLogPath() : this.config.eventLogFile;
     if (!logFile) return;
     appendEventLog(logFile, { loggedAt: new Date().toISOString(), delivery, payload, ...(outbox ? { outbox } : {}) });

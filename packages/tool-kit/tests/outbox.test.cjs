@@ -538,6 +538,70 @@ test("an unwritable outbox path costs the event, and the journal says lost rathe
   }
 });
 
+test("queue() puts the event on disk and touches no door, not even to drain what is waiting", async () => {
+  const files = scratch();
+  seed(files.outbox, [payload("already-waiting")]);
+  const { impl, calls } = stubFetch({
+    single: () => ok({ status: "accepted" }),
+    batch: () => ok({ results: [{ index: 0, status: "accepted" }] })
+  });
+  const { instance, restore } = makeSender(impl, files, { outboxDrain: true });
+  try {
+    assert.equal(instance.queue({ eventType: "recovery_offline_period", severity: "low", metadata: { activity: "session_ended" } }), true);
+    assert.deepEqual(calls, { single: [], batch: [], renew: [] }, "no network at all");
+
+    const queued = readOutbox(files.outbox);
+    assert.equal(queued.length, 2, "the waiting entry is untouched and the new one joins it");
+    const [ended] = queued.filter((entry) => entry.payload.eventType === "recovery_offline_period");
+    assert.equal(ended.queuedAt, ANCHOR, "queued at the sender's clock, so the age bound reads it like any other");
+    assert.match(ended.payload.idempotencyKey, /^[0-9a-f-]{36}$/, "keyed now, so a replay that lands twice comes back duplicate");
+    assert.ok(ended.payload.metadata.collectorVersion, "the same payload a send would build");
+    assert.equal(fs.existsSync(files.state), false, "no send was attempted, so none is journaled");
+  } finally {
+    restore();
+    files.cleanup();
+  }
+});
+
+test("what queue() wrote goes out on the next send's outbox pass", async () => {
+  const files = scratch();
+  const { impl, calls } = stubFetch({
+    single: () => ok({ status: "accepted" }),
+    batch: (body) => ok({ results: body.events.map((_, index) => ({ index, status: "accepted" })) })
+  });
+  try {
+    const first = makeSender(impl, files, { outboxDrain: true });
+    first.instance.queue({ eventType: "recovery_offline_period", severity: "low", metadata: { activity: "session_ended" } });
+    first.restore();
+    const key = readOutbox(files.outbox)[0].payload.idempotencyKey;
+
+    const next = makeSender(impl, files, { outboxDrain: true });
+    assert.equal(await next.instance.send({ eventType: "create_focus_session", severity: "low" }), "accepted");
+    next.restore();
+    assert.equal(calls.batch.length, 1);
+    assert.equal(calls.batch[0].events[0].idempotencyKey, key);
+    assert.equal(readOutbox(files.outbox).length, 0);
+  } finally {
+    files.cleanup();
+  }
+});
+
+test("queue() on an unwritable outbox returns false and the journal says the event was lost", () => {
+  const files = scratch();
+  const { impl, calls } = stubFetch({});
+  const { instance, restore } = makeSender(impl, files, { outboxFilePath: path.join(os.devNull, "nope", "outbox.jsonl") });
+  try {
+    assert.equal(instance.queue({ eventType: "recovery_offline_period", severity: "low" }), false);
+    assert.equal(calls.single.length, 0);
+    const journal = readCollectorState(files.state);
+    assert.equal(journal.lastOutcome, "other");
+    assert.match(journal.detail, /recovery_offline_period: outbox write failed, event lost/);
+  } finally {
+    restore();
+    files.cleanup();
+  }
+});
+
 test("recordOutboxDiscard is cumulative and survives the next accepted send", () => {
   const files = scratch();
   try {

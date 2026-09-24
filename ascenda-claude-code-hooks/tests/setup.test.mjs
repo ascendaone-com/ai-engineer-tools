@@ -44,6 +44,18 @@ test("registers every hook event, and none we do not map", () => {
   assert.equal(hooks.SessionEnd[0].hooks[0].timeout, 5);
 });
 
+test("the example settings register the same hooks, each with a timeout", () => {
+  // Copied by hand into a settings file, so it has to be right on its own. A
+  // hook with no timeout waits up to 600s, and SessionEnd hooks without one
+  // share 1.5s between them.
+  const example = read(new URL("../examples/settings.local.json", import.meta.url));
+  assert.deepEqual(Object.keys(example.hooks).sort(), [...EVENTS].sort());
+  for (const [event, groups] of Object.entries(example.hooks)) {
+    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event}`);
+    assert.equal(groups[0].hooks[0].timeout, 5, event);
+  }
+});
+
 test("registers every event the mapper turns into telemetry", async () => {
   // The list above is hand-written, which is how PostToolUseFailure went
   // missing while the mapper already handled it. Cross-check against the

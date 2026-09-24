@@ -49,7 +49,7 @@ export type { DisclosureFamily };
  * of that heading rather than as a sentence of its own.
  */
 export const FAMILY_SENTENCES: Readonly<Record<DisclosureFamily, string>> = {
-  session: "when a session starts and ends, the one-word reason your agent gives for ending it, and how long each turn took",
+  session: "when a session starts and ends, the one-word reason for the end if your agent gives one, and how long each turn took",
   counts: "how many prompts you sent, how many replies came back, and what class of command ran in a terminal — test, lint, build, git and so on",
   tools: "the name of each tool your agent calls",
   outcome: "whether a call succeeded, failed, or was interrupted",

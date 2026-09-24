@@ -27,6 +27,12 @@ This adapter is the **primary Phase 1 source for `AIInteractionLoad`** and workf
 | Notification | *(skipped — no catalog event)* | — |
 | SessionEnd (every reason) | `recovery_offline_period` (`activity: session_ended`, `sessionEndReason`) | neutral |
 
+`SessionEnd` runs while Claude Code exits, so it doesn't send. It writes the
+event to the outbox and returns, and the next hook of the same install delivers
+it on its outbox pass: another open session's next tool call, or the next
+`SessionStart`. The event keeps the `occurredAt` and `idempotencyKey` it
+was built with.
+
 ## Outcome comes from the event, not the payload
 
 Verified against a live Claude Code session (27 Jul 2026), replacing what had

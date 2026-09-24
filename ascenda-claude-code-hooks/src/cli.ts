@@ -331,6 +331,19 @@ async function main(): Promise<void> {
 
   const client = new AscendaClient(config);
 
+  // SessionEnd runs while Claude Code is exiting, and Claude Code kills a
+  // hook that outlives its timeout. A send on a hung connection holds the
+  // exit up for that whole timeout and is then killed before it can queue,
+  // so the end is lost too. The outbox write takes milliseconds and survives
+  // the exit; the next hook of this installation delivers it, whether that's
+  // another open session's next tool call or the next SessionStart.
+  if (hookName === "SessionEnd") {
+    for (const event of mappedEvents) {
+      if (!client.queue(event)) console.error("Ascenda telemetry not kept: the session end could not be written to the outbox.");
+    }
+    return;
+  }
+
   for (const event of mappedEvents) {
     const result = await client.send(event);
     if (result === "accepted") continue;

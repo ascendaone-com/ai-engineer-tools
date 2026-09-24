@@ -60,6 +60,9 @@ targets, error counts or internal resource names — this repository is public.
 - It carries Claude Code's own reason, one word: `clear`, `resume`, `logout`,
   `prompt_input_exit` or `other`. A word it doesn't recognise goes out as
   `unknown`. The setup screen says so.
+- **Exiting never waits on the network.** The end goes into the outbox, and
+  the next hook to send delivers it: another open session's next tool call, or
+  your next `SessionStart`. It keeps the time it was written.
 - **Run `setup` again to pick it up.** It registers ten hooks now, and
   `status` counts `10/10`. The plugin registers the same ten.
 

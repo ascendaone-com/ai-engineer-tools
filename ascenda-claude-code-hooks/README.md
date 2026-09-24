@@ -148,7 +148,7 @@ pairing        claude_code:… (not paired, installed 2026-09-23T05:13:40.907Z)
 token          — none until this install is paired
 delivery       inactive — nothing is sent, and nothing is queued for later
 local features active — the session prompts and the live socket signal need no pairing
-hooks          9/9 registered in ~/.claude/settings.json
+hooks          10/10 registered in ~/.claude/settings.json
 ```
 
 `uninstall` removes an unpaired install the same way, and says there is no
@@ -227,18 +227,22 @@ for machine-wide coverage:
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionStart" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks UserPromptSubmit" }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreToolUse" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUse" }] }],
-    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUseFailure" }] }],
-    "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreCompact" }] }],
-    "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostCompact" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Stop" }] }],
-    "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification" }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionStart", "timeout": 5 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks UserPromptSubmit", "timeout": 5 }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreToolUse", "timeout": 5 }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUse", "timeout": 5 }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUseFailure", "timeout": 5 }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreCompact", "timeout": 5 }] }],
+    "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostCompact", "timeout": 5 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Stop", "timeout": 5 }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification", "timeout": 5 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionEnd", "timeout": 5 }] }]
   }
 }
 ```
+
+Keep the timeouts. Without one Claude Code gives a hook up to 600s, and all
+SessionEnd hooks share 1.5s between them.
 
 ### Verify
 
@@ -377,6 +381,7 @@ on Claude Code's PATH, use an absolute path such as
 ## Supported Claude hook events
 
 ```text
+SessionStart
 UserPromptSubmit
 PreToolUse
 PostToolUse
@@ -385,6 +390,7 @@ PreCompact
 PostCompact
 Stop
 Notification
+SessionEnd
 ```
 
 ## Ascenda event mappings
@@ -392,6 +398,7 @@ Notification
 Full mapping: [docs/CLAUDE_MAPPING.md](./docs/CLAUDE_MAPPING.md). Catalog-only event types (no aliases).
 
 ```text
+SessionStart       -> create_focus_session (startup and resume; clear and compact are skipped)
 UserPromptSubmit   -> ai_prompt_submitted / ai_correction_prompt
 PreToolUse         -> ai_tool_call_started
 PostToolUse Edit   -> ai_file_edit
@@ -402,6 +409,7 @@ PreCompact         -> context_compression_manual / context_compression_auto
 PostCompact        -> context_pressure_high
 Stop               -> ai_turn_completed (every turn), agent_loop_long (long only)
 Notification       -> supervision_interruption (interruptionKind only, never the message)
+SessionEnd         -> recovery_offline_period (activity session_ended, sessionEndReason)
 ```
 
 ## Privacy defaults
