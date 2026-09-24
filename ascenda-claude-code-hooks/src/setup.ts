@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, defaultTokenFilePath, getPairingStatus, persistEventWriteToken, readTokenFile, renderSetupDisclosure } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, defaultTokenFilePath, describeCollectorVersion, getPairingStatus, persistEventWriteToken, readTokenFile, renderSetupDisclosure } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { credentialsFilePath, hookBinPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
@@ -516,6 +516,7 @@ function printStatus(options: Options): number {
     : undefined;
   const stale = findStaleHookCommands(settings, binary);
 
+  console.log(`version        ${describeCollectorVersion()}`);
   console.log(`api base url   ${credentials?.apiBaseUrl ?? "— not configured"}`);
   console.log(`pairing        ${describePairing(credentials, unpaired)}`);
   // The environment counts as a token here, the same way it does for a hook.

@@ -2,6 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { describeCollectorVersion } from "./collectorVersion";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
 import { DEFAULT_API_BASE_URL } from "./hookAdapter";
 import { createPairingSession, getPairingStatus } from "./http";
@@ -486,6 +487,7 @@ function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): number {
   // from here and has to keep being reported.
   const localOnly = isLocalOnlyHostInstall(spec.host, (id) => readTokenFile(defaultTokenFilePath(id)) !== undefined);
 
+  console.log(`version        ${describeCollectorVersion()}`);
   console.log(`api base url   ${credentials?.apiBaseUrl ?? "— not configured"}`);
   console.log(`pairing        ${credentials?.toolInstallationId ?? "— not paired"}${localOnly ? " (installed, not paired — local features active, telemetry inactive)" : ""}`);
   console.log(`token          ${localOnly ? "— none needed until this install is paired" : tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);

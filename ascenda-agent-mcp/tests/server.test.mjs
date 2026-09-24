@@ -58,6 +58,9 @@ test("tools/list advertises exactly ascenda_emit_work_signal", async () => {
         tools.map((t) => t.name),
         ["ascenda_emit_work_signal"]
       );
+      // The server introduces itself with the collector version, not a
+      // hard-coded one. Unbundled here, so it's the unreleased literal.
+      assert.equal(client.getServerVersion()?.version, "unreleased");
     }
   );
 });
@@ -85,6 +88,7 @@ test("a valid call sends the semantic scope and reports accepted", async () => {
       assert.equal(sentBody.consentScope, "semantic_work_signals");
       assert.equal(sentBody.severity, "low");
       assert.equal(sentBody.metadata.skillVersion, "1.0.0");
+      assert.equal(sentBody.metadata.collectorVersion, "unreleased", "an unbundled build names no release");
       assert.equal(sentBody.metadata.scopeChanges, 4);
       assert.equal(sentBody.metadata.unresolvedDecisions, 3);
       assert.equal(sentBody.metadata.originalGoalRetained, false);

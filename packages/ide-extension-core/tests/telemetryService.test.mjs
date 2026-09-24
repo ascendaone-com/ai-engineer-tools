@@ -103,6 +103,15 @@ test("track() mints a top-level idempotencyKey as the event enters the queue", (
   assert.notEqual(svc.queue[0].idempotencyKey, svc.queue[1].idempotencyKey);
 });
 
+test("track() stamps the collector version, and caller metadata can't replace it", () => {
+  const svc = service();
+  svc.track("ai_file_edit", "low", { activity: "edit", collectorVersion: "9.9.9" });
+
+  // Unbundled, as every test here runs, so no release was defined in.
+  assert.equal(svc.queue[0].metadata.collectorVersion, "unreleased");
+  assert.equal(svc.queue[0].metadata.activity, "edit");
+});
+
 test("a re-queued batch keeps its keys: the same objects go back, and the next flush resends them", async () => {
   const svc = service();
   svc.track("ai_file_edit", "low", { activity: "edit" });

@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -p ./ && npm run bundle",
     "watch": "tsc -w -p ./",
-    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
+    "bundle": "node ../scripts/esbuild-collector.mjs src/cli.ts --bundle --platform=node --format=esm --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/cli.js",
     "test": "npm run build && node --test tests/*.test.mjs"
   },
   "license": "Apache-2.0",

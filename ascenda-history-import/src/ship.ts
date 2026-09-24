@@ -49,6 +49,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+  COLLECTOR_VERSION,
   classifyModelClass,
   deriveBranchHash,
   deriveWorkContext,
@@ -201,7 +202,11 @@ export function toWirePayload(
   const metadata: Record<string, string | number | boolean> = {
     importKey: importKeyOf(event, ordinal),
     extractionId: event.extractionId,
-    importSchema: 1
+    importSchema: 1,
+    // The importer build that shipped this row. Extractors gain metrics from
+    // release to release, so a metric missing from an older import is a fact
+    // about the build that read the store, and this is how a reader knows.
+    collectorVersion: COLLECTOR_VERSION
   };
   if (event.sourceVersion) metadata.sourceVersion = event.sourceVersion;
   // Stores that share a wire source with other tools name themselves here,

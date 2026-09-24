@@ -206,6 +206,7 @@ test("status reports an unpaired install as installed, and exits 0", () => {
   assert.match(here.stdout, /delivery\s+inactive/);
   assert.match(here.stdout, /local features active/);
   assert.match(here.stdout, /hooks\s+9\/9 registered/);
+  assert.match(here.stdout, /^version {8}(unreleased \(built from a checkout, not a release\)|\d+\.\d+\.\d+)$/m, "status names the running build");
 
   // The scope trap: `status` defaults to --scope project while this machine
   // was set up with --scope user. User settings apply in every project, so the

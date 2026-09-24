@@ -91,6 +91,9 @@ test("a shipped payload's eventType is a catalog type the backend will classify"
     `${payload.eventType} is not in the catalog — it would store as unclassified`
   );
   assert.equal(EVENT_WORKLOAD_CATEGORY[payload.eventType], "neutral");
+  // Registered in EVENT_METADATA_FIELDS, so it isn't an unread key. Unbundled
+  // here, as the importer's tests run, so no release was defined in.
+  assert.equal(payload.metadata.collectorVersion, "unreleased");
 });
 
 /**

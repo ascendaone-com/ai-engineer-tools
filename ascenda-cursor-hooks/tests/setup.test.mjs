@@ -62,6 +62,7 @@ test("--help prints usage and exits 0 without reading a hook payload", () => {
 test("status on a fresh machine names what is missing and exits non-zero, so it can gate a CI step", () => {
   const result = run(["status", "--project-dir", os.tmpdir()]);
   assert.equal(result.status, 1);
+  assert.match(result.stdout, /^version {8}(unreleased \(built from a checkout, not a release\)|\d+\.\d+\.\d+)$/m, "status names the running build");
   assert.match(result.stdout, /pairing\s+— not paired/);
   assert.match(result.stdout, new RegExp(`hooks\\s+0/${HOOK_EVENTS.length} registered`));
 });

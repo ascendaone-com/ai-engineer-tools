@@ -22,6 +22,10 @@ git tag v0.2.0 && git push origin v0.2.0
    root and every shipped `package.json` (see `RELEASE_PACKAGES` in
    `scripts/release-artifacts.mjs` for the current list), so one tag means one
    version everywhere and the manifest carries a single `version`. Not committed back.
+   The same tag, as `ASCENDA_COLLECTOR_VERSION`, is defined into every bundle by
+   `scripts/esbuild-collector.mjs`, and each event reports it as
+   `metadata.collectorVersion`. The wrapper fails the build if the tag and the
+   stamped `package.json` disagree. A local build says `unreleased`.
 3. **Runs the gate.** `npm run verify` — the DRY guard rail, the full
    dependency-ordered build, and every workspace test suite. Red verify, no release.
 4. **Builds artifacts** via the hermetic `vscode:prepublish` path (`build:shared`
@@ -242,7 +246,8 @@ URLs. See [`docs/images/README.md`](./docs/images/README.md).
 ships. Three steps, all required:
 
 1. Add the workspace to `RELEASE_PACKAGES` (with its `npm` name if it publishes
-   to the registry).
+   to the registry), and point its `bundle` script at
+   `node ../scripts/esbuild-collector.mjs` so its events name the release.
 2. Stage its build output in the workflow's *Stage artifacts* step.
 3. Add the `repository` field to its `package.json` — see the provenance gotcha
    above, or the publish fails after the release is already created.

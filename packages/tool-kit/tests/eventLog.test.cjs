@@ -84,7 +84,7 @@ test("the logged payload is what a send would put on the wire", () => {
   assert.equal(payload.privacyMode, "metadata_only");
   assert.equal(payload.consentScope, "ide_telemetry");
   assert.equal(payload.provenance, "ai_work_telemetry");
-  assert.deepEqual(payload.metadata, {}, "absent metadata is an empty bag, never undefined");
+  assert.deepEqual(payload.metadata, { collectorVersion: "unreleased" }, "absent metadata is a bag holding only the build, never undefined");
   assert.ok(Date.parse(payload.occurredAt) > 0);
 });
 
