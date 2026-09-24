@@ -12,8 +12,8 @@ import {
  * {@link ProjectElapsedActive}, one nesting level apart under one spelling. Both
  * are deliberate — the sums are kept because agent-hours is a real quantity and
  * because removing them would silently change every existing reader — and until
- * this table nothing mechanical told them apart. That is the asc-core-be#194
- * shape: two figures sharing a name with nothing on either distinguishing them.
+ * this table nothing mechanical told them apart: two figures sharing a name
+ * with nothing on either distinguishing them.
  *
  * The vocabulary itself is vendored in
  * `packages/tool-contract/contracts/active-time-quantities.v1.json`, so a name

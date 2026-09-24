@@ -12,9 +12,9 @@ import { fileURLToPath } from "node:url";
 // Before this, `sessionId` was read from ASCENDA_SESSION_ID and nowhere else —
 // a variable nothing sets — so every shipped row carried a null session. The
 // consequence was not cosmetic: a reader cannot union what it cannot group,
-// and asc-core-be#185 found its per-day active-time figures resting entirely
-// on duration-bucket midpoints for the days whose rows had no session, because
-// a session-less row gap-splits to a zero-length span.
+// so per-day active time built from session-less rows falls back to
+// duration-bucket midpoints, because a session-less row gap-splits to a
+// zero-length span.
 //
 // The unpaired+log path is used because it exercises the same
 // buildEventPayload identity as a real send, without a network — the same
