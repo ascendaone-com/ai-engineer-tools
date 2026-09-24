@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AscendaEventSender, bucketDurationMs } from "@ascenda-one/tool-kit";
+import { AscendaEventSender, COLLECTOR_VERSION, bucketDurationMs } from "@ascenda-one/tool-kit";
 import { AscendaEventMetadata, AscendaTelemetryEventType, SEMANTIC_WORK_SIGNAL_EVENT_TYPES } from "@ascenda-one/tool-contract";
 import { z } from "zod";
 import { AscendaMcpConfig } from "./config.js";
@@ -83,7 +83,7 @@ const inputShape = {
 };
 
 export function buildServer(config: AscendaMcpConfig): McpServer {
-  const server = new McpServer({ name: "ascenda-agent-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "ascenda-agent-mcp", version: COLLECTOR_VERSION });
   const sender = new AscendaEventSender({
     apiBaseUrl: config.apiBaseUrl,
     toolInstallationId: config.toolInstallationId,

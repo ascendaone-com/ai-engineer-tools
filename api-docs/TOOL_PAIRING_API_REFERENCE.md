@@ -401,6 +401,14 @@ Sanitized metadata strips sensitive keys:
 
 - `prompt`, `response`, `sourceCode`, `code`, `fileName`, `filePath`, `branch`, `repository`, `terminalOutput`
 
+Collector version:
+
+- Every event a collector in this repo sends carries `metadata.collectorVersion`:
+  the release it was built from, without the `v` (`0.1.28`), or `unreleased` for
+  a build from a checkout. It's diagnostic, and nothing is required to read it.
+  A collector older than an event type sends nothing for that type. The version
+  is how a reader tells that absence from a zero a current collector measured.
+
 Semantic event rules (the six `*_detected`/`*_declared`/`progress_*` types):
 
 - `consentScope` must be `"semantic_work_signals"` — a lease on `ide_telemetry` alone does not cover these.

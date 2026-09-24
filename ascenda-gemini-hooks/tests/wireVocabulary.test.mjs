@@ -20,6 +20,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.resolve(HERE, "../src");
 const CLI = path.resolve(HERE, "../dist/cli.js");
 const CANONICAL = new Set(Object.keys(EVENT_WORKLOAD_CATEGORY));
+// What the bundle was built to report: the release in CI, where release.yml
+// sets the tag, and "unreleased" from a checkout.
+const EXPECTED_COLLECTOR_VERSION = process.env.ASCENDA_COLLECTOR_VERSION?.trim().replace(/^v/, "") || "unreleased";
 const REGISTERED_KEYS = new Set([...EVENT_METADATA_FIELDS, ...Object.keys(METRIC_KEYS)]);
 const CONTEXT_KEYS = new Set(["contextWindowPeakPct", "contextUsagePercent"]);
 
@@ -122,7 +125,7 @@ test("every file that sets durationBucket routes through the shared bucketer", (
   assert.deepEqual(offenders, [], `these set durationBucket without bucketDurationMs:\n  ${offenders.join("\n  ")}`);
 });
 
-test("the built CLI puts the UTC offset and an idempotency key on every wire payload", () => {
+test("the built CLI puts the UTC offset, an idempotency key and its own version on every wire payload", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-guard-home-"));
   const logFile = path.join(home, "events.jsonl");
   const [hook, input] = FIXTURES[4];
@@ -146,6 +149,7 @@ test("the built CLI puts the UTC offset and an idempotency key on every wire pay
   for (const { delivery, payload } of lines) {
     assert.equal(delivery, "not_sent");
     assert.equal(payload.metadata.host, GEMINI_HOST);
+    assert.equal(payload.metadata.collectorVersion, EXPECTED_COLLECTOR_VERSION, "every payload names the build that sent it");
     assert.ok(Number.isInteger(payload.utcOffsetMinutes), `utcOffsetMinutes missing: ${JSON.stringify(payload)}`);
     assert.match(payload.idempotencyKey, /^[0-9a-f-]{36}$/, "the idempotency key is minted at construction, by the shared sender");
     assert.equal(payload.source, "cli_agent");

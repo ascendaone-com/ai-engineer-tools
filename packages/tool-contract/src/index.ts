@@ -586,7 +586,10 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   taskFingerprint: "transport",
   importKey: "transport",
   extractionId: "transport",
-  importSchema: "transport"
+  importSchema: "transport",
+  // The version of the Ascenda collector that sent this event. Names the
+  // build, and nothing about the work it observed.
+  collectorVersion: "transport"
 };
 
 export type AscendaEventMetadata = Record<string, string | number | boolean | null | undefined> & {
@@ -810,6 +813,19 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
 
   /** Version of the normalized historical event shape the importer emitted. */
   importSchema?: number;
+
+  /**
+   * The version of the Ascenda collector that sent this event: the release tag
+   * without its `v` (`0.1.28`), or `unreleased` for a build from a checkout.
+   * Set by every payload builder in this repo, after the caller's metadata, so
+   * no mapper can override it.
+   *
+   * A diagnostic field, in the sense `metricKeys.ts` gives the word: nothing
+   * is required to read it. A collector that predates an event type sends a
+   * zero for it, and without the version a reader can't tell that zero from
+   * one a current collector measured.
+   */
+  collectorVersion?: string;
 };
 
 /**
@@ -853,7 +869,8 @@ export const EVENT_METADATA_FIELDS = [
   "taskFingerprint",
   "importKey",
   "extractionId",
-  "importSchema"
+  "importSchema",
+  "collectorVersion"
 ] as const;
 
 export type AscendaEventPayload = {

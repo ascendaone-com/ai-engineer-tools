@@ -33,6 +33,7 @@ import { TimeProvider, systemTimeProvider } from "./timeProvider";
 import { persistEventWriteToken } from "./tokenStore";
 import { CollectorState, OutboxDiscardReason, defaultStateFilePath, recordOutboxDiscard, recordSendOutcome } from "./stateStore";
 import { mintIdempotencyKey } from "./payload";
+import { COLLECTOR_VERSION } from "./collectorVersion";
 
 export type MappedEvent = {
   eventType: AscendaTelemetryEventType;
@@ -152,8 +153,16 @@ export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent):
     provenance: ASCENDA_PROVENANCE,
     privacyMode: "metadata_only",
     ...mapped,
-    metadata: mapped.metadata ?? {}
+    metadata: withCollectorVersion(mapped.metadata)
   };
+}
+
+/**
+ * Every builder in this file stamps the version last, after the caller's
+ * metadata, so no mapper can send an event that claims another build.
+ */
+function withCollectorVersion(metadata: AscendaEventMetadata | undefined): AscendaEventMetadata {
+  return { ...metadata, collectorVersion: COLLECTOR_VERSION };
 }
 
 /**
@@ -237,7 +246,7 @@ export class AscendaEventSender {
       consentScope: ASCENDA_SEMANTIC_CONSENT_SCOPE,
       provenance: ASCENDA_SEMANTIC_PROVENANCE,
       privacyMode: "metadata_only",
-      metadata: mapped.metadata
+      metadata: withCollectorVersion(mapped.metadata)
     };
     return this.post(payload);
   }
@@ -272,7 +281,7 @@ export class AscendaEventSender {
       consentScope: ASCENDA_COLLABORATION_CONSENT_SCOPE,
       provenance: ASCENDA_PROVENANCE,
       privacyMode: "metadata_only",
-      metadata: mapped.metadata ?? {}
+      metadata: withCollectorVersion(mapped.metadata)
     };
     return this.post(payload);
   }

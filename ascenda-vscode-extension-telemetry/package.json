@@ -134,7 +134,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm --prefix .. run build:shared && tsc --noEmit && npm run bundle",
-    "bundle": "esbuild src/extension.ts --bundle --external:vscode --platform=node --format=cjs --outfile=out/extension.js",
+    "bundle": "node ../scripts/esbuild-collector.mjs src/extension.ts --bundle --external:vscode --platform=node --format=cjs --outfile=out/extension.js",
     "package": "vsce package --no-dependencies",
     "package:ovsx": "ovsx package",
     "prebundle": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\""

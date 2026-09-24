@@ -13,6 +13,7 @@ export {
   localHourAt,
 } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection, mintIdempotencyKey } from "./payload";
+export { COLLECTOR_VERSION, UNRELEASED_COLLECTOR_VERSION, describeCollectorVersion } from "./collectorVersion";
 export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
 export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";

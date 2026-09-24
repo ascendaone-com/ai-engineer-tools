@@ -40,7 +40,7 @@ export function minNode(root = REPO_ROOT) {
 
 /**
  * The compatibility floors a release declares, for consumers that cannot see
- * this repo: `doctor`, the macOS Connections row, and the Sparkle appcast.
+ * this repo: the macOS Connections row and the Sparkle appcast.
  *
  * `contractVersion` is **derived** from packages/tool-contract rather than
  * restated in compatibility.json, because two hand-authored copies of one fact

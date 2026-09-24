@@ -44,6 +44,14 @@ targets, error counts or internal resource names — this repository is public.
   entry now, and on an unpaired install it tells you there is no token to
   revoke.
 
+### Every event names the collector that sent it
+
+- **Events carry `collectorVersion`**, the release of the collector that sent
+  them. A collector older than an event type sends nothing for it, and this is
+  how a zero from an old build can be told apart from a real one. A build from
+  a checkout says `unreleased`.
+- **`status` prints it first**, for Claude Code and the other CLI agents alike.
+
 ## v0.1.27
 
 ### A leftover socket file can't swallow live signals

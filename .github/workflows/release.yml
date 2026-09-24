@@ -28,6 +28,11 @@ jobs:
       # publishing step, so the release path can be exercised before tagging.
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      # Read by scripts/esbuild-collector.mjs, which defines it into every
+      # shipped bundle so each event reports the release that sent it. The
+      # same tag as TAG; job-wide so the VSIX rebuild in `vsce package` gets
+      # it too. Unset, a build says "unreleased".
+      ASCENDA_COLLECTOR_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
       REPO: ${{ github.repository }}
       STAGE: dist/release
     steps:
