@@ -217,6 +217,31 @@ Optional environment:
 On first run the CLI seeds `~/.ascenda/tokens/<toolInstallationId>` so
 **tool-scoped renew** can persist rotated tokens without you editing anything.
 
+### Cloud sessions
+
+A hosted Claude Code session (Claude Code on the web, or one it spawns) runs in
+a fresh container every time. Its transcript never reaches your machine, so a
+history import can't see it and these hooks are its only record. Every event
+carries `metadata.runtime`: `cloud` when Claude Code sets `CLAUDE_CODE_REMOTE`,
+`local` otherwise.
+
+Nothing under `~/.ascenda` survives a session there, so everything the hooks
+need comes from the environment's settings:
+
+| Variable | Why |
+| --- | --- |
+| `ASCENDA_TOOL_INSTALLATION_ID` | The installation to send as. Pair one just for cloud sessions (run `pair` inside one); don't reuse your laptop's pairing, which re-pairing would rotate. |
+| `ASCENDA_EVENT_WRITE_TOKEN` | Its write token. |
+| the salt, `~/.ascenda/salt` | Without it every session mints a new one and one repository turns into a new project hash every time. Have whatever launches the hooks write a fixed value there first. Your laptop's value makes cloud and local hashes match. |
+
+The environment's network access must also allow the Ascenda API host.
+
+**Tokens never rotate in a cloud session.** Renewal revokes the previous
+token, and the replacement would die with the container, taking the
+environment's copy down for every later session. So the hooks record a
+rejected token as a failed send and stop there. Tokens last 30 days; when one runs out, pair again
+and replace the token in the environment.
+
 ### Register hooks manually
 
 The plugin does this for you — this section is only for the standalone route.

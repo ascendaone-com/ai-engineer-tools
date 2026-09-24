@@ -597,6 +597,9 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   // line says as much, and tool-kit's guard test fails if a mapper starts.
   message: "counts",
   host: "session",
+  // One constant word from the host's own environment: this machine, or a
+  // hosted session. The session sentence names it.
+  runtime: "session",
   toolName: "tools",
   simulated: "transport",
   relatedEventType: "transport",
@@ -774,6 +777,21 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   toolName?: string;
 
   /**
+   * Where the agent itself ran: `local` on the person's own machine, `cloud`
+   * in a hosted session the agent's vendor runs (Claude Code on the web, for
+   * one). Stamped by an adapter that can tell, from the host's own
+   * environment; omitted by one that cannot, so absence means "not
+   * reported", never "local".
+   *
+   * It exists because the two are not interchangeable for a reader. A cloud
+   * session's transcript never reaches the person's machine, so a history
+   * import cannot see it, and the live hooks are the only record of it. A
+   * reader comparing the two sources needs to know which rows only one of
+   * them could ever have.
+   */
+  runtime?: "local" | "cloud";
+
+  /**
    * Why the session ended, on the `recovery_offline_period` event with
    * `activity: "session_ended"`. Claude Code is the only collector that
    * reports a reason; the others send the end without one, and the key is
@@ -894,6 +912,7 @@ export const EVENT_METADATA_FIELDS = [
   "message",
   "host",
   "toolName",
+  "runtime",
   "sessionEndReason",
   "interruptionKind",
   "simulated",

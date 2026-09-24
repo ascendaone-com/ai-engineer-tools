@@ -32,3 +32,14 @@ export type ClaudeHookInput = Record<string, unknown>;
 
 export const ASCENDA_TOOL_TYPE = "claude_code";
 export const CLAUDE_HOST = "claude_code";
+
+/**
+ * Where this Claude Code is running, read from the variable Claude Code sets
+ * in its hosted sessions (Claude Code on the web and the sessions it spawns).
+ * Anything but an explicit true reads as `local`: this adapter always knows
+ * which of the two it is in, so it never omits the key.
+ */
+export function claudeRuntime(env: NodeJS.ProcessEnv = process.env): "local" | "cloud" {
+  const flag = env.CLAUDE_CODE_REMOTE?.trim().toLowerCase();
+  return flag === "true" || flag === "1" ? "cloud" : "local";
+}

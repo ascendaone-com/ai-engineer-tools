@@ -8,7 +8,7 @@ import {
   unresolvedStateFilePath
 } from "@ascenda-one/tool-kit";
 import { MachineCredentials, readCredentials } from "./paths.js";
-import { ASCENDA_TOOL_TYPE } from "./types.js";
+import { ASCENDA_TOOL_TYPE, claudeRuntime } from "./types.js";
 
 export const DEFAULT_API_BASE_URL = "https://api.ascenda.one";
 
@@ -19,6 +19,8 @@ export type AscendaHookConfig = {
   tokenFilePath: string;
   stateFilePath: string;
   outboxFilePath: string;
+  /** Off in a hosted session. See `renewToken` on tool-kit's sender config. */
+  renewToken: boolean;
   sessionId?: string | null;
   workspaceHash?: string | null;
   projectHash?: string | null;
@@ -155,6 +157,11 @@ export function loadConfigFromEnv(): AscendaHookConfig {
     tokenFilePath,
     stateFilePath: resolveStateFilePath(toolInstallationId),
     outboxFilePath: resolveOutboxFilePath(toolInstallationId),
+    // A hosted session is a fresh container on every start, with its token
+    // supplied by the environment. A rotation there would be written to a
+    // file that dies with the container while revoking the environment's
+    // copy, so there it never rotates.
+    renewToken: claudeRuntime() !== "cloud",
     // Override only. When unset, main() fills it from the hook payload's own
     // `session_id`, exactly as it does the context hashes below — see there.
     //

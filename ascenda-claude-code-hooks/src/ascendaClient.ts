@@ -16,6 +16,7 @@ export class AscendaClient {
       tokenFilePath: config.tokenFilePath,
       stateFilePath: config.stateFilePath,
       outboxFilePath: config.outboxFilePath,
+      renewToken: config.renewToken,
       sessionId: config.sessionId,
       workspaceHash: config.workspaceHash,
       projectHash: config.projectHash

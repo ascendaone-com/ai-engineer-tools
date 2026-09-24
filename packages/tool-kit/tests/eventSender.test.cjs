@@ -122,3 +122,73 @@ test("send() (the deterministic-event path) is unaffected — still ide_telemetr
     restore();
   }
 });
+
+// Renewal rotates the token and revokes the old one. A host whose token comes
+// from its environment on every start (a hosted cloud session) cannot keep the
+// replacement, so a rotation there would revoke the one copy every later
+// session relies on. `renewToken: false` must therefore never reach the renew
+// door, and must report the rejection it got rather than hide it.
+test("renewToken: false leaves a rejected token rejected and never calls renew", async () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-norenew-"));
+  const urls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ error: "invalid_token" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const instance = new AscendaEventSender({
+      apiBaseUrl: "https://api.example.test",
+      toolInstallationId: "claude_code:abc123",
+      source: "claude_code",
+      eventWriteToken: "token-1",
+      tokenFilePath: path.join(dir, "token"),
+      stateFilePath: path.join(dir, "state.json"),
+      outboxFilePath: path.join(dir, "outbox.jsonl"),
+      outboxDrain: false,
+      eventLogFile: null,
+      renewToken: false
+    });
+    const result = await instance.send({ eventType: "ai_turn_completed", severity: "low", metadata: {} });
+    assert.equal(result, "auth_failed");
+    assert.ok(urls.length > 0, "the ingest door was tried");
+    assert.ok(!urls.some((url) => url.includes("renew-token")), `renew was called: ${urls.join(", ")}`);
+    assert.equal(await instance.renewEventToken(), false);
+    assert.ok(!fs.existsSync(path.join(dir, "token")), "no rotated token was persisted");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("renewal stays on by default: a rejected token is renewed once", async () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-renew-"));
+  const urls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ error: "invalid_token" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const instance = new AscendaEventSender({
+      apiBaseUrl: "https://api.example.test",
+      toolInstallationId: "claude_code:abc123",
+      source: "claude_code",
+      eventWriteToken: "token-1",
+      tokenFilePath: path.join(dir, "token"),
+      stateFilePath: path.join(dir, "state.json"),
+      outboxFilePath: path.join(dir, "outbox.jsonl"),
+      outboxDrain: false,
+      eventLogFile: null
+    });
+    await instance.send({ eventType: "ai_turn_completed", severity: "low", metadata: {} });
+    assert.equal(urls.filter((url) => url.includes("renew-token")).length, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
