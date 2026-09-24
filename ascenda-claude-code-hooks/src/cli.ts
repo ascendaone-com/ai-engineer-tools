@@ -321,12 +321,11 @@ async function main(): Promise<void> {
   // environment this hook inherits does not have to.
   //
   // Without this every shipped row carried a null session unless someone had
-  // exported ASCENDA_SESSION_ID, which nothing sets. On prod that was 599 of
-  // 600 row groups on 3-4 Sep 2026, and a reader cannot union what it cannot
-  // group: asc-core-be#185 found its per-day active-time figures resting
-  // entirely on duration-bucket midpoints for those days, because a
-  // session-less row gap-splits to a zero-length span. The instants were
-  // always on the wire; the identity that makes them poolable was not.
+  // exported ASCENDA_SESSION_ID, which nothing sets. A reader can't union
+  // what it can't group: a session-less row gap-splits to a zero-length span,
+  // so any per-day active time built from such rows falls back to
+  // duration-bucket midpoints. The instants were always on the wire; the
+  // identity that makes them poolable was not.
   config.sessionId ??= getString(input, ["session_id", "sessionId"]) ?? null;
 
   const client = new AscendaClient(config);
