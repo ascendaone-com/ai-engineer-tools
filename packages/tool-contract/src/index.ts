@@ -26,6 +26,40 @@ export type RenewToolTokenResponse = {
   expiresAt: string;
 };
 
+/**
+ * `join` on the command line: an organisation's study, joined in Report
+ * mode. `report` is the only mode the CLI offers — a full Study mode needs
+ * a signed-in surface (the Ascenda app or a web pairing page), the same way
+ * a person, never a script, confirms a tool pairing.
+ *
+ * PROPOSED — the backend change this mirrors had not landed when this was
+ * written. Reconcile against its own contract once it ships.
+ */
+export type StudyJoinMode = "report";
+
+export type StudyJoinStartResponse = {
+  joinSessionId: string;
+  /** What a person types into the app or the pairing page to confirm. */
+  shortCode: string;
+  expiresAt: string;
+  organisationName: string;
+  studyTitle: string;
+  /** Plain text, e.g. "12 Oct – 9 Nov 2026" — not a machine-parsed range. */
+  studyWindow: string;
+  /** Every grant Report mode carries, by plain name, in display order. */
+  grants: string[];
+};
+
+export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
+
+export type StudyJoinStatusResponse = {
+  status: StudyJoinSessionStatus;
+  /** Present once `status` is `confirmed`. */
+  grants: string[] | null;
+  /** Plain words, present on `expired` or `refused`. */
+  reason: string | null;
+};
+
 export type ConnectedTool = {
   toolInstallationId: string;
   toolType: string;

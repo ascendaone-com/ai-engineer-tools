@@ -29,11 +29,53 @@ type Tool = {
   lastSeenAt: string | null;
 };
 
+type StudyJoinSession = {
+  joinSessionId: string;
+  shortCode: string;
+  toolInstallationId: string;
+  organisationName: string;
+  studyTitle: string;
+  studyWindow: string;
+  grants: string[];
+  status: "pending" | "confirmed" | "expired" | "refused";
+  expiresAt: string;
+  reason: string | null;
+};
+
+/**
+ * Fixture join codes for `join` to exercise locally — a stand-in for
+ * the backend's own branch for this feature, which had not merged when this
+ * mock was written. What a real code resolves to (the organisation, the
+ * study, its window, what Report mode grants) lives entirely server-side;
+ * this table is that server for a machine with no backend.
+ */
+const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "shortCode" | "toolInstallationId" | "status" | "expiresAt" | "reason">>> = {
+  "NORTHVIEW-2026": {
+    organisationName: "Northview Health",
+    studyTitle: "Autonomy at Work",
+    studyWindow: "13 Oct – 10 Nov 2026",
+    grants: [
+      "A weekly work-shape summary, shared with the organisation as a group figure only",
+      "Your after-hours flag for the study window",
+      "Your interleave rate for the study window"
+    ]
+  }
+};
+
 export type ReceivedEvent = AscendaEventPayload & { category: WorkloadCategory; receivedAt: string };
 
 export type DevServerOptions = {
   /** Pair sessions the moment they are created (default true) — no app, no confirm call needed. */
   autoConfirm?: boolean;
+  /**
+   * Confirm study-join sessions the moment they are created (default:
+   * whatever `autoConfirm` is). Separated from pairing's flag so a test can
+   * pair instantly (the easy setup every other suite already uses) while
+   * still driving a join session's `confirmed` / `expired` / `refused`
+   * outcomes by hand through `/v1/org-study-joins/:id/confirm` and
+   * `/_dev/org-study-joins/:id/refuse`.
+   */
+  autoConfirmJoins?: boolean;
   log?: (line: string) => void;
 };
 
@@ -42,9 +84,11 @@ export type DevServer = {
   state: {
     sessions: Map<string, Session>;
     tools: Map<string, Tool>;
+    studyJoins: Map<string, StudyJoinSession>;
     events: ReceivedEvent[];
     consentActive: boolean;
     autoConfirm: boolean;
+    autoConfirmJoins: boolean;
     unclassified: number;
   };
 };
@@ -67,9 +111,11 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
   const state: DevServer["state"] = {
     sessions: new Map(),
     tools: new Map(),
+    studyJoins: new Map(),
     events: [],
     consentActive: true,
     autoConfirm: opts.autoConfirm ?? true,
+    autoConfirmJoins: opts.autoConfirmJoins ?? (opts.autoConfirm ?? true),
     unclassified: 0
   };
 
@@ -93,6 +139,15 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     const statusMatch = path.match(/^\/v1\/tool-pairing-sessions\/([^/]+)\/status$/);
     if (method === "GET" && statusMatch) return status(res, decodeURIComponent(statusMatch[1]));
 
+    // --- org study join ---
+    if (method === "POST" && path === "/v1/org-study-joins") return startStudyJoin(req, res);
+    const joinStatusMatch = path.match(/^\/v1\/org-study-joins\/([^/]+)\/status$/);
+    if (method === "GET" && joinStatusMatch) return studyJoinStatus(res, decodeURIComponent(joinStatusMatch[1]));
+    const joinConfirmMatch = path.match(/^\/v1\/org-study-joins\/([^/]+)\/confirm$/);
+    if (method === "POST" && joinConfirmMatch) return confirmStudyJoinRoute(res, decodeURIComponent(joinConfirmMatch[1]));
+    const joinRefuseMatch = path.match(/^\/_dev\/org-study-joins\/([^/]+)\/refuse$/);
+    if (method === "POST" && joinRefuseMatch) return refuseStudyJoin(res, decodeURIComponent(joinRefuseMatch[1]));
+
     // --- ingest ---
     if (method === "POST" && path === "/v1/tool-events") return ingest(req, res, false);
     if (method === "POST" && path === "/v1/tool-events/batch") return ingest(req, res, true);
@@ -113,7 +168,7 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
 
     // --- dev controls (not part of the real contract) ---
     if (method === "GET" && path === "/_dev/events") return json(res, 200, { events: state.events, unclassified: state.unclassified });
-    if (method === "POST" && path === "/_dev/reset") { state.events.length = 0; state.unclassified = 0; return json(res, 200, { status: "reset" }); }
+    if (method === "POST" && path === "/_dev/reset") { state.events.length = 0; state.unclassified = 0; state.studyJoins.clear(); return json(res, 200, { status: "reset" }); }
     if (method === "POST" && path === "/_dev/consent") {
       const body = await readJson(req);
       state.consentActive = Boolean((body as { active?: boolean }).active);
@@ -197,6 +252,84 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     const token = session.tokenIssued ? null : state.tools.get(session.toolInstallationId)?.token ?? null;
     session.tokenIssued = true;
     json(res, 200, { status: "paired", toolInstallationId: session.toolInstallationId, eventWriteToken: token, pairedAt: session.pairedAt });
+  }
+
+  /**
+   * `mode` is always `"report"` from a real CLI (it is the only mode `join`
+   * offers), checked anyway because this is the mock's one contract
+   * boundary worth guarding: a caller sending anything else is a bug, not a
+   * person's choice.
+   */
+  async function startStudyJoin(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const tool = authTool(req);
+    if (!tool || tool.revoked) return json(res, 401, { error: "Invalid token or revoked tool connection" });
+
+    const body = (await readJson(req)) as { joinCode?: string; mode?: string };
+    if (!body.joinCode) return json(res, 400, { error: "invalid_request" });
+    if (body.mode !== "report") return json(res, 400, { error: "unsupported_mode" });
+
+    const info = STUDY_JOIN_CODES[body.joinCode];
+    if (!info) return json(res, 404, { error: "unknown_join_code" });
+
+    const session: StudyJoinSession = {
+      joinSessionId: crypto.randomUUID(),
+      shortCode: String(Math.floor(100000 + Math.random() * 900000)),
+      toolInstallationId: tool.toolInstallationId,
+      ...info,
+      status: "pending",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      reason: null
+    };
+    state.studyJoins.set(session.joinSessionId, session);
+    log(`${DIM}${time()}${RESET} study-join session for ${tool.toolInstallationId} -> ${info.organisationName} (code ${session.shortCode})`);
+    if (state.autoConfirmJoins) confirmStudyJoin(session);
+
+    json(res, 200, {
+      joinSessionId: session.joinSessionId,
+      shortCode: session.shortCode,
+      expiresAt: session.expiresAt,
+      organisationName: session.organisationName,
+      studyTitle: session.studyTitle,
+      studyWindow: session.studyWindow,
+      grants: session.grants
+    });
+  }
+
+  function confirmStudyJoin(session: StudyJoinSession): void {
+    session.status = "confirmed";
+    log(`${DIM}${time()}${RESET} \x1b[32mstudy-join confirmed${RESET} ${session.joinSessionId}${state.autoConfirmJoins ? " (auto-confirm)" : ""}`);
+  }
+
+  /** Stands in for the app or the pairing page confirming the short code. */
+  async function confirmStudyJoinRoute(res: http.ServerResponse, id: string): Promise<void> {
+    const session = state.studyJoins.get(id);
+    if (!session) return json(res, 404, { error: "not_found" });
+    if (session.status === "pending") confirmStudyJoin(session);
+    json(res, 200, { status: session.status });
+  }
+
+  /** Dev-only: simulate a person declining on the confirming device. */
+  async function refuseStudyJoin(res: http.ServerResponse, id: string): Promise<void> {
+    const session = state.studyJoins.get(id);
+    if (!session) return json(res, 404, { error: "not_found" });
+    session.status = "refused";
+    session.reason = "Declined on the confirming device.";
+    log(`${DIM}${time()}${RESET} \x1b[31mstudy-join refused${RESET} ${session.joinSessionId} (simulated)`);
+    json(res, 200, { status: "refused" });
+  }
+
+  function studyJoinStatus(res: http.ServerResponse, id: string): void {
+    const session = state.studyJoins.get(id);
+    if (!session) return json(res, 404, { error: "not_found" });
+    if (session.status === "pending" && Date.parse(session.expiresAt) < Date.now()) {
+      session.status = "expired";
+      session.reason = "This code expired before it was confirmed.";
+    }
+    json(res, 200, {
+      status: session.status,
+      grants: session.status === "confirmed" ? session.grants : null,
+      reason: session.reason
+    });
   }
 
   function authTool(req: http.IncomingMessage): Tool | undefined {

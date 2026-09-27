@@ -633,3 +633,67 @@ Current derived fields:
 Policy alignment:
 
 - After-hours logic is standardized at UTC `<08:00` or `>=18:00` for aggregate writing and telemetry reporting.
+
+## Organisation Study Join (PROPOSED)
+
+`join` on a CLI agent — an organisation's study, joined in Report mode. This
+section is the client-side target contract; the backend change it mirrors had
+not landed when it was written, so treat every route and shape below as
+provisional until reconciled against what actually ships.
+
+### Model shape
+
+```ts
+export type StudyJoinMode = "report";
+
+export type StudyJoinStartResponse = {
+  joinSessionId: string;
+  shortCode: string;
+  expiresAt: string;
+  organisationName: string;
+  studyTitle: string;
+  studyWindow: string;
+  grants: string[];
+};
+
+export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
+
+export type StudyJoinStatusResponse = {
+  status: StudyJoinSessionStatus;
+  grants: string[] | null;
+  reason: string | null;
+};
+```
+
+### Lifecycle
+
+1. Tool starts a join: its own write token, the join code, and `mode: "report"`.
+2. The response is a preview plus a pending session — the organisation, the
+   study, its window, and every grant Report mode carries, so the CLI can ask
+   its one question before anything is confirmed. Nothing is granted yet.
+3. A person confirms the returned short code on a signed-in surface (the
+   Ascenda app, or the web page that finishes pairing) — the same shape
+   pairing's own confirm step already has.
+4. Tool polls status until `confirmed`, `expired` or `refused`. `expired` and
+   `refused` carry a plain-words `reason`; nothing here is a raw error code.
+
+### Endpoints
+
+**Start** — `POST /v1/org-study-joins`
+Auth: Bearer eventWriteToken (the tool's own token, not a signed-in user's).
+Body: `{ "joinCode": string, "mode": "report" }`.
+200: `StudyJoinStartResponse`. 400 `unsupported_mode` for any other mode. 404
+`unknown_join_code`. 401 for a missing, revoked or unpaired token.
+
+**Confirm** — `POST /v1/org-study-joins/{joinSessionId}/confirm`
+Called from the signed-in surface, not from the CLI. 200 on success.
+
+**Poll status** — `GET /v1/org-study-joins/{joinSessionId}/status`
+Auth: Bearer eventWriteToken. 200: `StudyJoinStatusResponse`. 404 for an
+unknown session.
+
+### What the CLI never does
+
+The CLI never sends a confirmation on a person's behalf, and never offers a
+flag that answers its own question. The short code exists so consent is
+given somewhere a script cannot reach.

@@ -10,6 +10,25 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.29
+
+### Join an organisation's study, from the command line
+
+- **`join <code>`**, beside `setup`, `status`, `uninstall` and `pair` — every
+  CLI agent adapter has it. Joining puts you in Report mode for 30 days; a
+  fuller Study mode still needs the Ascenda app, and the command says so.
+- **One question, nothing preselected.** You are shown the organisation, the
+  study, its window, and every grant Report mode carries, before you are
+  asked anything. "Not now" is the default. Enter, Ctrl-D, or running it from
+  a script all land there, and nothing is sent.
+- **No flag answers the question for you.** The command also refuses to run
+  without a real terminal, because only you should be able to join yourself
+  to a study.
+- Saying yes prints a short code you confirm in the app, the same way `pair`
+  does today, then shows what was granted. Each grant can be turned off on
+  its own, in the app's consent settings, and the organisation only ever
+  sees group counts, never who joined.
+
 ## v0.1.28
 
 ### Install the CLI hooks without an account

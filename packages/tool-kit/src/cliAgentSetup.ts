@@ -4,10 +4,11 @@ import * as os from "os";
 import * as path from "path";
 import { describeCollectorVersion } from "./collectorVersion";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
-import { DEFAULT_API_BASE_URL } from "./hookAdapter";
+import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
 import { createPairingSession, getPairingStatus } from "./http";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
+import { runStudyJoin } from "./studyJoin";
 import { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 
 /**
@@ -88,7 +89,7 @@ type SetupOptions = {
  * Checked before stdin is read: a management command carries no payload, so
  * reading stdin first would hang on a pipe nothing will ever write to.
  */
-const MANAGEMENT_COMMANDS = new Set(["setup", "install", "status", "uninstall", "-h", "--help"]);
+const MANAGEMENT_COMMANDS = new Set(["setup", "install", "status", "uninstall", "join", "-h", "--help"]);
 
 export function isCliAgentManagementCommand(argument: string | undefined): boolean {
   return argument !== undefined && MANAGEMENT_COMMANDS.has(argument);
@@ -105,6 +106,7 @@ function usage(spec: CliAgentSetupSpec): string {
   npx ${spec.packageName} setup [options]
   npx ${spec.packageName} status
   npx ${spec.packageName} uninstall
+  npx ${spec.packageName} join <code>
 
 Options
   --api-base-url <url>          ingest host (default ${DEFAULT_API_BASE_URL})
@@ -120,6 +122,13 @@ Options
 }
 
 export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec): Promise<number> {
+  // `join <code>` takes a positional code, not the flag grammar below, and it
+  // is checked here rather than folded into `parseArgs` so an unrecognised
+  // join code is never mistaken for "unknown argument" against the setup
+  // options. Dispatched before stdin is ever touched, like every other
+  // management command.
+  if (argv[0] === "join") return runCliAgentStudyJoin(argv.slice(1), spec);
+
   let options: SetupOptions;
   try {
     options = parseArgs(argv, spec);
@@ -289,6 +298,42 @@ function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
     }
   }
   return options;
+}
+
+// ------------------------------------------------------------------ join ---
+
+/**
+ * Resolves this host's own pairing — the same three sources
+ * {@link resolveCliAgentInstallationId} already checks for every hook send —
+ * and hands off to the shared interactive flow. `join` needs the tool's own
+ * write token, exactly like ingest does, because it is the CLI agent asking
+ * on the person's behalf, not a signed-in user; the person's own consent is
+ * what the confirmation step on the app or the pairing page still requires.
+ */
+async function runCliAgentStudyJoin(argv: string[], spec: CliAgentSetupSpec): Promise<number> {
+  const joinCode = argv[0];
+  if (!joinCode || joinCode.startsWith("-")) {
+    console.error(`Usage: npx ${spec.packageName} join <code>`);
+    return 1;
+  }
+
+  const setupCommand = `npx ${spec.packageName} setup`;
+  let toolInstallationId: string;
+  try {
+    ({ toolInstallationId } = resolveCliAgentInstallationId(spec.toolType, { host: spec.host, setupCommand }));
+  } catch (error) {
+    console.error(error instanceof MissingInstallationIdError ? error.message : error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+
+  const eventWriteToken = readTokenFile(process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(toolInstallationId)) ?? process.env.ASCENDA_EVENT_WRITE_TOKEN;
+  if (!eventWriteToken) {
+    console.error(`Not paired: no write token for ${toolInstallationId}. Run: ${setupCommand}`);
+    return 1;
+  }
+
+  const apiBaseUrl = (readHostCredentials(spec.host)?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  return runStudyJoin({ apiBaseUrl, eventWriteToken, displayName: spec.displayName, joinCode });
 }
 
 // -------------------------------------------------------------- identity ---
