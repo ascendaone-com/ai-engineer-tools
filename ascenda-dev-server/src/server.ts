@@ -54,10 +54,13 @@ const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSess
     organisationName: "Northview Health",
     studyTitle: "Autonomy at Work",
     studyWindow: "13 Oct – 10 Nov 2026",
+    // Exactly two, confirmed 28 Sep 2026: Report mode carries no third,
+    // agent-observed grant. Kept here as plain names only because this is a
+    // fixture standing in for the backend; the CLI itself never hard-codes
+    // this list — it always prints whatever the start response names.
     grants: [
-      "A weekly work-shape summary, shared with the organisation as a group figure only",
-      "Your after-hours flag for the study window",
-      "Your interleave rate for the study window"
+      "Live AI tool telemetry, for the study window",
+      "A one-time import of your past AI work"
     ]
   }
 };

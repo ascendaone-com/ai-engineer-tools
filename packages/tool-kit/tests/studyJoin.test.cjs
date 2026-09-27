@@ -19,10 +19,13 @@ const START_RESPONSE = {
   organisationName: "Acme Health",
   studyTitle: "Study of Things",
   studyWindow: "1 Jan – 28 Jan 2027",
+  // Report mode carries exactly two grants (confirmed 28 Sep 2026): live AI
+  // tool telemetry, and a one-time import of past work. No third,
+  // agent-observed grant. This fixture exists only to prove the CLI prints
+  // whatever the start response names — it is not itself a source of truth.
   grants: [
-    "A weekly work-shape summary, shared with the organisation as a group figure only",
-    "Your after-hours flag for the study window",
-    "Your interleave rate for the study window"
+    "Live AI tool telemetry, for the study window",
+    "A one-time import of your past AI work"
   ]
 };
 
