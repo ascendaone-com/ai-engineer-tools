@@ -80,7 +80,7 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   }
 
   print("");
-  print(`${start.organisationName} — ${start.studyKind}`);
+  print(`${start.organisationName} — ${describeStudyKind(start.studyKind)}`);
   print(formatWindow(start.windowStartUtc, start.windowEndUtc));
   print("");
   print("Report (30 days) grants:");
@@ -116,9 +116,19 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
     }
     if (poll.status === "pending") continue;
     if (poll.status === "confirmed") {
+      // Never start.grants: what actually landed can be a genuine subset of
+      // what Start showed (one grant attempt can fail without failing the
+      // whole join), and printing the wrong list would report a grant that
+      // is not, in fact, active.
+      const granted = poll.granted ?? [];
+      if (granted.length === 0) {
+        print("");
+        print("Nothing was granted. Run join again, or check with your organisation.");
+        return 1;
+      }
       print("");
       print("Joined. Granted:");
-      for (const grant of poll.granted ?? start.grants) print(`  ${describeGrant(grant)}`);
+      for (const grant of granted) print(`  ${describeGrant(grant)}`);
       print("");
       print("Each of these can be turned off separately, in the app's consent settings.");
       print("The organisation sees group counts, never who joined.");
@@ -177,7 +187,9 @@ function formatWindow(startUtc: string, endUtc: string): string {
 /**
  * Plain sentences for the grants Report mode is known to carry, keyed by the
  * wire's stable numeric `code` — never by `name`, which is the backend's own
- * internal spelling and reads exactly like one (`AiDataProcessing`).
+ * internal spelling and reads exactly like one (`AiDataProcessing`). Worded
+ * to match the same grant's own description in the app's consent settings,
+ * not a separate CLI-only phrasing for the same thing.
  *
  * A code not in this table still prints, humanised from `name` rather than
  * omitted: "before the answer, list every grant... nothing hidden behind
@@ -185,12 +197,26 @@ function formatWindow(startUtc: string, endUtc: string): string {
  * only to the ones it already knows.
  */
 const GRANT_SENTENCES: Readonly<Record<number, string>> = {
-  501: "Live AI tool telemetry, for the study window",
-  507: "A one-time import of your past AI work"
+  501: "AI assistant data processing consent",
+  507: "Import of the AI-work history already on your machine"
 };
 
 function describeGrant(grant: StudyJoinGrant): string {
   return GRANT_SENTENCES[grant.code] ?? humanise(grant.name);
+}
+
+/**
+ * Plain words for `studyKind`, an internal kind name (`Report30`, `Study90`),
+ * never display text on the wire. A kind not in this table still prints,
+ * humanised rather than shown raw.
+ */
+const STUDY_KIND_SENTENCES: Readonly<Record<string, string>> = {
+  Report30: "a 30-day report",
+  Study90: "a 90-day study"
+};
+
+function describeStudyKind(studyKind: string): string {
+  return STUDY_KIND_SENTENCES[studyKind] ?? humanise(studyKind);
 }
 
 /** `AiDataProcessing` -> `Ai Data Processing` — a readable fallback, not a claim to be the final wording. */
@@ -199,8 +225,8 @@ function humanise(name: string): string {
 }
 
 const REFUSED_REASON_MESSAGES: Readonly<Record<StudyJoinRefusedReason, string>> = {
-  wrong_user: "Confirmed by someone other than who this tool is paired to.",
-  study_no_longer_live: "That study is no longer open to join."
+  study_no_longer_live: "That study is no longer open to join.",
+  withdrawn: "You're no longer an active participant in that study."
 };
 
 function describeRefusal(refusedReason: StudyJoinRefusedReason | null): string {
@@ -217,7 +243,8 @@ const START_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   join_code_not_found: "That code is not a study anyone can join. Check it and try again.",
   unknown_mode: "This tool only offers Report mode from the command line.",
   no_live_study: "There's nothing open to join with that code right now.",
-  consent_missing_or_expired: "This tool's own telemetry consent has lapsed. Re-pair it, then try again."
+  too_many_open_sessions: "This tool has too many joins waiting to be confirmed. Confirm one, or let one expire, then try again.",
+  unknown_session: "That join can no longer be found. Run join again for a fresh code."
 };
 
 function describeStartError(error: unknown): string {

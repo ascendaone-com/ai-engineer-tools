@@ -28,7 +28,7 @@ after(() => devServer.server.close());
 test("start returns the organisation, the study and every grant Report mode carries", async () => {
   const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
   assert.equal(start.organisationName, "Northview Health");
-  assert.equal(start.studyKind, "Autonomy at Work");
+  assert.equal(start.studyKind, "Report30");
   assert.ok(Date.parse(start.windowStartUtc) < Date.parse(start.windowEndUtc));
   assert.ok(Array.isArray(start.grants) && start.grants.length === 2);
   for (const grant of start.grants) {
@@ -73,7 +73,7 @@ test("confirming an unrecognised device code is invalid_or_expired, not a crash"
     body: JSON.stringify({ deviceCode: "000000" })
   });
   assert.equal(res.status, 400);
-  assert.equal((await res.json()).code, "invalid_or_expired");
+  assert.equal((await res.json()).error, "invalid_or_expired");
 });
 
 test("refusal carries the enum reason the status poll reports back", async () => {
@@ -81,14 +81,14 @@ test("refusal carries the enum reason the status poll reports back", async () =>
   const res = await fetch(`${base}/_dev/org-study-join-sessions/${start.joinSessionId}/refuse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason: "wrong_user" })
+    body: JSON.stringify({ reason: "withdrawn" })
   });
   assert.equal(res.status, 200);
 
   const refused = await getStudyJoinStatus(base, token, start.joinSessionId);
   assert.equal(refused.status, "refused");
   assert.equal(refused.granted, null);
-  assert.equal(refused.refusedReason, "wrong_user");
+  assert.equal(refused.refusedReason, "withdrawn");
 });
 
 test("refusal defaults to study_no_longer_live when no reason is given", async () => {
@@ -114,6 +114,13 @@ test("an unknown join code is refused before any session exists", async () => {
   await assert.rejects(
     () => startStudyJoin(base, token, "NOT-A-REAL-CODE", "report"),
     (error) => error instanceof AscendaApiError && error.status === 404 && error.errorCode === "join_code_not_found"
+  );
+});
+
+test("a code with nothing live to join (e.g. department-scoped) is a distinct 404", async () => {
+  await assert.rejects(
+    () => startStudyJoin(base, token, "DEPT-ONLY-2026", "report"),
+    (error) => error instanceof AscendaApiError && error.status === 404 && error.errorCode === "no_live_study"
   );
 });
 

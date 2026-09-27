@@ -45,6 +45,9 @@ type StudyJoinSession = {
   refusedReason: StudyJoinRefusedReason | null;
 };
 
+/** A join code the mock recognises but treats as having nothing live to join — the same answer a department-scoped study gives a CLI join, which carries no department. */
+const NO_LIVE_STUDY_CODE = "DEPT-ONLY-2026";
+
 /**
  * Fixture join codes for `join` to exercise locally. What a real code
  * resolves to (the organisation, the study, its window, what Report mode
@@ -56,7 +59,9 @@ type StudyJoinSession = {
 const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "deviceCode" | "toolInstallationId" | "status" | "expiresAt" | "refusedReason">>> = {
   "NORTHVIEW-2026": {
     organisationName: "Northview Health",
-    studyKind: "Autonomy at Work",
+    // The backend's own internal kind name, not display text — `join`
+    // translates it, same as it does grant `name`.
+    studyKind: "Report30",
     windowStartUtc: "2026-10-13T00:00:00.000Z",
     windowEndUtc: "2026-11-10T00:00:00.000Z",
     // Exactly two, confirmed 28 Sep 2026: Report mode carries no third,
@@ -271,10 +276,11 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
 
     const body = (await readJson(req)) as { joinCode?: string; mode?: string };
     if (!body.joinCode) return json(res, 400, { error: "invalid_request" });
-    if (body.mode !== "report") return json(res, 400, { code: "unknown_mode" });
+    if (body.mode !== "report") return json(res, 400, { error: "Unsupported join mode", code: "unknown_mode" });
+    if (body.joinCode === NO_LIVE_STUDY_CODE) return json(res, 404, { error: "Nothing live to join", code: "no_live_study" });
 
     const info = STUDY_JOIN_CODES[body.joinCode];
-    if (!info) return json(res, 404, { code: "join_code_not_found" });
+    if (!info) return json(res, 404, { error: "Unknown join code", code: "join_code_not_found" });
 
     const session: StudyJoinSession = {
       joinSessionId: crypto.randomUUID(),
@@ -317,30 +323,34 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     if (!req.headers.authorization) return json(res, 401, { error: "unauthorized" });
     const body = (await readJson(req)) as { deviceCode?: string };
     const session = [...state.studyJoins.values()].find((s) => s.deviceCode === body.deviceCode);
-    if (!session) return json(res, 400, { code: "invalid_or_expired" });
+    if (!session) return json(res, 400, { error: "invalid_or_expired" });
     if (session.status === "pending") confirmStudyJoin(session);
     json(res, 200, { status: session.status, granted: session.status === "confirmed" ? session.grants : null });
   }
 
   /**
-   * Dev-only: simulate a person declining on the confirming device, or the
-   * confirming session finding the join no longer valid. `reason` in the
-   * body picks which `refusedReason` the status poll reports; defaults to
-   * `study_no_longer_live`, the one a person did not cause.
+   * Dev-only: simulate the study closing before confirmation, or the
+   * confirming person no longer being an enrolled participant. `reason` in
+   * the body picks which `refusedReason` the status poll reports; defaults
+   * to `study_no_longer_live`. These are the only two the real backend
+   * ever sets — there is no third "wrong tool" reason: a mismatched device
+   * code is indistinguishable from one that does not exist, refused at the
+   * confirm call itself (400 `invalid_or_expired`), never reaching a
+   * session this route could act on.
    */
   async function refuseStudyJoin(req: http.IncomingMessage, res: http.ServerResponse, id: string): Promise<void> {
     const session = state.studyJoins.get(id);
     if (!session) return json(res, 404, { error: "not_found" });
     const body = (await readJson(req)) as { reason?: StudyJoinRefusedReason };
     session.status = "refused";
-    session.refusedReason = body.reason === "wrong_user" ? "wrong_user" : "study_no_longer_live";
+    session.refusedReason = body.reason === "withdrawn" ? "withdrawn" : "study_no_longer_live";
     log(`${DIM}${time()}${RESET} \x1b[31mstudy-join refused${RESET} ${session.joinSessionId} (simulated: ${session.refusedReason})`);
     json(res, 200, { status: "refused" });
   }
 
   function studyJoinStatus(res: http.ServerResponse, id: string): void {
     const session = state.studyJoins.get(id);
-    if (!session) return json(res, 404, { error: "not_found" });
+    if (!session) return json(res, 404, { error: "unknown_session" });
     if (session.status === "pending" && Date.parse(session.expiresAt) < Date.now()) {
       session.status = "expired";
     }

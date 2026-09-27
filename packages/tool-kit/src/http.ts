@@ -68,18 +68,18 @@ export async function getStudyJoinStatus(apiBaseUrl: string, eventWriteToken: st
 }
 
 /**
- * An error response's code, when the body is JSON shaped that way — the same
- * reading `parseIngestResponse` already does for ingest. Reads either
- * `error` (every other door in this file) or `code` (unconfirmed which this
- * one uses), so a caller's `errorCode` lookup works whichever it turns out
- * to be.
+ * An error response's stable code. The org-study-join door puts it in
+ * `code` alongside a separate human-readable `error` string; other doors
+ * (a 401, the status door's 404, ingest) put the identifier directly in
+ * `error` with no `code` at all. `code` wins when both are present, since
+ * `error` there is prose, not a value to match on.
  */
 async function apiError(response: Response): Promise<AscendaApiError> {
   const body = await response.text();
   let errorCode: string | undefined;
   try {
     const parsed = JSON.parse(body) as { error?: string; code?: string };
-    errorCode = parsed.error ?? parsed.code;
+    errorCode = parsed.code ?? parsed.error;
   } catch {
     errorCode = undefined;
   }

@@ -16,15 +16,19 @@ const { runStudyJoin, runCliAgentSetup, persistEventWriteToken, writeHostCredent
 // The two plain sentences `studyJoin.ts` renders for these codes — asserted
 // against directly so a test that only checked "the grants are present"
 // could not pass while quietly showing a raw `name` like `AiDataProcessing`.
-const AI_DATA_PROCESSING_SENTENCE = "Live AI tool telemetry, for the study window";
-const HISTORICAL_IMPORT_SENTENCE = "A one-time import of your past AI work";
+// Worded to match the same grant's description in the app's consent
+// settings, sourced from the same plain-word table the backend itself uses
+// there — not a CLI-only phrase invented separately for this surface.
+const AI_DATA_PROCESSING_SENTENCE = "AI assistant data processing consent";
+const HISTORICAL_IMPORT_SENTENCE = "Import of the AI-work history already on your machine";
 
 const START_RESPONSE = {
   joinSessionId: "join-session-1",
   deviceCode: "654321",
   expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
   organisationName: "Acme Health",
-  studyKind: "Study of Things",
+  // The backend's own internal kind name, not display text.
+  studyKind: "Report30",
   windowStartUtc: "2027-01-01T00:00:00.000Z",
   windowEndUtc: "2027-01-28T00:00:00.000Z",
   // Report mode carries exactly two grants (confirmed 28 Sep 2026): live AI
@@ -103,6 +107,9 @@ test("lists every grant the start response names, as a plain sentence, before th
     // The raw wire name is not itself display text.
     assert.ok(!output().includes("AiDataProcessing"), "a raw wire name leaked into the question");
     assert.ok(!output().includes("HistoricalImport"), "a raw wire name leaked into the question");
+    // studyKind is an internal enum name too (`Report30`), translated the same way.
+    assert.ok(output().includes("a 30-day report"), "studyKind did not render as its plain sentence");
+    assert.ok(!output().includes("Report30"), "a raw studyKind enum name leaked into the question");
     // Nothing is truncated or summarised behind "and more".
     assert.ok(!/and more/i.test(output()));
     assert.equal(calls.length, 1, "only the lookup that produced the question ran");
@@ -241,6 +248,52 @@ test("choosing Report polls until confirmed, then prints every granted item and 
   }
 });
 
+test("confirmed with a genuine subset of what Start showed prints only what was actually granted", async () => {
+  // A grant attempt can fail without failing the whole join — the status
+  // response's granted list is the truth, and it must never be padded back
+  // out to what Start showed. Only 507 is reported granted here, though
+  // Start showed both.
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler(),
+    statusHandler({ status: "confirmed", granted: [{ code: 507, name: "HistoricalImport" }], refusedReason: null })
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 0);
+    // The pre-question preview legitimately shows both — it is what Start
+    // named. Only the "Joined." section onward is the actual outcome, and
+    // that is what must not be padded back out.
+    const result = output().slice(output().indexOf("Joined."));
+    assert.ok(result.includes(HISTORICAL_IMPORT_SENTENCE), "the grant that was actually confirmed must print");
+    assert.ok(!result.includes(AI_DATA_PROCESSING_SENTENCE), "a grant Start showed but the server did not confirm must not print in the result");
+  } finally {
+    restore();
+  }
+});
+
+test("confirmed with nothing granted is a failure, not a header over an empty list", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler(),
+    statusHandler({ status: "confirmed", granted: [], refusedReason: null })
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 1);
+    assert.ok(!/Joined\. Granted:/.test(output()), "no success header over nothing");
+    assert.match(output(), /nothing was granted/i);
+  } finally {
+    restore();
+  }
+});
+
 test("expiry has no reason of its own — a fixed, plain-words line, never a wire code", async () => {
   const { stdin, stdout, output } = ttyPair();
   const { restore } = mockFetch([
@@ -259,11 +312,11 @@ test("expiry has no reason of its own — a fixed, plain-words line, never a wir
   }
 });
 
-test("refusal translates the enum reason into plain words — wrong_user", async () => {
+test("refusal translates the enum reason into plain words — withdrawn", async () => {
   const { stdin, stdout, output } = ttyPair();
   const { restore } = mockFetch([
     startHandler(),
-    statusHandler({ status: "refused", granted: null, refusedReason: "wrong_user" })
+    statusHandler({ status: "refused", granted: null, refusedReason: "withdrawn" })
   ]);
   try {
     const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
@@ -271,8 +324,8 @@ test("refusal translates the enum reason into plain words — wrong_user", async
     stdin.write("1\n");
     const code = await done;
     assert.equal(code, 1);
-    assert.ok(!/wrong_user/.test(output()), "the enum value itself is not a plain-words reason");
-    assert.match(output(), /someone other than who this tool is paired to/i);
+    assert.ok(!/withdrawn/.test(output()), "the enum value itself is not a plain-words reason");
+    assert.match(output(), /no longer an active participant/i);
   } finally {
     restore();
   }
@@ -346,6 +399,47 @@ test("no_live_study is refused in plain words too", async () => {
     const code = await runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, stderr });
     assert.equal(code, 1);
     assert.match(stderrText, /nothing open to join/i);
+  } finally {
+    restore();
+  }
+});
+
+test("too_many_open_sessions is refused in plain words too", async () => {
+  const { restore } = mockFetch([
+    { match: (url) => url.endsWith("/v1/org-study-join-sessions"), respond: () => jsonResponse(429, { code: "too_many_open_sessions" }) }
+  ]);
+  try {
+    let stderrText = "";
+    const stderr = new PassThrough();
+    stderr.on("data", (c) => { stderrText += c.toString(); });
+    const stdin = new PassThrough(); stdin.isTTY = true;
+    const stdout = new PassThrough(); stdout.isTTY = true;
+    const code = await runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, stderr });
+    assert.equal(code, 1);
+    assert.ok(!/too_many_open_sessions/.test(stderrText));
+    assert.match(stderrText, /too many joins waiting/i);
+  } finally {
+    restore();
+  }
+});
+
+test("a poll that returns unknown_session (bare error field, no code) still translates", async () => {
+  const { restore } = mockFetch([
+    startHandler(),
+    { match: (url) => url.endsWith(`/v1/org-study-join-sessions/${START_RESPONSE.joinSessionId}/status`), respond: () => jsonResponse(404, { error: "unknown_session" }) }
+  ]);
+  try {
+    const { stdin, stdout, output } = ttyPair();
+    let stderrText = "";
+    const stderr = new PassThrough();
+    stderr.on("data", (c) => { stderrText += c.toString(); });
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, stderr, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 1);
+    assert.ok(!/unknown_session/.test(stderrText), "the bare error string is not itself a plain-words reason");
+    assert.match(stderrText, /can no longer be found/i);
   } finally {
     restore();
   }

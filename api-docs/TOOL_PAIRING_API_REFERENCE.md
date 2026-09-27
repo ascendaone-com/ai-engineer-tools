@@ -641,9 +641,9 @@ shapes below are the settled contract, reconciled against the backend change
 that ships it; this repository's own client does not gate on that change's
 merge state, and neither does this document — treat it as current.
 
-Report mode carries exactly two grants: live AI tool telemetry and a
-one-time import of past AI work. There is no third, agent-observed grant in
-any command-line mode.
+Report mode carries exactly two grants: AI assistant data processing
+consent, and a one-time import of the AI-work history already on the
+machine. There is no third, agent-observed grant in any command-line mode.
 
 ### Model shape
 
@@ -658,6 +658,7 @@ export type StudyJoinStartResponse = {
   deviceCode: string;
   expiresAt: string;
   organisationName: string;
+  /** An internal kind name (e.g. `Report30`), not display text — `join` translates it. */
   studyKind: string;
   windowStartUtc: string;
   windowEndUtc: string;
@@ -665,10 +666,17 @@ export type StudyJoinStartResponse = {
 };
 
 export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
-export type StudyJoinRefusedReason = "wrong_user" | "study_no_longer_live";
+export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn";
 
 export type StudyJoinStatusResponse = {
   status: StudyJoinSessionStatus;
+  /**
+   * The list actually granted, read back from what is truly active. On
+   * `confirmed` this can be a genuine subset of what `grants` on the start
+   * response showed — one grant attempt can fail without failing the whole
+   * join — so a client must render this list alone and never fall back to
+   * the start response's. Null on every status but `confirmed`.
+   */
   granted: StudyJoinGrant[] | null;
   /** Present only on `refused`; `expired` carries no reason of its own. */
   refusedReason: StudyJoinRefusedReason | null;
@@ -676,9 +684,10 @@ export type StudyJoinStatusResponse = {
 ```
 
 Known grant codes: `501` (`AiDataProcessing`) and `507` (`HistoricalImport`).
-A grant code this list has not caught up to still arrives on the wire and
-still has to render — see `join`'s own fallback (humanise the name rather
-than hide the grant) in `packages/tool-kit/src/studyJoin.ts`.
+Known study kinds: `Report30` and `Study90`. A grant or study kind this list
+has not caught up to still arrives on the wire and still has to render — see
+the fallback (humanise the internal name rather than hide it) in
+`packages/tool-kit/src/studyJoin.ts`.
 
 ### Lifecycle
 
@@ -694,31 +703,44 @@ than hide the grant) in `packages/tool-kit/src/studyJoin.ts`.
    sentence for each rather than showing the wire value. `expired` carries
    no reason of its own.
 
+### Error shape: which field is the stable code
+
+The start door's structured errors (400/404/429) carry the identifier in a
+separate `code` field, alongside a human-readable `error` string that is
+prose, not a value to match on. Every other failure — a 401 here, the status
+door's 404, and the confirm door's 400 — puts the identifier directly in
+`error`, with no `code` at all. A client reads `code` first, falling back to
+`error` only when `code` is absent.
+
 ### Endpoints
 
 **Start** — `POST /v1/org-study-join-sessions`
 Auth: Bearer eventWriteToken (the tool's own token, not a signed-in user's).
 Body: `{ "joinCode": string, "mode": "report" }`.
-200: `StudyJoinStartResponse`. 401 for a missing or revoked token. 400
-`unknown_mode` for any mode but `report`. 404 `join_code_not_found`. 404
-`no_live_study` when nothing is open under that code, including when the
-organisation's live study is scoped to a department a CLI join cannot carry.
+200: `StudyJoinStartResponse`. 401 `{ "error": "…" }` for a missing or
+revoked token. 400 `{ "error": "…", "code": "unknown_mode" }` for any mode
+but `report`. 404 `{ "error": "…", "code": "join_code_not_found" }`. 404
+`{ "error": "…", "code": "no_live_study" }` when nothing is open under that
+code, including when the organisation's live study is scoped to a
+department a CLI join cannot carry. 429
+`{ "error": "…", "code": "too_many_open_sessions" }` when this tool already
+has too many unconfirmed sessions open.
 
 **Confirm** — `POST /v1/org-study-join-sessions/confirm-device-code`
 Called from a signed-in app session, never from the CLI. Auth: Bearer user
 session token. Body: `{ "deviceCode": string }`. 200:
 `{ "status": "confirmed", "granted": StudyJoinGrant[] }`. One failure shape
-for every other case — 400 `invalid_or_expired` — whether the code does not
-exist, has expired, was already used, or belongs to a tool installation this
-person did not pair. A distinct "wrong tool" response would let a caller
-tell "this code exists but is not mine" apart from "this code does not
-exist", which is a live-session oracle; folded deliberately after a security
-review of the change that introduced this door. 400 also covers a missing
-`deviceCode` in the body.
+for every other case — 400 `{ "error": "invalid_or_expired" }` — whether the
+code does not exist, has expired, was already used, or belongs to a tool
+installation this person did not pair. A distinct "wrong tool" response
+would let a caller tell "this code exists but is not mine" apart from "this
+code does not exist", which is a live-session oracle; folded deliberately
+after a security review of the change that introduced this door. 400 also
+covers a missing `deviceCode` in the body.
 
 **Poll status** — `GET /v1/org-study-join-sessions/{joinSessionId}/status`
-Auth: Bearer eventWriteToken. 200: `StudyJoinStatusResponse`. 404 for an
-unknown session.
+Auth: Bearer eventWriteToken. 200: `StudyJoinStatusResponse`. 404
+`{ "error": "unknown_session" }` for an unknown session.
 
 ### What the CLI never does
 

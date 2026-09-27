@@ -48,6 +48,7 @@ export type StudyJoinStartResponse = {
   deviceCode: string;
   expiresAt: string;
   organisationName: string;
+  /** An internal kind name (e.g. `Report30`), not display text — `join` translates it. */
   studyKind: string;
   windowStartUtc: string;
   windowEndUtc: string;
@@ -57,11 +58,18 @@ export type StudyJoinStartResponse = {
 
 export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
 
-export type StudyJoinRefusedReason = "wrong_user" | "study_no_longer_live";
+export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn";
 
 export type StudyJoinStatusResponse = {
   status: StudyJoinSessionStatus;
-  /** Present once `status` is `confirmed`. */
+  /**
+   * The list actually granted, read back from what is truly active — never
+   * a mirror of what `grants` on the start response showed. On `confirmed`
+   * this can be a genuine subset of that list (a grant attempt can fail
+   * without failing the whole join), so a caller must render this list
+   * alone and never fall back to the start response's. Null on every status
+   * but `confirmed`.
+   */
   granted: StudyJoinGrant[] | null;
   /** Present only on `refused`; `expired` carries no reason of its own. */
   refusedReason: StudyJoinRefusedReason | null;
