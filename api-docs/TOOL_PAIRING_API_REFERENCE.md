@@ -707,9 +707,14 @@ organisation's live study is scoped to a department a CLI join cannot carry.
 **Confirm** — `POST /v1/org-study-join-sessions/confirm-device-code`
 Called from a signed-in app session, never from the CLI. Auth: Bearer user
 session token. Body: `{ "deviceCode": string }`. 200:
-`{ "status": "confirmed", "granted": StudyJoinGrant[] }`. 403 `not_your_tool`
-when the confirming person is not who paired this tool installation. 400
-`invalid_or_expired`.
+`{ "status": "confirmed", "granted": StudyJoinGrant[] }`. One failure shape
+for every other case — 400 `invalid_or_expired` — whether the code does not
+exist, has expired, was already used, or belongs to a tool installation this
+person did not pair. A distinct "wrong tool" response would let a caller
+tell "this code exists but is not mine" apart from "this code does not
+exist", which is a live-session oracle; folded deliberately after a security
+review of the change that introduced this door. 400 also covers a missing
+`deviceCode` in the body.
 
 **Poll status** — `GET /v1/org-study-join-sessions/{joinSessionId}/status`
 Auth: Bearer eventWriteToken. 200: `StudyJoinStatusResponse`. 404 for an
