@@ -634,66 +634,90 @@ Policy alignment:
 
 - After-hours logic is standardized at UTC `<08:00` or `>=18:00` for aggregate writing and telemetry reporting.
 
-## Organisation Study Join (PROPOSED)
+## Organisation Study Join
 
-`join` on a CLI agent — an organisation's study, joined in Report mode. This
-section is the client-side target contract; the backend change it mirrors had
-not landed when it was written, so treat every route and shape below as
-provisional until reconciled against what actually ships.
+`join` on a CLI agent — an organisation's study, joined in Report mode. The
+shapes below are the settled contract, reconciled against the backend change
+that ships it; this repository's own client does not gate on that change's
+merge state, and neither does this document — treat it as current.
+
+Report mode carries exactly two grants: live AI tool telemetry and a
+one-time import of past AI work. There is no third, agent-observed grant in
+any command-line mode.
 
 ### Model shape
 
 ```ts
 export type StudyJoinMode = "report";
 
+/** A stable numeric code plus the backend's own internal name — neither is display text. */
+export type StudyJoinGrant = { code: number; name: string };
+
 export type StudyJoinStartResponse = {
   joinSessionId: string;
-  shortCode: string;
+  deviceCode: string;
   expiresAt: string;
   organisationName: string;
-  studyTitle: string;
-  studyWindow: string;
-  grants: string[];
+  studyKind: string;
+  windowStartUtc: string;
+  windowEndUtc: string;
+  grants: StudyJoinGrant[];
 };
 
 export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
+export type StudyJoinRefusedReason = "wrong_user" | "study_no_longer_live";
 
 export type StudyJoinStatusResponse = {
   status: StudyJoinSessionStatus;
-  grants: string[] | null;
-  reason: string | null;
+  granted: StudyJoinGrant[] | null;
+  /** Present only on `refused`; `expired` carries no reason of its own. */
+  refusedReason: StudyJoinRefusedReason | null;
 };
 ```
+
+Known grant codes: `501` (`AiDataProcessing`) and `507` (`HistoricalImport`).
+A grant code this list has not caught up to still arrives on the wire and
+still has to render — see `join`'s own fallback (humanise the name rather
+than hide the grant) in `packages/tool-kit/src/studyJoin.ts`.
 
 ### Lifecycle
 
 1. Tool starts a join: its own write token, the join code, and `mode: "report"`.
+   `mode: "study"` is refused — that mode needs a signed-in app session.
 2. The response is a preview plus a pending session — the organisation, the
    study, its window, and every grant Report mode carries, so the CLI can ask
    its one question before anything is confirmed. Nothing is granted yet.
-3. A person confirms the returned short code on a signed-in surface (the
-   Ascenda app, or the web page that finishes pairing) — the same shape
-   pairing's own confirm step already has.
-4. Tool polls status until `confirmed`, `expired` or `refused`. `expired` and
-   `refused` carry a plain-words `reason`; nothing here is a raw error code.
+3. A person confirms the returned device code in the Ascenda app, signed in
+   as themselves — the tool's own write token cannot confirm this.
+4. Tool polls status until `confirmed`, `expired` or `refused`. A refusal
+   carries one of the enum reasons above; a client renders its own plain
+   sentence for each rather than showing the wire value. `expired` carries
+   no reason of its own.
 
 ### Endpoints
 
-**Start** — `POST /v1/org-study-joins`
+**Start** — `POST /v1/org-study-join-sessions`
 Auth: Bearer eventWriteToken (the tool's own token, not a signed-in user's).
 Body: `{ "joinCode": string, "mode": "report" }`.
-200: `StudyJoinStartResponse`. 400 `unsupported_mode` for any other mode. 404
-`unknown_join_code`. 401 for a missing, revoked or unpaired token.
+200: `StudyJoinStartResponse`. 401 for a missing or revoked token. 400
+`unknown_mode` for any mode but `report`. 404 `join_code_not_found`. 404
+`no_live_study` when nothing is open under that code, including when the
+organisation's live study is scoped to a department a CLI join cannot carry.
 
-**Confirm** — `POST /v1/org-study-joins/{joinSessionId}/confirm`
-Called from the signed-in surface, not from the CLI. 200 on success.
+**Confirm** — `POST /v1/org-study-join-sessions/confirm-device-code`
+Called from a signed-in app session, never from the CLI. Auth: Bearer user
+session token. Body: `{ "deviceCode": string }`. 200:
+`{ "status": "confirmed", "granted": StudyJoinGrant[] }`. 403 `not_your_tool`
+when the confirming person is not who paired this tool installation. 400
+`invalid_or_expired`.
 
-**Poll status** — `GET /v1/org-study-joins/{joinSessionId}/status`
+**Poll status** — `GET /v1/org-study-join-sessions/{joinSessionId}/status`
 Auth: Bearer eventWriteToken. 200: `StudyJoinStatusResponse`. 404 for an
 unknown session.
 
 ### What the CLI never does
 
 The CLI never sends a confirmation on a person's behalf, and never offers a
-flag that answers its own question. The short code exists so consent is
-given somewhere a script cannot reach.
+flag that answers its own question. The device code exists so consent is
+given somewhere a script cannot reach — currently only a signed-in app
+session, since no web page can confirm a join session yet.

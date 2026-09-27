@@ -28,11 +28,15 @@ after(() => devServer.server.close());
 test("start returns the organisation, the study and every grant Report mode carries", async () => {
   const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
   assert.equal(start.organisationName, "Northview Health");
-  assert.equal(start.studyTitle, "Autonomy at Work");
-  assert.ok(start.studyWindow.length > 0);
-  assert.ok(Array.isArray(start.grants) && start.grants.length > 0);
+  assert.equal(start.studyKind, "Autonomy at Work");
+  assert.ok(Date.parse(start.windowStartUtc) < Date.parse(start.windowEndUtc));
+  assert.ok(Array.isArray(start.grants) && start.grants.length === 2);
+  for (const grant of start.grants) {
+    assert.equal(typeof grant.code, "number");
+    assert.equal(typeof grant.name, "string");
+  }
   assert.match(start.joinSessionId, /^[0-9a-f-]{36}$/);
-  assert.match(start.shortCode, /^\d{6}$/);
+  assert.match(start.deviceCode, /^\d{6}$/);
   assert.ok(Date.parse(start.expiresAt) > Date.now());
 
   // Nothing is granted yet — autoConfirmJoins is off, so the session sits
@@ -40,36 +44,61 @@ test("start returns the organisation, the study and every grant Report mode carr
   // would sit unconfirmed until a person acts on a signed-in surface.
   const pending = await getStudyJoinStatus(base, token, start.joinSessionId);
   assert.equal(pending.status, "pending");
-  assert.equal(pending.grants, null);
-  assert.equal(pending.reason, null);
+  assert.equal(pending.granted, null);
+  assert.equal(pending.refusedReason, null);
 });
 
-test("confirming (standing in for the app or the pairing page) grants what start named", async () => {
+test("confirming (standing in for the app) grants exactly what start named", async () => {
   const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
-  const res = await fetch(`${base}/v1/org-study-joins/${start.joinSessionId}/confirm`, {
+  const res = await fetch(`${base}/v1/org-study-join-sessions/confirm-device-code`, {
     method: "POST",
-    headers: { Authorization: "Bearer irrelevant-here" }
+    headers: { "Content-Type": "application/json", Authorization: "Bearer irrelevant-here" },
+    body: JSON.stringify({ deviceCode: start.deviceCode })
   });
   assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, "confirmed");
+  assert.deepEqual(body.granted, start.grants);
 
   const confirmed = await getStudyJoinStatus(base, token, start.joinSessionId);
   assert.equal(confirmed.status, "confirmed");
-  assert.deepEqual(confirmed.grants, start.grants);
-  assert.equal(confirmed.reason, null);
+  assert.deepEqual(confirmed.granted, start.grants);
+  assert.equal(confirmed.refusedReason, null);
 });
 
-test("refusal (a person declining on the confirming device) carries a plain-words reason", async () => {
+test("confirming an unrecognised device code is invalid_or_expired, not a crash", async () => {
+  const res = await fetch(`${base}/v1/org-study-join-sessions/confirm-device-code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer irrelevant-here" },
+    body: JSON.stringify({ deviceCode: "000000" })
+  });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).code, "invalid_or_expired");
+});
+
+test("refusal carries the enum reason the status poll reports back", async () => {
   const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
-  const res = await fetch(`${base}/_dev/org-study-joins/${start.joinSessionId}/refuse`, { method: "POST" });
+  const res = await fetch(`${base}/_dev/org-study-join-sessions/${start.joinSessionId}/refuse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: "wrong_user" })
+  });
   assert.equal(res.status, 200);
 
   const refused = await getStudyJoinStatus(base, token, start.joinSessionId);
   assert.equal(refused.status, "refused");
-  assert.equal(refused.grants, null);
-  assert.ok(refused.reason && !/error|code/i.test(refused.reason), "a person-facing sentence, not a wire code");
+  assert.equal(refused.granted, null);
+  assert.equal(refused.refusedReason, "wrong_user");
 });
 
-test("an unconfirmed session expires lazily, with its own plain-words reason", async () => {
+test("refusal defaults to study_no_longer_live when no reason is given", async () => {
+  const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
+  await fetch(`${base}/_dev/org-study-join-sessions/${start.joinSessionId}/refuse`, { method: "POST" });
+  const refused = await getStudyJoinStatus(base, token, start.joinSessionId);
+  assert.equal(refused.refusedReason, "study_no_longer_live");
+});
+
+test("an unconfirmed session expires lazily, with no reason of its own", async () => {
   const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
   // The mock has no time-travel knob; back-date the session directly rather
   // than waiting out the real 10-minute window.
@@ -77,21 +106,21 @@ test("an unconfirmed session expires lazily, with its own plain-words reason", a
 
   const expired = await getStudyJoinStatus(base, token, start.joinSessionId);
   assert.equal(expired.status, "expired");
-  assert.equal(expired.grants, null);
-  assert.ok(expired.reason && expired.reason.length > 0);
+  assert.equal(expired.granted, null);
+  assert.equal(expired.refusedReason, null);
 });
 
 test("an unknown join code is refused before any session exists", async () => {
   await assert.rejects(
     () => startStudyJoin(base, token, "NOT-A-REAL-CODE", "report"),
-    (error) => error instanceof AscendaApiError && error.status === 404 && error.errorCode === "unknown_join_code"
+    (error) => error instanceof AscendaApiError && error.status === 404 && error.errorCode === "join_code_not_found"
   );
 });
 
 test("a mode other than report is refused — it is the only one this door accepts", async () => {
   await assert.rejects(
     () => startStudyJoin(base, token, "NORTHVIEW-2026", "study"),
-    (error) => error instanceof AscendaApiError && error.status === 400 && error.errorCode === "unsupported_mode"
+    (error) => error instanceof AscendaApiError && error.status === 400 && error.errorCode === "unknown_mode"
   );
 });
 

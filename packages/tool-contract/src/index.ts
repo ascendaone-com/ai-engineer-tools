@@ -28,36 +28,43 @@ export type RenewToolTokenResponse = {
 
 /**
  * `join` on the command line: an organisation's study, joined in Report
- * mode. `report` is the only mode the CLI offers — a full Study mode needs
- * a signed-in surface (the Ascenda app or a web pairing page), the same way
- * a person, never a script, confirms a tool pairing.
- *
- * PROPOSED — the backend change this mirrors had not landed when this was
- * written. Reconcile against its own contract once it ships.
+ * mode. `report` is the only mode the CLI offers — a full Study mode needs a
+ * signed-in surface (the Ascenda app), the same way a person, never a
+ * script, confirms a tool pairing. `study` is refused by the start door.
  */
 export type StudyJoinMode = "report";
 
+/**
+ * A grant as the wire names it — a stable numeric `code` plus the backend's
+ * own internal `name`. Neither is display text: `join` renders its own
+ * sentence per `code`, with `name` humanised as a fallback for a code it
+ * does not yet recognise, so a grant is never hidden for being unfamiliar.
+ */
+export type StudyJoinGrant = { code: number; name: string };
+
 export type StudyJoinStartResponse = {
   joinSessionId: string;
-  /** What a person types into the app or the pairing page to confirm. */
-  shortCode: string;
+  /** What a person types into the app to confirm. */
+  deviceCode: string;
   expiresAt: string;
   organisationName: string;
-  studyTitle: string;
-  /** Plain text, e.g. "12 Oct – 9 Nov 2026" — not a machine-parsed range. */
-  studyWindow: string;
-  /** Every grant Report mode carries, by plain name, in display order. */
-  grants: string[];
+  studyKind: string;
+  windowStartUtc: string;
+  windowEndUtc: string;
+  /** Every grant Report mode carries, in display order. */
+  grants: StudyJoinGrant[];
 };
 
 export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
 
+export type StudyJoinRefusedReason = "wrong_user" | "study_no_longer_live";
+
 export type StudyJoinStatusResponse = {
   status: StudyJoinSessionStatus;
   /** Present once `status` is `confirmed`. */
-  grants: string[] | null;
-  /** Plain words, present on `expired` or `refused`. */
-  reason: string | null;
+  granted: StudyJoinGrant[] | null;
+  /** Present only on `refused`; `expired` carries no reason of its own. */
+  refusedReason: StudyJoinRefusedReason | null;
 };
 
 export type ConnectedTool = {

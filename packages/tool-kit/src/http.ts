@@ -44,11 +44,11 @@ export async function getPairingStatus(apiBaseUrl: string, pairingSessionId: str
  * the tool's own write token, the same credential ingest already uses, not a
  * signed-in user's. The response is a preview plus a pending session: it
  * names what Report mode grants so `join` can show them before anyone
- * decides anything, and it mints the short code a person confirms with on a
- * signed-in surface. Nothing is granted by this call alone.
+ * decides anything, and it mints the device code a person confirms with in
+ * the app. Nothing is granted by this call alone.
  */
 export async function startStudyJoin(apiBaseUrl: string, eventWriteToken: string, joinCode: string, mode: StudyJoinMode): Promise<StudyJoinStartResponse> {
-  const response = await fetch(`${apiBaseUrl}/v1/org-study-joins`, {
+  const response = await fetch(`${apiBaseUrl}/v1/org-study-join-sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
     body: JSON.stringify({ joinCode, mode })
@@ -59,7 +59,7 @@ export async function startStudyJoin(apiBaseUrl: string, eventWriteToken: string
 
 /** Poll a study join session until it is `confirmed`, `expired` or `refused`. */
 export async function getStudyJoinStatus(apiBaseUrl: string, eventWriteToken: string, joinSessionId: string): Promise<StudyJoinStatusResponse> {
-  const response = await fetch(`${apiBaseUrl}/v1/org-study-joins/${encodeURIComponent(joinSessionId)}/status`, {
+  const response = await fetch(`${apiBaseUrl}/v1/org-study-join-sessions/${encodeURIComponent(joinSessionId)}/status`, {
     method: "GET",
     headers: { Accept: "application/json", Authorization: `Bearer ${eventWriteToken}` }
   });
@@ -67,12 +67,19 @@ export async function getStudyJoinStatus(apiBaseUrl: string, eventWriteToken: st
   return (await response.json()) as StudyJoinStatusResponse;
 }
 
-/** An error response's `error` code, when the body is JSON shaped that way — the same reading `parseIngestResponse` already does for ingest. */
+/**
+ * An error response's code, when the body is JSON shaped that way — the same
+ * reading `parseIngestResponse` already does for ingest. Reads either
+ * `error` (every other door in this file) or `code` (unconfirmed which this
+ * one uses), so a caller's `errorCode` lookup works whichever it turns out
+ * to be.
+ */
 async function apiError(response: Response): Promise<AscendaApiError> {
   const body = await response.text();
   let errorCode: string | undefined;
   try {
-    errorCode = (JSON.parse(body) as { error?: string }).error;
+    const parsed = JSON.parse(body) as { error?: string; code?: string };
+    errorCode = parsed.error ?? parsed.code;
   } catch {
     errorCode = undefined;
   }

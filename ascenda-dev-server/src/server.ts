@@ -4,6 +4,8 @@ import {
   ASCENDA_TOOL_TYPES,
   AscendaEventPayload,
   EVENT_WORKLOAD_CATEGORY,
+  StudyJoinGrant,
+  StudyJoinRefusedReason,
   WorkloadCategory
 } from "@ascenda-one/tool-contract";
 
@@ -31,36 +33,37 @@ type Tool = {
 
 type StudyJoinSession = {
   joinSessionId: string;
-  shortCode: string;
+  deviceCode: string;
   toolInstallationId: string;
   organisationName: string;
-  studyTitle: string;
-  studyWindow: string;
-  grants: string[];
+  studyKind: string;
+  windowStartUtc: string;
+  windowEndUtc: string;
+  grants: StudyJoinGrant[];
   status: "pending" | "confirmed" | "expired" | "refused";
   expiresAt: string;
-  reason: string | null;
+  refusedReason: StudyJoinRefusedReason | null;
 };
 
 /**
- * Fixture join codes for `join` to exercise locally — a stand-in for
- * the backend's own branch for this feature, which had not merged when this
- * mock was written. What a real code resolves to (the organisation, the
- * study, its window, what Report mode grants) lives entirely server-side;
- * this table is that server for a machine with no backend.
+ * Fixture join codes for `join` to exercise locally. What a real code
+ * resolves to (the organisation, the study, its window, what Report mode
+ * grants) lives entirely server-side; this table is that server for a
+ * machine with no backend. Grant codes 501 (`AiDataProcessing`) and 507
+ * (`HistoricalImport`) are the wire's own names — the CLI never hard-codes
+ * a plain sentence for them, it renders whatever this table names.
  */
-const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "shortCode" | "toolInstallationId" | "status" | "expiresAt" | "reason">>> = {
+const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "deviceCode" | "toolInstallationId" | "status" | "expiresAt" | "refusedReason">>> = {
   "NORTHVIEW-2026": {
     organisationName: "Northview Health",
-    studyTitle: "Autonomy at Work",
-    studyWindow: "13 Oct – 10 Nov 2026",
+    studyKind: "Autonomy at Work",
+    windowStartUtc: "2026-10-13T00:00:00.000Z",
+    windowEndUtc: "2026-11-10T00:00:00.000Z",
     // Exactly two, confirmed 28 Sep 2026: Report mode carries no third,
-    // agent-observed grant. Kept here as plain names only because this is a
-    // fixture standing in for the backend; the CLI itself never hard-codes
-    // this list — it always prints whatever the start response names.
+    // agent-observed grant.
     grants: [
-      "Live AI tool telemetry, for the study window",
-      "A one-time import of your past AI work"
+      { code: 501, name: "AiDataProcessing" },
+      { code: 507, name: "HistoricalImport" }
     ]
   }
 };
@@ -75,8 +78,8 @@ export type DevServerOptions = {
    * whatever `autoConfirm` is). Separated from pairing's flag so a test can
    * pair instantly (the easy setup every other suite already uses) while
    * still driving a join session's `confirmed` / `expired` / `refused`
-   * outcomes by hand through `/v1/org-study-joins/:id/confirm` and
-   * `/_dev/org-study-joins/:id/refuse`.
+   * outcomes by hand through `/v1/org-study-join-sessions/confirm-device-code`
+   * and `/_dev/org-study-join-sessions/:id/refuse`.
    */
   autoConfirmJoins?: boolean;
   log?: (line: string) => void;
@@ -143,13 +146,12 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     if (method === "GET" && statusMatch) return status(res, decodeURIComponent(statusMatch[1]));
 
     // --- org study join ---
-    if (method === "POST" && path === "/v1/org-study-joins") return startStudyJoin(req, res);
-    const joinStatusMatch = path.match(/^\/v1\/org-study-joins\/([^/]+)\/status$/);
+    if (method === "POST" && path === "/v1/org-study-join-sessions") return startStudyJoinRoute(req, res);
+    if (method === "POST" && path === "/v1/org-study-join-sessions/confirm-device-code") return confirmStudyJoinRoute(req, res);
+    const joinStatusMatch = path.match(/^\/v1\/org-study-join-sessions\/([^/]+)\/status$/);
     if (method === "GET" && joinStatusMatch) return studyJoinStatus(res, decodeURIComponent(joinStatusMatch[1]));
-    const joinConfirmMatch = path.match(/^\/v1\/org-study-joins\/([^/]+)\/confirm$/);
-    if (method === "POST" && joinConfirmMatch) return confirmStudyJoinRoute(res, decodeURIComponent(joinConfirmMatch[1]));
-    const joinRefuseMatch = path.match(/^\/_dev\/org-study-joins\/([^/]+)\/refuse$/);
-    if (method === "POST" && joinRefuseMatch) return refuseStudyJoin(res, decodeURIComponent(joinRefuseMatch[1]));
+    const joinRefuseMatch = path.match(/^\/_dev\/org-study-join-sessions\/([^/]+)\/refuse$/);
+    if (method === "POST" && joinRefuseMatch) return refuseStudyJoin(req, res, decodeURIComponent(joinRefuseMatch[1]));
 
     // --- ingest ---
     if (method === "POST" && path === "/v1/tool-events") return ingest(req, res, false);
@@ -259,41 +261,42 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
 
   /**
    * `mode` is always `"report"` from a real CLI (it is the only mode `join`
-   * offers), checked anyway because this is the mock's one contract
-   * boundary worth guarding: a caller sending anything else is a bug, not a
-   * person's choice.
+   * offers; `study` is refused here too, matching the real door), checked
+   * anyway because this is the mock's one contract boundary worth guarding:
+   * a caller sending anything else is a bug, not a person's choice.
    */
-  async function startStudyJoin(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  async function startStudyJoinRoute(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const tool = authTool(req);
     if (!tool || tool.revoked) return json(res, 401, { error: "Invalid token or revoked tool connection" });
 
     const body = (await readJson(req)) as { joinCode?: string; mode?: string };
     if (!body.joinCode) return json(res, 400, { error: "invalid_request" });
-    if (body.mode !== "report") return json(res, 400, { error: "unsupported_mode" });
+    if (body.mode !== "report") return json(res, 400, { code: "unknown_mode" });
 
     const info = STUDY_JOIN_CODES[body.joinCode];
-    if (!info) return json(res, 404, { error: "unknown_join_code" });
+    if (!info) return json(res, 404, { code: "join_code_not_found" });
 
     const session: StudyJoinSession = {
       joinSessionId: crypto.randomUUID(),
-      shortCode: String(Math.floor(100000 + Math.random() * 900000)),
+      deviceCode: String(Math.floor(100000 + Math.random() * 900000)),
       toolInstallationId: tool.toolInstallationId,
       ...info,
       status: "pending",
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-      reason: null
+      refusedReason: null
     };
     state.studyJoins.set(session.joinSessionId, session);
-    log(`${DIM}${time()}${RESET} study-join session for ${tool.toolInstallationId} -> ${info.organisationName} (code ${session.shortCode})`);
+    log(`${DIM}${time()}${RESET} study-join session for ${tool.toolInstallationId} -> ${info.organisationName} (code ${session.deviceCode})`);
     if (state.autoConfirmJoins) confirmStudyJoin(session);
 
     json(res, 200, {
       joinSessionId: session.joinSessionId,
-      shortCode: session.shortCode,
+      deviceCode: session.deviceCode,
       expiresAt: session.expiresAt,
       organisationName: session.organisationName,
-      studyTitle: session.studyTitle,
-      studyWindow: session.studyWindow,
+      studyKind: session.studyKind,
+      windowStartUtc: session.windowStartUtc,
+      windowEndUtc: session.windowEndUtc,
       grants: session.grants
     });
   }
@@ -303,21 +306,35 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     log(`${DIM}${time()}${RESET} \x1b[32mstudy-join confirmed${RESET} ${session.joinSessionId}${state.autoConfirmJoins ? " (auto-confirm)" : ""}`);
   }
 
-  /** Stands in for the app or the pairing page confirming the short code. */
-  async function confirmStudyJoinRoute(res: http.ServerResponse, id: string): Promise<void> {
-    const session = state.studyJoins.get(id);
-    if (!session) return json(res, 404, { error: "not_found" });
+  /**
+   * Stands in for the app confirming the device code — a signed-in user's
+   * call, never the CLI's own. The real door authenticates with a user
+   * session token; this mock only checks that *some* Authorization header
+   * is present, the same minimum the pairing confirm routes above already
+   * accept.
+   */
+  async function confirmStudyJoinRoute(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!req.headers.authorization) return json(res, 401, { error: "unauthorized" });
+    const body = (await readJson(req)) as { deviceCode?: string };
+    const session = [...state.studyJoins.values()].find((s) => s.deviceCode === body.deviceCode);
+    if (!session) return json(res, 400, { code: "invalid_or_expired" });
     if (session.status === "pending") confirmStudyJoin(session);
-    json(res, 200, { status: session.status });
+    json(res, 200, { status: session.status, granted: session.status === "confirmed" ? session.grants : null });
   }
 
-  /** Dev-only: simulate a person declining on the confirming device. */
-  async function refuseStudyJoin(res: http.ServerResponse, id: string): Promise<void> {
+  /**
+   * Dev-only: simulate a person declining on the confirming device, or the
+   * confirming session finding the join no longer valid. `reason` in the
+   * body picks which `refusedReason` the status poll reports; defaults to
+   * `study_no_longer_live`, the one a person did not cause.
+   */
+  async function refuseStudyJoin(req: http.IncomingMessage, res: http.ServerResponse, id: string): Promise<void> {
     const session = state.studyJoins.get(id);
     if (!session) return json(res, 404, { error: "not_found" });
+    const body = (await readJson(req)) as { reason?: StudyJoinRefusedReason };
     session.status = "refused";
-    session.reason = "Declined on the confirming device.";
-    log(`${DIM}${time()}${RESET} \x1b[31mstudy-join refused${RESET} ${session.joinSessionId} (simulated)`);
+    session.refusedReason = body.reason === "wrong_user" ? "wrong_user" : "study_no_longer_live";
+    log(`${DIM}${time()}${RESET} \x1b[31mstudy-join refused${RESET} ${session.joinSessionId} (simulated: ${session.refusedReason})`);
     json(res, 200, { status: "refused" });
   }
 
@@ -326,12 +343,11 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     if (!session) return json(res, 404, { error: "not_found" });
     if (session.status === "pending" && Date.parse(session.expiresAt) < Date.now()) {
       session.status = "expired";
-      session.reason = "This code expired before it was confirmed.";
     }
     json(res, 200, {
       status: session.status,
-      grants: session.status === "confirmed" ? session.grants : null,
-      reason: session.reason
+      granted: session.status === "confirmed" ? session.grants : null,
+      refusedReason: session.status === "refused" ? session.refusedReason : null
     });
   }
 
