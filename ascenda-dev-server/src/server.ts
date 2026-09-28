@@ -344,13 +344,13 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
 
   /**
    * Dev-only: simulate a refusal — the study closing before confirmation,
-   * the confirming person no longer being an enrolled participant, or a
-   * grant failing partway through. `reason` in the body picks which
-   * `refusedReason` the status poll reports; defaults to
-   * `study_no_longer_live`. There is no fourth "wrong tool" reason: a
-   * mismatched device code is indistinguishable from one that does not
-   * exist, refused at the confirm call itself (400 `invalid_or_expired`),
-   * never reaching a session this route could act on.
+   * the confirming person no longer being an enrolled participant, the
+   * person declining on the confirming surface, or a grant failing
+   * partway through. `reason` in the body picks which `refusedReason` the
+   * status poll reports; defaults to `study_no_longer_live`. There is no
+   * sixth "wrong tool" reason: a mismatched device code is indistinguishable
+   * from one that does not exist, refused at the confirm call itself (400
+   * `invalid_or_expired`), never reaching a session this route could act on.
    *
    * For `grant_failed` only, an optional `grantedCodes` array in the body
    * (a subset of the codes this session's own `grants` carries) simulates
@@ -362,8 +362,9 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     const session = state.studyJoins.get(id);
     if (!session) return json(res, 404, { error: "not_found" });
     const body = (await readJson(req)) as { reason?: StudyJoinRefusedReason; grantedCodes?: number[] };
+    const knownReasons: StudyJoinRefusedReason[] = ["withdrawn", "grant_failed", "declined", "not_enrolled"];
     session.status = "refused";
-    session.refusedReason = body.reason === "withdrawn" || body.reason === "grant_failed" ? body.reason : "study_no_longer_live";
+    session.refusedReason = body.reason && knownReasons.includes(body.reason) ? body.reason : "study_no_longer_live";
     if (session.refusedReason === "grant_failed") {
       const landed = session.grants.filter((grant) => (body.grantedCodes ?? []).includes(grant.code));
       // The real backend reports null, not an empty array, when nothing landed before the failure.

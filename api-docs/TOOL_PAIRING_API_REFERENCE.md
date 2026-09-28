@@ -673,8 +673,12 @@ export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refu
  * landed. Those are real and active even though the join as a whole did
  * not complete, so a client renders them the same way a success's list
  * would, alongside the failure itself.
+ *
+ * `declined` is the person answering no on the confirming surface.
+ * `not_enrolled` is the join not being able to enrol them in the study —
+ * distinct from `withdrawn` (an existing participant who left).
  */
-export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn" | "grant_failed";
+export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn" | "grant_failed" | "declined" | "not_enrolled";
 
 export type StudyJoinStatusResponse = {
   status: StudyJoinSessionStatus;
@@ -739,10 +743,11 @@ has too many unconfirmed sessions open.
 **Confirm** — `POST /v1/org-study-join-sessions/confirm-device-code`
 Called from a signed-in app session, never from the CLI. Auth: Bearer user
 session token. Body: `{ "deviceCode": string }`. 200: `StudyJoinStatusResponse`
-— `confirmed` on success, but also `refused` directly (`withdrawn` or
-`grant_failed`, with `granted` on the latter) when confirming itself
-surfaces one of those outcomes rather than a client having to poll status
-to learn it. One failure shape for every other case — 400
+— `confirmed` on success, but also `refused` directly (`study_no_longer_live`,
+`withdrawn`, `not_enrolled`, or `grant_failed` with `granted` carrying
+whatever landed) when confirming itself surfaces one of those outcomes
+rather than a client having to poll status to learn it. One failure shape
+for every other case — 400
 `{ "error": "invalid_or_expired" }` — whether the code does not exist, has
 expired, was already used, or belongs to a tool installation this person
 did not pair. A distinct "wrong tool" response would let a caller tell

@@ -455,7 +455,46 @@ test("refusal translates the enum reason into plain words — study_no_longer_li
   }
 });
 
-test("an unrecognised refusal reason still prints something rather than crashing", async () => {
+test("refusal translates the enum reason into plain words — declined", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler(),
+    statusHandler({ status: "refused", granted: null, refusedReason: "declined" })
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 1);
+    // "declined" legitimately appears here as ordinary English, not as the
+    // raw enum — the point is the full sentence, not the word's absence.
+    assert.match(output(), /You declined in the app\. Nothing was granted\./);
+  } finally {
+    restore();
+  }
+});
+
+test("refusal translates the enum reason into plain words — not_enrolled", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler(),
+    statusHandler({ status: "refused", granted: null, refusedReason: "not_enrolled" })
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 1);
+    assert.ok(!/not_enrolled/.test(output()), "the enum value itself is not a plain-words reason");
+    assert.match(output(), /couldn't enrol you, so nothing was granted/i);
+  } finally {
+    restore();
+  }
+});
+
+test("an unrecognised refusal reason gets a neutral fallback, never a specific claim like 'declined'", async () => {
   const { stdin, stdout, output } = ttyPair();
   const { restore } = mockFetch([
     startHandler(),
@@ -467,7 +506,9 @@ test("an unrecognised refusal reason still prints something rather than crashing
     stdin.write("1\n");
     const code = await done;
     assert.equal(code, 1);
-    assert.match(output(), /Declined/);
+    assert.match(output(), /The join didn't go through\. Nothing new was granted\./);
+    assert.ok(!/declined/i.test(output()), "the fallback must not claim a specific cause an unknown reason cannot confirm");
+    assert.ok(!/brand_new_reason_not_in_the_table/.test(output()), "the raw wire value is never shown");
   } finally {
     restore();
   }

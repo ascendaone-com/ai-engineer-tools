@@ -266,12 +266,17 @@ const REFUSED_REASON_MESSAGES: Readonly<Record<StudyJoinRefusedReason, string>> 
   // Handled as its own branch above, with its granted list, before this
   // table is ever consulted — present so the type stays exhaustive, and as
   // a plain fallback should something call this function with it directly.
-  grant_failed: "Join failed partway through. Some grants may not have gone through."
+  grant_failed: "Join failed partway through. Some grants may not have gone through.",
+  declined: "You declined in the app. Nothing was granted.",
+  not_enrolled: "That study couldn't enrol you, so nothing was granted."
 };
 
 function describeRefusal(refusedReason: StudyJoinRefusedReason | null): string {
   if (refusedReason && REFUSED_REASON_MESSAGES[refusedReason]) return REFUSED_REASON_MESSAGES[refusedReason];
-  return "Declined in the app.";
+  // A reason this table has not caught up to yet — never a raw wire value,
+  // and never "Declined in the app.", which claims a specific cause
+  // ("declined") that is true of only one reason, not of an unknown one.
+  return "The join didn't go through. Nothing new was granted.";
 }
 
 /**

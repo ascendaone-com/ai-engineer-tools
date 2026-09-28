@@ -91,6 +91,21 @@ test("refusal carries the enum reason the status poll reports back", async () =>
   assert.equal(refused.refusedReason, "withdrawn");
 });
 
+test("declined and not_enrolled are both distinct, real refusal reasons", async () => {
+  for (const reason of ["declined", "not_enrolled"]) {
+    const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
+    await fetch(`${base}/_dev/org-study-join-sessions/${start.joinSessionId}/refuse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason })
+    });
+    const refused = await getStudyJoinStatus(base, token, start.joinSessionId);
+    assert.equal(refused.status, "refused");
+    assert.equal(refused.granted, null);
+    assert.equal(refused.refusedReason, reason);
+  }
+});
+
 test("refusal defaults to study_no_longer_live when no reason is given", async () => {
   const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
   await fetch(`${base}/_dev/org-study-join-sessions/${start.joinSessionId}/refuse`, { method: "POST" });

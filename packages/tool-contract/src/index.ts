@@ -65,8 +65,14 @@ export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refu
  * a whole did not complete. It is not a success, but it is not "nothing
  * happened" either — a client must show what is actually granted here, not
  * only the ones that succeeded outright.
+ *
+ * `declined` is the person answering no on the confirming surface, never
+ * reaching the CLI at all. `not_enrolled` is the join not being able to
+ * enrol them in the study, distinct from `withdrawn` (an existing
+ * participant who left) even though both mean "not a member" from the
+ * outside.
  */
-export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn" | "grant_failed";
+export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn" | "grant_failed" | "declined" | "not_enrolled";
 
 export type StudyJoinStatusResponse = {
   status: StudyJoinSessionStatus;
