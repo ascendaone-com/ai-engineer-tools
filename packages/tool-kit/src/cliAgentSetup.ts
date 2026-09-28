@@ -308,7 +308,7 @@ function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
  * and hands off to the shared interactive flow. `join` needs the tool's own
  * write token, exactly like ingest does, because it is the CLI agent asking
  * on the person's behalf, not a signed-in user; the person's own consent is
- * what the confirmation step on the app or the pairing page still requires.
+ * what the confirmation step in the app still requires.
  */
 async function runCliAgentStudyJoin(argv: string[], spec: CliAgentSetupSpec): Promise<number> {
   const joinCode = argv[0];
@@ -332,7 +332,9 @@ async function runCliAgentStudyJoin(argv: string[], spec: CliAgentSetupSpec): Pr
     return 1;
   }
 
-  const apiBaseUrl = (readHostCredentials(spec.host)?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  // Env override first, same precedence `pair` and every hook send already use:
+  // a host override belongs to the machine, not to one agent's pairing record.
+  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? readHostCredentials(spec.host)?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
   return runStudyJoin({ apiBaseUrl, eventWriteToken, displayName: spec.displayName, joinCode });
 }
 

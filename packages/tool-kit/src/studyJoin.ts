@@ -80,7 +80,7 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   }
 
   print("");
-  print(`${start.organisationName} — ${describeStudyKind(start.studyKind)}`);
+  print(`${start.organisationName}: ${describeStudyKind(start.studyKind)}`);
   print(formatWindow(start.windowStartUtc, start.windowEndUtc));
   print("");
   print("Report (30 days) grants:");
@@ -100,8 +100,8 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   }
 
   print("");
-  print(`Confirm in the Ascenda app — code ${start.deviceCode}`);
-  print(`Waiting for confirmation (expires ${start.expiresAt})...`);
+  print(`Confirm in the Ascenda app with code ${start.deviceCode}`);
+  print(`Waiting for confirmation (expires ${formatLocalTime(start.expiresAt)})...`);
 
   const pollIntervalMs = ctx.pollIntervalMs ?? POLL_INTERVAL_MS;
   const deadline = Math.min(Date.parse(start.expiresAt) || Date.now() + POLL_TIMEOUT_MS, Date.now() + POLL_TIMEOUT_MS);
@@ -111,6 +111,11 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
     try {
       poll = await getStudyJoinStatus(ctx.apiBaseUrl, ctx.eventWriteToken, start.joinSessionId);
     } catch (error) {
+      // A 5xx or a dropped connection is exactly what this loop already
+      // budgets time for (see POLL_TIMEOUT_MS) — retried rather than
+      // treated as a final answer. Anything else (401, an unknown session)
+      // is a real answer and ends the wait.
+      if (isRetryablePollError(error)) continue;
       stderr.write(`${describeStartError(error)}\n`);
       return 1;
     }
@@ -140,6 +145,24 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
       return 1;
     }
     // refused
+    if (poll.refusedReason === "grant_failed") {
+      // A partial failure: some grants can have landed before whatever
+      // failed the rest of the join. Those are real and active, so they
+      // print exactly like a success's list would — this is not "nothing
+      // happened", even though the join as a whole did not complete.
+      print("");
+      print("Join failed partway through. Some grants may not have gone through.");
+      const granted = poll.granted ?? [];
+      if (granted.length > 0) {
+        print("");
+        print("Granted before the failure:");
+        for (const grant of granted) print(`  ${describeGrant(grant)}`);
+        print("");
+        print("Each of these can be turned off separately, in the app's consent settings.");
+      }
+      print("Run join again, or check with your organisation.");
+      return 1;
+    }
     print("");
     print(describeRefusal(poll.refusedReason));
     return 1;
@@ -147,6 +170,12 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   print("");
   print("Timed out waiting for confirmation. Run join again for a fresh code.");
   return 1;
+}
+
+/** A 5xx or a transport-level failure (a fetch that never got an HTTP response at all) is worth retrying inside the poll's own deadline; anything else is a real answer. */
+function isRetryablePollError(error: unknown): boolean {
+  if (error instanceof AscendaApiError) return error.status >= 500 && error.status <= 599;
+  return true;
 }
 
 /**
@@ -170,6 +199,13 @@ function askChoice(stdin: NodeJS.ReadStream, stdout: NodeJS.WriteStream): Promis
     rl.question("Choice [Not now]: ", finish);
     rl.once("close", () => finish(""));
   });
+}
+
+/** A person's own local time and date, not the raw ISO instant the wire sends. */
+function formatLocalTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
 /** `12 Oct 2026 – 9 Nov 2026`, or `12 Oct – 9 Nov 2026` when both ends fall in the same year. */
@@ -226,7 +262,11 @@ function humanise(name: string): string {
 
 const REFUSED_REASON_MESSAGES: Readonly<Record<StudyJoinRefusedReason, string>> = {
   study_no_longer_live: "That study is no longer open to join.",
-  withdrawn: "You're no longer an active participant in that study."
+  withdrawn: "You're no longer an active participant in that study.",
+  // Handled as its own branch above, with its granted list, before this
+  // table is ever consulted — present so the type stays exhaustive, and as
+  // a plain fallback should something call this function with it directly.
+  grant_failed: "Join failed partway through. Some grants may not have gone through."
 };
 
 function describeRefusal(refusedReason: StudyJoinRefusedReason | null): string {

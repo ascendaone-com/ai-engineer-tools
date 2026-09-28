@@ -666,16 +666,25 @@ export type StudyJoinStartResponse = {
 };
 
 export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
-export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn";
+
+/**
+ * `grant_failed` is a `refused` that can still carry a non-empty `granted`
+ * list: confirming can fail partway through, after some grants already
+ * landed. Those are real and active even though the join as a whole did
+ * not complete, so a client renders them the same way a success's list
+ * would, alongside the failure itself.
+ */
+export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn" | "grant_failed";
 
 export type StudyJoinStatusResponse = {
   status: StudyJoinSessionStatus;
   /**
-   * The list actually granted, read back from what is truly active. On
-   * `confirmed` this can be a genuine subset of what `grants` on the start
-   * response showed — one grant attempt can fail without failing the whole
-   * join — so a client must render this list alone and never fall back to
-   * the start response's. Null on every status but `confirmed`.
+   * The list actually granted, read back from what is truly active — never
+   * a mirror of what `grants` on the start response showed. On `confirmed`
+   * this can be a genuine subset of that list (one grant attempt can fail
+   * without failing the whole join). Also non-null on a `refused` whose
+   * `refusedReason` is `grant_failed`, carrying whatever landed before the
+   * failure. Null on `pending`, `expired`, and any other `refused`.
    */
   granted: StudyJoinGrant[] | null;
   /** Present only on `refused`; `expired` carries no reason of its own. */
@@ -700,8 +709,9 @@ the fallback (humanise the internal name rather than hide it) in
    as themselves — the tool's own write token cannot confirm this.
 4. Tool polls status until `confirmed`, `expired` or `refused`. A refusal
    carries one of the enum reasons above; a client renders its own plain
-   sentence for each rather than showing the wire value. `expired` carries
-   no reason of its own.
+   sentence for each rather than showing the wire value, and — for
+   `grant_failed` specifically — whatever partial `granted` list came with
+   it. `expired` carries no reason of its own.
 
 ### Error shape: which field is the stable code
 
@@ -728,18 +738,22 @@ has too many unconfirmed sessions open.
 
 **Confirm** — `POST /v1/org-study-join-sessions/confirm-device-code`
 Called from a signed-in app session, never from the CLI. Auth: Bearer user
-session token. Body: `{ "deviceCode": string }`. 200:
-`{ "status": "confirmed", "granted": StudyJoinGrant[] }`. One failure shape
-for every other case — 400 `{ "error": "invalid_or_expired" }` — whether the
-code does not exist, has expired, was already used, or belongs to a tool
-installation this person did not pair. A distinct "wrong tool" response
-would let a caller tell "this code exists but is not mine" apart from "this
-code does not exist", which is a live-session oracle; folded deliberately
-after a security review of the change that introduced this door. 400 also
+session token. Body: `{ "deviceCode": string }`. 200: `StudyJoinStatusResponse`
+— `confirmed` on success, but also `refused` directly (`withdrawn` or
+`grant_failed`, with `granted` on the latter) when confirming itself
+surfaces one of those outcomes rather than a client having to poll status
+to learn it. One failure shape for every other case — 400
+`{ "error": "invalid_or_expired" }` — whether the code does not exist, has
+expired, was already used, or belongs to a tool installation this person
+did not pair. A distinct "wrong tool" response would let a caller tell
+"this code exists but is not mine" apart from "this code does not exist",
+which is a live-session oracle, so both answer the same way. 400 also
 covers a missing `deviceCode` in the body.
 
 **Poll status** — `GET /v1/org-study-join-sessions/{joinSessionId}/status`
-Auth: Bearer eventWriteToken. 200: `StudyJoinStatusResponse`. 404
+No auth required — the session id itself is the only thing this answers to,
+the same as pairing's own status poll, and it says nothing about who the
+session is for until confirmed. 200: `StudyJoinStatusResponse`. 404
 `{ "error": "unknown_session" }` for an unknown session.
 
 ### What the CLI never does

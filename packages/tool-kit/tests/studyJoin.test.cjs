@@ -6,9 +6,9 @@ const path = require("node:path");
 const { PassThrough } = require("node:stream");
 const { runStudyJoin, runCliAgentSetup, persistEventWriteToken, writeHostCredentials, defaultTokenFilePath } = require("../out/index.js");
 
-// `join` carries a live product decision (G-D55.3): an agent must never be
-// able to join a person to a study. These pin the four rules that make that
-// true regardless of who calls it — every CLI agent shares this one
+// `join` carries a live product decision: an agent must never be able to
+// join a person to a study. These pin the four rules that make that true
+// regardless of who calls it — every CLI agent shares this one
 // implementation — plus the one behaviour a person actually reads: every
 // grant Report mode carries, printed before they answer anything, in plain
 // words rather than the wire's own `code`/`name` shape.
@@ -294,6 +294,111 @@ test("confirmed with nothing granted is a failure, not a header over an empty li
   }
 });
 
+test("grant_failed prints the partial list that actually landed, not a plain refusal", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler(),
+    statusHandler({ status: "refused", refusedReason: "grant_failed", granted: [{ code: 507, name: "HistoricalImport" }] })
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 1);
+    assert.match(output(), /failed partway through/i);
+    assert.ok(output().includes(HISTORICAL_IMPORT_SENTENCE), "a grant that landed before the failure must still be shown");
+    assert.match(output(), /turned off separately, in the app's consent settings/);
+    assert.ok(!/grant_failed/.test(output()), "the enum value itself is not a plain-words reason");
+  } finally {
+    restore();
+  }
+});
+
+test("grant_failed with nothing landed at all prints the failure with no grant list", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler(),
+    statusHandler({ status: "refused", refusedReason: "grant_failed", granted: null })
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 1);
+    assert.match(output(), /failed partway through/i);
+    assert.ok(!/Granted before the failure/.test(output()), "no grant header when nothing landed");
+  } finally {
+    restore();
+  }
+});
+
+test("a 5xx while polling is retried, not treated as a final answer", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { calls, restore } = mockFetch([
+    startHandler(),
+    {
+      match: (url) => url.endsWith(`/v1/org-study-join-sessions/${START_RESPONSE.joinSessionId}/status`),
+      respond: (n) => (n <= 2 ? jsonResponse(503, { error: "temporarily unavailable" }) : jsonResponse(200, { status: "confirmed", granted: START_RESPONSE.grants, refusedReason: null }))
+    }
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 0);
+    assert.match(output(), /Joined\. Granted:/, "a 5xx during polling must not end the wait");
+    assert.ok(calls.length >= 3, "at least two 503s were retried before the success landed");
+  } finally {
+    restore();
+  }
+});
+
+test("a network-level failure while polling (fetch itself throws) is retried too", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const original = global.fetch;
+  let call = 0;
+  global.fetch = async (url) => {
+    if (String(url).endsWith("/v1/org-study-join-sessions")) return jsonResponse(200, START_RESPONSE);
+    call += 1;
+    if (call === 1) throw new TypeError("fetch failed");
+    return jsonResponse(200, { status: "confirmed", granted: START_RESPONSE.grants, refusedReason: null });
+  };
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 0);
+    assert.match(output(), /Joined\. Granted:/, "a dropped connection during polling must not end the wait");
+  } finally {
+    global.fetch = original;
+  }
+});
+
+test("a 404 while polling (the session is truly gone) still ends the wait — not every failure is retried", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  let stderrText = "";
+  const stderr = new PassThrough();
+  stderr.on("data", (c) => { stderrText += c.toString(); });
+  const { restore } = mockFetch([
+    startHandler(),
+    { match: (url) => url.endsWith(`/v1/org-study-join-sessions/${START_RESPONSE.joinSessionId}/status`), respond: () => jsonResponse(404, { error: "unknown_session" }) }
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, stderr, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    const code = await done;
+    assert.equal(code, 1);
+    assert.match(stderrText, /can no longer be found/i);
+  } finally {
+    restore();
+  }
+});
+
 test("expiry has no reason of its own — a fixed, plain-words line, never a wire code", async () => {
   const { stdin, stdout, output } = ttyPair();
   const { restore } = mockFetch([
@@ -492,6 +597,54 @@ test("runCliAgentSetup: unrecognised flags after the code do not skip or answer 
     Object.defineProperty(process, "stdout", origOut);
     restore();
     delete process.env.ASCENDA_TOOL_INSTALLATION_ID;
+    if (savedHome === undefined) delete process.env.ASCENDA_HOME; else process.env.ASCENDA_HOME = savedHome;
+  }
+});
+
+// `ASCENDA_API_BASE_URL` overrides a paired host's own credentials — the
+// same precedence `pair` and every hook send already use — for a machine
+// pointed at a different environment (a local dev server, a staging host)
+// without re-running setup just to change one URL.
+test("runCliAgentSetup: join honours ASCENDA_API_BASE_URL over the paired host's own credentials", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-join-env-"));
+  const savedHome = process.env.ASCENDA_HOME;
+  const savedApiBaseUrl = process.env.ASCENDA_API_BASE_URL;
+  process.env.ASCENDA_HOME = home;
+  process.env.ASCENDA_API_BASE_URL = "http://env-override.example";
+
+  const spec = {
+    host: "flat2", displayName: "Flat", toolType: "cli_agent", packageName: "@ascenda-one/flat-hooks",
+    binaryName: "ascenda-flat-hook", hookEvents: ["start", "stop"], restartHint: "", sends: [],
+    settings: {
+      settingsPath: (_scope, dir) => path.join(dir, "hooks.json"),
+      entry: (command, event) => ({ command: `${command} ${event}` }),
+      commandOf: (entry) => entry?.command
+    }
+  };
+  writeHostCredentials("flat2", { apiBaseUrl: "http://credentials-file.example" });
+  persistEventWriteToken(defaultTokenFilePath("cli_agent:flat2-test"), "tok");
+  process.env.ASCENDA_TOOL_INSTALLATION_ID = "cli_agent:flat2-test";
+
+  const { stdin, stdout, output } = ttyPair();
+  const { calls, restore } = mockFetch([{ match: (url) => url.startsWith("http://env-override.example/"), respond: () => jsonResponse(200, START_RESPONSE) }]);
+  const origIn = Object.getOwnPropertyDescriptor(process, "stdin");
+  const origOut = Object.getOwnPropertyDescriptor(process, "stdout");
+  Object.defineProperty(process, "stdin", { value: stdin, configurable: true });
+  Object.defineProperty(process, "stdout", { value: stdout, configurable: true });
+
+  try {
+    const done = runCliAgentSetup(["join", "CODE"], spec);
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("\n");
+    await done;
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /^http:\/\/env-override\.example\//, "the env override must win over the credentials file's own apiBaseUrl");
+  } finally {
+    Object.defineProperty(process, "stdin", origIn);
+    Object.defineProperty(process, "stdout", origOut);
+    restore();
+    delete process.env.ASCENDA_TOOL_INSTALLATION_ID;
+    if (savedApiBaseUrl === undefined) delete process.env.ASCENDA_API_BASE_URL; else process.env.ASCENDA_API_BASE_URL = savedApiBaseUrl;
     if (savedHome === undefined) delete process.env.ASCENDA_HOME; else process.env.ASCENDA_HOME = savedHome;
   }
 });

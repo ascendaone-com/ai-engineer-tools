@@ -20,7 +20,7 @@ targets, error counts or internal resource names — this repository is public.
 - **One question, nothing preselected.** You are shown the organisation, the
   study, its window, and every grant Report mode carries, before you are
   asked anything. "Not now" is the default. Enter, Ctrl-D, or running it from
-  a script all land there, and nothing is sent.
+  a script all land there, and you are never joined.
 - **No flag answers the question for you.** The command also refuses to run
   without a real terminal, because only you should be able to join yourself
   to a study.

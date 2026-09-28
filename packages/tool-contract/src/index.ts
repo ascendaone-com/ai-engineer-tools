@@ -58,7 +58,15 @@ export type StudyJoinStartResponse = {
 
 export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
 
-export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn";
+/**
+ * `grant_failed` is a `refused` that still carries a `granted` list: the
+ * confirming step can fail partway through, after some grants already
+ * landed, and that partial list is real and active even though the join as
+ * a whole did not complete. It is not a success, but it is not "nothing
+ * happened" either — a client must show what is actually granted here, not
+ * only the ones that succeeded outright.
+ */
+export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn" | "grant_failed";
 
 export type StudyJoinStatusResponse = {
   status: StudyJoinSessionStatus;
@@ -67,8 +75,12 @@ export type StudyJoinStatusResponse = {
    * a mirror of what `grants` on the start response showed. On `confirmed`
    * this can be a genuine subset of that list (a grant attempt can fail
    * without failing the whole join), so a caller must render this list
-   * alone and never fall back to the start response's. Null on every status
-   * but `confirmed`.
+   * alone and never fall back to the start response's.
+   *
+   * Not confined to `confirmed`: a `refused` with `refusedReason ===
+   * "grant_failed"` can also carry a non-null, non-empty list — whatever
+   * grants landed before the failure that refused the rest of the join.
+   * Null on `pending`, `expired`, and a `refused` with any other reason.
    */
   granted: StudyJoinGrant[] | null;
   /** Present only on `refused`; `expired` carries no reason of its own. */

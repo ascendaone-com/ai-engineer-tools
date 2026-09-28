@@ -98,6 +98,34 @@ test("refusal defaults to study_no_longer_live when no reason is given", async (
   assert.equal(refused.refusedReason, "study_no_longer_live");
 });
 
+test("grant_failed carries whatever partial grant list actually landed", async () => {
+  const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
+  const historicalImport = start.grants.find((g) => g.name === "HistoricalImport");
+  await fetch(`${base}/_dev/org-study-join-sessions/${start.joinSessionId}/refuse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: "grant_failed", grantedCodes: [historicalImport.code] })
+  });
+
+  const status = await getStudyJoinStatus(base, token, start.joinSessionId);
+  assert.equal(status.status, "refused");
+  assert.equal(status.refusedReason, "grant_failed");
+  assert.deepEqual(status.granted, [historicalImport]);
+});
+
+test("grant_failed with nothing landed carries a null granted list", async () => {
+  const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
+  await fetch(`${base}/_dev/org-study-join-sessions/${start.joinSessionId}/refuse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: "grant_failed" })
+  });
+
+  const status = await getStudyJoinStatus(base, token, start.joinSessionId);
+  assert.equal(status.refusedReason, "grant_failed");
+  assert.equal(status.granted, null, "nothing landing is null, not an empty array");
+});
+
 test("an unconfirmed session expires lazily, with no reason of its own", async () => {
   const start = await startStudyJoin(base, token, "NORTHVIEW-2026", "report");
   // The mock has no time-travel knob; back-date the session directly rather

@@ -39,10 +39,18 @@ type StudyJoinSession = {
   studyKind: string;
   windowStartUtc: string;
   windowEndUtc: string;
+  /** What Start showed — never what to report back on confirm/refuse; see {@link granted}. */
   grants: StudyJoinGrant[];
   status: "pending" | "confirmed" | "expired" | "refused";
   expiresAt: string;
   refusedReason: StudyJoinRefusedReason | null;
+  /**
+   * What actually landed, read back independently of {@link grants} — null
+   * until confirmed (in full) or refused as `grant_failed` (a real, possibly
+   * empty, partial list), the same distinction the real backend's readback
+   * makes rather than mirroring what Start showed.
+   */
+  granted: StudyJoinGrant[] | null;
 };
 
 /** A join code the mock recognises but treats as having nothing live to join — the same answer a department-scoped study gives a CLI join, which carries no department. */
@@ -53,10 +61,11 @@ const NO_LIVE_STUDY_CODE = "DEPT-ONLY-2026";
  * resolves to (the organisation, the study, its window, what Report mode
  * grants) lives entirely server-side; this table is that server for a
  * machine with no backend. Grant codes 501 (`AiDataProcessing`) and 507
- * (`HistoricalImport`) are the wire's own names — the CLI never hard-codes
- * a plain sentence for them, it renders whatever this table names.
+ * (`HistoricalImport`) are the wire's own internal names, not display text —
+ * `join` renders its own plain sentence per grant `code`, so changing the
+ * `name` spelling here proves nothing about what a person actually sees.
  */
-const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "deviceCode" | "toolInstallationId" | "status" | "expiresAt" | "refusedReason">>> = {
+const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "deviceCode" | "toolInstallationId" | "status" | "expiresAt" | "refusedReason" | "granted">>> = {
   "NORTHVIEW-2026": {
     organisationName: "Northview Health",
     // The backend's own internal kind name, not display text — `join`
@@ -289,7 +298,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       ...info,
       status: "pending",
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-      refusedReason: null
+      refusedReason: null,
+      granted: null
     };
     state.studyJoins.set(session.joinSessionId, session);
     log(`${DIM}${time()}${RESET} study-join session for ${tool.toolInstallationId} -> ${info.organisationName} (code ${session.deviceCode})`);
@@ -309,6 +319,10 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
 
   function confirmStudyJoin(session: StudyJoinSession): void {
     session.status = "confirmed";
+    // The real backend reads back what actually landed rather than
+    // mirroring what Start showed; this mock's "full success" path has
+    // nothing that can fail, so its readback is simply everything.
+    session.granted = session.grants;
     log(`${DIM}${time()}${RESET} \x1b[32mstudy-join confirmed${RESET} ${session.joinSessionId}${state.autoConfirmJoins ? " (auto-confirm)" : ""}`);
   }
 
@@ -325,25 +339,38 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     const session = [...state.studyJoins.values()].find((s) => s.deviceCode === body.deviceCode);
     if (!session) return json(res, 400, { error: "invalid_or_expired" });
     if (session.status === "pending") confirmStudyJoin(session);
-    json(res, 200, { status: session.status, granted: session.status === "confirmed" ? session.grants : null });
+    json(res, 200, { status: session.status, granted: session.granted });
   }
 
   /**
-   * Dev-only: simulate the study closing before confirmation, or the
-   * confirming person no longer being an enrolled participant. `reason` in
-   * the body picks which `refusedReason` the status poll reports; defaults
-   * to `study_no_longer_live`. These are the only two the real backend
-   * ever sets — there is no third "wrong tool" reason: a mismatched device
-   * code is indistinguishable from one that does not exist, refused at the
-   * confirm call itself (400 `invalid_or_expired`), never reaching a
-   * session this route could act on.
+   * Dev-only: simulate a refusal — the study closing before confirmation,
+   * the confirming person no longer being an enrolled participant, or a
+   * grant failing partway through. `reason` in the body picks which
+   * `refusedReason` the status poll reports; defaults to
+   * `study_no_longer_live`. There is no fourth "wrong tool" reason: a
+   * mismatched device code is indistinguishable from one that does not
+   * exist, refused at the confirm call itself (400 `invalid_or_expired`),
+   * never reaching a session this route could act on.
+   *
+   * For `grant_failed` only, an optional `grantedCodes` array in the body
+   * (a subset of the codes this session's own `grants` carries) simulates
+   * which of them landed before the failure — real, active, and reported
+   * back even though the join as a whole did not complete. Omitted or
+   * empty means nothing landed.
    */
   async function refuseStudyJoin(req: http.IncomingMessage, res: http.ServerResponse, id: string): Promise<void> {
     const session = state.studyJoins.get(id);
     if (!session) return json(res, 404, { error: "not_found" });
-    const body = (await readJson(req)) as { reason?: StudyJoinRefusedReason };
+    const body = (await readJson(req)) as { reason?: StudyJoinRefusedReason; grantedCodes?: number[] };
     session.status = "refused";
-    session.refusedReason = body.reason === "withdrawn" ? "withdrawn" : "study_no_longer_live";
+    session.refusedReason = body.reason === "withdrawn" || body.reason === "grant_failed" ? body.reason : "study_no_longer_live";
+    if (session.refusedReason === "grant_failed") {
+      const landed = session.grants.filter((grant) => (body.grantedCodes ?? []).includes(grant.code));
+      // The real backend reports null, not an empty array, when nothing landed before the failure.
+      session.granted = landed.length > 0 ? landed : null;
+    } else {
+      session.granted = null;
+    }
     log(`${DIM}${time()}${RESET} \x1b[31mstudy-join refused${RESET} ${session.joinSessionId} (simulated: ${session.refusedReason})`);
     json(res, 200, { status: "refused" });
   }
@@ -356,7 +383,7 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     }
     json(res, 200, {
       status: session.status,
-      granted: session.status === "confirmed" ? session.grants : null,
+      granted: session.granted,
       refusedReason: session.status === "refused" ? session.refusedReason : null
     });
   }
