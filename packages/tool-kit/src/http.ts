@@ -4,6 +4,9 @@ import {
   PairingSessionResponse,
   PairingStatusResponse,
   RenewToolTokenResponse,
+  StudyJoinMode,
+  StudyJoinStartResponse,
+  StudyJoinStatusResponse,
   TOOL_EVENT_DELIVERED_STATUSES,
   ToolEventDeliveredStatus
 } from "@ascenda-one/tool-contract";
@@ -34,6 +37,53 @@ export async function getPairingStatus(apiBaseUrl: string, pairingSessionId: str
   });
   if (!response.ok) throw new AscendaApiError(response.status, undefined, await response.text());
   return (await response.json()) as PairingStatusResponse;
+}
+
+/**
+ * Start joining an organisation's study, in Report mode — authenticated with
+ * the tool's own write token, the same credential ingest already uses, not a
+ * signed-in user's. The response is a preview plus a pending session: it
+ * names what Report mode grants so `join` can show them before anyone
+ * decides anything, and it mints the device code a person confirms with in
+ * the app. Nothing is granted by this call alone.
+ */
+export async function startStudyJoin(apiBaseUrl: string, eventWriteToken: string, joinCode: string, mode: StudyJoinMode): Promise<StudyJoinStartResponse> {
+  const response = await fetch(`${apiBaseUrl}/v1/org-study-join-sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
+    body: JSON.stringify({ joinCode, mode })
+  });
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as StudyJoinStartResponse;
+}
+
+/** Poll a study join session until it is `confirmed`, `expired` or `refused`. */
+export async function getStudyJoinStatus(apiBaseUrl: string, eventWriteToken: string, joinSessionId: string): Promise<StudyJoinStatusResponse> {
+  const response = await fetch(`${apiBaseUrl}/v1/org-study-join-sessions/${encodeURIComponent(joinSessionId)}/status`, {
+    method: "GET",
+    headers: { Accept: "application/json", Authorization: `Bearer ${eventWriteToken}` }
+  });
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as StudyJoinStatusResponse;
+}
+
+/**
+ * An error response's stable code. The org-study-join door puts it in
+ * `code` alongside a separate human-readable `error` string; other doors
+ * (a 401, the status door's 404, ingest) put the identifier directly in
+ * `error` with no `code` at all. `code` wins when both are present, since
+ * `error` there is prose, not a value to match on.
+ */
+async function apiError(response: Response): Promise<AscendaApiError> {
+  const body = await response.text();
+  let errorCode: string | undefined;
+  try {
+    const parsed = JSON.parse(body) as { error?: string; code?: string };
+    errorCode = parsed.code ?? parsed.error;
+  } catch {
+    errorCode = undefined;
+  }
+  return new AscendaApiError(response.status, errorCode, body);
 }
 
 /** Tool-scoped renew — Bearer eventWriteToken, no user JWT. Returns null on 401 (re-pair required). */

@@ -26,6 +26,73 @@ export type RenewToolTokenResponse = {
   expiresAt: string;
 };
 
+/**
+ * `join` on the command line: an organisation's study, joined in Report
+ * mode. `report` is the only mode the CLI offers — a full Study mode needs a
+ * signed-in surface (the Ascenda app), the same way a person, never a
+ * script, confirms a tool pairing. `study` is refused by the start door.
+ */
+export type StudyJoinMode = "report";
+
+/**
+ * A grant as the wire names it — a stable numeric `code` plus the backend's
+ * own internal `name`. Neither is display text: `join` renders its own
+ * sentence per `code`, with `name` humanised as a fallback for a code it
+ * does not yet recognise, so a grant is never hidden for being unfamiliar.
+ */
+export type StudyJoinGrant = { code: number; name: string };
+
+export type StudyJoinStartResponse = {
+  joinSessionId: string;
+  /** What a person types into the app to confirm. */
+  deviceCode: string;
+  expiresAt: string;
+  organisationName: string;
+  /** An internal kind name (e.g. `Report30`), not display text — `join` translates it. */
+  studyKind: string;
+  windowStartUtc: string;
+  windowEndUtc: string;
+  /** Every grant Report mode carries, in display order. */
+  grants: StudyJoinGrant[];
+};
+
+export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
+
+/**
+ * `grant_failed` is a `refused` that still carries a `granted` list: the
+ * confirming step can fail partway through, after some grants already
+ * landed, and that partial list is real and active even though the join as
+ * a whole did not complete. It is not a success, but it is not "nothing
+ * happened" either — a client must show what is actually granted here, not
+ * only the ones that succeeded outright.
+ *
+ * `declined` is the person answering no on the confirming surface, never
+ * reaching the CLI at all. `not_enrolled` is the join not being able to
+ * enrol them in the study, distinct from `withdrawn` (an existing
+ * participant who left) even though both mean "not a member" from the
+ * outside.
+ */
+export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn" | "grant_failed" | "declined" | "not_enrolled";
+
+export type StudyJoinStatusResponse = {
+  status: StudyJoinSessionStatus;
+  /**
+   * The list actually granted, read back from what is truly active — never
+   * a mirror of what `grants` on the start response showed. On `confirmed`
+   * this can be a genuine subset of that list (a grant attempt can fail
+   * without failing the whole join), so a caller must render this list
+   * alone and never fall back to the start response's.
+   *
+   * Not confined to `confirmed`: a `refused` with `refusedReason ===
+   * "grant_failed"` can also carry a non-null, non-empty list — whatever
+   * grants landed before the failure that refused the rest of the join.
+   * Null on `pending`, `expired`, and a `refused` with any other reason.
+   */
+  granted: StudyJoinGrant[] | null;
+  /** Present only on `refused`; `expired` carries no reason of its own. */
+  refusedReason: StudyJoinRefusedReason | null;
+};
+
 export type ConnectedTool = {
   toolInstallationId: string;
   toolType: string;

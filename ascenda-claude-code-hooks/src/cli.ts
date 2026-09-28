@@ -24,7 +24,8 @@ import {
   outboxDrainEnabled,
   readOutboxSummary,
   OUTBOX_DRAIN_ENV_VAR,
-  renderSetupDisclosure
+  renderSetupDisclosure,
+  runStudyJoin
 } from "@ascenda-one/tool-kit";
 import type { CollectorState, DisclosureFamily, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
@@ -174,6 +175,34 @@ async function runPair(): Promise<void> {
 }
 
 /**
+ * `join <code>` — join an organisation's study in Report mode. The
+ * interactive flow (the question, the grants list, the poll loop) is shared
+ * with every other CLI agent; see `runStudyJoin` in tool-kit's
+ * `studyJoin.ts`. What is Claude Code's own is identity resolution, and
+ * `loadConfigFromEnv` already does exactly the resolution `join` needs — the
+ * same environment, then credentials, then token-store order every hook send
+ * uses — so this reuses it rather than re-deriving it.
+ */
+async function runJoin(argv: string[]): Promise<number> {
+  const joinCode = argv[0];
+  if (!joinCode || joinCode.startsWith("-")) {
+    process.stderr.write("Usage: ascenda-claude-hook join <code>\n");
+    return 1;
+  }
+
+  let apiBaseUrl: string;
+  let eventWriteToken: string;
+  try {
+    ({ apiBaseUrl, eventWriteToken } = loadConfigFromEnv());
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+
+  return runStudyJoin({ apiBaseUrl, eventWriteToken, displayName: "Claude Code", joinCode });
+}
+
+/**
  * Two modes on one binary. Hook events are the hot path (Claude Code spawns
  * this per prompt and per tool call); the lowercase management commands are
  * what a human types. Hook names are capitalised, so the two cannot collide.
@@ -184,15 +213,19 @@ async function main(): Promise<void> {
   const command = process.argv[2];
   if (!command) {
     throw new Error(
-      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | doctor | setup | status | uninstall"
+      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | doctor | setup | status | uninstall"
     );
   }
 
-  // Both of these run before the stdin read below, and must stay there: they
+  // All three run before the stdin read below, and must stay there: they
   // carry no hook payload, so reading stdin first hangs them forever on a pipe
   // nothing will ever write to.
   if (command === "pair") {
     await runPair();
+    return;
+  }
+  if (command === "join") {
+    setupExitCode = await runJoin(process.argv.slice(3));
     return;
   }
   if (command === "doctor") {
@@ -206,7 +239,7 @@ async function main(): Promise<void> {
   }
   if (!isClaudeHookEventName(command)) {
     throw new Error(
-      `Unknown command "${command}". Expected a Claude Code hook name, "pair", "doctor", "setup", "status" or "uninstall".`
+      `Unknown command "${command}". Expected a Claude Code hook name, "pair", "join", "doctor", "setup", "status" or "uninstall".`
     );
   }
   const hookName: ClaudeHookEventName = command;

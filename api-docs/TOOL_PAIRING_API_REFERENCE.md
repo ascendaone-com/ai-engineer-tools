@@ -633,3 +633,137 @@ Current derived fields:
 Policy alignment:
 
 - After-hours logic is standardized at UTC `<08:00` or `>=18:00` for aggregate writing and telemetry reporting.
+
+## Organisation Study Join
+
+`join` on a CLI agent — an organisation's study, joined in Report mode. The
+shapes below are the settled contract, reconciled against the backend change
+that ships it; this repository's own client does not gate on that change's
+merge state, and neither does this document — treat it as current.
+
+Report mode carries exactly two grants: AI assistant data processing
+consent, and a one-time import of the AI-work history already on the
+machine. There is no third, agent-observed grant in any command-line mode.
+
+### Model shape
+
+```ts
+export type StudyJoinMode = "report";
+
+/** A stable numeric code plus the backend's own internal name — neither is display text. */
+export type StudyJoinGrant = { code: number; name: string };
+
+export type StudyJoinStartResponse = {
+  joinSessionId: string;
+  deviceCode: string;
+  expiresAt: string;
+  organisationName: string;
+  /** An internal kind name (e.g. `Report30`), not display text — `join` translates it. */
+  studyKind: string;
+  windowStartUtc: string;
+  windowEndUtc: string;
+  grants: StudyJoinGrant[];
+};
+
+export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
+
+/**
+ * `grant_failed` is a `refused` that can still carry a non-empty `granted`
+ * list: confirming can fail partway through, after some grants already
+ * landed. Those are real and active even though the join as a whole did
+ * not complete, so a client renders them the same way a success's list
+ * would, alongside the failure itself.
+ *
+ * `declined` is the person answering no on the confirming surface.
+ * `not_enrolled` is the join not being able to enrol them in the study —
+ * distinct from `withdrawn` (an existing participant who left).
+ */
+export type StudyJoinRefusedReason = "study_no_longer_live" | "withdrawn" | "grant_failed" | "declined" | "not_enrolled";
+
+export type StudyJoinStatusResponse = {
+  status: StudyJoinSessionStatus;
+  /**
+   * The list actually granted, read back from what is truly active — never
+   * a mirror of what `grants` on the start response showed. On `confirmed`
+   * this can be a genuine subset of that list (one grant attempt can fail
+   * without failing the whole join). Also non-null on a `refused` whose
+   * `refusedReason` is `grant_failed`, carrying whatever landed before the
+   * failure. Null on `pending`, `expired`, and any other `refused`.
+   */
+  granted: StudyJoinGrant[] | null;
+  /** Present only on `refused`; `expired` carries no reason of its own. */
+  refusedReason: StudyJoinRefusedReason | null;
+};
+```
+
+Known grant codes: `501` (`AiDataProcessing`) and `507` (`HistoricalImport`).
+Known study kinds: `Report30` and `Study90`. A grant or study kind this list
+has not caught up to still arrives on the wire and still has to render — see
+the fallback (humanise the internal name rather than hide it) in
+`packages/tool-kit/src/studyJoin.ts`.
+
+### Lifecycle
+
+1. Tool starts a join: its own write token, the join code, and `mode: "report"`.
+   `mode: "study"` is refused — that mode needs a signed-in app session.
+2. The response is a preview plus a pending session — the organisation, the
+   study, its window, and every grant Report mode carries, so the CLI can ask
+   its one question before anything is confirmed. Nothing is granted yet.
+3. A person confirms the returned device code in the Ascenda app, signed in
+   as themselves — the tool's own write token cannot confirm this.
+4. Tool polls status until `confirmed`, `expired` or `refused`. A refusal
+   carries one of the enum reasons above; a client renders its own plain
+   sentence for each rather than showing the wire value, and — for
+   `grant_failed` specifically — whatever partial `granted` list came with
+   it. `expired` carries no reason of its own.
+
+### Error shape: which field is the stable code
+
+The start door's structured errors (400/404/429) carry the identifier in a
+separate `code` field, alongside a human-readable `error` string that is
+prose, not a value to match on. Every other failure — a 401 here, the status
+door's 404, and the confirm door's 400 — puts the identifier directly in
+`error`, with no `code` at all. A client reads `code` first, falling back to
+`error` only when `code` is absent.
+
+### Endpoints
+
+**Start** — `POST /v1/org-study-join-sessions`
+Auth: Bearer eventWriteToken (the tool's own token, not a signed-in user's).
+Body: `{ "joinCode": string, "mode": "report" }`.
+200: `StudyJoinStartResponse`. 401 `{ "error": "…" }` for a missing or
+revoked token. 400 `{ "error": "…", "code": "unknown_mode" }` for any mode
+but `report`. 404 `{ "error": "…", "code": "join_code_not_found" }`. 404
+`{ "error": "…", "code": "no_live_study" }` when nothing is open under that
+code, including when the organisation's live study is scoped to a
+department a CLI join cannot carry. 429
+`{ "error": "…", "code": "too_many_open_sessions" }` when this tool already
+has too many unconfirmed sessions open.
+
+**Confirm** — `POST /v1/org-study-join-sessions/confirm-device-code`
+Called from a signed-in app session, never from the CLI. Auth: Bearer user
+session token. Body: `{ "deviceCode": string }`. 200: `StudyJoinStatusResponse`
+— `confirmed` on success, but also `refused` directly (`study_no_longer_live`,
+`withdrawn`, `not_enrolled`, or `grant_failed` with `granted` carrying
+whatever landed) when confirming itself surfaces one of those outcomes
+rather than a client having to poll status to learn it. One failure shape
+for every other case — 400
+`{ "error": "invalid_or_expired" }` — whether the code does not exist, has
+expired, was already used, or belongs to a tool installation this person
+did not pair. A distinct "wrong tool" response would let a caller tell
+"this code exists but is not mine" apart from "this code does not exist",
+which is a live-session oracle, so both answer the same way. 400 also
+covers a missing `deviceCode` in the body.
+
+**Poll status** — `GET /v1/org-study-join-sessions/{joinSessionId}/status`
+No auth required — the session id itself is the only thing this answers to,
+the same as pairing's own status poll, and it says nothing about who the
+session is for until confirmed. 200: `StudyJoinStatusResponse`. 404
+`{ "error": "unknown_session" }` for an unknown session.
+
+### What the CLI never does
+
+The CLI never sends a confirmation on a person's behalf, and never offers a
+flag that answers its own question. The device code exists so consent is
+given somewhere a script cannot reach — currently only a signed-in app
+session, since no web page can confirm a join session yet.

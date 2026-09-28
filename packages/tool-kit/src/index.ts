@@ -99,10 +99,14 @@ export {
   AscendaApiError,
   createPairingSession,
   getPairingStatus,
+  getStudyJoinStatus,
   renewToolToken,
   postToolEvent,
   postToolEventsBatch,
   parseIngestResponse,
-  isRetryableStatus
+  isRetryableStatus,
+  startStudyJoin
 } from "./http";
 export type { IngestOutcome, IngestBatchItemResult } from "./http";
+export { runStudyJoin } from "./studyJoin";
+export type { StudyJoinContext } from "./studyJoin";
