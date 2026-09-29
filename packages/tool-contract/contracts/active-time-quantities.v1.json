@@ -28,7 +28,7 @@
     "four-name table had no name for the summed form, so the two figures that most",
     "needed telling apart were the two it could not describe. In ai-engineer-tools'",
     "localHandoff.ts, HandoffProjectDigest.handsOnMinutes is summed across sessions",
-    "(4.2x wall clock on the reference machine) while ProjectElapsedActive.",
+    "(so it can run to several times wall clock) while ProjectElapsedActive.",
     "handsOnMinutes is unioned: same spelling, one nesting level apart. Both",
     "deliberate, both documented, nothing mechanical telling them apart.",
     "",
