@@ -12,6 +12,22 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.29
 
+### See your organisation's changes in `status`
+
+- **`status` lists the changes your organisation has published to you.** Each
+  one shows its title, the organisation's own summary, the direction it
+  expects, the scoring window, and the result once it's scored. A withdrawn
+  change says it's withdrawn and keeps its result. A status the tool doesn't
+  recognise reads "Status not recognised."
+- **Nothing to list says why.** "None published to you" means the list came
+  back empty. If the server turned the request down, `status` says it couldn't
+  check and how to pair again. If the list couldn't be fetched, it gives the
+  reason and you can run `status` again. An install that holds no token asks
+  for nothing and says that. `status` can't yet tell "not in any
+  organisation" from "nothing published".
+- **Only `status` shows it.** The hooks never fetch the list, and none of it is
+  passed to your agent.
+
 ### Join an organisation's study, from the command line
 
 - **`join <code>`**, beside `setup`, `status`, `uninstall` and `pair` — every
