@@ -32,19 +32,32 @@ export type InitiativeCopy = {
 };
 
 export const INITIATIVE_COPY: InitiativeCopy = {
-  outcomes: {},
-  withheldReasons: {}
+  outcomes: {
+    moved_as_declared: "Moved the way declared, beyond the cohort's own variation",
+    moved_against_declared: "Moved the other way, beyond the cohort's own variation",
+    moved_no_direction_declared: "Moved beyond the cohort's own variation; no direction was declared",
+    within_own_variation: "No further from the baseline than the cohort's own week-to-week variation",
+    withheld: "Withheld"
+  },
+  withheldReasons: {
+    cohort_below_minimum: "the cohort was too small to report on when the scoring window closed",
+    below_minimum_cohort: "the cohort was too small to report on when the scoring window closed",
+    below_minimum_cohort_size: "the cohort was too small to report on when the scoring window closed",
+    baseline_withheld: "the baseline was withheld"
+  }
 };
 
-/** The wording for a declared direction; a value not listed here prints nothing. */
+const OUTCOME_EMPTY = "Not stated";
+const OUTCOME_UNKNOWN = "An outcome this app does not recognise";
+const WITHHELD_UNKNOWN = "Withheld, for a reason this version of the app doesn't name yet.";
+
+/** The wording for a declared direction. */
 const DIRECTION_WORDS: Record<string, string> = {
   up: "Expected to rise",
   down: "Expected to fall",
   none_declared: "No direction declared"
 };
-
-const OUTCOME_FALLBACK = "This version of the tool can't put the organisation's verdict into words. The Ascenda app has it.";
-const WITHHELD_FALLBACK = "The organisation withheld the figure.";
+const DIRECTION_UNKNOWN = "A direction this app does not recognise";
 
 export type InitiativesStatusContext = {
   apiBaseUrl: string;
@@ -101,8 +114,7 @@ function renderOne(initiative: TeamInitiative, copy: InitiativeCopy): string[] {
   if (initiative.summaryForCohort) {
     for (const line of initiative.summaryForCohort.split(/\r?\n/)) lines.push(`    ${line}`);
   }
-  const direction = initiative.direction ? DIRECTION_WORDS[initiative.direction] : undefined;
-  if (direction) lines.push(`    ${direction}`);
+  if (initiative.direction) lines.push(`    ${DIRECTION_WORDS[initiative.direction] ?? DIRECTION_UNKNOWN}`);
   lines.push(`    Scoring window: ${formatWindowOrRaw(initiative.scoringStartUtc, initiative.scoringEndUtc)}`);
   // Whatever status it has now, a result that was scored is still shown.
   if (initiative.result) lines.push(...renderResult(initiative.result, initiative.measureUnit, copy));
@@ -128,21 +140,31 @@ function describeStatus(initiative: TeamInitiative): string {
 function renderResult(result: InitiativeResult, unit: string | null, copy: InitiativeCopy): string[] {
   const lines: string[] = [];
   // The unit is the organisation's own word for it, so it's printed as sent.
-  const show = (n: number) => (unit ? `${n} ${unit}` : `${n}`);
+  const show = (n: number) => (unit ? `${figure(n)} ${unit}` : figure(n));
 
   if (result.value === null) {
-    const reason = result.withheldReason ? copy.withheldReasons[result.withheldReason] : undefined;
-    lines.push(`    Result: withheld. ${reason ?? WITHHELD_FALLBACK}`);
-  } else {
-    lines.push(`    Result: ${show(result.value)}`);
-    if (result.delta !== null && (result.movement === "up" || result.movement === "down")) {
-      lines.push(`    ${result.movement === "up" ? "Up" : "Down"} ${show(Math.abs(result.delta))} against frozen baseline`);
-    } else if (result.movement === "level") {
-      lines.push("    Level against frozen baseline");
-    }
-    lines.push(`    ${copy.outcomes[result.outcome] ?? OUTCOME_FALLBACK}`);
+    const why = copy.withheldReasons[result.withheldReason ?? ""];
+    lines.push(`    ${why ? `Withheld: ${why}.` : WITHHELD_UNKNOWN}`);
+    return lines;
   }
+  lines.push(`    Result: ${show(result.value)}`);
+  lines.push(`    ${movementLine(result)}`);
+  lines.push(`    ${result.outcome ? (copy.outcomes[result.outcome] ?? OUTCOME_UNKNOWN) : OUTCOME_EMPTY}`);
   return lines;
+}
+
+/** How far the figure sits from the frozen baseline, in the app's words. */
+function movementLine(result: InitiativeResult): string {
+  if (result.outcome === "within_own_variation") return "No material change against frozen baseline";
+  if (result.delta === null) return "No reading";
+  if (result.delta > 0) return `Up ${figure(result.delta)} against frozen baseline`;
+  if (result.delta < 0) return `Down ${figure(Math.abs(result.delta))} against frozen baseline`;
+  return "No change against frozen baseline";
+}
+
+/** Prints a figure the way the ledger does: 5, not 5.0; 1.1 as it is. */
+function figure(n: number): string {
+  return String(Number(n.toPrecision(12)));
 }
 
 function asInitiative(value: unknown): TeamInitiative | undefined {

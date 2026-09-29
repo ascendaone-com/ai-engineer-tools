@@ -42,21 +42,16 @@ const scoredResult = (overrides = {}) => ({
   baselineValue: 12,
   delta: 3,
   movement: "up",
-  outcome: "met_target",
+  outcome: "moved_as_declared",
   withheldReason: null,
   basis: "cohort_median",
   ...overrides
 });
 
-const COPY = {
-  outcomes: { met_target: "The change moved the number the way the organisation hoped." },
-  withheldReasons: { too_few_people: "Too few people took part to show a figure." }
-};
-
 const text = (lines) => lines.join("\n");
 
 test("a published change shows the title, the organisation's summary as written, and the window", () => {
-  const out = text(renderInitiatives([initiative()], COPY));
+  const out = text(renderInitiatives([initiative()]));
   assert.ok(out.includes("Acme Health: Shorter review turnaround"));
   assert.ok(out.includes("Published, not scored yet."));
   assert.ok(out.includes("We are trying a one-day pickup rule."));
@@ -65,86 +60,114 @@ test("a published change shows the title, the organisation's summary as written,
   assert.ok(!out.includes("Result:"), "nothing to report before it is scored");
 });
 
-test("a scored change shows the result in the organisation's words", () => {
-  const out = text(renderInitiatives([initiative({ status: "scored", result: scoredResult() })], COPY));
+test("a scored change shows the result, the movement and the outcome in the app's words", () => {
+  const out = text(renderInitiatives([initiative({ status: "scored", result: scoredResult() })]));
   assert.ok(out.includes("Scored."));
   assert.ok(out.includes("Result: 15 hours"), out);
-  assert.ok(out.includes("Up 3 hours against frozen baseline"), out);
-  assert.ok(out.includes("The change moved the number the way the organisation hoped."));
-  assert.ok(!out.includes("met_target"), "the outcome key is never printed");
-  assert.ok(!out.includes("hours_"), "no raw key leaks through");
+  assert.ok(out.includes("Up 3 against frozen baseline"), out);
+  assert.ok(out.includes("Moved the way declared, beyond the cohort's own variation"), out);
+  assert.ok(!out.includes("moved_as_declared"), "the outcome key is never printed");
 });
 
-test("a scored change moving down, and one level with its baseline", () => {
-  const down = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ value: 9, delta: -3, movement: "down" }) })], COPY));
-  assert.ok(down.includes("Result: 9 hours"), down);
-  assert.ok(down.includes("Down 3 hours against frozen baseline"), down);
-  assert.ok(!/\b(up|down) \d/.test(down), "movement is never a lowercase code");
-  const level = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ value: 12, delta: 0, movement: "level" }) })], COPY));
-  assert.ok(level.includes("Result: 12 hours"), level);
-  assert.ok(level.includes("Level against frozen baseline"), level);
+test("every known outcome reads in the app's words", () => {
+  const expected = {
+    moved_as_declared: "Moved the way declared, beyond the cohort's own variation",
+    moved_against_declared: "Moved the other way, beyond the cohort's own variation",
+    moved_no_direction_declared: "Moved beyond the cohort's own variation; no direction was declared",
+    within_own_variation: "No further from the baseline than the cohort's own week-to-week variation",
+    withheld: "Withheld"
+  };
+  for (const [key, words] of Object.entries(expected)) {
+    const out = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ outcome: key }) })]));
+    assert.ok(out.includes(words), `${key}: ${out}`);
+    assert.ok(!out.includes(key), `${key} is not printed raw`);
+  }
 });
 
-test("a result whose outcome this version can't word says so, and never prints the key", () => {
-  const out = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ outcome: "a_brand_new_outcome" }) })], COPY));
-  assert.ok(out.includes("can't put the organisation's verdict into words"), out);
-  assert.ok(!out.includes("a_brand_new_outcome"));
+test("an empty outcome reads 'Not stated' and an unknown one says it isn't recognised, never the key", () => {
+  const empty = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ outcome: "" }) })]));
+  assert.ok(empty.includes("Not stated"), empty);
+  const odd = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ outcome: "a_brand_new_outcome" }) })]));
+  assert.ok(odd.includes("An outcome this app does not recognise"), odd);
+  assert.ok(!odd.includes("a_brand_new_outcome"));
 });
 
-test("a withheld figure is shown as withheld, never as zero", () => {
-  const withheld = scoredResult({ value: null, baselineValue: null, delta: null, movement: null, outcome: "withheld", withheldReason: "too_few_people" });
-  const out = text(renderInitiatives([initiative({ status: "scored", result: withheld })], COPY));
-  assert.ok(out.includes("Result: withheld. Too few people took part to show a figure."), out);
-  assert.ok(!/Result: 0/.test(out));
-  assert.ok(!out.includes("too_few_people"));
+test("movement reads from the delta, in the app's words", () => {
+  const down = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ value: 9, delta: -3 }) })]));
+  assert.ok(down.includes("Down 3 against frozen baseline"), down);
+  const flat = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ value: 12, delta: 0 }) })]));
+  assert.ok(flat.includes("No change against frozen baseline"), flat);
+  const missing = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ delta: null }) })]));
+  assert.ok(missing.includes("No reading"), missing);
+  const within = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ outcome: "within_own_variation", delta: 1 }) })]));
+  assert.ok(within.includes("No material change against frozen baseline"), within);
+  assert.ok(!within.includes("Up 1"), "within the cohort's own variation outranks the sign of the delta");
+  for (const out of [down, flat, missing, within]) assert.ok(!/\bmovement\b|\blevel\b/.test(out));
+});
 
-  const unknownReason = text(renderInitiatives([initiative({ status: "scored", result: { ...withheld, withheldReason: "never_seen_before" } })], COPY));
-  assert.ok(unknownReason.includes("Result: withheld. The organisation withheld the figure."), unknownReason);
-  assert.ok(!unknownReason.includes("never_seen_before"));
+test("figures print like the ledger: 5, not 5.0, and 1.1 as it is", () => {
+  const out = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ value: 5.0, delta: 1.1 }) })]));
+  assert.ok(out.includes("Result: 5 hours"), out);
+  assert.ok(out.includes("Up 1.1 against frozen baseline"), out);
+  const noise = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ value: 0.1 + 0.2, delta: 0.30000000000000004 }) })]));
+  assert.ok(noise.includes("Result: 0.3 hours"), noise);
+});
+
+test("a withheld figure is shown as withheld with its reason, never as zero", () => {
+  const withheld = (reason) => scoredResult({ value: null, baselineValue: null, delta: null, movement: null, outcome: "withheld", withheldReason: reason });
+  for (const key of ["cohort_below_minimum", "below_minimum_cohort", "below_minimum_cohort_size"]) {
+    const out = text(renderInitiatives([initiative({ status: "scored", result: withheld(key) })]));
+    assert.ok(out.includes("Withheld: the cohort was too small to report on when the scoring window closed."), `${key}: ${out}`);
+    assert.ok(!out.includes(key));
+    assert.ok(!/Result: 0/.test(out));
+  }
+  const baseline = text(renderInitiatives([initiative({ status: "scored", result: withheld("baseline_withheld") })]));
+  assert.ok(baseline.includes("Withheld: the baseline was withheld."), baseline);
+
+  for (const reason of ["never_seen_before", null]) {
+    const out = text(renderInitiatives([initiative({ status: "scored", result: withheld(reason) })]));
+    assert.ok(out.includes("Withheld, for a reason this version of the app doesn't name yet."), out);
+    assert.ok(!out.includes("never_seen_before"));
+  }
 });
 
 test("a withdrawn change is shown as withdrawn, with its date, and keeps a result it already had", () => {
-  const out = text(renderInitiatives([initiative({ status: "withdrawn", withdrawnUtc: "2026-10-12T09:00:00.000Z", result: scoredResult() })], COPY));
+  const out = text(renderInitiatives([initiative({ status: "withdrawn", withdrawnUtc: "2026-10-12T09:00:00.000Z", result: scoredResult() })]));
   assert.ok(out.includes("Withdrawn on 12 Oct 2026. It won't be scored."), out);
   assert.ok(out.includes("Result: 15 hours"), "as the app does, a withdrawn change still shows its result");
-  const noResult = text(renderInitiatives([initiative({ status: "withdrawn", withdrawnUtc: "2026-10-12T09:00:00.000Z" })], COPY));
+  const noResult = text(renderInitiatives([initiative({ status: "withdrawn", withdrawnUtc: "2026-10-12T09:00:00.000Z" })]));
   assert.ok(!noResult.includes("Result:"));
-  const undated = text(renderInitiatives([initiative({ status: "withdrawn" })], COPY));
+  const undated = text(renderInitiatives([initiative({ status: "withdrawn" })]));
   assert.ok(undated.includes("Withdrawn. It won't be scored."), undated);
 });
 
 test("a status this version doesn't know is shown as not recognised, never as the raw word", () => {
-  const out = text(renderInitiatives([initiative({ status: "paused" })], COPY));
+  const out = text(renderInitiatives([initiative({ status: "paused" })]));
   assert.ok(out.includes("Acme Health: Shorter review turnaround"), "the change is still listed");
   assert.ok(out.includes("Status not recognised."), out);
   assert.ok(!out.includes("paused"), "the raw status word is not printed");
 });
 
-test("the declared direction is shown in words, and a value not known prints nothing", () => {
-  assert.ok(text(renderInitiatives([initiative({ direction: "up" })], COPY)).includes("Expected to rise"));
-  assert.ok(text(renderInitiatives([initiative({ direction: "down" })], COPY)).includes("Expected to fall"));
-  const none = text(renderInitiatives([initiative({ direction: "none_declared" })], COPY));
+test("the declared direction is shown in words, and an unknown one says so", () => {
+  assert.ok(text(renderInitiatives([initiative({ direction: "up" })])).includes("Expected to rise"));
+  assert.ok(text(renderInitiatives([initiative({ direction: "down" })])).includes("Expected to fall"));
+  const none = text(renderInitiatives([initiative({ direction: "none_declared" })]));
   assert.ok(none.includes("No direction declared"));
   assert.ok(!none.includes("none_declared"));
-  const odd = text(renderInitiatives([initiative({ direction: "sideways" })], COPY));
-  assert.ok(!odd.includes("sideways"), "a direction this version doesn't know is not printed raw");
+  const odd = text(renderInitiatives([initiative({ direction: "sideways" })]));
+  assert.ok(odd.includes("A direction this app does not recognise"), odd);
+  assert.ok(!odd.includes("sideways"));
 });
 
 test("the unit is the organisation's own word and is printed as sent", () => {
-  const out = text(renderInitiatives([initiative({ measureUnit: "pull requests a week", status: "scored", result: scoredResult() })], COPY));
+  const out = text(renderInitiatives([initiative({ measureUnit: "pull requests a week", status: "scored", result: scoredResult() })]));
   assert.ok(out.includes("Result: 15 pull requests a week"), out);
 });
 
 test("an entry that can't be read is counted, and the others are still shown", () => {
-  const out = text(renderInitiatives([initiative(), { nonsense: true }, null], COPY));
+  const out = text(renderInitiatives([initiative(), { nonsense: true }, null]));
   assert.ok(out.includes("Shorter review turnaround"));
   assert.ok(out.includes("2 entries in the list couldn't be read by this version of the tool."), out);
-});
-
-test("the shipped wording table is empty of raw codes on the way out, whatever the outcome", () => {
-  const out = text(renderInitiatives([initiative({ status: "scored", result: scoredResult() })]));
-  assert.ok(!out.includes("met_target"));
-  assert.ok(!out.includes("cohort_median"));
 });
 
 // ── The four situations ────────────────────────────────────────────────────
