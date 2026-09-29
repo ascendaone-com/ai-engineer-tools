@@ -105,8 +105,11 @@ export {
   postToolEventsBatch,
   parseIngestResponse,
   isRetryableStatus,
+  readInitiatives,
   startStudyJoin
 } from "./http";
-export type { IngestOutcome, IngestBatchItemResult } from "./http";
+export type { IngestOutcome, IngestBatchItemResult, InitiativesRead } from "./http";
+export { INITIATIVE_COPY, initiativesStatusLines, renderInitiatives } from "./initiatives";
+export type { InitiativeCopy, InitiativesStatusContext } from "./initiatives";
 export { runStudyJoin } from "./studyJoin";
 export type { StudyJoinContext } from "./studyJoin";

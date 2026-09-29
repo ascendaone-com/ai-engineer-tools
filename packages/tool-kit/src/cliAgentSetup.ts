@@ -6,6 +6,7 @@ import { describeCollectorVersion } from "./collectorVersion";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
 import { createPairingSession, getPairingStatus } from "./http";
+import { initiativesStatusLines } from "./initiatives";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
 import { runStudyJoin } from "./studyJoin";
@@ -141,7 +142,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
     console.log(usage(spec));
     return 0;
   }
-  if (options.action === "status") return printStatus(options, spec);
+  if (options.action === "status") return await printStatus(options, spec);
   if (options.action === "uninstall") return uninstall(options, spec);
 
   const apiBaseUrl = (options.apiBaseUrl ?? readHostCredentials(spec.host)?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
@@ -520,7 +521,7 @@ function readSettings(settingsFile: string): HookSettings {
   }
 }
 
-function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): number {
+async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Promise<number> {
   const credentials = readHostCredentials(spec.host);
   const settingsFile = spec.settings.settingsPath(options.scope, options.projectDir);
   const binary = cliAgentHookBinPath(spec.binaryName);
@@ -546,6 +547,16 @@ function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): number {
     for (const command of stale) console.log(`               ${command}`);
     console.log(`               Remove them from ${settingsFile} by hand; setup cannot tell them from a hook you wrote.`);
   }
+
+  // For the person at the keyboard only. Nothing here is fetched for an
+  // install that isn't paired, and nothing from it reaches a hook or an agent.
+  const tokenValue = localOnly ? undefined : (tokenFile ? readTokenFile(tokenFile) : undefined) ?? (process.env.ASCENDA_EVENT_WRITE_TOKEN?.trim() || undefined);
+  console.log("");
+  for (const line of await initiativesStatusLines({
+    apiBaseUrl: (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, ""),
+    eventWriteToken: tokenValue,
+    pairCommand: `npx ${spec.packageName} setup`
+  })) console.log(line);
 
   // A local-only install is healthy without a pairing: it was asked for, or
   // was told it degraded, and the hooks it registered do their one job.

@@ -68,6 +68,40 @@ export async function getStudyJoinStatus(apiBaseUrl: string, eventWriteToken: st
 }
 
 /**
+ * The changes the person this tool is paired to has been sent, read with the
+ * tool's own write token. Never throws for a response: the caller is `status`,
+ * which has to say which of "nothing published", "token not accepted" and
+ * "could not reach it" happened, and each of those is a different sentence.
+ */
+export type InitiativesRead =
+  | { kind: "ok"; initiatives: unknown[] }
+  | { kind: "rejected"; httpStatus: number }
+  | { kind: "failed"; reason: string };
+
+export async function readInitiatives(apiBaseUrl: string, eventWriteToken: string, signal?: AbortSignal): Promise<InitiativesRead> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}/v1/tool-installations/initiatives`, {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: `Bearer ${eventWriteToken}` },
+      signal
+    });
+  } catch (error) {
+    return { kind: "failed", reason: error instanceof Error && error.name === "TimeoutError" ? "the request timed out" : "the server could not be reached" };
+  }
+  if (response.status === 401) return { kind: "rejected", httpStatus: 401 };
+  if (!response.ok) return { kind: "failed", reason: `the server answered HTTP ${response.status}` };
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return { kind: "failed", reason: "the reply was not readable" };
+  }
+  if (!Array.isArray(body)) return { kind: "failed", reason: "the reply was not a list" };
+  return { kind: "ok", initiatives: body };
+}
+
+/**
  * An error response's stable code. The org-study-join door puts it in
  * `code` alongside a separate human-readable `error` string; other doors
  * (a 401, the status door's 404, ingest) put the identifier directly in

@@ -199,6 +199,42 @@ test("status names the local-only mode, and stops naming it once paired", async 
   });
 });
 
+test("status lists the changes published to you for a paired install, and asks for nothing when unpaired", async () => {
+  await sandbox(async ({ home, project, log }) => {
+    const realFetch = global.fetch;
+    const priorToken = process.env.ASCENDA_EVENT_WRITE_TOKEN;
+    const requested = [];
+    global.fetch = async (url) => {
+      requested.push(String(url));
+      return new Response(JSON.stringify([{ organisationName: "Acme Health", title: "Shorter review turnaround", status: "published", summaryForCohort: "A one-day pickup rule.", scoringStartUtc: "2026-10-05T00:00:00.000Z", scoringEndUtc: "2026-11-02T00:00:00.000Z" }]), { status: 200 });
+    };
+    try {
+      await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], flat);
+      log.length = 0;
+      await runCliAgentSetup(["status", "--project-dir", project], flat);
+      assert.equal(requested.length, 0, "an install that was never paired asks for nothing");
+      assert.ok(log.join("\n").includes("Not checked: this install holds no token"));
+
+      const file = path.join(home, "credentials.json");
+      const stored = JSON.parse(fs.readFileSync(file, "utf8"));
+      delete stored.tools[flat.host].localOnly;
+      fs.writeFileSync(file, JSON.stringify(stored));
+      process.env.ASCENDA_EVENT_WRITE_TOKEN = "test-token";
+
+      log.length = 0;
+      await runCliAgentSetup(["status", "--project-dir", project], flat);
+      const paired = log.join("\n");
+      assert.equal(requested.length, 1);
+      assert.ok(paired.includes("Changes your organisation has published to you"));
+      assert.ok(paired.includes("Acme Health: Shorter review turnaround"), paired);
+    } finally {
+      global.fetch = realFetch;
+      if (priorToken === undefined) delete process.env.ASCENDA_EVENT_WRITE_TOKEN;
+      else process.env.ASCENDA_EVENT_WRITE_TOKEN = priorToken;
+    }
+  });
+});
+
 test("uninstall clears a local-only install like any other", async () => {
   await sandbox(async ({ home, project }) => {
     await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], flat);

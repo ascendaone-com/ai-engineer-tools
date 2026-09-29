@@ -1182,3 +1182,7 @@ export {
   type MetricReader,
   type MetricValue
 } from "./metricKeys";
+
+// The changes an organisation has published to the person this tool is paired
+// to. See ./initiatives.ts.
+export type { InitiativeResult, InitiativeStatus, TeamInitiative } from "./initiatives";

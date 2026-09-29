@@ -209,7 +209,7 @@ function formatLocalTime(iso: string): string {
 }
 
 /** `12 Oct 2026 – 9 Nov 2026`, or `12 Oct – 9 Nov 2026` when both ends fall in the same year. */
-function formatWindow(startUtc: string, endUtc: string): string {
+export function formatWindow(startUtc: string, endUtc: string): string {
   const start = new Date(startUtc);
   const end = new Date(endUtc);
   const sameYear = start.getUTCFullYear() === end.getUTCFullYear();

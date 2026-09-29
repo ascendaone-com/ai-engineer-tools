@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, defaultTokenFilePath, describeCollectorVersion, getPairingStatus, persistEventWriteToken, readTokenFile, renderSetupDisclosure } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, defaultTokenFilePath, describeCollectorVersion, getPairingStatus, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { credentialsFilePath, hookBinPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
@@ -111,7 +111,7 @@ export async function runSetup(argv: string[]): Promise<number> {
     console.log(USAGE);
     return 0;
   }
-  if (options.action === "status") return printStatus(options);
+  if (options.action === "status") return await printStatus(options);
   if (options.action === "uninstall") return uninstall(options);
 
   const apiBaseUrl = (options.apiBaseUrl ?? readCredentials()?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
@@ -500,7 +500,7 @@ function countRegistered(settingsFile: string, binary: string): { settings: Sett
   return { settings, registered: HOOK_EVENTS.filter((event) => (settings.hooks?.[event] ?? []).some(isOurs)).length };
 }
 
-function printStatus(options: Options): number {
+async function printStatus(options: Options): Promise<number> {
   const credentials = readCredentials();
   const settingsFile = settingsPath(options);
   const binary = hookBinPath();
@@ -546,6 +546,16 @@ function printStatus(options: Options): number {
     for (const command of stale) console.log(`               ${command}`);
     console.log(`               Remove them from ${settingsFile} by hand; setup cannot tell them from a hook you wrote.`);
   }
+
+  // For the person at the keyboard only. Nothing here is fetched for an
+  // install that isn't paired, and nothing from it reaches a hook or an agent.
+  const tokenValue = unpaired ? undefined : (tokenFile ? readTokenFile(tokenFile) : undefined) ?? envOverride("ASCENDA_EVENT_WRITE_TOKEN") ?? undefined;
+  console.log("");
+  for (const line of await initiativesStatusLines({
+    apiBaseUrl: (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, ""),
+    eventWriteToken: tokenValue,
+    pairCommand: "npx @ascenda-one/claude-code-hooks pair"
+  })) console.log(line);
 
   if (unpaired) {
     console.log("\nInstalled, not paired. Pair when you want the telemetry half:");
