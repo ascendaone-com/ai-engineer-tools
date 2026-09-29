@@ -22,20 +22,25 @@ const READ_TIMEOUT_MS = 5000;
 
 /**
  * The organisation's own wording for a scored result: one sentence per
- * outcome, per reason a figure was withheld, and a plain word per unit.
- * Keyed by the organisation's codes, which are never printed. Anything not
- * listed here falls back to a sentence saying so, rather than to the code.
+ * outcome and per reason a figure was withheld. Keyed by the organisation's
+ * codes, which are never printed. Anything not listed here falls back to a
+ * sentence saying so, rather than to the code.
  */
 export type InitiativeCopy = {
   outcomes: Record<string, string>;
   withheldReasons: Record<string, string>;
-  units: Record<string, string>;
 };
 
 export const INITIATIVE_COPY: InitiativeCopy = {
   outcomes: {},
-  withheldReasons: {},
-  units: {}
+  withheldReasons: {}
+};
+
+/** The wording for a declared direction; a value not listed here prints nothing. */
+const DIRECTION_WORDS: Record<string, string> = {
+  up: "Expected to rise",
+  down: "Expected to fall",
+  none_declared: "No direction declared"
 };
 
 const OUTCOME_FALLBACK = "This version of the tool can't put the organisation's verdict into words. The Ascenda app has it.";
@@ -96,13 +101,11 @@ function renderOne(initiative: TeamInitiative, copy: InitiativeCopy): string[] {
   if (initiative.summaryForCohort) {
     for (const line of initiative.summaryForCohort.split(/\r?\n/)) lines.push(`    ${line}`);
   }
+  const direction = initiative.direction ? DIRECTION_WORDS[initiative.direction] : undefined;
+  if (direction) lines.push(`    ${direction}`);
   lines.push(`    Scoring window: ${formatWindowOrRaw(initiative.scoringStartUtc, initiative.scoringEndUtc)}`);
-  if (initiative.status === "scored" && initiative.result) {
-    lines.push(...renderResult(initiative.result, initiative.measureUnit, copy));
-    if (initiative.predictionLine) lines.push(`    ${initiative.predictionLine}`);
-  } else if (initiative.status !== "withdrawn" && initiative.predictionSealedLine) {
-    lines.push(`    ${initiative.predictionSealedLine}`);
-  }
+  // Whatever status it has now, a result that was scored is still shown.
+  if (initiative.result) lines.push(...renderResult(initiative.result, initiative.measureUnit, copy));
   lines.push("");
   return lines;
 }
@@ -118,30 +121,25 @@ function describeStatus(initiative: TeamInitiative): string {
         ? `Withdrawn on ${formatDay(initiative.withdrawnUtc)}. It won't be scored.`
         : "Withdrawn. It won't be scored.";
     default:
-      return `Status: ${initiative.status} (this version of the tool doesn't know that status).`;
+      return "Status not recognised.";
   }
 }
 
 function renderResult(result: InitiativeResult, unit: string | null, copy: InitiativeCopy): string[] {
   const lines: string[] = [];
-  const unitWord = unit ? copy.units[unit] : undefined;
-  const show = (n: number) => (unitWord ? `${n} ${unitWord}` : `${n}`);
+  // The unit is the organisation's own word for it, so it's printed as sent.
+  const show = (n: number) => (unit ? `${n} ${unit}` : `${n}`);
 
   if (result.value === null) {
     const reason = result.withheldReason ? copy.withheldReasons[result.withheldReason] : undefined;
     lines.push(`    Result: withheld. ${reason ?? WITHHELD_FALLBACK}`);
   } else {
-    const baseline = result.baselineValue;
-    const delta = result.delta;
-    let detail = "";
-    if (baseline !== null && delta !== null && (result.movement === "up" || result.movement === "down")) {
-      detail = ` (${result.movement} ${show(Math.abs(delta))} from ${show(baseline)})`;
-    } else if (baseline !== null && result.movement === "level") {
-      detail = ` (level with ${show(baseline)})`;
-    } else if (baseline !== null) {
-      detail = ` (from ${show(baseline)})`;
+    lines.push(`    Result: ${show(result.value)}`);
+    if (result.delta !== null && (result.movement === "up" || result.movement === "down")) {
+      lines.push(`    ${result.movement === "up" ? "Up" : "Down"} ${show(Math.abs(result.delta))} against frozen baseline`);
+    } else if (result.movement === "level") {
+      lines.push("    Level against frozen baseline");
     }
-    lines.push(`    Result: ${show(result.value)}${detail}`);
     lines.push(`    ${copy.outcomes[result.outcome] ?? OUTCOME_FALLBACK}`);
   }
   return lines;
@@ -161,11 +159,8 @@ function asInitiative(value: unknown): TeamInitiative | undefined {
     scoringEndUtc: typeof o.scoringEndUtc === "string" ? o.scoringEndUtc : "",
     withdrawnUtc: typeof o.withdrawnUtc === "string" ? o.withdrawnUtc : null,
     status: o.status,
-    result: asResult(o.result),
-    predictionSealedLine: o.predictionSealed === true && typeof o.predictionSealedLine === "string" && o.predictionSealedLine ? o.predictionSealedLine : null,
-    predictionLine: o.prediction && typeof o.prediction === "object" && typeof (o.prediction as Record<string, unknown>).line === "string"
-      ? ((o.prediction as Record<string, unknown>).line as string) || null
-      : null
+    direction: typeof o.direction === "string" ? o.direction : null,
+    result: asResult(o.result)
   };
 }
 

@@ -32,9 +32,7 @@ export type TeamInitiative = {
   scoringEndUtc: string;
   withdrawnUtc: string | null;
   status: InitiativeStatus;
+  /** The direction the organisation declared it expects: `up`, `down` or `none_declared`. Open, like `status`. */
+  direction: string | null;
   result: InitiativeResult | null;
-  /** A sentence the organisation wrote about a prediction made before scoring; shown as given. */
-  predictionSealedLine: string | null;
-  /** After scoring: the same prediction, as a sentence to show beside the result. */
-  predictionLine: string | null;
 };

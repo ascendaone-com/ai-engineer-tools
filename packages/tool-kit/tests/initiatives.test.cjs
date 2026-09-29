@@ -50,8 +50,7 @@ const scoredResult = (overrides = {}) => ({
 
 const COPY = {
   outcomes: { met_target: "The change moved the number the way the organisation hoped." },
-  withheldReasons: { too_few_people: "Too few people took part to show a figure." },
-  units: { hours: "hours" }
+  withheldReasons: { too_few_people: "Too few people took part to show a figure." }
 };
 
 const text = (lines) => lines.join("\n");
@@ -69,7 +68,8 @@ test("a published change shows the title, the organisation's summary as written,
 test("a scored change shows the result in the organisation's words", () => {
   const out = text(renderInitiatives([initiative({ status: "scored", result: scoredResult() })], COPY));
   assert.ok(out.includes("Scored."));
-  assert.ok(out.includes("Result: 15 hours (up 3 hours from 12 hours)"), out);
+  assert.ok(out.includes("Result: 15 hours"), out);
+  assert.ok(out.includes("Up 3 hours against frozen baseline"), out);
   assert.ok(out.includes("The change moved the number the way the organisation hoped."));
   assert.ok(!out.includes("met_target"), "the outcome key is never printed");
   assert.ok(!out.includes("hours_"), "no raw key leaks through");
@@ -77,9 +77,12 @@ test("a scored change shows the result in the organisation's words", () => {
 
 test("a scored change moving down, and one level with its baseline", () => {
   const down = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ value: 9, delta: -3, movement: "down" }) })], COPY));
-  assert.ok(down.includes("Result: 9 hours (down 3 hours from 12 hours)"), down);
+  assert.ok(down.includes("Result: 9 hours"), down);
+  assert.ok(down.includes("Down 3 hours against frozen baseline"), down);
+  assert.ok(!/\b(up|down) \d/.test(down), "movement is never a lowercase code");
   const level = text(renderInitiatives([initiative({ status: "scored", result: scoredResult({ value: 12, delta: 0, movement: "level" }) })], COPY));
-  assert.ok(level.includes("Result: 12 hours (level with 12 hours)"), level);
+  assert.ok(level.includes("Result: 12 hours"), level);
+  assert.ok(level.includes("Level against frozen baseline"), level);
 });
 
 test("a result whose outcome this version can't word says so, and never prints the key", () => {
@@ -100,37 +103,36 @@ test("a withheld figure is shown as withheld, never as zero", () => {
   assert.ok(!unknownReason.includes("never_seen_before"));
 });
 
-test("a withdrawn change is shown as withdrawn, with its date, and no result", () => {
+test("a withdrawn change is shown as withdrawn, with its date, and keeps a result it already had", () => {
   const out = text(renderInitiatives([initiative({ status: "withdrawn", withdrawnUtc: "2026-10-12T09:00:00.000Z", result: scoredResult() })], COPY));
   assert.ok(out.includes("Withdrawn on 12 Oct 2026. It won't be scored."), out);
-  assert.ok(!out.includes("Result:"), "a withdrawn change carries no result");
+  assert.ok(out.includes("Result: 15 hours"), "as the app does, a withdrawn change still shows its result");
+  const noResult = text(renderInitiatives([initiative({ status: "withdrawn", withdrawnUtc: "2026-10-12T09:00:00.000Z" })], COPY));
+  assert.ok(!noResult.includes("Result:"));
   const undated = text(renderInitiatives([initiative({ status: "withdrawn" })], COPY));
   assert.ok(undated.includes("Withdrawn. It won't be scored."), undated);
 });
 
-test("a status this version doesn't know is shown, not hidden and not a crash", () => {
+test("a status this version doesn't know is shown as not recognised, never as the raw word", () => {
   const out = text(renderInitiatives([initiative({ status: "paused" })], COPY));
   assert.ok(out.includes("Acme Health: Shorter review turnaround"), "the change is still listed");
-  assert.ok(out.includes("Status: paused (this version of the tool doesn't know that status)."), out);
+  assert.ok(out.includes("Status not recognised."), out);
+  assert.ok(!out.includes("paused"), "the raw status word is not printed");
 });
 
-test("the sealed-prediction line shows as given before scoring, and the prediction line beside the result after", () => {
-  const before = text(renderInitiatives([initiative({ predictionSealed: true, predictionSealedLine: "A prediction is sealed until scoring.", prediction: null })], COPY));
-  assert.ok(before.includes("A prediction is sealed until scoring."), before);
+test("the declared direction is shown in words, and a value not known prints nothing", () => {
+  assert.ok(text(renderInitiatives([initiative({ direction: "up" })], COPY)).includes("Expected to rise"));
+  assert.ok(text(renderInitiatives([initiative({ direction: "down" })], COPY)).includes("Expected to fall"));
+  const none = text(renderInitiatives([initiative({ direction: "none_declared" })], COPY));
+  assert.ok(none.includes("No direction declared"));
+  assert.ok(!none.includes("none_declared"));
+  const odd = text(renderInitiatives([initiative({ direction: "sideways" })], COPY));
+  assert.ok(!odd.includes("sideways"), "a direction this version doesn't know is not printed raw");
+});
 
-  const notSealed = text(renderInitiatives([initiative({ predictionSealed: false, predictionSealedLine: "should not show", prediction: null })], COPY));
-  assert.ok(!notSealed.includes("should not show"));
-
-  const after = text(renderInitiatives([initiative({
-    status: "scored", result: scoredResult(), predictionSealed: false, predictionSealedLine: null,
-    prediction: { direction: "down", minimumMove: 2, line: "The prediction was a drop of at least 2 hours.", outcome: "missed" }
-  })], COPY));
-  assert.ok(after.includes("Result: 15 hours"));
-  assert.ok(after.includes("The prediction was a drop of at least 2 hours."), after);
-  assert.ok(!after.includes("missed") && !after.includes("minimumMove"), "only the sentence is shown");
-
-  const withdrawn = text(renderInitiatives([initiative({ status: "withdrawn", predictionSealed: true, predictionSealedLine: "sealed line" })], COPY));
-  assert.ok(!withdrawn.includes("sealed line"), "a withdrawn change has nothing left to seal");
+test("the unit is the organisation's own word and is printed as sent", () => {
+  const out = text(renderInitiatives([initiative({ measureUnit: "pull requests a week", status: "scored", result: scoredResult() })], COPY));
+  assert.ok(out.includes("Result: 15 pull requests a week"), out);
 });
 
 test("an entry that can't be read is counted, and the others are still shown", () => {

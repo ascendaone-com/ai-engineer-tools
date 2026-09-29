@@ -15,17 +15,16 @@ targets, error counts or internal resource names — this repository is public.
 ### See your organisation's changes in `status`
 
 - **`status` lists the changes your organisation has published to you.** Each
-  one shows its title, the organisation's own summary, the scoring window, and
-  the result once it's scored. A withdrawn change says it's withdrawn. A status
-  the tool doesn't recognise is printed as the server sent it.
+  one shows its title, the organisation's own summary, the direction it
+  expects, the scoring window, and the result once it's scored. A withdrawn
+  change says it's withdrawn and keeps its result. A status the tool doesn't
+  recognise reads "Status not recognised."
 - **Nothing to list says why.** "None published to you" means the list came
   back empty. If the server turned the request down, `status` says it couldn't
   check and how to pair again. If the list couldn't be fetched, it gives the
   reason and you can run `status` again. An install that holds no token asks
   for nothing and says that. `status` can't yet tell "not in any
   organisation" from "nothing published".
-- **Predictions.** A prediction made before scoring shows as a sealed line,
-  then beside the result once it's scored.
 - **Only `status` shows it.** The hooks never fetch the list, and none of it is
   passed to your agent.
 
