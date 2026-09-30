@@ -10,6 +10,21 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.30
+
+### The agent can read what the Reveal showed you
+
+- **A third skill in the Claude Code plugin, `ascenda-reveal-read`.** Once
+  per session it reads, from the Flow app on your own Mac, the read the app
+  showed you when you imported your history: which days ran heavy, how the
+  weeks went, the hour band your work leans to, one crossing of two facts,
+  and the receipt. It holds that and says nothing unless you ask, or a piece
+  of work has to be placed in the day. Counts and dates only; your projects
+  reach it as opaque digests, and the bird you kept never does.
+- Needs the Flow app with `get_reveal` on its local server (Flow 0.1.16 or
+  later) and an agent paired with the *Demand & workload* scope. Without
+  either, the skill is silent.
+
 ## v0.1.29
 
 ### See your organisation's changes in `status`
