@@ -106,10 +106,15 @@ export {
   parseIngestResponse,
   isRetryableStatus,
   readInitiatives,
+  readStudyNotices,
+  markStudyNoticeShown,
+  setStudyObjection,
   startStudyJoin
 } from "./http";
-export type { IngestOutcome, IngestBatchItemResult, InitiativesRead } from "./http";
+export type { IngestOutcome, IngestBatchItemResult, InitiativesRead, StudyNoticesRead } from "./http";
 export { INITIATIVE_COPY, initiativesStatusLines, renderInitiatives } from "./initiatives";
 export type { InitiativeCopy, InitiativesStatusContext } from "./initiatives";
+export { NOTICED_PURPOSES, renderStudyNotices, runStudyObjection, studyNoticeStatus } from "./studyNotices";
+export type { NoticedPurpose, StudyNoticesStatus, StudyNoticesStatusContext, StudyObjectionContext } from "./studyNotices";
 export { runStudyJoin } from "./studyJoin";
 export type { StudyJoinContext } from "./studyJoin";

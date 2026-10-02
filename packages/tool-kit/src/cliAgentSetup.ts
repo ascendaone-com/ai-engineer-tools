@@ -10,6 +10,7 @@ import { initiativesStatusLines } from "./initiatives";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
 import { runStudyJoin } from "./studyJoin";
+import { runStudyObjection, studyNoticeStatus } from "./studyNotices";
 import { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 
 /**
@@ -90,7 +91,7 @@ type SetupOptions = {
  * Checked before stdin is read: a management command carries no payload, so
  * reading stdin first would hang on a pipe nothing will ever write to.
  */
-const MANAGEMENT_COMMANDS = new Set(["setup", "install", "status", "uninstall", "join", "-h", "--help"]);
+const MANAGEMENT_COMMANDS = new Set(["setup", "install", "status", "uninstall", "join", "object", "-h", "--help"]);
 
 export function isCliAgentManagementCommand(argument: string | undefined): boolean {
   return argument !== undefined && MANAGEMENT_COMMANDS.has(argument);
@@ -108,6 +109,7 @@ function usage(spec: CliAgentSetupSpec): string {
   npx ${spec.packageName} status
   npx ${spec.packageName} uninstall
   npx ${spec.packageName} join <code>
+  npx ${spec.packageName} object <purpose> [--undo]
 
 Options
   --api-base-url <url>          ingest host (default ${DEFAULT_API_BASE_URL})
@@ -129,6 +131,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   // options. Dispatched before stdin is ever touched, like every other
   // management command.
   if (argv[0] === "join") return runCliAgentStudyJoin(argv.slice(1), spec);
+  if (argv[0] === "object") return runCliAgentStudyObjection(argv.slice(1), spec);
 
   let options: SetupOptions;
   try {
@@ -318,25 +321,48 @@ async function runCliAgentStudyJoin(argv: string[], spec: CliAgentSetupSpec): Pr
     return 1;
   }
 
+  const pairing = resolvePairedToken(spec);
+  if (!pairing) return 1;
+  return runStudyJoin({ ...pairing, displayName: spec.displayName, joinCode });
+}
+
+/**
+ * `object <purpose> [--undo]`: object to being counted for one purpose your
+ * organisation counts unless you object, or withdraw that. The flow itself is
+ * shared; see `runStudyObjection` in `studyNotices.ts`.
+ */
+async function runCliAgentStudyObjection(argv: string[], spec: CliAgentSetupSpec): Promise<number> {
+  const pairing = resolvePairedToken(spec);
+  if (!pairing) return 1;
+  return runStudyObjection({
+    ...pairing,
+    commandPrefix: `npx ${spec.packageName}`,
+    pairCommand: `npx ${spec.packageName} setup`,
+    argv
+  });
+}
+
+/** This host's API base URL and write token, or `undefined` after saying why there isn't one. */
+function resolvePairedToken(spec: CliAgentSetupSpec): { apiBaseUrl: string; eventWriteToken: string } | undefined {
   const setupCommand = `npx ${spec.packageName} setup`;
   let toolInstallationId: string;
   try {
     ({ toolInstallationId } = resolveCliAgentInstallationId(spec.toolType, { host: spec.host, setupCommand }));
   } catch (error) {
     console.error(error instanceof MissingInstallationIdError ? error.message : error instanceof Error ? error.message : String(error));
-    return 1;
+    return undefined;
   }
 
   const eventWriteToken = readTokenFile(process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(toolInstallationId)) ?? process.env.ASCENDA_EVENT_WRITE_TOKEN;
   if (!eventWriteToken) {
     console.error(`Not paired: no write token for ${toolInstallationId}. Run: ${setupCommand}`);
-    return 1;
+    return undefined;
   }
 
   // Env override first, same precedence `pair` and every hook send already use:
   // a host override belongs to the machine, not to one agent's pairing record.
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? readHostCredentials(spec.host)?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
-  return runStudyJoin({ apiBaseUrl, eventWriteToken, displayName: spec.displayName, joinCode });
+  return { apiBaseUrl, eventWriteToken };
 }
 
 // -------------------------------------------------------------- identity ---
@@ -551,12 +577,16 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   // For the person at the keyboard only. Nothing here is fetched for an
   // install that isn't paired, and nothing from it reaches a hook or an agent.
   const tokenValue = localOnly ? undefined : (tokenFile ? readTokenFile(tokenFile) : undefined) ?? (process.env.ASCENDA_EVENT_WRITE_TOKEN?.trim() || undefined);
+  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  const [initiativeLines, notices] = await Promise.all([
+    initiativesStatusLines({ apiBaseUrl, eventWriteToken: tokenValue, pairCommand: `npx ${spec.packageName} setup` }),
+    studyNoticeStatus({ apiBaseUrl, eventWriteToken: tokenValue, commandPrefix: `npx ${spec.packageName}` })
+  ]);
   console.log("");
-  for (const line of await initiativesStatusLines({
-    apiBaseUrl: (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, ""),
-    eventWriteToken: tokenValue,
-    pairCommand: `npx ${spec.packageName} setup`
-  })) console.log(line);
+  for (const line of initiativeLines) console.log(line);
+  for (const line of notices.lines) console.log(line);
+  // Only a person at a terminal has been shown the notice; see `markShown`.
+  if (process.stdout.isTTY) await notices.markShown();
 
   // A local-only install is healthy without a pairing: it was asked for, or
   // was told it degraded, and the hooks it registered do their one job.

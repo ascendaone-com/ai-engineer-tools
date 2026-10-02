@@ -10,6 +10,27 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.31
+
+### Counted unless you object
+
+- **`status` shows what your organisation counts unless you object.** An
+  organisation can record that it counts some of its own study on a basis it
+  has documented, like legitimate interests or a collective agreement, rather than
+  asking each of you to switch it on. For each of those, `status` names the
+  organisation's basis and its document, who recorded it, and that Ascenda
+  processes it for them. Then it tells you whether you've objected, and the
+  one command that changes it.
+- **`object <purpose>`** stops you being counted for that purpose from the
+  next report. No reason asked. `object <purpose> --undo` counts you again.
+  The purposes are `telemetry`, `import` and `work-patterns`, and only those
+  three can ever be counted this way. Reports already issued stay as they are.
+- **Yours alone.** Nothing tells your organisation who objected, and `status`
+  shows nothing about anyone else. Like `join`, `object` needs a real
+  terminal, so an agent can't run it for you.
+- With an organisation that counts nothing this way, or a server that
+  doesn't support it yet, `status` looks exactly as it did.
+
 ## v0.1.30
 
 ### The agent can read what the Reveal showed you

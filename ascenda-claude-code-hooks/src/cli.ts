@@ -25,7 +25,8 @@ import {
   readOutboxSummary,
   OUTBOX_DRAIN_ENV_VAR,
   renderSetupDisclosure,
-  runStudyJoin
+  runStudyJoin,
+  runStudyObjection
 } from "@ascenda-one/tool-kit";
 import type { CollectorState, DisclosureFamily, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
@@ -203,6 +204,29 @@ async function runJoin(argv: string[]): Promise<number> {
 }
 
 /**
+ * `object <purpose> [--undo]` — object to being counted for one purpose your
+ * organisation counts unless you object, or withdraw that. Shared with every
+ * other CLI agent; see `runStudyObjection` in tool-kit's `studyNotices.ts`.
+ */
+async function runObject(argv: string[]): Promise<number> {
+  let apiBaseUrl: string;
+  let eventWriteToken: string;
+  try {
+    ({ apiBaseUrl, eventWriteToken } = loadConfigFromEnv());
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+  return runStudyObjection({
+    apiBaseUrl,
+    eventWriteToken,
+    commandPrefix: "npx @ascenda-one/claude-code-hooks",
+    pairCommand: "npx @ascenda-one/claude-code-hooks pair",
+    argv
+  });
+}
+
+/**
  * Two modes on one binary. Hook events are the hot path (Claude Code spawns
  * this per prompt and per tool call); the lowercase management commands are
  * what a human types. Hook names are capitalised, so the two cannot collide.
@@ -213,11 +237,11 @@ async function main(): Promise<void> {
   const command = process.argv[2];
   if (!command) {
     throw new Error(
-      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | doctor | setup | status | uninstall"
+      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | object | doctor | setup | status | uninstall"
     );
   }
 
-  // All three run before the stdin read below, and must stay there: they
+  // These all run before the stdin read below, and must stay there: they
   // carry no hook payload, so reading stdin first hangs them forever on a pipe
   // nothing will ever write to.
   if (command === "pair") {
@@ -226,6 +250,10 @@ async function main(): Promise<void> {
   }
   if (command === "join") {
     setupExitCode = await runJoin(process.argv.slice(3));
+    return;
+  }
+  if (command === "object") {
+    setupExitCode = await runObject(process.argv.slice(3));
     return;
   }
   if (command === "doctor") {
@@ -239,7 +267,7 @@ async function main(): Promise<void> {
   }
   if (!isClaudeHookEventName(command)) {
     throw new Error(
-      `Unknown command "${command}". Expected a Claude Code hook name, "pair", "join", "doctor", "setup", "status" or "uninstall".`
+      `Unknown command "${command}". Expected a Claude Code hook name, "pair", "join", "object", "doctor", "setup", "status" or "uninstall".`
     );
   }
   const hookName: ClaudeHookEventName = command;
