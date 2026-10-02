@@ -98,12 +98,14 @@ export async function studyNoticeStatus(ctx: StudyNoticesStatusContext): Promise
   if (read.kind !== "ok") return nothing;
   const lines = renderStudyNotices(read.notices, ctx.commandPrefix, ctx.now);
   if (lines.length === 0) return nothing;
-  const unshown = shownPurposes(read.notices).filter((n) => !n.noticeFromUtc).map((n) => n.code);
+  // An entry without its organisation's id can't be marked: the server
+  // records a showing per organisation.
+  const unshown = shownPurposes(read.notices).filter((n) => !n.noticeFromUtc && n.organisationId);
   return {
     lines,
     markShown: async () => {
       const signal = AbortSignal.timeout(ctx.fetchTimeoutMs ?? READ_TIMEOUT_MS);
-      await Promise.all(unshown.map((code) => markStudyNoticeShown(ctx.apiBaseUrl, token, code, signal)));
+      await Promise.all(unshown.map((n) => markStudyNoticeShown(ctx.apiBaseUrl, token, n.organisationId as string, n.code, signal)));
     }
   };
 }
@@ -188,6 +190,7 @@ function asNotice(value: unknown): StudyNotice | undefined {
   if (typeof o.mode === "string" && o.mode.trim().toLowerCase() !== "notice") return undefined;
   const str = (x: unknown) => (typeof x === "string" && x.trim() ? x : null);
   return {
+    organisationId: str(o.organisationId),
     organisationName: str(o.organisationName) ?? "Your organisation",
     code: o.code,
     name: str(o.name),

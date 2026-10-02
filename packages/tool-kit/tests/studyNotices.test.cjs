@@ -20,6 +20,7 @@ const text = (lines) => lines.join("\n");
 
 function notice(overrides = {}) {
   return {
+    organisationId: "org-acme",
     organisationName: "Acme Health",
     code: 501,
     name: "AiDataProcessing",
@@ -151,12 +152,18 @@ test("no token, no request", async () => {
   assert.equal(calls, 0);
 });
 
-test("the read uses the install's own token, and marking shown covers only notices not yet shown", async () => {
+test("the read uses the install's own token, and marking shown covers only notices not yet shown, per organisation", async () => {
   const requests = [];
   global.fetch = async (url, init) => {
     requests.push({ url: String(url), method: init.method, auth: init.headers.Authorization });
     if (String(url).endsWith("/study-notices")) {
-      return json(200, [notice({ noticeFromUtc: null, countingFromUtc: null }), notice({ code: 507 }), notice({ code: 12, noticeFromUtc: null })]);
+      return json(200, [
+        notice({ noticeFromUtc: null, countingFromUtc: null }),
+        notice({ organisationId: "org-globex", organisationName: "Globex", noticeFromUtc: null }),
+        notice({ code: 507 }),
+        notice({ code: 12, noticeFromUtc: null }),
+        notice({ code: 11, organisationId: null, noticeFromUtc: null })
+      ]);
     }
     return new Response(null, { status: 204 });
   };
@@ -164,7 +171,10 @@ test("the read uses the install's own token, and marking shown covers only notic
   assert.equal(requests.length, 1, "reading sends nothing back");
   assert.deepEqual(requests[0], { url: "http://x/v1/tool-installations/study-notices", method: "GET", auth: "Bearer tok" });
   await status.markShown();
-  assert.deepEqual(requests.slice(1), [{ url: "http://x/v1/tool-installations/study-notices/501/shown", method: "POST", auth: "Bearer tok" }]);
+  assert.deepEqual(requests.slice(1), [
+    { url: "http://x/v1/tool-installations/study-notices/org-acme/501/shown", method: "POST", auth: "Bearer tok" },
+    { url: "http://x/v1/tool-installations/study-notices/org-globex/501/shown", method: "POST", auth: "Bearer tok" }
+  ]);
 });
 
 test("marking shown on a server without the route is harmless", async () => {

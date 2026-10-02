@@ -13,6 +13,8 @@
  * objections.
  */
 export type StudyNotice = {
+  /** The organisation's id. Telling the server a notice was shown names it, since each organisation's notice is shown separately. */
+  organisationId: string | null;
   organisationName: string;
   /** The purpose's stable numeric code. Only live tool telemetry, the imported history and the work-pattern axes can ever be noticed. */
   code: number;

@@ -152,14 +152,14 @@ export async function setStudyObjection(apiBaseUrl: string, eventWriteToken: str
 }
 
 /**
- * Tell the server this person has been shown the notice for one purpose. The
+ * Tell the server this person has been shown one organisation's notice for one purpose. The
  * notice period runs from the first time this lands; repeating it changes
  * nothing. Best effort: a server without the route, or one that can't be
  * reached, leaves the notice unshown and `status` tries again next time.
  */
-export async function markStudyNoticeShown(apiBaseUrl: string, eventWriteToken: string, code: number, signal?: AbortSignal): Promise<boolean> {
+export async function markStudyNoticeShown(apiBaseUrl: string, eventWriteToken: string, organisationId: string, code: number, signal?: AbortSignal): Promise<boolean> {
   try {
-    const response = await fetch(`${apiBaseUrl}/v1/tool-installations/study-notices/${encodeURIComponent(String(code))}/shown`, {
+    const response = await fetch(`${apiBaseUrl}/v1/tool-installations/study-notices/${encodeURIComponent(organisationId)}/${encodeURIComponent(String(code))}/shown`, {
       method: "POST",
       headers: { Authorization: `Bearer ${eventWriteToken}` },
       signal
