@@ -50,7 +50,7 @@ test("a noticed purpose shows the label, the basis and its document, the process
   assert.ok(out.includes("Your organisation's study"), out);
   assert.ok(out.includes("Acme Health: Live tool telemetry"));
   assert.ok(out.includes("    Counted unless you object"));
-  assert.ok(out.includes("Acme Health's basis: Legitimate interests. Engineering telemetry impact assessment, ref LIA-2026-07, 1 Sep 2026."), out);
+  assert.ok(out.includes("Acme Health's basis is legitimate interests. Document: Engineering telemetry impact assessment (1 Sep 2026), ref LIA-2026-07."), out);
   assert.ok(out.includes("Recorded by Sam Rivera."));
   assert.ok(out.includes("Ascenda processes this for Acme Health."));
   assert.ok(out.includes("You haven't objected."));
@@ -58,10 +58,10 @@ test("a noticed purpose shows the label, the basis and its document, the process
   assert.ok(!out.includes("--undo"), "no undo before there's an objection");
 });
 
-test("an objection shows its date and the one command that undoes it", () => {
+test("an objection says what it does and the one command that undoes it", () => {
   const out = text(renderStudyNotices([notice({ code: 11, objected: true, objectedAtUtc: "2026-09-30T08:00:00.000Z" })], PREFIX, NOW));
   assert.ok(out.includes("Acme Health: Work-pattern axes in the group figures"));
-  assert.ok(out.includes("You objected on 30 Sep 2026. You're left out from the next report."), out);
+  assert.ok(out.includes("You objected. You are left out from the next report on."), out);
   assert.ok(out.includes(`To undo: ${PREFIX} object work-patterns --undo`));
   assert.ok(!out.includes("To object:"));
 });
@@ -78,15 +78,15 @@ test("an objected state the reply doesn't give is never guessed", () => {
 test("inside the notice period it says when counting can begin", () => {
   const out = text(renderStudyNotices([notice({ code: 507, countingFromUtc: "2026-10-12T00:00:00.000Z" })], PREFIX, NOW));
   assert.ok(out.includes("Acme Health: One-time import of past AI work"));
-  assert.ok(out.includes("You're not counted before 12 Oct 2026."), out);
+  assert.ok(out.includes("Notice given 10 Sep 2026. Counting starts 12 Oct 2026."), out);
   const after = text(renderStudyNotices([notice()], PREFIX, NOW));
-  assert.ok(!after.includes("not counted before"), "nothing to say once the period has run");
+  assert.ok(!after.includes("Counting starts"), "nothing to say once the period has run");
 });
 
 test("a collective agreement, a basis in the organisation's own words, and one this version can't name", () => {
-  assert.ok(text(renderStudyNotices([notice({ basis: "collective_agreement" })], PREFIX, NOW)).includes("Acme Health's basis: Collective agreement."));
+  assert.ok(text(renderStudyNotices([notice({ basis: "collective_agreement" })], PREFIX, NOW)).includes("Acme Health's basis is a collective agreement."));
   assert.ok(text(renderStudyNotices([notice({ basis: "another_basis", basisLabel: "Statutory duty under local law" })], PREFIX, NOW))
-    .includes("Acme Health's basis: Statutory duty under local law."));
+    .includes("Acme Health's basis is Statutory duty under local law."));
   const unknown = text(renderStudyNotices([notice({ basis: "another_basis", basisLabel: null })], PREFIX, NOW));
   assert.ok(unknown.includes("Acme Health's basis is one this version of the tool can't name."), unknown);
   assert.ok(!unknown.includes("another_basis"), "a raw key never reaches the screen");
@@ -94,9 +94,9 @@ test("a collective agreement, a basis in the organisation's own words, and one t
 
 test("a document with no title or date still prints what there is", () => {
   const out = text(renderStudyNotices([notice({ documentTitle: null, documentDate: null })], PREFIX, NOW));
-  assert.ok(out.includes("Acme Health's basis: Legitimate interests. ref LIA-2026-07."), out);
+  assert.ok(out.includes("Acme Health's basis is legitimate interests. Document: ref LIA-2026-07."), out);
   const bare = text(renderStudyNotices([notice({ documentTitle: null, documentDate: null, documentReference: null, signatoryName: null })], PREFIX, NOW));
-  assert.ok(bare.includes("Acme Health's basis: Legitimate interests.\n"), bare);
+  assert.ok(bare.includes("Acme Health's basis is legitimate interests.\n"), bare);
   assert.ok(!bare.includes("Recorded by"));
 });
 
@@ -219,7 +219,7 @@ test("object is one request, with no body and no reason, and says when it takes 
   assert.equal(await objection(["telemetry"], io), 0);
   assert.deepEqual(requests, [{ url: "http://x/v1/tool-installations/study-notices/501/objection", method: "POST", body: undefined }]);
   assert.ok(io.out().includes("Objected: Live tool telemetry."));
-  assert.ok(io.out().includes("You're left out from the next report. Reports already issued stay as they are."));
+  assert.ok(io.out().includes("You objected. You are left out from the next report on, and earlier reports stay as they were."));
   assert.ok(io.out().includes(`To undo: ${PREFIX} object telemetry --undo`));
   assert.doesNotMatch(io.out(), /consent|reason/i);
 });

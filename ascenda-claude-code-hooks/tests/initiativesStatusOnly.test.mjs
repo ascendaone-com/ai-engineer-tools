@@ -204,7 +204,7 @@ test("status shows a noticed purpose with the command to object, and a pipe neve
     const result = await run(m, ["status", "--scope", "user"], { env: pairedEnv(base) });
     assert.ok(result.stdout.includes("Acme Health: One-time import of past AI work"), result.stdout);
     assert.ok(result.stdout.includes("Counted unless you object"));
-    assert.ok(result.stdout.includes("Acme Health's basis: Legitimate interests. Baseline import assessment, ref LIA-9, 1 Sep 2026."));
+    assert.ok(result.stdout.includes("Acme Health's basis is legitimate interests. Document: Baseline import assessment (1 Sep 2026), ref LIA-9."));
     assert.ok(result.stdout.includes("Ascenda processes this for Acme Health."));
     assert.ok(result.stdout.includes("You haven't objected."));
     assert.ok(result.stdout.includes("To object: npx @ascenda-one/claude-code-hooks object import"));

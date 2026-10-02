@@ -258,7 +258,7 @@ test("status shows a purpose counted unless you object, with the adapter's own c
       const out = log.join("\n");
       assert.ok(out.includes("Acme Health: Live tool telemetry"), out);
       assert.ok(out.includes("Counted unless you object"));
-      assert.ok(out.includes("Acme Health's basis: Collective agreement. ref WA-12."));
+      assert.ok(out.includes("Acme Health's basis is a collective agreement. Document: ref WA-12."));
       assert.ok(out.includes(`To object: npx ${flat.packageName} object telemetry`));
       assert.ok(!requested.some((r) => r.url.endsWith("/shown")), "a status nobody is looking at doesn't mark the notice shown");
 

@@ -54,8 +54,8 @@ export const NOTICED_PURPOSES: readonly NoticedPurpose[] = [
 
 /** Plain words for the bases the server can send as a key. */
 const BASIS_WORDS: Readonly<Record<string, string>> = {
-  legitimate_interests: "Legitimate interests",
-  collective_agreement: "Collective agreement"
+  legitimate_interests: "legitimate interests",
+  collective_agreement: "a collective agreement"
 };
 // Any other key prints the organisation's own words from `basisLabel`.
 
@@ -66,7 +66,7 @@ export type StudyNoticesStatusContext = {
   /** How a person runs this tool's commands, e.g. `npx @ascenda-one/claude-code-hooks`. */
   commandPrefix: string;
   fetchTimeoutMs?: number;
-  /** Test-only: the instant "not counted before" is measured against. */
+  /** Test-only: the instant the notice period is measured against. */
   now?: Date;
 };
 
@@ -146,17 +146,21 @@ function renderOne(notice: StudyNotice, purpose: NoticedPurpose, commandPrefix: 
   if (notice.signatoryName) lines.push(`    Recorded by ${notice.signatoryName}.`);
   lines.push(`    ${notice.processor || PROCESSOR} processes this for ${org}.`);
 
+  // Same words as the study card in the desktop and phone apps.
   if (notice.objected === true) {
-    lines.push(notice.objectedAtUtc && isDate(notice.objectedAtUtc)
-      ? `    You objected on ${formatDay(notice.objectedAtUtc)}. You're left out from the next report.`
-      : "    You objected. You're left out from the next report.");
+    lines.push("    You objected. You are left out from the next report on.");
     lines.push(`    To undo: ${command} --undo`);
   } else if (notice.objected === false) {
     lines.push("    You haven't objected.");
-    if (notice.countingFromUtc && isDate(notice.countingFromUtc) && Date.parse(notice.countingFromUtc) > now.getTime()) {
-      lines.push(`    You're not counted before ${formatDay(notice.countingFromUtc)}.`);
+    if (notice.noticeFromUtc && isDate(notice.noticeFromUtc)) {
+      const starts = notice.countingFromUtc && isDate(notice.countingFromUtc)
+        ? notice.countingFromUtc
+        : new Date(Date.parse(notice.noticeFromUtc) + NOTICE_PERIOD_MS).toISOString();
+      if (Date.parse(starts) > now.getTime()) {
+        lines.push(`    Notice given ${formatDay(notice.noticeFromUtc)}. Counting starts ${formatDay(starts)}.`);
+      }
     }
-    lines.push(`    To object: ${command}`);
+    lines.push(`    To object: ${command}. No reason is asked. You are left out from the next report on, and earlier reports stay as they were.`);
   } else {
     // Never guessed: either answer printed here could be the wrong one.
     lines.push("    This version of the tool couldn't read whether you've objected. Run status again.");
@@ -167,19 +171,21 @@ function renderOne(notice: StudyNotice, purpose: NoticedPurpose, commandPrefix: 
   return lines;
 }
 
-/** `Acme's basis: Legitimate interests. Works agreement, ref WA-12, 1 Sep 2026.` */
+/** `Acme's basis is legitimate interests. Document: Works agreement (1 Sep 2026), ref WA-12.` (the study card's words) */
 function basisLine(notice: StudyNotice): string {
-  const words = BASIS_WORDS[notice.basis] ?? notice.basisLabel;
+  const words = notice.basisLabel ?? BASIS_WORDS[notice.basis];
   const head = words
-    ? `${notice.organisationName}'s basis: ${words}.`
+    ? `${notice.organisationName}'s basis is ${words}.`
     : `${notice.organisationName}'s basis is one this version of the tool can't name.`;
-  const document = [
-    notice.documentTitle,
-    notice.documentReference ? `ref ${notice.documentReference}` : null,
-    notice.documentDate && isDate(notice.documentDate) ? formatDay(notice.documentDate) : null
-  ].filter((part): part is string => Boolean(part));
-  return document.length ? `${head} ${document.join(", ")}.` : head;
+  const dated = notice.documentDate && isDate(notice.documentDate) ? formatDay(notice.documentDate) : null;
+  const ref = notice.documentReference ? `ref ${notice.documentReference}` : null;
+  const title = notice.documentTitle ? (dated ? `${notice.documentTitle} (${dated})` : notice.documentTitle) : null;
+  const document = [title, ref].filter((part): part is string => Boolean(part)).join(", ");
+  return document ? `${head} Document: ${document}.` : head;
 }
+
+/** Fourteen days from the notice being shown, when the server sends no counting date. */
+const NOTICE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
 
 function asNotice(value: unknown): StudyNotice | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -267,7 +273,7 @@ export async function runStudyObjection(ctx: StudyObjectionContext): Promise<num
     print(`To object again: ${command}`);
   } else {
     print(`Objected: ${purpose.title}.`);
-    print("You're left out from the next report. Reports already issued stay as they are.");
+    print("You objected. You are left out from the next report on, and earlier reports stay as they were.");
     print(`To undo: ${command} --undo`);
   }
   return 0;
