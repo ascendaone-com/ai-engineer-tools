@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, defaultTokenFilePath, describeCollectorVersion, getPairingStatus, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, defaultTokenFilePath, describeCollectorVersion, getPairingStatus, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { credentialsFilePath, hookBinPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
@@ -81,9 +81,12 @@ const USAGE = `ascenda-claude-hook setup — wire Claude Code to Ascenda telemet
   npx @ascenda-one/claude-code-hooks doctor
   npx @ascenda-one/claude-code-hooks pair [--tool-type <type>]
   npx @ascenda-one/claude-code-hooks uninstall
+  npx @ascenda-one/claude-code-hooks object <purpose> [--undo]
 
   doctor  prints the send journal, outbox and one live round trip
   pair    prints a code to paste into the app, then waits for confirmation
+  object  stop being counted for a purpose your organisation counts unless
+          you object, from the next report; --undo reverses it
 
 Options
   --api-base-url <url>          ingest host (default ${DEFAULT_API_BASE_URL})
@@ -550,12 +553,16 @@ async function printStatus(options: Options): Promise<number> {
   // For the person at the keyboard only. Nothing here is fetched for an
   // install that isn't paired, and nothing from it reaches a hook or an agent.
   const tokenValue = unpaired ? undefined : (tokenFile ? readTokenFile(tokenFile) : undefined) ?? envOverride("ASCENDA_EVENT_WRITE_TOKEN") ?? undefined;
+  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
+  const [initiativeLines, notices] = await Promise.all([
+    initiativesStatusLines({ apiBaseUrl, eventWriteToken: tokenValue, pairCommand: "npx @ascenda-one/claude-code-hooks pair" }),
+    studyNoticeStatus({ apiBaseUrl, eventWriteToken: tokenValue, commandPrefix: "npx @ascenda-one/claude-code-hooks" })
+  ]);
   console.log("");
-  for (const line of await initiativesStatusLines({
-    apiBaseUrl: (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, ""),
-    eventWriteToken: tokenValue,
-    pairCommand: "npx @ascenda-one/claude-code-hooks pair"
-  })) console.log(line);
+  for (const line of initiativeLines) console.log(line);
+  for (const line of notices.lines) console.log(line);
+  // Only a person at a terminal has been shown the notice; see `markShown`.
+  if (process.stdout.isTTY) await notices.markShown();
 
   if (unpaired) {
     console.log("\nInstalled, not paired. Pair when you want the telemetry half:");

@@ -155,3 +155,92 @@ test("no hook fetches the list, and nothing a hook prints mentions it", async ()
     m.cleanup();
   });
 });
+
+// A purpose the organisation counts unless the person objects is the same
+// kind of thing: for the person running `status`, never for a hook. And on a
+// server without the read, or with nothing noticed, `status` is unchanged.
+
+const NOTICE = {
+  organisationName: "Acme Health",
+  code: 507,
+  basis: "legitimate_interests",
+  documentTitle: "Baseline import assessment",
+  documentReference: "LIA-9",
+  documentDate: "2026-09-01",
+  signatoryName: "Sam Rivera",
+  objected: false,
+  noticeFromUtc: null,
+  countingFromUtc: null
+};
+
+const withNotices = (notices) => (req) =>
+  req.url.endsWith("/study-notices") ? [200, notices]
+    : req.url.includes("/initiatives") ? [200, listOfOne()]
+      : [200, { status: "accepted" }];
+
+test("status is unchanged on an older server and when nothing is noticed", async () => {
+  const m = machine("notices-unchanged");
+  const outputs = [];
+  const variants = [
+    (req) => (req.url.endsWith("/study-notices") ? [404, { error: "not_found" }] : answer(req)),
+    withNotices([]),
+    answer
+  ];
+  for (const handler of variants) {
+    await withServer(handler, async (base) => {
+      const result = await run(m, ["status", "--scope", "user"], { env: pairedEnv(base) });
+      outputs.push(result.stdout.replace(base, "BASE"));
+    });
+  }
+  assert.equal(outputs[1], outputs[0]);
+  assert.equal(outputs[2], outputs[0]);
+  assert.doesNotMatch(outputs[0], /unless you object|Your organisation's study/);
+  m.cleanup();
+});
+
+test("status shows a noticed purpose with the command to object, and a pipe never marks it shown", async () => {
+  await withServer(withNotices([NOTICE]), async (base, requests) => {
+    const m = machine("notices-shown");
+    const result = await run(m, ["status", "--scope", "user"], { env: pairedEnv(base) });
+    assert.ok(result.stdout.includes("Acme Health: One-time import of past AI work"), result.stdout);
+    assert.ok(result.stdout.includes("Counted unless you object"));
+    assert.ok(result.stdout.includes("Acme Health's basis: Legitimate interests. Baseline import assessment, ref LIA-9, 1 Sep 2026."));
+    assert.ok(result.stdout.includes("Ascenda processes this for Acme Health."));
+    assert.ok(result.stdout.includes("You haven't objected."));
+    assert.ok(result.stdout.includes("To object: npx @ascenda-one/claude-code-hooks object import"));
+    assert.doesNotMatch(result.stdout, /consent/i);
+    assert.equal(requests.filter((r) => r.url.endsWith("/study-notices")).length, 1);
+    assert.equal(requests.filter((r) => r.url.endsWith("/shown")).length, 0, "stdout here is a pipe, so nobody was shown anything");
+    m.cleanup();
+  });
+});
+
+test("object refuses from a pipe, in both directions, and sends nothing", async () => {
+  await withServer(withNotices([NOTICE]), async (base, requests) => {
+    const m = machine("object-pipe");
+    for (const args of [["object", "import"], ["object", "import", "--undo"]]) {
+      const result = await run(m, args, { env: pairedEnv(base) });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /object needs an interactive terminal/);
+    }
+    assert.equal(requests.length, 0);
+    m.cleanup();
+  });
+});
+
+test("no hook reads the noticed purposes, and nothing a hook prints mentions them", async () => {
+  await withServer(withNotices([NOTICE]), async (base, requests) => {
+    const m = machine("notices-hooks-silent");
+    for (const [name, input] of [
+      ["SessionStart", { source: "startup", session_id: "s1", cwd: m.project }],
+      ["UserPromptSubmit", { prompt: "hello", session_id: "s1", cwd: m.project }],
+      ["Stop", { session_id: "s1", cwd: m.project }]
+    ]) {
+      const result = await run(m, [name], { env: pairedEnv(base), input: JSON.stringify(input) });
+      assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+      assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /unless you object|object import|Acme Health/i);
+    }
+    assert.equal(requests.filter((r) => r.url.includes("study-notices")).length, 0);
+    m.cleanup();
+  });
+});

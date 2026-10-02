@@ -224,9 +224,47 @@ test("status lists the changes published to you for a paired install, and asks f
       log.length = 0;
       await runCliAgentSetup(["status", "--project-dir", project], flat);
       const paired = log.join("\n");
-      assert.equal(requested.length, 1);
+      assert.equal(requested.filter((url) => url.endsWith("/initiatives")).length, 1);
+      assert.equal(requested.filter((url) => url.endsWith("/study-notices")).length, 1);
       assert.ok(paired.includes("Changes your organisation has published to you"));
       assert.ok(paired.includes("Acme Health: Shorter review turnaround"), paired);
+      assert.ok(!paired.includes("Your organisation's study"), "nothing in the reply is a notice");
+    } finally {
+      global.fetch = realFetch;
+      if (priorToken === undefined) delete process.env.ASCENDA_EVENT_WRITE_TOKEN;
+      else process.env.ASCENDA_EVENT_WRITE_TOKEN = priorToken;
+    }
+  });
+});
+
+test("status shows a purpose counted unless you object, with the adapter's own command, and object refuses without a terminal", async () => {
+  await sandbox(async ({ project, log }) => {
+    const realFetch = global.fetch;
+    const priorToken = process.env.ASCENDA_EVENT_WRITE_TOKEN;
+    const requested = [];
+    global.fetch = async (url, init) => {
+      requested.push({ url: String(url), method: init?.method });
+      if (String(url).endsWith("/study-notices")) {
+        return new Response(JSON.stringify([{ organisationName: "Acme Health", code: 501, basis: "collective_agreement", documentReference: "WA-12", objected: false, noticeFromUtc: null, countingFromUtc: null }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    };
+    try {
+      process.env.ASCENDA_EVENT_WRITE_TOKEN = "test-token";
+      await runCliAgentSetup(["setup", "--token", "test-token", "--tool-installation-id", "cli_agent:00000000-0000-4000-8000-000000000001", "--project-dir", project], flat);
+      log.length = 0;
+      requested.length = 0;
+      await runCliAgentSetup(["status", "--project-dir", project], flat);
+      const out = log.join("\n");
+      assert.ok(out.includes("Acme Health: Live tool telemetry"), out);
+      assert.ok(out.includes("Counted unless you object"));
+      assert.ok(out.includes("Acme Health's basis: Collective agreement. ref WA-12."));
+      assert.ok(out.includes(`To object: npx ${flat.packageName} object telemetry`));
+      assert.ok(!requested.some((r) => r.url.endsWith("/shown")), "a status nobody is looking at doesn't mark the notice shown");
+
+      requested.length = 0;
+      assert.equal(await runCliAgentSetup(["object", "telemetry"], flat), 1);
+      assert.equal(requested.length, 0, "object without a terminal sends nothing");
     } finally {
       global.fetch = realFetch;
       if (priorToken === undefined) delete process.env.ASCENDA_EVENT_WRITE_TOKEN;

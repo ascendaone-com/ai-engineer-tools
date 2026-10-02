@@ -102,6 +102,75 @@ export async function readInitiatives(apiBaseUrl: string, eventWriteToken: strin
 }
 
 /**
+ * The purposes of the person's own organisation study that count them unless
+ * they object, read with the tool's own write token. Never throws for a
+ * response. `absent` is a server that doesn't have this read yet (a 404), or
+ * one that answered with something other than a list; `status` then prints
+ * exactly what it printed before the read existed.
+ */
+export type StudyNoticesRead =
+  | { kind: "ok"; notices: unknown[] }
+  | { kind: "absent" }
+  | { kind: "rejected"; httpStatus: number }
+  | { kind: "failed"; reason: string };
+
+export async function readStudyNotices(apiBaseUrl: string, eventWriteToken: string, signal?: AbortSignal): Promise<StudyNoticesRead> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}/v1/tool-installations/study-notices`, {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: `Bearer ${eventWriteToken}` },
+      signal
+    });
+  } catch (error) {
+    return { kind: "failed", reason: error instanceof Error && error.name === "TimeoutError" ? "the request timed out" : "the server could not be reached" };
+  }
+  if (response.status === 404) return { kind: "absent" };
+  if (response.status === 401) return { kind: "rejected", httpStatus: 401 };
+  if (!response.ok) return { kind: "failed", reason: `the server answered HTTP ${response.status}` };
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return { kind: "absent" };
+  }
+  if (!Array.isArray(body)) return { kind: "absent" };
+  return { kind: "ok", notices: body };
+}
+
+/**
+ * Object to one noticed purpose (`objected: true`), or withdraw the
+ * objection (`false`). No body and no reason: the objection is the whole
+ * request. Idempotent on the server, so repeating either is harmless.
+ */
+export async function setStudyObjection(apiBaseUrl: string, eventWriteToken: string, code: number, objected: boolean): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/v1/tool-installations/study-notices/${encodeURIComponent(String(code))}/objection`, {
+    method: objected ? "POST" : "DELETE",
+    headers: { Authorization: `Bearer ${eventWriteToken}` }
+  });
+  if (!response.ok) throw await apiError(response);
+}
+
+/**
+ * Tell the server this person has been shown the notice for one purpose. The
+ * notice period runs from the first time this lands; repeating it changes
+ * nothing. Best effort: a server without the route, or one that can't be
+ * reached, leaves the notice unshown and `status` tries again next time.
+ */
+export async function markStudyNoticeShown(apiBaseUrl: string, eventWriteToken: string, code: number, signal?: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/v1/tool-installations/study-notices/${encodeURIComponent(String(code))}/shown`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${eventWriteToken}` },
+      signal
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * An error response's stable code. The org-study-join door puts it in
  * `code` alongside a separate human-readable `error` string; other doors
  * (a 401, the status door's 404, ingest) put the identifier directly in

@@ -1186,3 +1186,7 @@ export {
 // The changes an organisation has published to the person this tool is paired
 // to. See ./initiatives.ts.
 export type { InitiativeResult, InitiativeStatus, TeamInitiative } from "./initiatives";
+
+// The purposes of the person's own organisation study that count them unless
+// they object. See ./studyNotices.ts.
+export type { StudyNotice } from "./studyNotices";
