@@ -9,7 +9,8 @@ export type ClaudeHookEventName =
   // failed tool call fires PostToolUseFailure and never reaches PostToolUse.
   // Registering only PostToolUse makes failures invisible entirely.
   | "PostToolUse" | "PostToolUseFailure"
-  | "PreCompact" | "PostCompact" | "Stop" | "Notification" | "SessionEnd";
+  // StopFailure fires *instead of* Stop when an API error ends the turn.
+  | "PreCompact" | "PostCompact" | "Stop" | "StopFailure" | "Notification" | "SessionEnd";
 
 /**
  * The same names as a value, so an unrecognised argument can be rejected
@@ -20,7 +21,7 @@ export type ClaudeHookEventName =
 export const CLAUDE_HOOK_EVENT_NAMES: readonly ClaudeHookEventName[] = [
   "SessionStart", "UserPromptSubmit", "PreToolUse",
   "PostToolUse", "PostToolUseFailure",
-  "PreCompact", "PostCompact", "Stop", "Notification", "SessionEnd"
+  "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd"
 ];
 
 export function isClaudeHookEventName(value: string): value is ClaudeHookEventName {

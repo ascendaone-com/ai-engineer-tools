@@ -10,6 +10,20 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.32
+
+### The Flow app hears when a turn stops early
+
+- **Claude Code's `StopFailure` hook is registered.** It fires when an API
+  error, like a rate limit or an expired login, ends a turn. Ascenda sends
+  nothing for it. It only tells the Flow app on your Mac, over the local
+  socket, that the work has stopped, so the waterline drains straight away.
+- **Pressing Esc gets the same treatment, once Claude Code shows its idle
+  prompt.** Esc runs no hook, so until now the app waited three minutes
+  before deciding a session had gone quiet.
+- Re-run `setup` to pick up the new hook. Plugin installs get it with the
+  plugin update. `status` now counts eleven hooks.
+
 ## v0.1.31
 
 ### Counted unless you object

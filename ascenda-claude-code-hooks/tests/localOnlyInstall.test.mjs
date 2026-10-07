@@ -96,7 +96,7 @@ test("--no-pair installs the hooks and records an installation with no pairing",
   assert.match(result.stdout, /active\s+the session prompts/);
 
   assert.ok(fs.existsSync(m.binary()), "the hook binary is installed");
-  assert.equal(registeredEvents(m.userSettings()).length, 10);
+  assert.equal(registeredEvents(m.userSettings()).length, 11);
 
   const credentials = m.credentials();
   assert.match(credentials.toolInstallationId, /^claude_code:/);
@@ -118,7 +118,7 @@ test("--no-pairing is accepted too, and the disclosure says it applies once pair
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(m.credentials().localOnly, true);
-  assert.equal(registeredEvents(m.userSettings()).length, 10);
+  assert.equal(registeredEvents(m.userSettings()).length, 11);
 
   // The pairing disclosure still prints — someone choosing to stay local is
   // entitled to know what pairing would cost — but it is framed as what
@@ -136,7 +136,7 @@ test("a pairing that cannot reach the backend still finishes the install", async
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /pairing\s+none — could not reach/);
   assert.match(result.stdout, /Installed, not paired\./);
-  assert.equal(registeredEvents(m.projectSettings()).length, 10);
+  assert.equal(registeredEvents(m.projectSettings()).length, 11);
   assert.equal(m.credentials().localOnly, true);
   m.cleanup();
 });
@@ -176,6 +176,47 @@ test("a hook on an unpaired install emits on the live bus and journals nothing",
   m.cleanup();
 });
 
+test("a turn that ends without Stop tells the live bus it halted, and sends nothing else", async () => {
+  const m = machine("halted");
+  run(m, ["setup", "--no-pair", "--scope", "user", "--project-dir", m.project]);
+
+  const socket = path.join(m.root, "live.sock");
+  const received = [];
+  const listener = net.createServer((connection) => {
+    connection.on("data", (chunk) => received.push(...String(chunk).trim().split("\n")));
+  });
+  await new Promise((resolve) => listener.listen(socket, resolve));
+
+  const env = { ASCENDA_LIVE_BUS_SOCKET: socket };
+  const send = (hook, payload) => runAsync(m, [hook], { env, input: JSON.stringify({ session_id: "s-halt", cwd: m.project, ...payload }) });
+  const results = [
+    // An API error ends the turn: StopFailure fires instead of Stop.
+    await send("StopFailure", { error: "rate_limit", last_assistant_message: "partial answer about AcmeCorp" }),
+    // Esc runs no hook. The idle prompt is the first thing that fires after it.
+    await send("Notification", { notification_type: "idle_prompt", message: "Claude is waiting for your input" }),
+    // An older Claude Code with no notification_type: the wording decides.
+    await send("Notification", { message: "Claude is waiting for your input" }),
+    // A permission prompt is a wait mid-turn. The work hasn't ended.
+    await send("Notification", { notification_type: "permission_prompt", message: "Claude needs your permission to use Bash" })
+  ];
+
+  await new Promise((resolve) => listener.close(resolve));
+
+  for (const result of results) {
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+  }
+  const signals = received.map((line) => JSON.parse(line));
+  assert.deepEqual(signals.map((signal) => signal.event), ["halted", "halted", "halted"]);
+  for (const signal of signals) {
+    // No reason rides along, and nothing from the payload does either.
+    assert.deepEqual(Object.keys(signal).sort(), ["event", "session", "tool"]);
+    assert.equal(signal.session, "s-halt");
+  }
+  assert.ok(!received.join("").includes("AcmeCorp"), "the last assistant message leaked onto the bus");
+  m.cleanup();
+});
+
 test("a pairing that lost its token is still an outage, not a quiet install", () => {
   const m = machine("brokenpairing");
   run(m, ["setup", "--no-pair", "--scope", "user", "--project-dir", m.project]);
@@ -205,7 +246,7 @@ test("status reports an unpaired install as installed, and exits 0", () => {
   assert.match(here.stdout, /pairing\s+claude_code:\S+ \(not paired, installed /);
   assert.match(here.stdout, /delivery\s+inactive/);
   assert.match(here.stdout, /local features active/);
-  assert.match(here.stdout, /hooks\s+10\/10 registered/);
+  assert.match(here.stdout, /hooks\s+11\/11 registered/);
   assert.match(here.stdout, /^version {8}(unreleased \(built from a checkout, not a release\)|\d+\.\d+\.\d+)$/m, "status names the running build");
 
   // The scope trap: `status` defaults to --scope project while this machine
@@ -213,7 +254,7 @@ test("status reports an unpaired install as installed, and exits 0", () => {
   // hooks found there answer the question and the install is not broken.
   const fromProject = run(m, ["status"], { cwd: m.project, env: { CLAUDE_PROJECT_DIR: m.project } });
   assert.equal(fromProject.status, 0, "hooks in the user file cover this project too");
-  assert.match(fromProject.stdout, /10\/10 found in .*settings\.json \(--scope user\)/);
+  assert.match(fromProject.stdout, /11\/11 found in .*settings\.json \(--scope user\)/);
   m.cleanup();
 });
 
