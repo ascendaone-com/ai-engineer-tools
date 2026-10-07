@@ -298,7 +298,7 @@ Verified on Azure Dev: ingest, tool-scoped renew, `list`, and `revoke`
 
 ## Privacy & compliance
 
-Workspace identifiers are hashed with a random salt generated on first run and stored only at `~/.ascenda/salt`. It is never sent, so the hashes cannot be reversed to folder or repository names by anyone holding the telemetry. Deleting the file re-anonymises the machine.
+Workspace identifiers are hashed with a random salt generated on first run and stored only at `~/.ascenda/salt`. It is never sent, so the hashes cannot be reversed to folder or repository names by anyone holding the telemetry. Deleting the file resets the hashes.
 
 Metadata-only by default. **Not a medical device** — it measures workload
 patterns for self-awareness, not diagnosis or treatment, and makes no clinical
