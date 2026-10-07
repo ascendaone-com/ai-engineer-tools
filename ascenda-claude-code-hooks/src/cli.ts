@@ -475,6 +475,11 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       : undefined;
     const queued = promptSource === undefined ? undefined : promptSource === "queued";
 
+    const backgroundTasks = event === "stop" ? countBackgroundTasks(input) : undefined;
+    const errorKind = event === "stop_failure"
+      ? (getString(input, ["error"]) === "rate_limit" ? "rate_limit" : "error")
+      : undefined;
+
     await emitLiveSignal({
       tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
       // Concurrent sessions must count as separate streams for the X gauge.
@@ -486,12 +491,36 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
         ?? `ppid-${process.ppid}`,
       event,
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
-      ...(queued !== undefined ? { queued } : {})
+      ...(queued !== undefined ? { queued } : {}),
+      ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
+      ...(errorKind !== undefined ? { errorKind } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.
   }
 }
+
+/**
+ * Background tasks still running as the turn stops: shells, subagents,
+ * monitors. Claude Code lists them in the Stop payload's `background_tasks`,
+ * and while any run the session isn't finished, whatever the stop says.
+ *
+ * Undefined when the payload has no array, so an older Claude Code sends no
+ * count at all rather than a zero it never measured. An entry whose status
+ * says it has already ended is not counted; every other entry is, including
+ * one with no status, because the field's values aren't documented and
+ * "running" is the only one seen.
+ */
+function countBackgroundTasks(input: ClaudeHookInput): number | undefined {
+  const tasks = input.background_tasks;
+  if (!Array.isArray(tasks)) return undefined;
+  return tasks.filter((task) => {
+    const status = task && typeof task === "object" ? (task as Record<string, unknown>).status : undefined;
+    return typeof status !== "string" || !ENDED_TASK_STATUSES.has(status);
+  }).length;
+}
+
+const ENDED_TASK_STATUSES = new Set(["completed", "failed", "killed", "stopped", "cancelled"]);
 
 /**
  * The one-time notice for a collector that is failing right now.

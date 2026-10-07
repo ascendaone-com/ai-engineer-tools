@@ -16,8 +16,8 @@ targets, error counts or internal resource names — this repository is public.
 
 - **The hooks now tell the Flow app on your Mac when an agent is waiting on
   you.** In Claude Code that is a permission prompt, an `AskUserQuestion`,
-  an MCP form, or "waiting for your input" after a turn. In Codex it is an
-  approval. In Gemini CLI it is a tool confirmation. Until now a parked
+  an MCP form, or "waiting for your input" after a turn. In Codex it's an
+  approval. In Gemini CLI it's a tool confirmation. Until now a parked
   approval looked like work for up to three minutes.
 - **Gemini CLI registers one more hook, `Notification`**, used only for this.
   It sends nothing to Ascenda's servers. Run `npx @ascenda-one/gemini-hooks
@@ -25,6 +25,20 @@ targets, error counts or internal resource names — this repository is public.
 - Cursor and Windsurf have no hook for this, so nothing changes there.
 - Like the rest of this local signal, it stays on your machine and carries no
   words: not the question, not the command, not your answer.
+
+### The desktop app can tell a stopped turn from a finished one
+
+- **Background work keeps a session open.** When Claude Code stops a turn
+  with shells or subagents still running, the hook tells the desktop app how
+  many. The waterline doesn't drain and the settle bell won't ring "All
+  quiet" while they run. After an hour with no word from that session, the
+  app stops trusting the count and treats it as gone quiet.
+- **A usage limit reads as a usage limit.** `setup` now registers
+  `StopFailure`, which Claude Code fires when a turn ends on an API error.
+  The app shows the session as stopped, and says whether it hit a usage limit
+  or some other error. Run `setup` again, or update the plugin, to pick it up.
+- Nothing new is sent to Ascenda. Both signals stay on your machine, on the
+  same local socket the gauges already read.
 
 ## v0.1.31
 

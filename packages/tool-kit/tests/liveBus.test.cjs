@@ -321,3 +321,28 @@ test("prompt size buckets by length, and never throws on absent text", () => {
   assert.equal(bucketPromptSize(undefined), "s");
   assert.equal(bucketPromptSize(null), "s");
 });
+
+// A stop with work still running, and a stop on an API error, cross the
+// socket with the fields the app reads to tell them from a finished turn.
+test("stop carries a background count and stop_failure an error kind", async () => {
+  const p = sockPath();
+  const { server, lines } = await listen(p);
+  process.env.ASCENDA_LIVE_BUS_SOCKET = p;
+  try {
+    await emitLiveSignal({ tool: "claude_code", session: "s1", event: "stop", backgroundTasks: 2 });
+    await emitLiveSignal({ tool: "claude_code", session: "s1", event: "stop_failure", errorKind: "rate_limit" });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(lines, [
+      { tool: "claude_code", session: "s1", event: "stop", backgroundTasks: 2 },
+      { tool: "claude_code", session: "s1", event: "stop_failure", errorKind: "rate_limit" }
+    ]);
+  } finally {
+    server.close();
+    delete process.env.ASCENDA_LIVE_BUS_SOCKET;
+  }
+});
+
+test("the background trust window is an hour", () => {
+  const { LIVE_BUS_BACKGROUND_TRUST_MS } = require("../out/index.js");
+  assert.equal(LIVE_BUS_BACKGROUND_TRUST_MS, 60 * 60 * 1000);
+});

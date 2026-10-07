@@ -148,7 +148,7 @@ pairing        claude_code:… (not paired, installed 2026-09-23T05:13:40.907Z)
 token          — none until this install is paired
 delivery       inactive — nothing is sent, and nothing is queued for later
 local features active — the session prompts and the live socket signal need no pairing
-hooks          10/10 registered in ~/.claude/settings.json
+hooks          11/11 registered in ~/.claude/settings.json
 ```
 
 `uninstall` removes an unpaired install the same way, and says there is no
@@ -260,6 +260,7 @@ for machine-wide coverage:
     "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreCompact", "timeout": 5 }] }],
     "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostCompact", "timeout": 5 }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Stop", "timeout": 5 }] }],
+    "StopFailure": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks StopFailure", "timeout": 5 }] }],
     "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification", "timeout": 5 }] }],
     "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionEnd", "timeout": 5 }] }]
   }

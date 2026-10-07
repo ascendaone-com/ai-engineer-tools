@@ -12,7 +12,7 @@ const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // to be a deliberate change here too. SessionStart earns its place twice —
 // it maps to create_focus_session, and it is the hook that carries the
 // intention invite.
-const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification", "SessionEnd"];
+const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd"];
 
 function tempSettings(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-settings-"));

@@ -61,7 +61,24 @@ export type LiveBusEvent =
   | "compaction"
   | "tool_failure"
   | "stop"
-  | "awaiting";
+  | "awaiting"
+  | "stop_failure";
+
+/**
+ * Why a turn ended on an API error rather than a `stop`. Two values, because
+ * the display has two things to say: a usage limit is something the person
+ * waits out, and anything else is something they look at.
+ */
+export type LiveBusStopFailureKind = "rate_limit" | "error";
+
+/**
+ * How long a listener may trust a non-zero {@link LiveBusSignal.backgroundTasks}
+ * with no further word from the session. A count is a snapshot taken at the
+ * stop; nothing fires when the last background task exits, so a session that
+ * is closed, killed or forgotten leaves its last count standing. Past this,
+ * the session is treated as gone quiet. Listeners hold the same figure.
+ */
+export const LIVE_BUS_BACKGROUND_TRUST_MS = 60 * 60 * 1000;
 
 export interface LiveBusSignal {
   /**
@@ -95,6 +112,16 @@ export interface LiveBusSignal {
    * a guarantee that more is pending, and the app must not treat it as one.
    */
   queued?: boolean;
+  /**
+   * Background tasks still running when the turn stopped. Only meaningful on
+   * `stop`, and only some tools can know it: absent means "not known", which
+   * listeners read as zero. Non-zero means the session isn't finished, so a
+   * listener must not treat this stop as the work being done. A count is
+   * trusted for {@link LIVE_BUS_BACKGROUND_TRUST_MS} at most.
+   */
+  backgroundTasks?: number;
+  /** Only meaningful on `stop_failure`. Absent reads as `"error"`. */
+  errorKind?: LiveBusStopFailureKind;
 }
 
 /** The desktop app's bundle id, for the sandbox container path below. */

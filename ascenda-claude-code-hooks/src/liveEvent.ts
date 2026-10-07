@@ -34,6 +34,7 @@ export function liveEventFor(hookName: ClaudeHookEventName, input: ClaudeHookInp
     case "PreCompact": return "compaction";
     case "PostToolUseFailure": return "tool_failure";
     case "Stop": return "stop";
+    case "StopFailure": return "stop_failure";
     case "Notification": return notificationAwaitsPerson(input) ? "awaiting" : undefined;
     default: return undefined;
   }

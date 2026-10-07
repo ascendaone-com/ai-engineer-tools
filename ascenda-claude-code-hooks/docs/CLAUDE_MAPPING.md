@@ -24,6 +24,7 @@ This adapter is the **primary Phase 1 source for `AIInteractionLoad`** and workf
 | PostCompact | `context_pressure_high` | risk |
 | Stop (every turn) | `ai_turn_completed` | neutral |
 | Stop (long duration only) | `agent_loop_long` | risk |
+| StopFailure | *(skipped — live bus only)* | — |
 | Notification | *(skipped — no catalog event)* | — |
 | SessionEnd (every reason) | `recovery_offline_period` (`activity: session_ended`, `sessionEndReason`) | neutral |
 
@@ -32,6 +33,20 @@ event to the outbox and returns, and the next hook of the same install delivers
 it on its outbox pass: another open session's next tool call, or the next
 `SessionStart`. The event keeps the `occurredAt` and `idempotencyKey` it
 was built with.
+
+## The live bus on a stop
+
+The desktop app's gauges and settle bell read a local socket, separate from
+the events above. Two hook moments end a turn there:
+
+- `Stop` sends `stop` with `backgroundTasks`, the number of entries in the
+  payload's `background_tasks` that haven't ended. Non-zero means the session
+  is still working: the app keeps it open and won't call it settled. It
+  trusts the count for an hour at most, because nothing fires when the last
+  background task exits.
+- `StopFailure` fires in place of `Stop` when the turn ends on an API error. It
+  sends `stop_failure` with `errorKind`: `rate_limit` for a usage limit,
+  `error` for everything else. The app shows the session as stopped, not done.
 
 ## Outcome comes from the event, not the payload
 

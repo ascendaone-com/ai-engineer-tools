@@ -27,7 +27,7 @@ const CLI = path.resolve(HERE, "../dist/cli.js");
  * accepts. Two-sided pin with the same list in every adapter's live-signal
  * test; turn them all around together.
  */
-const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "awaiting"];
+const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "awaiting", "stop_failure"];
 
 const notification = (fields) => ({ hook_event_name: "Notification", session_id: "s1", ...fields });
 
@@ -37,6 +37,7 @@ test("the mapping, hook by hook", () => {
   assert.equal(liveEventFor("PreCompact", {}), "compaction");
   assert.equal(liveEventFor("PostToolUseFailure", { error: "boom" }), "tool_failure");
   assert.equal(liveEventFor("Stop", {}), "stop");
+  assert.equal(liveEventFor("StopFailure", { error: "rate_limit" }), "stop_failure");
   for (const hook of ["SessionStart", "PostToolUse", "PostCompact", "SessionEnd"]) {
     assert.equal(liveEventFor(hook, {}), undefined, `${hook} must stay silent`);
   }
@@ -50,6 +51,7 @@ test("every event this adapter can emit is one the app parses", () => {
     liveEventFor("PreCompact", {}),
     liveEventFor("PostToolUseFailure", {}),
     liveEventFor("Stop", {}),
+    liveEventFor("StopFailure", {}),
     liveEventFor("Notification", notification({ notification_type: "permission_prompt" }))
   ];
   for (const event of emitted) assert.ok(APP_PARSES.includes(event), `${event} would be dropped by the app`);
