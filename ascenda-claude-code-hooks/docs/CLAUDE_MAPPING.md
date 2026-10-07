@@ -45,10 +45,10 @@ the events above. Three hook moments end a turn there:
   trusts the count for an hour at most, because nothing fires when the last
   background task exits.
 - `StopFailure` fires in place of `Stop` when the turn ends on an API error. It
-  sends `halted` with `errorKind`: `rate_limit` for a usage limit, `error`
-  for everything else. The app shows the session as stopped, not done.
+  sends `halted`, with no reason: a usage limit and any other error read the
+  same. The app shows the session as stopped, not done.
 - The idle-prompt `Notification` ("waiting for your input") also sends
-  `halted`, with no `errorKind`. Pressing Esc runs no hook, so an interrupted
+  `halted`. Pressing Esc runs no hook, so an interrupted
   turn never sends `stop`, and the idle prompt is the first thing that fires
   after it. Permission prompts and MCP elicitation forms send `awaiting`
   instead, as does `PreToolUse` for `AskUserQuestion`.

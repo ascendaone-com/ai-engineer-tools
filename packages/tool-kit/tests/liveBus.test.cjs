@@ -324,17 +324,17 @@ test("prompt size buckets by length, and never throws on absent text", () => {
 
 // A stop with work still running, and a stop on an API error, cross the
 // socket with the fields the app reads to tell them from a finished turn.
-test("stop carries a background count and halted an error kind", async () => {
+test("stop carries a background count, and halted carries no reason", async () => {
   const p = sockPath();
   const { server, lines } = await listen(p);
   process.env.ASCENDA_LIVE_BUS_SOCKET = p;
   try {
     await emitLiveSignal({ tool: "claude_code", session: "s1", event: "stop", backgroundTasks: 2 });
-    await emitLiveSignal({ tool: "claude_code", session: "s1", event: "halted", errorKind: "rate_limit" });
+    await emitLiveSignal({ tool: "claude_code", session: "s1", event: "halted" });
     await new Promise((r) => setTimeout(r, 50));
     assert.deepEqual(lines, [
       { tool: "claude_code", session: "s1", event: "stop", backgroundTasks: 2 },
-      { tool: "claude_code", session: "s1", event: "halted", errorKind: "rate_limit" }
+      { tool: "claude_code", session: "s1", event: "halted" }
     ]);
   } finally {
     server.close();

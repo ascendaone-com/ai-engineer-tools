@@ -26,8 +26,7 @@ targets, error counts or internal resource names — this repository is public.
   trusting the count and treats it as gone quiet.
 - **Claude Code's `StopFailure` hook is registered.** It fires when an API
   error, like a usage limit or an expired login, ends a turn. The app hears
-  that the work has stopped, and whether it hit a usage limit, so the
-  waterline drains straight away.
+  that the work has stopped, so the waterline drains straight away.
 - **Pressing Esc gets the same treatment, once Claude Code shows its idle
   prompt.** Esc runs no hook, so until now the app waited three minutes
   before deciding a session had gone quiet.

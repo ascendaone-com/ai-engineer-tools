@@ -87,7 +87,7 @@ test("a StopFailure halted carries the claude process's pid", onMac, async () =>
   const { lines, pid } = await underClaude("StopFailure", { session_id: "s1", hook_event_name: "StopFailure", error: "rate_limit" });
   assert.equal(lines.length, 1);
   assert.equal(lines[0].event, "halted");
-  assert.equal(lines[0].errorKind, "rate_limit");
+  assert.equal("errorKind" in lines[0], false, "halted carries no reason");
   assert.equal(lines[0].pid, pid);
 });
 
