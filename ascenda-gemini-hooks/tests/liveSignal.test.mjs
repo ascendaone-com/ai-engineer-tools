@@ -34,7 +34,7 @@ const LIVE_BUS_SRC = path.resolve(HERE, "../../packages/tool-kit/src/liveBus.ts"
  * from either end of the socket, and the app drops anything else on the
  * floor. Turn both around together; never widen this one alone.
  */
-const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop"];
+const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "halted"];
 
 /** The union tool-kit actually declares, read from its source. */
 function toolKitVocabulary() {
