@@ -33,8 +33,14 @@ import { ASCENDA_TOOL_TYPE } from "./types.js";
  * Claude Code gives these hooks by default. It gets the same 5s timeout as
  * the rest anyway: Node's startup, or npx resolving the package on the plugin
  * channel, can eat most of 1.5s on a slow machine.
+ *
+ * `StopFailure` is the one exception to the rule above: it maps to no
+ * telemetry and feeds only the live bus. A turn that ends on an API error
+ * fires it *instead of* `Stop`, so without it a usage limit looks like
+ * nothing happened, and the desktop app reads the silence as either still
+ * working or gone quiet. Neither is true.
  */
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification", "SessionEnd"] as const;
+const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd"] as const;
 
 /**
  * Claude Code's default timeout for `command` hooks is 600s. Telemetry that

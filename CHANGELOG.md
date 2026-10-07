@@ -10,6 +10,22 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.32
+
+### The desktop app can tell a stopped turn from a finished one
+
+- **Background work keeps a session open.** When Claude Code stops a turn
+  with shells or subagents still running, the hook tells the desktop app how
+  many. The waterline doesn't drain and the settle bell won't ring "All
+  quiet" while they run. After an hour with no word from that session, the
+  app stops trusting the count and treats it as gone quiet.
+- **A usage limit reads as a usage limit.** `setup` now registers
+  `StopFailure`, which Claude Code fires when a turn ends on an API error.
+  The app shows the session as stopped, and says whether it hit a usage limit
+  or some other error. Run `setup` again, or update the plugin, to pick it up.
+- Nothing new is sent to Ascenda. Both signals stay on your machine, on the
+  same local socket the gauges already read.
+
 ## v0.1.31
 
 ### Counted unless you object
