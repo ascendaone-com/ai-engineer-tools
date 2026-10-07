@@ -35,7 +35,14 @@ async function linesFor(runs) {
   for (const [hook, payload] of runs) assert.equal(await runHook(hook, payload, env), 0);
   await new Promise((resolve) => listener.close(resolve));
   fs.rmSync(root, { recursive: true, force: true });
-  return received.map((line) => JSON.parse(line));
+  // `pid` depends on where the suite runs (present under a `claude`, absent
+  // elsewhere) and is liveSignalPid.test.mjs's to check, so it is set aside
+  // here after confirming it's a pid when present.
+  return received.map((line) => {
+    const { pid, ...signal } = JSON.parse(line);
+    assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    return signal;
+  });
 }
 
 test("Stop counts the background tasks still running", async () => {

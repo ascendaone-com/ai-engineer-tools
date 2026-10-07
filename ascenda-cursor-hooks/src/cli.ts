@@ -89,6 +89,8 @@ async function emitLive(hookName: CursorHookEventName, input: CursorHookInput, s
       // this process's parent — still per-session in practice, since the hook
       // is spawned from the session process.
       session: sessionId ?? `ppid-${process.ppid}`,
+      // No `pid`. These hooks run under a Cursor window or its agent worker,
+      // and either can host several chats at once.
       ...body
     });
   } catch {

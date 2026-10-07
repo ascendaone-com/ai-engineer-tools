@@ -2,6 +2,8 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import {
+  AGENT_PROCESS,
+  findAgentPid,
   appendEventLog,
   bucketPromptSize,
   buildEventPayload,
@@ -480,6 +482,13 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       ? (getString(input, ["error"]) === "rate_limit" ? "rate_limit" : "error")
       : undefined;
 
+    // The `claude` process itself. Its session id changes on /clear,
+    // /compact and resume while the process carries on, so the app keys the
+    // stream by this when it's present and can tell when the process exits.
+    // Looked up under the Claude Code rule whatever ASCENDA_TOOL_TYPE says:
+    // the override renames the stream, not the binary.
+    const pid = findAgentPid(AGENT_PROCESS.claude_code);
+
     await emitLiveSignal({
       tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
       // Concurrent sessions must count as separate streams for the X gauge.
@@ -489,6 +498,7 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       session: getString(input, ["session_id", "sessionId"])
         ?? process.env.ASCENDA_SESSION_ID
         ?? `ppid-${process.ppid}`,
+      ...(pid !== undefined ? { pid } : {}),
       event,
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
       ...(queued !== undefined ? { queued } : {}),

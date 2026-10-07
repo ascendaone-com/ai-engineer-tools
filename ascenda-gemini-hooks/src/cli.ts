@@ -80,6 +80,8 @@ async function emitLive(hookName: GeminiHookEventName, input: GeminiHookInput, s
       // this process's parent — still per-session in practice, since the hook
       // is spawned from the session process.
       session: sessionId ?? `ppid-${process.ppid}`,
+      // No `pid`. Gemini CLI runs as `node`, and a PID the app can only
+      // check as "some node process" can't be told apart from a recycled one.
       ...body
     });
   } catch {

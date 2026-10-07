@@ -148,7 +148,14 @@ test("the built CLI puts exactly one awaiting on the socket for a permission pro
     }), socketPath);
     assert.equal(result.status, 0, `hook must exit 0; stderr: ${result.stderr}`);
     await settle(lines);
-    assert.deepEqual(lines, [{ tool: "claude_code", session: "s1", event: "awaiting" }]);
+    // `pid` is the one field that depends on where the test runs: under a
+    // `claude` (this suite run from Claude Code) the hook finds it, and
+    // anywhere else it doesn't. A number is not a word either way; that it is
+    // the right number is liveSignalPid.test.mjs's job.
+    const [{ pid, ...rest }] = lines;
+    assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    assert.equal(lines.length, 1);
+    assert.deepEqual(rest, { tool: "claude_code", session: "s1", event: "awaiting" });
   });
 });
 

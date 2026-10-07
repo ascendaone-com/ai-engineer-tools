@@ -95,6 +95,8 @@ export {
 } from "./forgeProject";
 export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates, LIVE_BUS_BACKGROUND_TRUST_MS } from "./liveBus";
 export type { LiveBusEvent, LiveBusSignal, LiveBusStopFailureKind, PromptSizeBucket } from "./liveBus";
+export { AGENT_PROCESS, findAgentPid, psArgsLookup, psLookup } from "./agentProcess";
+export type { AgentProcessRule, FindAgentPidOptions, ProcessArgsLookup, ProcessInfo, ProcessLookup } from "./agentProcess";
 export {
   AscendaApiError,
   createPairingSession,
