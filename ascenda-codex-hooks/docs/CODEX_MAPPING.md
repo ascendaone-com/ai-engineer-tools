@@ -159,7 +159,7 @@ It exists because four local features have no other input: the live gauges,
 the Away Mode keep-awake assertion (without it the Mac sleeps mid-work), the
 settle bell, and the paired handoff to the Waterline screen saver.
 
-The vocabulary is much smaller than the event catalog above — five values —
+The vocabulary is much smaller than the event catalog above — six values —
 and the app drops anything it cannot parse, so the mapping is deliberately
 partial and leading-edge. The signal reports `tool: "codex"`, this host's
 own name rather than the shared `cli_agent` tool type, because the app keys
@@ -175,7 +175,8 @@ adapters into one and under-count concurrency.
 | PreCompact | `compaction` |
 | PostCompact | *(silent — the same compaction, seen from the other side)* |
 | Stop | `stop` |
-| SessionStart, PermissionRequest, SubagentStart/Stop | *(silent)* |
+| PermissionRequest | `awaiting` — stopped at the approval gate; the app clears it on the session's next beat |
+| SessionStart, SubagentStart/Stop | *(silent)* |
 
 Emission is additive and best-effort: it is abandoned after 50 ms, swallows
 every error, and a machine with no listener — which is most machines, and

@@ -30,6 +30,7 @@ import {
 } from "@ascenda-one/tool-kit";
 import type { CollectorState, DisclosureFamily, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
+import { liveEventFor } from "./liveEvent.js";
 import {
   MissingInstallationIdError,
   envOverride,
@@ -440,26 +441,20 @@ function explainRejection(result: IngestResult): string {
 }
 
 /**
- * Whisper this hook's moment to the desktop app's waterline gauges.
- *
- * Only the lifecycle beats the gauges actually render are mapped; anything
- * else is silence rather than a signal nothing consumes. `PreToolUse` — not
- * `PostToolUse` — carries the cadence heartbeat, because it fires at the
- * *leading* edge of the work and the gauge should rise as the agent starts,
- * not after it finishes.
+ * Whisper this hook's moment to the desktop app's waterline gauges. Which
+ * hooks speak, and as what, is {@link liveEventFor}'s decision.
  *
  * Never throws: {@link emitLiveSignal} already swallows everything, and the
  * try/catch is belt-and-braces so a future change here can't take a user's
  * turn down with it.
  */
 async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): Promise<void> {
-  const event: LiveBusEvent | undefined =
-    hookName === "UserPromptSubmit" ? "prompt_submitted"
-    : hookName === "PreToolUse" ? "tool_call"
-    : hookName === "PreCompact" ? "compaction"
-    : hookName === "PostToolUseFailure" ? "tool_failure"
-    : hookName === "Stop" ? "stop"
-    : undefined;
+  let event: LiveBusEvent | undefined;
+  try {
+    event = liveEventFor(hookName, input);
+  } catch {
+    return;
+  }
   if (!event) return;
 
   try {

@@ -76,6 +76,17 @@
           }
         ]
       }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ascenda-gemini-hook",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

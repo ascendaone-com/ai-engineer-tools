@@ -28,6 +28,11 @@ export type LiveSignalBody = Omit<LiveBusSignal, "tool" | "session">;
  *    no separate failure hook, so the outcome is read off the payload the
  *    same way the telemetry mapper reads it.
  *  - `PreCompress` is Gemini's compaction.
+ *  - `Notification` is `awaiting`, and only for `ToolPermission` — Gemini's
+ *    confirmation dialog, where the agent has stopped and cannot go on
+ *    without the person. It is the only notification type Gemini documents;
+ *    an unknown one stays silent rather than being guessed into a wait,
+ *    because a false `awaiting` tells Away Mode the work is parked.
  *  - `BeforeModel`/`AfterModel`/`BeforeToolSelection` fire per LLM round trip
  *    and are silent here for the same reason they are silent in the
  *    telemetry mapper: the tool hooks already carry that cadence, and these
@@ -51,6 +56,7 @@ export function liveSignalFor(hookName: GeminiHookEventName, input: GeminiHookIn
     case "AfterTool": return inferOutcome(input) === "failure" ? { event: "tool_failure" } : undefined;
     case "PreCompress": return { event: "compaction" };
     case "AfterAgent": return { event: "stop" };
+    case "Notification": return getString(input, ["notification_type"]) === "ToolPermission" ? { event: "awaiting" } : undefined;
     default: return undefined;
   }
 }
