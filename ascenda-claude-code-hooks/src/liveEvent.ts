@@ -15,10 +15,10 @@ import type { ClaudeHookEventName, ClaudeHookInput } from "./types.js";
  * `awaiting` has two sources, and the second is why this is not a lookup
  * table:
  *
- *  - **`Notification`**, when Claude Code says it is waiting on the person —
- *    a permission dialog, the idle "waiting for your input", or an MCP
- *    server's elicitation form. Not every notification is a wait
- *    (`auth_success` is not), so the kind is read, never assumed.
+ *  - **`Notification`**, when Claude Code says it is waiting on the person
+ *    mid-turn: a permission dialog, or an MCP server's elicitation form. Not
+ *    every notification is a wait (`auth_success` is not), so the kind is
+ *    read, never assumed.
  *  - **`PreToolUse` for `AskUserQuestion`.** That tool fires no Notification:
  *    it *is* the question, and the dialog opens the moment it runs. It is
  *    answered here, inline, rather than by a second matcher-scoped hook,
@@ -26,6 +26,14 @@ import type { ClaudeHookEventName, ClaudeHookInput } from "./types.js";
  *    socket and the app keeps whichever lands last. One process, one beat.
  *    It replaces `tool_call` rather than following it: the agent's next move
  *    is the person's, so this call is not cadence.
+ *
+ * `halted` also has two sources: `StopFailure`, which fires in place of
+ * `Stop` when an API error ends the turn, and the idle-prompt Notification
+ * ("waiting for your input"). Pressing Esc runs no hook at all, so an
+ * interrupted turn never sends `stop`, and the idle prompt is the first
+ * thing that fires afterwards. It is not `awaiting`: the turn is over, and
+ * nothing is parked on the person. After a turn that did stop it's
+ * redundant, and the app ignores a `halted` for a session it no longer holds.
  */
 export function liveEventFor(hookName: ClaudeHookEventName, input: ClaudeHookInput): LiveBusEvent | undefined {
   switch (hookName) {
@@ -34,8 +42,8 @@ export function liveEventFor(hookName: ClaudeHookEventName, input: ClaudeHookInp
     case "PreCompact": return "compaction";
     case "PostToolUseFailure": return "tool_failure";
     case "Stop": return "stop";
-    case "StopFailure": return "stop_failure";
-    case "Notification": return notificationAwaitsPerson(input) ? "awaiting" : undefined;
+    case "StopFailure": return "halted";
+    case "Notification": return notificationLiveEvent(input);
     default: return undefined;
   }
 }
@@ -43,27 +51,43 @@ export function liveEventFor(hookName: ClaudeHookEventName, input: ClaudeHookInp
 const ASK_USER_QUESTION = "AskUserQuestion";
 
 /**
- * `notification_type` values that mean the agent cannot go on without the
- * person. Anything else Claude Code sends — `auth_success` today, whatever it
- * adds tomorrow — is not a wait, and an unknown kind stays silent rather than
- * being guessed into one: a false `awaiting` tells Away Mode the work is
- * parked and lets the Mac sleep under it.
+ * `notification_type` values and the live beat each one is. Anything else
+ * Claude Code sends (`auth_success` today, whatever it adds tomorrow) stays
+ * silent rather than being guessed into one: a false `awaiting` tells Away
+ * Mode the work is parked and lets the Mac sleep under it, and a false
+ * `halted` drains a gauge that is still working.
  */
-const AWAITING_KINDS = new Set(["permission_prompt", "idle_prompt", "elicitation_dialog"]);
+const NOTIFICATION_EVENTS: Readonly<Record<string, LiveBusEvent>> = {
+  permission_prompt: "awaiting",
+  elicitation_dialog: "awaiting",
+  idle_prompt: "halted"
+};
+
+/** The same, keyed by the wording classifier's labels, for older builds. */
+const NOTIFICATION_KIND_EVENTS: Readonly<Record<string, LiveBusEvent>> = {
+  permission_request: "awaiting",
+  idle_prompt: "halted"
+};
 
 /**
- * Whether this notification says the agent is waiting on the person.
+ * The live beat a Notification carries, if any.
  *
  * The typed field leads. Older Claude Code builds send no
  * `notification_type`, and for those the wording is the only evidence — the
  * same three-label classifier the cloud `supervision_interruption` uses, so
- * the two channels cannot disagree about which notifications are waits.
+ * the two channels cannot disagree about which notifications are which.
  * `other` stays silent here for the same reason it is counted separately
- * there: it is not known to be a wait. The message picks a label and is
+ * there: it is not known to be either. The message picks a label and is
  * discarded; none of it reaches the socket.
  */
-export function notificationAwaitsPerson(input: ClaudeHookInput): boolean {
+export function notificationLiveEvent(input: ClaudeHookInput): LiveBusEvent | undefined {
   const kind = getString(input, ["notification_type", "notificationType"]);
-  if (kind !== undefined) return AWAITING_KINDS.has(kind);
-  return notificationKind(getString(input, ["message"])) !== "other";
+  if (kind !== undefined) return Object.hasOwn(NOTIFICATION_EVENTS, kind) ? NOTIFICATION_EVENTS[kind] : undefined;
+  const label = notificationKind(getString(input, ["message"]));
+  return Object.hasOwn(NOTIFICATION_KIND_EVENTS, label) ? NOTIFICATION_KIND_EVENTS[label] : undefined;
+}
+
+/** Whether this notification says the agent is waiting on the person, mid-turn. */
+export function notificationAwaitsPerson(input: ClaudeHookInput): boolean {
+  return notificationLiveEvent(input) === "awaiting";
 }

@@ -478,7 +478,9 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     const queued = promptSource === undefined ? undefined : promptSource === "queued";
 
     const backgroundTasks = event === "stop" ? countBackgroundTasks(input) : undefined;
-    const errorKind = event === "stop_failure"
+    // Only StopFailure says why. A `halted` from the idle prompt carries no
+    // errorKind: the turn was interrupted or ended without a Stop.
+    const errorKind = hookName === "StopFailure"
       ? (getString(input, ["error"]) === "rate_limit" ? "rate_limit" : "error")
       : undefined;
 

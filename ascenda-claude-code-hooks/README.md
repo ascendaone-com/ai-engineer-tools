@@ -415,6 +415,7 @@ PostToolUseFailure
 PreCompact
 PostCompact
 Stop
+StopFailure
 Notification
 SessionEnd
 ```
@@ -434,6 +435,7 @@ PostToolUseFailure -> compile_error / ai_tool_call_failed
 PreCompact         -> context_compression_manual / context_compression_auto
 PostCompact        -> context_pressure_high
 Stop               -> ai_turn_completed (every turn), agent_loop_long (long only)
+StopFailure        -> nothing sent (live signal only)
 Notification       -> supervision_interruption (interruptionKind only, never the message)
 SessionEnd         -> recovery_offline_period (activity session_ended, sessionEndReason)
 ```

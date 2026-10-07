@@ -34,7 +34,7 @@ const LIVE_BUS_SRC = path.resolve(HERE, "../../packages/tool-kit/src/liveBus.ts"
  * from either end of the socket, and the app drops anything else on the
  * floor. Turn both around together; never widen this one alone.
  */
-const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "awaiting"];
+const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "awaiting", "halted"];
 
 /** The union tool-kit actually declares, read from its source. */
 function toolKitVocabulary() {
@@ -256,6 +256,10 @@ test("the built CLI puts awaiting on the socket for an approval gate", async () 
     const result = runHook("PermissionRequest", { tool_name: "shell" }, socketPath);
     assert.equal(result.status, 0, `hook must exit 0; stderr: ${result.stderr}`);
     await settle();
-    assert.deepEqual(lines, [{ tool: HOST, session: SESSION_ID, event: "awaiting" }]);
+    // `pid` is present only when the suite itself runs under a Codex TUI.
+    const [{ pid, ...signal }] = lines;
+    assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    assert.equal(lines.length, 1);
+    assert.deepEqual(signal, { tool: HOST, session: SESSION_ID, event: "awaiting" });
   });
 });

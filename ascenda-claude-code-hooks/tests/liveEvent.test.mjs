@@ -27,7 +27,7 @@ const CLI = path.resolve(HERE, "../dist/cli.js");
  * accepts. Two-sided pin with the same list in every adapter's live-signal
  * test; turn them all around together.
  */
-const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "awaiting", "stop_failure"];
+const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "awaiting", "halted"];
 
 const notification = (fields) => ({ hook_event_name: "Notification", session_id: "s1", ...fields });
 
@@ -37,7 +37,7 @@ test("the mapping, hook by hook", () => {
   assert.equal(liveEventFor("PreCompact", {}), "compaction");
   assert.equal(liveEventFor("PostToolUseFailure", { error: "boom" }), "tool_failure");
   assert.equal(liveEventFor("Stop", {}), "stop");
-  assert.equal(liveEventFor("StopFailure", { error: "rate_limit" }), "stop_failure");
+  assert.equal(liveEventFor("StopFailure", { error: "rate_limit" }), "halted");
   for (const hook of ["SessionStart", "PostToolUse", "PostCompact", "SessionEnd"]) {
     assert.equal(liveEventFor(hook, {}), undefined, `${hook} must stay silent`);
   }
@@ -52,7 +52,8 @@ test("every event this adapter can emit is one the app parses", () => {
     liveEventFor("PostToolUseFailure", {}),
     liveEventFor("Stop", {}),
     liveEventFor("StopFailure", {}),
-    liveEventFor("Notification", notification({ notification_type: "permission_prompt" }))
+    liveEventFor("Notification", notification({ notification_type: "permission_prompt" })),
+    liveEventFor("Notification", notification({ notification_type: "idle_prompt" }))
   ];
   for (const event of emitted) assert.ok(APP_PARSES.includes(event), `${event} would be dropped by the app`);
 });
@@ -64,7 +65,7 @@ test("AskUserQuestion is awaiting, in place of tool_call — the question is the
 });
 
 test("a Notification is awaiting only when Claude Code says it is waiting on the person", () => {
-  for (const kind of ["permission_prompt", "idle_prompt", "elicitation_dialog"]) {
+  for (const kind of ["permission_prompt", "elicitation_dialog"]) {
     assert.equal(liveEventFor("Notification", notification({ notification_type: kind })), "awaiting", kind);
   }
   // Not every notification is a wait, and an unknown kind is not guessed into
@@ -73,9 +74,23 @@ test("a Notification is awaiting only when Claude Code says it is waiting on the
   assert.equal(liveEventFor("Notification", notification({ notification_type: "something_new", message: "Claude needs your permission" })), undefined);
 });
 
+test("the idle prompt is halted, not awaiting: the turn is over and nothing is parked on the person", () => {
+  assert.equal(liveEventFor("Notification", notification({ notification_type: "idle_prompt" })), "halted");
+  assert.equal(liveEventFor("Notification", notification({ message: "Claude is waiting for your input" })), "halted");
+  assert.equal(notificationAwaitsPerson(notification({ notification_type: "idle_prompt" })), false);
+});
+
+test("nothing this adapter maps emits stop_failure", () => {
+  const hooks = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd"];
+  const inputs = [{}, { error: "rate_limit" }, { tool_name: "AskUserQuestion" }, ...["permission_prompt", "idle_prompt", "elicitation_dialog", "auth_success"].map((k) => notification({ notification_type: k }))];
+  for (const hook of hooks) for (const input of inputs) {
+    assert.notEqual(liveEventFor(hook, input), "stop_failure", `${hook} ${JSON.stringify(input)}`);
+  }
+});
+
 test("older builds with no notification_type fall back to the same wording the cloud classifier reads", () => {
   assert.equal(notificationAwaitsPerson(notification({ message: "Claude needs your permission to use Bash" })), true);
-  assert.equal(notificationAwaitsPerson(notification({ message: "Claude is waiting for your input" })), true);
+  assert.equal(notificationAwaitsPerson(notification({ message: "Claude is waiting for your input" })), false);
   assert.equal(notificationAwaitsPerson(notification({ message: "Something entirely new" })), false);
   assert.equal(notificationAwaitsPerson(notification({})), false);
 });

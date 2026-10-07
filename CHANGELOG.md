@@ -12,33 +12,33 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.32
 
-### Flow can tell an agent working from an agent waiting on you
+### Flow can tell an agent working from one waiting on you, or one that stopped
 
 - **The hooks now tell the Flow app on your Mac when an agent is waiting on
-  you.** In Claude Code that is a permission prompt, an `AskUserQuestion`,
-  an MCP form, or "waiting for your input" after a turn. In Codex it's an
-  approval. In Gemini CLI it's a tool confirmation. Until now a parked
-  approval looked like work for up to three minutes.
-- **Gemini CLI registers one more hook, `Notification`**, used only for this.
-  It sends nothing to Ascenda's servers. Run `npx @ascenda-one/gemini-hooks
-  setup` again to add it to an existing install.
-- Cursor and Windsurf have no hook for this, so nothing changes there.
-- Like the rest of this local signal, it stays on your machine and carries no
-  words: not the question, not the command, not your answer.
-
-### The desktop app can tell a stopped turn from a finished one
-
+  you.** In Claude Code that's a permission prompt, an `AskUserQuestion` or
+  an MCP form. In Codex it's an approval. In Gemini CLI it's a tool
+  confirmation. Until now a parked approval looked like work for up to three
+  minutes.
 - **Background work keeps a session open.** When Claude Code stops a turn
-  with shells or subagents still running, the hook tells the desktop app how
-  many. The waterline doesn't drain and the settle bell won't ring "All
-  quiet" while they run. After an hour with no word from that session, the
-  app stops trusting the count and treats it as gone quiet.
-- **A usage limit reads as a usage limit.** `setup` now registers
-  `StopFailure`, which Claude Code fires when a turn ends on an API error.
-  The app shows the session as stopped, and says whether it hit a usage limit
-  or some other error. Run `setup` again, or update the plugin, to pick it up.
-- Nothing new is sent to Ascenda. Both signals stay on your machine, on the
-  same local socket the gauges already read.
+  with shells or subagents still running, the hook tells the app how many.
+  The waterline doesn't drain and the settle bell won't ring "All quiet"
+  while they run. After an hour with no word from that session, the app stops
+  trusting the count and treats it as gone quiet.
+- **Claude Code's `StopFailure` hook is registered.** It fires when an API
+  error, like a usage limit or an expired login, ends a turn. The app hears
+  that the work has stopped, and whether it hit a usage limit, so the
+  waterline drains straight away.
+- **Pressing Esc gets the same treatment, once Claude Code shows its idle
+  prompt.** Esc runs no hook, so until now the app waited three minutes
+  before deciding a session had gone quiet.
+- **Gemini CLI registers one more hook, `Notification`**, for tool
+  confirmations. Re-run `setup` in Claude Code and Gemini CLI to pick up the
+  new hooks. Plugin installs get them with the plugin update. Claude Code's
+  `status` now counts eleven hooks.
+- Cursor and Windsurf have no hook for waits, so nothing changes there.
+- Nothing new is sent to Ascenda. These signals stay on your machine, on the
+  same local socket the gauges already read, and carry no words: not the
+  question, not the command, not your answer.
 
 ## v0.1.31
 

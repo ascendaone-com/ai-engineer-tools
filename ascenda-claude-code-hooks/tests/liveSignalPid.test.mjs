@@ -83,10 +83,10 @@ test("AskUserQuestion's awaiting carries the claude process's pid", onMac, async
   assert.equal(lines[0].pid, pid);
 });
 
-test("a stop_failure carries the claude process's pid alongside its errorKind", onMac, async () => {
+test("a StopFailure halted carries the claude process's pid", onMac, async () => {
   const { lines, pid } = await underClaude("StopFailure", { session_id: "s1", hook_event_name: "StopFailure", error: "rate_limit" });
   assert.equal(lines.length, 1);
-  assert.equal(lines[0].event, "stop_failure");
+  assert.equal(lines[0].event, "halted");
   assert.equal(lines[0].errorKind, "rate_limit");
   assert.equal(lines[0].pid, pid);
 });

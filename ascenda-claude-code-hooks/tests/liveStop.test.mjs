@@ -66,15 +66,15 @@ test("Stop with an empty list says zero, and an older payload says nothing", asy
   assert.equal("backgroundTasks" in older, false, "a count nobody measured is not a zero");
 });
 
-test("StopFailure is a stop_failure, with a usage limit told apart from the rest", async () => {
+test("StopFailure is halted, with a usage limit told apart from the rest", async () => {
   const signals = await linesFor([
     ["StopFailure", { session_id: "s1", hook_event_name: "StopFailure", error: "rate_limit", last_assistant_message: "API Error: Rate limit reached" }],
     ["StopFailure", { session_id: "s2", hook_event_name: "StopFailure", error: "overloaded" }],
     ["StopFailure", { session_id: "s3", hook_event_name: "StopFailure" }]
   ]);
   assert.deepEqual(signals, [
-    { tool: "claude_code", session: "s1", event: "stop_failure", errorKind: "rate_limit" },
-    { tool: "claude_code", session: "s2", event: "stop_failure", errorKind: "error" },
-    { tool: "claude_code", session: "s3", event: "stop_failure", errorKind: "error" }
+    { tool: "claude_code", session: "s1", event: "halted", errorKind: "rate_limit" },
+    { tool: "claude_code", session: "s2", event: "halted", errorKind: "error" },
+    { tool: "claude_code", session: "s3", event: "halted", errorKind: "error" }
   ]);
 });

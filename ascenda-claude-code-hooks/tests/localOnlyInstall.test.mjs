@@ -176,6 +176,53 @@ test("a hook on an unpaired install emits on the live bus and journals nothing",
   m.cleanup();
 });
 
+test("a turn that ends without Stop tells the live bus it halted, and sends nothing else", async () => {
+  const m = machine("halted");
+  run(m, ["setup", "--no-pair", "--scope", "user", "--project-dir", m.project]);
+
+  const socket = path.join(m.root, "live.sock");
+  const received = [];
+  const listener = net.createServer((connection) => {
+    connection.on("data", (chunk) => received.push(...String(chunk).trim().split("\n")));
+  });
+  await new Promise((resolve) => listener.listen(socket, resolve));
+
+  const env = { ASCENDA_LIVE_BUS_SOCKET: socket };
+  const send = (hook, payload) => runAsync(m, [hook], { env, input: JSON.stringify({ session_id: "s-halt", cwd: m.project, ...payload }) });
+  const results = [
+    // An API error ends the turn: StopFailure fires instead of Stop.
+    await send("StopFailure", { error: "rate_limit", last_assistant_message: "partial answer about AcmeCorp" }),
+    // Esc runs no hook. The idle prompt is the first thing that fires after it.
+    await send("Notification", { notification_type: "idle_prompt", message: "Claude is waiting for your input" }),
+    // An older Claude Code with no notification_type: the wording decides.
+    await send("Notification", { message: "Claude is waiting for your input" }),
+    // A permission prompt is a wait mid-turn. The work hasn't ended.
+    await send("Notification", { notification_type: "permission_prompt", message: "Claude needs your permission to use Bash" })
+  ];
+
+  await new Promise((resolve) => listener.close(resolve));
+
+  for (const result of results) {
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+  }
+  const signals = received.map((line) => JSON.parse(line));
+  // The permission prompt is a wait mid-turn, so it's awaiting, not halted.
+  assert.deepEqual(signals.map((signal) => signal.event), ["halted", "halted", "halted", "awaiting"]);
+  for (const signal of signals) {
+    // Nothing from the payload rides along. `pid` is the agent process, and
+    // is present only when the suite runs under a `claude`. StopFailure's
+    // errorKind is the one reason field.
+    const { pid, errorKind, ...rest } = signal;
+    assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    assert.ok(errorKind === undefined || errorKind === "rate_limit" || errorKind === "error");
+    assert.deepEqual(Object.keys(rest).sort(), ["event", "session", "tool"]);
+    assert.equal(signal.session, "s-halt");
+  }
+  assert.ok(!received.join("").includes("AcmeCorp"), "the last assistant message leaked onto the bus");
+  m.cleanup();
+});
+
 test("a pairing that lost its token is still an outage, not a quiet install", () => {
   const m = machine("brokenpairing");
   run(m, ["setup", "--no-pair", "--scope", "user", "--project-dir", m.project]);
