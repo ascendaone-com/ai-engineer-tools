@@ -66,6 +66,24 @@ export interface LiveBusSignal {
   tool: string;
   /** Opaque per-session id, so concurrent sessions count as separate streams. */
   session: string;
+  /**
+   * The agent CLI process this hook ran under, when it could be found (see
+   * `findAgentPid`). The app keys the stream by `tool`/`pid` when present
+   * and by `tool`/`session` when not, and checks that the process is still
+   * alive.
+   *
+   * Present only for agents whose process hosts one conversation at a time:
+   * Claude Code, and Codex outside `app-server`. Claude Code changes
+   * `session` on `/clear`, `/compact` and resume, so without this one
+   * terminal reads as several concurrent streams. Every other emitter leaves
+   * it out, because their host process (an editor window, an extension host,
+   * a multi-thread server) can run several conversations at once and naming
+   * it would fuse them.
+   *
+   * Optional and additive: an app that predates it ignores the field, and an
+   * app that reads it falls back to `session` when it's missing.
+   */
+  pid?: number;
   event: LiveBusEvent;
   /** Only meaningful on `prompt_submitted`. */
   sizeBucket?: PromptSizeBucket;

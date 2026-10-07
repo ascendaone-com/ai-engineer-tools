@@ -83,6 +83,8 @@ async function emitLive(hookName: WindsurfHookEventName, input: WindsurfHookInpu
       // this process's parent — still per-session in practice, since the hook
       // is spawned from the session process.
       session: sessionId ?? `ppid-${process.ppid}`,
+      // No `pid`. Cascade's hooks run under the Windsurf window, which can
+      // host several conversations at once.
       ...body
     });
   } catch {
