@@ -34,7 +34,7 @@ const LIVE_BUS_SRC = path.resolve(HERE, "../../packages/tool-kit/src/liveBus.ts"
  * from either end of the socket, and the app drops anything else on the
  * floor. Turn both around together; never widen this one alone.
  */
-const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop"];
+const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "awaiting"];
 
 /** The union tool-kit actually declares, read from its source. */
 function toolKitVocabulary() {
@@ -211,6 +211,7 @@ const FIXTURES = [
   ["AfterTool", { tool_name: "run_shell_command", tool_response: { exitCode: 1 } }],
   ["PreCompress", {}],
   ["Notification", {}],
+  ["Notification", { notification_type: "ToolPermission" }],
   ["AfterAgent", {}]
 ];
 
@@ -243,11 +244,29 @@ test("the turn is the beat, not the CLI run: SessionEnd does not repeat AfterAge
 test("per-round-trip hooks stay silent", () => {
   // These fire once per LLM round trip; the tool hooks already carry that
   // cadence, and these would multiply it several-fold.
-  for (const hook of ["BeforeModel", "AfterModel", "BeforeToolSelection", "Notification"]) {
+  for (const hook of ["BeforeModel", "AfterModel", "BeforeToolSelection"]) {
     assert.equal(liveSignalFor(hook, {}), undefined, `${hook} must stay silent`);
   }
 });
 
 test("a prompt-less BeforeAgent omits the bucket rather than inventing one", () => {
   assert.deepEqual(liveSignalFor("BeforeAgent", {}), { event: "prompt_submitted" });
+});
+
+test("a ToolPermission notification is awaiting; any other notification is silent", () => {
+  assert.deepEqual(liveSignalFor("Notification", { notification_type: "ToolPermission", message: "Allow run_shell_command?" }), { event: "awaiting" });
+  // Not known to be a wait, so not guessed into one: a false awaiting tells
+  // Away Mode the work is parked and lets the Mac sleep under it.
+  assert.equal(liveSignalFor("Notification", {}), undefined);
+  assert.equal(liveSignalFor("Notification", { notification_type: "SomethingNew" }), undefined);
+});
+
+test("the notification's own words never cross the socket", () => {
+  const signal = liveSignalFor("Notification", { notification_type: "ToolPermission", message: "Allow AcmeCorp deploy?", details: { command: "AcmeCorp" } });
+  assert.ok(!JSON.stringify(signal).includes("AcmeCorp"));
+});
+
+test("Notification is registered: without the hook the confirmation dialog never reaches the bus", async () => {
+  const { HOOK_EVENTS } = await import("../dist/setup.js");
+  assert.ok(HOOK_EVENTS.includes("Notification"));
 });

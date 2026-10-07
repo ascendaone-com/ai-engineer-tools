@@ -25,8 +25,13 @@ export type LiveSignalBody = Omit<LiveBusSignal, "tool" | "session">;
  *    `PreToolUse` already reported the call.
  *  - `PreCompact` is the compaction ripple. `PostCompact` is the same
  *    compaction seen from the other side and would ring the gauge twice.
- *  - Approvals and subagent lifecycle map to nothing, exactly as in the
- *    telemetry mapper.
+ *  - `PermissionRequest` is `awaiting`: Codex has stopped at its approval
+ *    gate and cannot go on without the person. It fires *after* the
+ *    `PreToolUse` that announced the call, so it is the beat that turns a
+ *    parked call from "still working" into "waiting on you" — without it the
+ *    gauge read a dialog as load until the stale window ran out. The app
+ *    clears it on whatever this session says next.
+ *  - Subagent lifecycle maps to nothing, exactly as in the telemetry mapper.
  *
  * `undefined` means silence, which is the right answer for most hooks. An
  * event the app cannot parse is worse than none, because it looks like it
@@ -47,6 +52,7 @@ export function liveSignalFor(hookName: CodexHookEventName, input: CodexHookInpu
     case "PostToolUse": return inferOutcome(input) === "failure" ? { event: "tool_failure" } : undefined;
     case "PreCompact": return { event: "compaction" };
     case "Stop": return { event: "stop" };
+    case "PermissionRequest": return { event: "awaiting" };
     default: return undefined;
   }
 }

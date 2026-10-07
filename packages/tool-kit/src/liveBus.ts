@@ -41,13 +41,27 @@ export type PromptSizeBucket = "s" | "m" | "l" | "xl";
  * Note what is *not* here: there is no "queued" event. Nothing fires when a
  * user queues a message — the only trace queueing leaves is a label on the
  * turn that eventually runs (see {@link LiveBusSignal.queued}).
+ *
+ * `awaiting` is the one beat that is not work: the agent has stopped and is
+ * waiting on the person — a permission dialog, a question it asked, or the
+ * host's own "waiting for your input" after a finished turn. It exists
+ * because every other beat reads as load, and a parked tool call was
+ * indistinguishable from a running one until the stale window ran out.
+ *
+ * It is a **state, not a moment**: it holds until that session's next beat
+ * of any kind, which is the only evidence an adapter ever gets that the
+ * person answered. The app caps it (`awaitingTtl` in
+ * `apps/macos/lib/src/flow/live_demand.dart`) because no host tells the bus
+ * that a session closed. Emit it only where the host itself says it is
+ * waiting; never infer it from silence, which is what stale already means.
  */
 export type LiveBusEvent =
   | "prompt_submitted"
   | "tool_call"
   | "compaction"
   | "tool_failure"
-  | "stop";
+  | "stop"
+  | "awaiting";
 
 export interface LiveBusSignal {
   /**

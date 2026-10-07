@@ -61,7 +61,7 @@ over-counts for the doubly-installed is the smaller defect. What must not
 happen is the two names collapsing into one, since a single install would
 then be indistinguishable from a double one.
 
-The vocabulary is much smaller than the event catalog above — five values —
+The vocabulary is much smaller than the event catalog above — six values —
 and the app drops anything it cannot parse, so the mapping is deliberately
 partial and leading-edge.
 
@@ -76,6 +76,12 @@ partial and leading-edge.
 | `stop` | `stop` |
 | `sessionStart`, `sessionEnd` | *(silent — the turn is the beat, not the app session)* |
 | the shell / MCP / file / Tab / subagent hooks | *(silent — views of calls `preToolUse` already reported)* |
+
+**`awaiting` is unreachable from Cursor.** The host ships no hook that fires when the
+agent stops to wait on the person (Claude Code's `Notification`, Codex's
+`PermissionRequest`), so an approval dialog here still reads as work until the
+stale window runs out. A gap in the host's hook set, not in this mapping; it
+is never inferred from silence, because silence is what stale already means.
 
 Emission is additive and best-effort: it is abandoned after 50 ms, swallows
 every error, and a machine with no listener — which is most machines, and

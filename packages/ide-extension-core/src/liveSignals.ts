@@ -12,6 +12,10 @@ import { LiveBusEvent } from "@ascenda-one/tool-kit";
  * agent running is not load, and a gauge that rose for it would be
  * measuring the wrong thing.
  *
+ * `awaiting` is unreachable from here: no catalog event says the agent
+ * stopped to wait on the person, and the editor hosts expose no hook for it.
+ * It is never inferred from silence, which is what stale already means.
+ *
  * `undefined` means silence, which is the correct answer for most events.
  */
 export function liveEventFor(eventType: AscendaTelemetryEventType): LiveBusEvent | undefined {

@@ -10,6 +10,22 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.32
+
+### Flow can tell an agent working from an agent waiting on you
+
+- **The hooks now tell the Flow app on your Mac when an agent is waiting on
+  you.** In Claude Code that is a permission prompt, an `AskUserQuestion`,
+  an MCP form, or "waiting for your input" after a turn. In Codex it is an
+  approval. In Gemini CLI it is a tool confirmation. Until now a parked
+  approval looked like work for up to three minutes.
+- **Gemini CLI registers one more hook, `Notification`**, used only for this.
+  It sends nothing to Ascenda's servers. Run `npx @ascenda-one/gemini-hooks
+  setup` again to add it to an existing install.
+- Cursor and Windsurf have no hook for this, so nothing changes there.
+- Like the rest of this local signal, it stays on your machine and carries no
+  words: not the question, not the command, not your answer.
+
 ## v0.1.31
 
 ### Counted unless you object

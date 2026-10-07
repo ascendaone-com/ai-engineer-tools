@@ -33,6 +33,11 @@ export type LiveSignalBody = Omit<LiveBusSignal, "tool" | "session">;
  *    That is a gap in the host's hook set, not in this mapping, and it is
  *    the same gap `mapWindsurfEvent` records for `context_compression_*`.
  *
+ *  - **`awaiting` is unreachable from Cascade.** No hook fires when the agent
+ *    stops to wait on the person, so an approval reads as work until the
+ *    stale window runs out. It is never inferred from silence: silence is
+ *    what stale already means.
+ *
  * `undefined` means silence, which is the right answer for most hooks. An
  * event the app cannot parse is worse than none, because it looks like it
  * works.

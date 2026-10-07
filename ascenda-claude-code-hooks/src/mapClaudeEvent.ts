@@ -222,7 +222,7 @@ function mapNotification(input: ClaudeHookInput): MappedAscendaEvent[] {
  * permission prompt counted as an idle one), which is the right way round for
  * a measurement whose whole purpose is to establish a distribution.
  */
-function notificationKind(message: string | undefined): "permission_request" | "idle_prompt" | "other" {
+export function notificationKind(message: string | undefined): "permission_request" | "idle_prompt" | "other" {
   const text = message?.toLowerCase() ?? "";
   if (text.includes("permission")) return "permission_request";
   if (text.includes("waiting for your input")) return "idle_prompt";
@@ -477,7 +477,7 @@ function readModelIdentifier(input: ClaudeHookInput): string | undefined {
  */
 export { classifyModelClass };
 
-function getToolName(input: ClaudeHookInput): string | undefined {
+export function getToolName(input: ClaudeHookInput): string | undefined {
   return getString(input, ["toolName", "tool_name", "name"]) ?? getNestedString(input, [["tool", "name"], ["tool_use", "name"], ["payload", "toolName"]]);
 }
 

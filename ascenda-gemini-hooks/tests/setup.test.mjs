@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeHookSettings } from "@ascenda-one/tool-kit";
 import { HOOK_EVENTS, SETUP } from "../dist/setup.js";
+import { liveSignalFor } from "../dist/liveSignal.js";
 import { mapGeminiEvent } from "../dist/mapGeminiEvent.js";
 
 // The generic setup command is tested in tool-kit. What is this adapter's to
@@ -30,8 +31,13 @@ test("registers every hook that maps to a catalog event, in Gemini's own nested 
   assert.match(group.hooks[0].command, /ascenda-gemini-hook"$/, "Gemini names the hook on stdin, so one command serves every event");
   // Per-inference hooks would multiply volume for signal the tool hooks already carry.
   assert.equal(settings.hooks.AfterModel, undefined);
+  // Every registered hook must earn its process: a catalog event, or — for
+  // `Notification` alone today — a live-bus beat the desktop app renders.
   for (const event of HOOK_EVENTS) {
-    assert.ok(mapGeminiEvent(event, { hook_event_name: event, prompt: "x", tool_name: "run_shell_command" }, 90 * 60000).length > 0, `${event} is registered but maps to nothing`);
+    const input = { hook_event_name: event, prompt: "x", tool_name: "run_shell_command", notification_type: "ToolPermission" };
+    const cloud = mapGeminiEvent(event, input, 90 * 60000).length > 0;
+    const live = liveSignalFor(event, input) !== undefined;
+    assert.ok(cloud || live, `${event} is registered but maps to nothing`);
   }
   fs.rmSync(dir, { recursive: true, force: true });
 });
