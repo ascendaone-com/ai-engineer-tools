@@ -47,7 +47,21 @@ export type LiveBusEvent =
   | "tool_call"
   | "compaction"
   | "tool_failure"
-  | "stop";
+  | "stop"
+  /**
+   * The turn ended without completing: the agent hit an API error, or it is
+   * sitting at an idle prompt after a turn that never sent `stop`. One event
+   * with no reason on purpose. The app only needs to know the work is no
+   * longer running, so it can drain the gauge now rather than wait for the
+   * session to go stale.
+   *
+   * Never a `stop`. A stop means the agent finished its turn, and the app
+   * celebrates that differently. A halted turn didn't finish.
+   *
+   * Listeners that predate this value drop it, so emitting it is safe
+   * against any app version.
+   */
+  | "halted";
 
 export interface LiveBusSignal {
   /**

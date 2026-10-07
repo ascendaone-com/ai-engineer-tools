@@ -260,6 +260,7 @@ for machine-wide coverage:
     "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreCompact", "timeout": 5 }] }],
     "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostCompact", "timeout": 5 }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Stop", "timeout": 5 }] }],
+    "StopFailure": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks StopFailure", "timeout": 5 }] }],
     "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification", "timeout": 5 }] }],
     "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionEnd", "timeout": 5 }] }]
   }
@@ -414,6 +415,7 @@ PostToolUseFailure
 PreCompact
 PostCompact
 Stop
+StopFailure
 Notification
 SessionEnd
 ```
@@ -433,6 +435,7 @@ PostToolUseFailure -> compile_error / ai_tool_call_failed
 PreCompact         -> context_compression_manual / context_compression_auto
 PostCompact        -> context_pressure_high
 Stop               -> ai_turn_completed (every turn), agent_loop_long (long only)
+StopFailure        -> nothing sent (live signal only)
 Notification       -> supervision_interruption (interruptionKind only, never the message)
 SessionEnd         -> recovery_offline_period (activity session_ended, sessionEndReason)
 ```

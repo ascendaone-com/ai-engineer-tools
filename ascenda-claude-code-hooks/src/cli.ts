@@ -40,7 +40,7 @@ import {
   resolveToolInstallationId
 } from "./config.js";
 import type { ResolvedInstallationId } from "./config.js";
-import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
+import { isNewSessionStart, mapClaudeEvent, milestoneInviting, notificationKind } from "./mapClaudeEvent.js";
 import { credentialsFilePath, readCredentials, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 
@@ -440,6 +440,23 @@ function explainRejection(result: IngestResult): string {
 }
 
 /**
+ * Whether a Notification is Claude Code's idle prompt: the agent has sat
+ * waiting for input for a while. Read from `notification_type` where Claude
+ * Code sends it, and from the same constant-label match the interruption count
+ * uses where it doesn't. Either way only the answer leaves this function.
+ *
+ * Why the live signal wants it: pressing Esc runs no hook at all, so an
+ * interrupted turn never sends `stop`. The idle prompt is the first thing that
+ * fires afterwards. After a turn that did stop it's redundant, and the app
+ * ignores a `halted` for a session it no longer holds.
+ */
+function isIdlePrompt(input: ClaudeHookInput): boolean {
+  const type = getString(input, ["notification_type", "notificationType"]);
+  if (type !== undefined) return type === "idle_prompt";
+  return notificationKind(getString(input, ["message"])) === "idle_prompt";
+}
+
+/**
  * Whisper this hook's moment to the desktop app's waterline gauges.
  *
  * Only the lifecycle beats the gauges actually render are mapped; anything
@@ -459,6 +476,8 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     : hookName === "PreCompact" ? "compaction"
     : hookName === "PostToolUseFailure" ? "tool_failure"
     : hookName === "Stop" ? "stop"
+    : hookName === "StopFailure" ? "halted"
+    : hookName === "Notification" && isIdlePrompt(input) ? "halted"
     : undefined;
   if (!event) return;
 

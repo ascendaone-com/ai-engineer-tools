@@ -49,6 +49,9 @@ function mapEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): Mapped
     case "PreCompact": return mapPreCompact(input);
     case "PostCompact": return [{ eventType: "context_pressure_high", severity: "medium", metadata: { trigger: "inferred", reason: "context_limit" } }];
     case "Stop": return mapStop(input);
+    // Live signal only (see `emitLive` in cli.ts). The payload carries the
+    // last assistant message, and nothing here reads it.
+    case "StopFailure": return [];
     case "Notification": return mapNotification(input);
     case "SessionEnd": return mapSessionEnd(input);
     default: return [];
@@ -222,7 +225,7 @@ function mapNotification(input: ClaudeHookInput): MappedAscendaEvent[] {
  * permission prompt counted as an idle one), which is the right way round for
  * a measurement whose whole purpose is to establish a distribution.
  */
-function notificationKind(message: string | undefined): "permission_request" | "idle_prompt" | "other" {
+export function notificationKind(message: string | undefined): "permission_request" | "idle_prompt" | "other" {
   const text = message?.toLowerCase() ?? "";
   if (text.includes("permission")) return "permission_request";
   if (text.includes("waiting for your input")) return "idle_prompt";

@@ -28,13 +28,21 @@ import { ASCENDA_TOOL_TYPE } from "./types.js";
  * `PostToolUseFailure` is where Claude Code reports a tool call that failed; a
  * failure never reaches `PostToolUse`. Leaving it out drops every failed call.
  *
+ * `StopFailure` fires instead of `Stop` when an API error (a rate limit, an
+ * overloaded server, an expired login) ends the turn. It sends nothing to
+ * Ascenda: it exists for the live signal alone, which otherwise has no way to
+ * learn the turn is over and holds the gauge up until the session goes stale.
+ * That makes it the one registered hook the mapper deliberately maps to
+ * nothing, and `emitLive` in cli.ts is its other half. Its rate is bounded by
+ * API errors, so it costs almost nothing.
+ *
  * `SessionEnd` closes the session `SessionStart` opened. It writes the end to
  * the outbox and never waits on the network, so it fits the shared 1.5s
  * Claude Code gives these hooks by default. It gets the same 5s timeout as
  * the rest anyway: Node's startup, or npx resolving the package on the plugin
  * channel, can eat most of 1.5s on a slow machine.
  */
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "Notification", "SessionEnd"] as const;
+const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd"] as const;
 
 /**
  * Claude Code's default timeout for `command` hooks is 600s. Telemetry that
