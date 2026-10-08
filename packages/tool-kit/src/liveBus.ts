@@ -146,6 +146,14 @@ export interface LiveBusSignal {
    * trusted for {@link LIVE_BUS_BACKGROUND_TRUST_MS} at most.
    */
   backgroundTasks?: number;
+  /**
+   * The hook set the registration that fired this signal names on its
+   * command line (see `hookSet.ts`). Absent when the registration names
+   * none: an install from before hook sets, or an adapter that has no set.
+   * The app reads absence as set 1 for the tools it knows a set for, and as
+   * nothing at all for the rest.
+   */
+  hookSet?: number;
 }
 
 /** The desktop app's bundle id, for the sandbox container path below. */

@@ -19,6 +19,7 @@ import {
   markFailureNotified,
   persistEventWriteToken,
   readCollectorState,
+  readHookSet,
   recordSendOutcome,
   resolveEventLogPath,
   shouldAnnounceFailure,
@@ -486,6 +487,11 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     // the override renames the stream, not the binary.
     const pid = findAgentPid(AGENT_PROCESS.claude_code);
 
+    // The set the registration names (`--hook-set`), so the app can tell an
+    // install that predates StopFailure. Absent on an unflagged one, which
+    // the app reads as set 1.
+    const hookSet = readHookSet(process.argv);
+
     await emitLiveSignal({
       tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
       // Concurrent sessions must count as separate streams for the X gauge.
@@ -499,7 +505,8 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       event,
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
       ...(queued !== undefined ? { queued } : {}),
-      ...(backgroundTasks !== undefined ? { backgroundTasks } : {})
+      ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
+      ...(hookSet !== undefined ? { hookSet } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.

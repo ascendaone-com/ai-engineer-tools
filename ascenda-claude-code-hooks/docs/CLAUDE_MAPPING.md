@@ -53,6 +53,19 @@ the events above. Three hook moments end a turn there:
   after it. Permission prompts and MCP elicitation forms send `awaiting`
   instead, as does `PreToolUse` for `AskUserQuestion`.
 
+## The hook set
+
+Every registered command ends `--hook-set 2`, and every live signal repeats
+the number as `hookSet`. Set 2 is the eleven events `setup` registers today.
+A command with no flag is set 1: an install from before `StopFailure` and
+`Notification` were registered, which never sends `halted` for an API error
+or `awaiting` for a permission prompt. The app reads a missing `hookSet` from
+`claude_code` as set 1 and names the upgrade command. The plugin's
+`hooks/hooks.json` carries the same flag.
+
+Change the registered list and the set moves with it: `HOOK_SET` in
+`src/setup.ts`, the plugin's `hooks.json`, and `kCurrentHookSets` in the app.
+
 ## Outcome comes from the event, not the payload
 
 Verified against a live Claude Code session (27 Jul 2026), replacing what had

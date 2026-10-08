@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, readHookSet, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapGeminiEvent } from "./mapGeminiEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -65,6 +65,9 @@ async function main(): Promise<void> {
 async function emitLive(hookName: GeminiHookEventName, input: GeminiHookInput, sessionId: string | undefined): Promise<void> {
   const body = liveSignalFor(hookName, input);
   if (!body) return;
+  // The registration's `--hook-set`, so the app can tell an install that
+  // predates `Notification`. Absent on an unflagged one.
+  const hookSet = readHookSet(process.argv);
   try {
     await emitLiveSignal({
       // This host's own name, not the shared `cli_agent` tool type the cloud
@@ -82,7 +85,8 @@ async function emitLive(hookName: GeminiHookEventName, input: GeminiHookInput, s
       session: sessionId ?? `ppid-${process.ppid}`,
       // No `pid`. Gemini CLI runs as `node`, and a PID the app can only
       // check as "some node process" can't be told apart from a recycled one.
-      ...body
+      ...body,
+      ...(hookSet !== undefined ? { hookSet } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.
