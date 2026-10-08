@@ -28,6 +28,12 @@ targets, error counts or internal resource names — this repository is public.
   error, like a usage limit or an expired login, ends a turn. The app hears
   that the work has stopped, and whether it hit a usage limit (per
   P-D64.1 and #452), so the waterline drains straight away.
+- **A usage limit says when it lifts, if Claude Code will carry on by
+  itself.** With `autoContinueAtUsageLimit` on, the hook reads the reset
+  time from Claude Code's message and hands the app the time alone. Away
+  mode keeps your Mac awake until the reset, so the agent can pick up where
+  it stopped. Weekly limits don't count. Anything more than six hours off is
+  left out.
 - **Pressing Esc gets the same treatment, once Claude Code shows its idle
   prompt.** Esc runs no hook, so until now the app waited three minutes
   before deciding a session had gone quiet.
