@@ -18,6 +18,13 @@ import { ASCENDA_TOOL_TYPE, GEMINI_HOST } from "./types.js";
 export const HOOK_EVENTS = ["SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "BeforeTool", "AfterTool", "PreCompress", "Notification"] as const;
 
 /**
+ * The version of {@link HOOK_EVENTS}, registered as `--hook-set <n>`. Set 1
+ * is every unflagged registration, from before `Notification`. Bump it with
+ * the list, and `kCurrentHookSets` in the app with it.
+ */
+export const HOOK_SET = 2;
+
+/**
  * Gemini's default hook timeout is generous. Telemetry that cannot complete
  * in a few seconds is not worth waiting for, and a hung request would
  * otherwise stall the user's turn.
@@ -33,6 +40,7 @@ export const SETUP: CliAgentSetupSpec = {
   packageName: "@ascenda-one/gemini-hooks",
   binaryName: "ascenda-gemini-hook",
   hookEvents: HOOK_EVENTS,
+  hookSet: HOOK_SET,
   restartHint: "Restart Gemini CLI to load the hooks.",
   // Nothing beyond the shared set: Gemini's hooks expose no posture, no
   // model, no git action and no context figure.

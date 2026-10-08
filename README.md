@@ -182,6 +182,23 @@ agent on the machine.) The editor extension's own pairing cannot be reused here
 — its token lives in the editor's private secret storage, by design — so the
 CLI tools hold their own installation, paired against the same account.
 
+### Upgrading the hooks
+
+An install keeps the hooks it registered until `setup` runs again. So when a
+release adds a hook, existing installs don't have it yet: until you upgrade,
+Claude Code installs from before v0.1.32 send no signal when an API error ends
+a turn, and Gemini CLI installs send none for a tool confirmation. The Flow
+app says so in **Connections → Ingest telemetry** and names the command.
+
+```bash
+npx -y @ascenda-one/claude-code-hooks setup --scope user
+```
+
+Use the scope you installed with, and swap in `gemini-hooks` for Gemini CLI.
+Setup is safe to re-run. It keeps your pairing, replaces its own entries and
+prints what it added. Restart the agent afterwards. Plugin installs upgrade
+with `claude plugin update ascenda@ascenda-one` instead.
+
 ## Build from source
 
 You do not need this to use the tools — everything above installs prebuilt. It

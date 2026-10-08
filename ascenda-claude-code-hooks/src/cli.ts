@@ -20,6 +20,7 @@ import {
   markFailureNotified,
   persistEventWriteToken,
   readCollectorState,
+  readHookSet,
   recordSendOutcome,
   resolveEventLogPath,
   shouldAnnounceFailure,
@@ -496,6 +497,14 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     // the signal says so, so the app checks the arguments as well.
     const agent = findAgentProcess(AGENT_PROCESS.claude_code);
 
+    // The set the registration names (`--hook-set`), so the app can tell an
+    // install that predates StopFailure. Absent on an unflagged one, which
+    // the app reads as set 1.
+    const hookSet = readHookSet(process.argv);
+    // Claude Code exports this to plugin hooks only. It tells the app to
+    // name a plugin update, not `setup`, for an out-of-date set.
+    const viaPlugin = Boolean(process.env.CLAUDE_PLUGIN_ROOT);
+
     await emitLiveSignal({
       tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
       // Concurrent sessions must count as separate streams for the X gauge.
@@ -510,6 +519,8 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
       ...(queued !== undefined ? { queued } : {}),
       ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
+      ...(hookSet !== undefined ? { hookSet } : {}),
+      ...(viaPlugin ? { viaPlugin } : {}),
       ...(errorKind !== undefined ? { errorKind } : {})
     });
   } catch {

@@ -39,7 +39,7 @@ test("both channels close the session they open", () => {
     assert.ok(hooks[event], `the plugin does not register ${event}`);
     assert.ok(setupHookEvents().includes(event), `setup does not register ${event}`);
   }
-  assert.equal(hooks.SessionEnd[0].hooks[0].command, "npx -y @ascenda-one/claude-code-hooks SessionEnd");
+  assert.equal(hooks.SessionEnd[0].hooks[0].command, "npx -y @ascenda-one/claude-code-hooks SessionEnd --hook-set 2");
 });
 
 test("every plugin hook carries a timeout", () => {
@@ -53,5 +53,17 @@ test("every plugin hook carries a timeout", () => {
         assert.equal(entry.timeout, 5, `${event} has no 5s timeout`);
       }
     }
+  }
+});
+
+test("every plugin hook names the hook set `setup` registers", () => {
+  // The app reads the set off each live signal to tell an install that
+  // predates a hook. The plugin's file is a registration like any other, so
+  // it carries the same flag, and moves with `HOOK_SET` in setup.ts.
+  const source = readFileSync(here("../../ascenda-claude-code-hooks/src/setup.ts"), "utf8");
+  const set = source.match(/export const HOOK_SET = (\d+);/);
+  assert.ok(set, "HOOK_SET not found in setup.ts");
+  for (const [event, groups] of Object.entries(hooks)) {
+    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set ${set[1]}`);
   }
 });

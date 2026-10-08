@@ -135,10 +135,10 @@ async function drain(lines, timeoutMs = 2000) {
 }
 
 /** Runs the built CLI against an isolated home so no real state is touched. */
-function runHook(hook, input, socketPath) {
+function runHook(hook, input, socketPath, extraArgv = []) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-live-home-"));
   try {
-    return spawnSync("node", [CLI, ...ARGV(hook)], {
+    return spawnSync("node", [CLI, ...ARGV(hook), ...extraArgv], {
       input: JSON.stringify({ ...HOOK_NAME_ON_STDIN(hook), ...SESSION_ON_STDIN, ...input }),
       encoding: "utf8",
       env: {
@@ -269,4 +269,24 @@ test("the notification's own words never cross the socket", () => {
 test("Notification is registered: without the hook the confirmation dialog never reaches the bus", async () => {
   const { HOOK_EVENTS } = await import("../dist/setup.js");
   assert.ok(HOOK_EVENTS.includes("Notification"));
+});
+
+// Installs from before `Notification` was registered never send `awaiting`.
+// The registration names its set on the command line and the signal repeats
+// it, so the app can tell such an install apart and say how to upgrade it.
+test("the signal carries the hook set its registration names, and none when unflagged", async () => {
+  await withListener(async (socketPath, lines, settle) => {
+    const result = runHook("Notification", { notification_type: "ToolPermission" }, socketPath, ["--hook-set", "2"]);
+    assert.equal(result.status, 0, result.stderr);
+    await settle();
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].event, "awaiting");
+    assert.equal(lines[0].hookSet, 2);
+  });
+  await withListener(async (socketPath, lines, settle) => {
+    runHook(PROMPT_HOOK, promptPayload("x"), socketPath);
+    await settle();
+    assert.equal(lines.length, 1);
+    assert.equal("hookSet" in lines[0], false);
+  });
 });

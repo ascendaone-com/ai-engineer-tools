@@ -32,13 +32,28 @@ targets, error counts or internal resource names — this repository is public.
   prompt.** Esc runs no hook, so until now the app waited three minutes
   before deciding a session had gone quiet.
 - **Gemini CLI registers one more hook, `Notification`**, for tool
-  confirmations. Re-run `setup` in Claude Code and Gemini CLI to pick up the
-  new hooks. Plugin installs get them with the plugin update. Claude Code's
-  `status` now counts eleven hooks.
+  confirmations. Claude Code's `status` now counts eleven hooks.
 - Cursor and Windsurf have no hook for waits, so nothing changes there.
 - Nothing new is sent to Ascenda. These signals stay on your machine, on the
   same local socket the gauges already read, and carry no words: not the
   question, not the command, not your answer.
+
+### Upgrading picks up the new hooks, and Flow says when you haven't
+
+- **Run `setup` again to upgrade.** Use the scope you installed with. It keeps
+  your pairing, adds the hooks this version registers and prints what changed:
+  `upgraded: added StopFailure, Notification; hook set 1 → 2`. A run with
+  nothing to add says `already current`.
+- **Flow names the command when your hooks are older.** Each hook now tells
+  the app which set of hooks it was registered with. When Claude Code or Gemini
+  CLI signals come from an older set, **Connections → Ingest telemetry** shows
+  one line with the exact command. Dismiss it and it stays gone until a later
+  release adds hooks again.
+- **`status` prints the hook set**, and the upgrade command when it's behind.
+- `setup` warns when the other scope already registers the same hooks. Both
+  fire, so every event runs twice.
+- Plugin installs upgrade with `claude plugin update ascenda@ascenda-one`. The
+  plugin is now 0.2.1, so the update reaches you.
 
 ## v0.1.31
 
