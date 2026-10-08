@@ -67,9 +67,9 @@ export type LiveBusEvent =
    * The turn ended without completing: the agent hit an API error, or it is
    * sitting at an idle prompt after a turn that never sent `stop`. The app
    * mainly needs to know the work is no longer running, so it can drain the
-   * gauge now rather than wait for the session to go stale. It carries no
-   * reason field on purpose (P-D64): an API error and an idle prompt read the
-   * same.
+   * gauge now rather than wait for the session to go stale. An API error
+   * also says which kind in {@link LiveBusSignal.errorKind}, so a usage limit
+   * can read as one. An idle prompt carries no kind.
    *
    * Never a `stop`. A stop means the agent finished its turn, and the app
    * celebrates that differently. A halted turn didn't finish.
@@ -78,6 +78,13 @@ export type LiveBusEvent =
    * against any app version.
    */
   | "halted";
+
+/**
+ * Why a `halted` from `StopFailure` ended the turn on an API error. Two
+ * values, because the display has two things to say: a usage limit is something the person
+ * waits out, and anything else is something they look at.
+ */
+export type LiveBusStopFailureKind = "rate_limit" | "error";
 
 /**
  * How long a listener may trust a non-zero {@link LiveBusSignal.backgroundTasks}
@@ -162,6 +169,12 @@ export interface LiveBusSignal {
    * trusted for {@link LIVE_BUS_BACKGROUND_TRUST_MS} at most.
    */
   backgroundTasks?: number;
+  /**
+   * P-D64.1. Only meaningful on `halted`, and only when the host said the
+   * turn ended on an API error (Claude Code's `StopFailure`). A `halted` without it
+   * means the turn was interrupted or ended without a `stop`.
+   */
+  errorKind?: LiveBusStopFailureKind;
 }
 
 /** The desktop app's bundle id, for the sandbox container path below. */

@@ -479,6 +479,13 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     const queued = promptSource === undefined ? undefined : promptSource === "queued";
 
     const backgroundTasks = event === "stop" ? countBackgroundTasks(input) : undefined;
+    // Only StopFailure says why (P-D64.1). Read from the payload's `error`
+    // field alone, never last_assistant_message or error_details: `rate_limit` is a usage limit
+    // and anything else, missing included, is `error`. A `halted` from the
+    // idle prompt carries no errorKind.
+    const errorKind = hookName === "StopFailure" && event === "halted"
+      ? (getString(input, ["error"]) === "rate_limit" ? "rate_limit" : "error")
+      : undefined;
 
     // The `claude` process itself. Its session id changes on /clear,
     // /compact and resume while the process carries on, so the app keys the
@@ -502,7 +509,8 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       event,
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
       ...(queued !== undefined ? { queued } : {}),
-      ...(backgroundTasks !== undefined ? { backgroundTasks } : {})
+      ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
+      ...(errorKind !== undefined ? { errorKind } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.
