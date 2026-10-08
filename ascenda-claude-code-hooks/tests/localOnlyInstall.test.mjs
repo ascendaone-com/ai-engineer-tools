@@ -221,14 +221,19 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
     // Nothing from the payload rides along. `pid` is the agent process, and
     // is present only when the suite runs under a `claude`. `pidMatch` and
     // `pidMarker` say which process it names, under an npm Claude Code, and
-    // only ride with it: identity fields, outside D64 (register v1.45, v1.46).
+    // only ride with it: identity fields, outside D64 (register v1.45, v1.47).
     // errorKind is a reason field (P-D64.1, #452), and only on the
     // StopFailure halted. resumesAt (P-D64.2) may ride with a rate_limit
     // errorKind and nowhere else, and only as a whole number of seconds.
-    // viaPlugin says where the hook was installed from, only from a plugin
-    // hook, and only as true.
-    const { pid, pidMatch, pidMarker, errorKind, resumesAt, viaPlugin, ...rest } = signal;
+    // hookSet and viaPlugin are install provenance (P-D64.3, register
+    // v1.48), set aside with the identity keys on every event, with exactly
+    // their ratified types: hookSet a positive integer or absent, viaPlugin
+    // true or absent, never false.
+    const { pid, pidMatch, pidMarker, hookSet, viaPlugin, errorKind, resumesAt, ...rest } = signal;
     const fromPlugin = index === 4;
+    assert.ok(hookSet === undefined || (Number.isInteger(hookSet) && hookSet >= 1), `hookSet must be absent or a positive integer, got ${hookSet}`);
+    assert.equal(hookSet, HOOK_SET, "every event repeats the set its registration names");
+    assert.ok(viaPlugin === undefined || viaPlugin === true, `viaPlugin must be absent or true, got ${viaPlugin}`);
     if (fromPlugin) assert.equal(viaPlugin, true, "a plugin hook says so");
     else assert.equal("viaPlugin" in signal, false, `only a plugin hook carries viaPlugin, not ${signal.event} #${index}`);
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
@@ -246,10 +251,7 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
       assert.equal("errorKind" in signal, false, `only StopFailure's halted carries errorKind, not ${signal.event} #${index}`);
       assert.equal("resumesAt" in signal, false, `only StopFailure's halted carries resumesAt, not ${signal.event} #${index}`);
     }
-    // hookSet is the registration's own flag, the same on every event, and
-    // says nothing about the turn.
-    assert.equal(rest.hookSet, HOOK_SET);
-    assert.deepEqual(Object.keys(rest).sort(), ["event", "hookSet", "session", "tool"]);
+    assert.deepEqual(Object.keys(rest).sort(), ["event", "session", "tool"]);
     assert.equal(signal.session, "s-halt");
   });
   assert.ok(!received.join("").includes("AcmeCorp"), "the last assistant message leaked onto the bus");

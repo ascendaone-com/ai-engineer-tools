@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as net from "net";
 import * as os from "os";
 import * as path from "path";
+import { isHookSet } from "./hookSet";
 
 /**
  * The live presence bus — a local, best-effort side-channel telling the
@@ -148,7 +149,7 @@ export interface LiveBusSignal {
    * event of a stream, `halted` included, and never vary by event. They
    * don't enter the stream key and say nothing about why a turn ended, so
    * a guard on a signal's keys sets them aside with `pid` (register
-   * v1.46, P-D64.1 clause 4). The app drops `pid` when it can't check one
+   * v1.47, P-D64.1 clause 4). The app drops `pid` when it can't check one
    * of these, and the stream falls back to its session.
    */
   pidMatch?: "path";
@@ -183,6 +184,10 @@ export interface LiveBusSignal {
    * none: an install from before hook sets, or an adapter that has no set.
    * The app reads absence as set 1 for the tools it knows a set for, and as
    * nothing at all for the rest.
+   *
+   * Install provenance (P-D64.3, register v1.48): a positive integer, read
+   * from the hook's own argv only. {@link emitLiveSignal} drops any other
+   * value rather than send it.
    */
   hookSet?: number;
   /**
@@ -192,10 +197,12 @@ export interface LiveBusSignal {
    * updates the plugin, and running `setup` beside it registers every hook
    * twice. Absent means a `setup` install, or a hook too old to say.
    *
-   * Install provenance, like {@link hookSet}: neither identity nor a reason.
-   * No Decision Register entry names it yet (P-D64 through v1.46 don't).
+   * Install provenance, like {@link hookSet} (P-D64.3, register v1.48):
+   * `true` or absent, never `false`, and set only from the hook's own
+   * environment (`readViaPlugin`). {@link emitLiveSignal} drops any other
+   * value rather than send it.
    */
-  viaPlugin?: boolean;
+  viaPlugin?: true;
   /**
    * P-D64.1. Only meaningful on `halted`, and only when the host said the
    * turn ended on an API error (Claude Code's `StopFailure`). A `halted` without it
@@ -338,6 +345,19 @@ const NOBODY_LISTENING = new Set(["ECONNREFUSED", "ENOENT"]);
  * to hold a socket open, and at these rates — a handful of signals a second
  * at worst — connection setup on a Unix socket is negligible.
  */
+/**
+ * The signal as it may go out. P-D64.3 closes install provenance at two
+ * fields with fixed types, so a `hookSet` that isn't a positive integer, or a
+ * `viaPlugin` that isn't `true`, is left off rather than sent. Absent is
+ * always a true reading; a wrong value never is.
+ */
+function onTheWire(signal: LiveBusSignal): LiveBusSignal {
+  const out: Record<string, unknown> = { ...signal };
+  if ("hookSet" in out && !isHookSet(out.hookSet)) delete out.hookSet;
+  if ("viaPlugin" in out && out.viaPlugin !== true) delete out.viaPlugin;
+  return out as unknown as LiveBusSignal;
+}
+
 export function emitLiveSignal(signal: LiveBusSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     // No socket file anywhere: the app simply isn't running. That is the
@@ -400,7 +420,7 @@ export function emitLiveSignal(signal: LiveBusSignal): Promise<void> {
         if (settled || socket !== attempt) return;
         connected = true;
         try {
-          attempt.write(`${JSON.stringify(signal)}\n`, done);
+          attempt.write(`${JSON.stringify(onTheWire(signal))}\n`, done);
         } catch {
           done();
         }

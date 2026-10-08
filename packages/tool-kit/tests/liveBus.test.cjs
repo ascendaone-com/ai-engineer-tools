@@ -346,3 +346,30 @@ test("the background trust window is an hour", () => {
   const { LIVE_BUS_BACKGROUND_TRUST_MS } = require("../out/index.js");
   assert.equal(LIVE_BUS_BACKGROUND_TRUST_MS, 60 * 60 * 1000);
 });
+
+// P-D64.3 closes install provenance at two fields with fixed types. A caller
+// that passes anything else gets the field left off, never sent.
+test("install provenance goes out only with its ratified types", async () => {
+  const p = sockPath();
+  const { server, lines } = await listen(p);
+  process.env.ASCENDA_LIVE_BUS_SOCKET = p;
+  try {
+    const bad = [
+      { hookSet: 0 }, { hookSet: -1 }, { hookSet: 1.5 }, { hookSet: "2" }, { hookSet: NaN },
+      { viaPlugin: false }, { viaPlugin: "true" }, { viaPlugin: 1 }
+    ];
+    for (const extra of bad) {
+      await emitLiveSignal({ tool: "claude_code", session: "s1", event: "tool_call", ...extra });
+    }
+    await emitLiveSignal({ tool: "claude_code", session: "s1", event: "tool_call", hookSet: 2, viaPlugin: true });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(lines.length, bad.length + 1);
+    for (const line of lines.slice(0, bad.length)) {
+      assert.deepEqual(line, { tool: "claude_code", session: "s1", event: "tool_call" });
+    }
+    assert.deepEqual(lines[bad.length], { tool: "claude_code", session: "s1", event: "tool_call", hookSet: 2, viaPlugin: true });
+  } finally {
+    server.close();
+    delete process.env.ASCENDA_LIVE_BUS_SOCKET;
+  }
+});

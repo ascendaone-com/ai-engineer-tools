@@ -51,10 +51,11 @@ targets, error counts or internal resource names — this repository is public.
   `upgraded: added StopFailure, Notification; hook set 1 → 2`. A run with
   nothing to add says `already current`.
 - **Flow names the command when your hooks are older.** Each hook now tells
-  the app which set of hooks it was registered with. When Claude Code or Gemini
-  CLI signals come from an older set, **Connections → Ingest telemetry** shows
-  one line with the exact command. Dismiss it and it stays gone until a later
-  release adds hooks again.
+  the app which set of hooks it was registered with, and whether it came from
+  the plugin (per P-D64.3). When Claude Code or Gemini CLI signals come from
+  an older set, **Connections → Ingest telemetry** shows one line with the
+  exact command. Dismiss it and it stays gone until a later release adds hooks
+  again.
 - **`status` prints the hook set**, and the upgrade command when it's behind.
 - `setup` warns when the other scope already registers the same hooks. Both
   fire, so every event runs twice.

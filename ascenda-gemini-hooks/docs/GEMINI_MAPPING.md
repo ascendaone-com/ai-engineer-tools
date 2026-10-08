@@ -82,7 +82,8 @@ every error, and a machine with no listener — which is most machines, and
 every CI runner — behaves exactly as it did before this existed.
 
 Each registered command ends `--hook-set 2`, and the signal carries it as
-`hookSet`. An install from before `Notification` was registered has no flag
+`hookSet`, a positive integer read from the hook's own arguments (install
+provenance, P-D64.3). An install from before `Notification` was registered has no flag
 and sends no `awaiting`, and the app reads the missing field as set 1 and
 names the upgrade command: `npx @ascenda-one/gemini-hooks setup`.
 

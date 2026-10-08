@@ -64,7 +64,7 @@ the events above. Three hook moments end a turn there:
 ## The hook set
 
 Every registered command ends `--hook-set 2`, and every live signal repeats
-the number as `hookSet`. Set 2 is the eleven events `setup` registers today.
+the number as `hookSet`, a positive integer (P-D64.3). Set 2 is the eleven events `setup` registers today.
 A command with no flag is set 1: an install from before `StopFailure` and
 `Notification` were registered, which never sends `halted` for an API error
 or `awaiting` for a permission prompt. The app reads a missing `hookSet` from
@@ -72,6 +72,9 @@ or `awaiting` for a permission prompt. The app reads a missing `hookSet` from
 `hooks/hooks.json` carries the same flag. A hook run from the plugin also
 sends `viaPlugin: true`, read from the `CLAUDE_PLUGIN_ROOT` Claude Code exports
 to plugin hooks, so the app names `claude plugin update` for those instead.
+It's `true` or absent, never `false`. Both are install provenance under
+P-D64.3 (register v1.48): read from the hook's own arguments and
+environment, display only, and dropped by the emitter if malformed.
 
 Change the registered list and the set moves with it: `HOOK_SET` in
 `src/setup.ts`, the plugin's `hooks.json`, and `kCurrentHookSets` in the app.

@@ -42,8 +42,28 @@ export function hookSetArgument(hookSet: number | undefined): string {
 export function readHookSet(argv: readonly string[]): number | undefined {
   const index = argv.indexOf(HOOK_SET_FLAG);
   if (index === -1) return undefined;
-  const value = Number(argv[index + 1]);
-  return Number.isInteger(value) && value >= 1 ? value : undefined;
+  // Digits only: `Number` would also take " 2", "0x2" and "1e0".
+  const raw = argv[index + 1];
+  if (raw === undefined || !/^[1-9]\d*$/.test(raw)) return undefined;
+  const value = Number(raw);
+  return isHookSet(value) ? value : undefined;
+}
+
+/** A value `hookSet` may carry on the wire (P-D64.3): a positive integer. */
+export function isHookSet(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+}
+
+/**
+ * `true` when Claude Code ran this hook from its plugin, else undefined.
+ *
+ * P-D64.3 clause 2: derived only from `CLAUDE_PLUGIN_ROOT` being set, which
+ * Claude Code does for plugin hooks alone, and never from what the path
+ * says. An empty value isn't a plugin root. Never `false`: a `setup`
+ * install leaves the field out.
+ */
+export function readViaPlugin(env: NodeJS.ProcessEnv): true | undefined {
+  return env.CLAUDE_PLUGIN_ROOT ? true : undefined;
 }
 
 /** The set a registered command string carries, with an unflagged command read as set 1. */

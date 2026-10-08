@@ -161,3 +161,15 @@ test("a plugin hook says so, and a setup hook doesn't", async () => {
   const installed = await signalsFrom(["PreToolUse", "--hook-set", "2"], payload);
   assert.equal("viaPlugin" in installed[0], false);
 });
+
+// P-D64.3: hookSet is a positive integer or absent, viaPlugin is true or
+// absent, and both come from the hook's own argv and environment.
+test("a malformed set or an empty plugin root sends nothing, never a wrong value", async () => {
+  const payload = { session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } };
+  for (const raw of ["0", "-1", "1.5", "0x2"]) {
+    const [line] = await signalsFrom(["PreToolUse", "--hook-set", raw], payload);
+    assert.equal("hookSet" in line, false, `--hook-set ${raw} must not reach the bus`);
+  }
+  const [line] = await signalsFrom(["PreToolUse", "--hook-set", "2"], payload, { CLAUDE_PLUGIN_ROOT: "" });
+  assert.equal("viaPlugin" in line, false, "never viaPlugin: false");
+});
