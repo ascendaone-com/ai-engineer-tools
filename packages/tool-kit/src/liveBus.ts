@@ -142,6 +142,14 @@ export interface LiveBusSignal {
    * An app that reads `pid` but not this field would check the executable,
    * find `node` and retire the stream on every liveness pass. No released
    * app reads `pid` yet, so the two ship together.
+   *
+   * **Identity only.** This and {@link pidMarker} say which process
+   * {@link pid} names, and nothing else. They ride with `pid` on every
+   * event of a stream, `halted` included, and never vary by event. They
+   * don't enter the stream key and say nothing about why a turn ended, so
+   * a guard on a signal's keys sets them aside with `pid` (register
+   * v1.45, P-D64.1 clause 4). The app drops `pid` when it can't check one
+   * of these, and the stream falls back to its session.
    */
   pidMatch?: "path";
   /** The install-path marker a `path` match found, e.g. `@google/gemini-cli`. */

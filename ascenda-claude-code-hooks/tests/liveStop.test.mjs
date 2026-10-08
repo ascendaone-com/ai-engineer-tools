@@ -37,10 +37,17 @@ async function linesFor(runs) {
   fs.rmSync(root, { recursive: true, force: true });
   // `pid` depends on where the suite runs (present under a `claude`, absent
   // elsewhere) and is liveSignalPid.test.mjs's to check, so it is set aside
-  // here after confirming it's a pid when present.
+  // here after confirming it's a pid when present. `pidMatch` and
+  // `pidMarker` say which process the pid names (under an npm Claude Code
+  // running as `node`), so they go with it.
   return received.map((line) => {
-    const { pid, ...signal } = JSON.parse(line);
+    const { pid, pidMatch, pidMarker, ...signal } = JSON.parse(line);
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    if (pidMatch !== undefined || pidMarker !== undefined) {
+      assert.ok(pid !== undefined, "pidMatch and pidMarker only ride with a pid");
+      assert.equal(pidMatch, "path");
+      assert.equal(pidMarker, "@anthropic-ai/claude-code");
+    }
     return signal;
   });
 }

@@ -18,12 +18,16 @@ const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/
  * Runs the built CLI for `hook` with `payload` the way Claude Code does: a
  * process named `claude` spawns `sh -c "node cli.js <hook>"`. Resolves with
  * the lines that reached the socket and the `claude` process's pid.
+ *
+ * With `npm`, the agent is `node` running a script from an npm install
+ * path instead, the way Claude Code releases before the native binary ran.
  */
-async function underClaude(hook, payload) {
+async function underClaude(hook, payload, { npm = false } = {}) {
   // Short root: a Unix socket path caps out near 104 bytes.
   const root = fs.mkdtempSync("/tmp/asc-pid-");
   const claude = path.join(root, "claude");
   fs.symlinkSync(process.execPath, claude);
+  const cliJs = path.join(root, "node_modules", "@anthropic-ai", "claude-code", "cli.js");
   const socket = path.join(root, "l.sock");
 
   const lines = [];
@@ -39,7 +43,11 @@ async function underClaude(hook, payload) {
       stdio: ["pipe", "ignore", "ignore"]
     });`;
   try {
-    const child = spawn(claude, ["-e", script], {
+    if (npm) {
+      fs.mkdirSync(path.dirname(cliJs), { recursive: true });
+      fs.writeFileSync(cliJs, script);
+    }
+    const child = spawn(npm ? process.execPath : claude, npm ? [cliJs] : ["-e", script], {
       env: { ...process.env, ASCENDA_LIVE_BUS_SOCKET: socket, ASCENDA_LOCAL_ONLY: "1" },
       stdio: "ignore"
     });
@@ -97,4 +105,25 @@ test("a stop carries the claude process's pid alongside its backgroundTasks", on
   assert.equal(lines[0].event, "stop");
   assert.equal(lines[0].backgroundTasks, 1);
   assert.equal(lines[0].pid, pid);
+});
+
+// An npm Claude Code runs as `node`, named by its install path. The fields
+// that say so are identity, like pid: errorKind stays the halted's only
+// reason (register v1.45).
+test("an npm Claude Code's halted carries its pid and how it was found", onMac, async () => {
+  const { lines, pid } = await underClaude(
+    "StopFailure",
+    { session_id: "s1", hook_event_name: "StopFailure", error: "rate_limit" },
+    { npm: true }
+  );
+  assert.equal(lines.length, 1);
+  assert.deepEqual(lines[0], {
+    tool: "claude_code",
+    session: "s1",
+    pid,
+    pidMatch: "path",
+    pidMarker: "@anthropic-ai/claude-code",
+    event: "halted",
+    errorKind: "rate_limit"
+  });
 });
