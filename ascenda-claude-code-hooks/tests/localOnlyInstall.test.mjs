@@ -209,15 +209,20 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
   const signals = received.map((line) => JSON.parse(line));
   // The permission prompt is a wait mid-turn, so it's awaiting, not halted.
   assert.deepEqual(signals.map((signal) => signal.event), ["halted", "halted", "halted", "awaiting"]);
-  for (const signal of signals) {
+  signals.forEach((signal, index) => {
     // Nothing from the payload rides along. `pid` is the agent process, and
-    // is present only when the suite runs under a `claude`, so it's the one
-    // key allowed beyond these three.
-    const { pid, ...rest } = signal;
+    // is present only when the suite runs under a `claude`. errorKind is the
+    // one reason field (P-D64.1, #452), and only on the StopFailure halted.
+    const { pid, errorKind, ...rest } = signal;
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    if (index === 0) {
+      assert.ok(["rate_limit", "error"].includes(errorKind), `errorKind must be rate_limit or error, got ${errorKind}`);
+      assert.equal(errorKind, "rate_limit", "StopFailure's halted says it was a usage limit");
+    }
+    else assert.equal("errorKind" in signal, false, `only StopFailure's halted carries errorKind, not ${signal.event} #${index}`);
     assert.deepEqual(Object.keys(rest).sort(), ["event", "session", "tool"]);
     assert.equal(signal.session, "s-halt");
-  }
+  });
   assert.ok(!received.join("").includes("AcmeCorp"), "the last assistant message leaked onto the bus");
   m.cleanup();
 });
