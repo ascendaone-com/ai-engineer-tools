@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import {
   AGENT_PROCESS,
-  findAgentPid,
+  findAgentProcess,
+  livePidFields,
   appendEventLog,
   bucketPromptSize,
   buildEventPayload,
@@ -484,7 +485,9 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     // stream by this when it's present and can tell when the process exits.
     // Looked up under the Claude Code rule whatever ASCENDA_TOOL_TYPE says:
     // the override renames the stream, not the binary.
-    const pid = findAgentPid(AGENT_PROCESS.claude_code);
+    // An npm install running under `node` is found by its install path, and
+    // the signal says so, so the app checks the arguments as well.
+    const agent = findAgentProcess(AGENT_PROCESS.claude_code);
 
     await emitLiveSignal({
       tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
@@ -495,7 +498,7 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       session: getString(input, ["session_id", "sessionId"])
         ?? process.env.ASCENDA_SESSION_ID
         ?? `ppid-${process.ppid}`,
-      ...(pid !== undefined ? { pid } : {}),
+      ...livePidFields(agent),
       event,
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
       ...(queued !== undefined ? { queued } : {}),

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, livePidFields, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapGeminiEvent } from "./mapGeminiEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -66,6 +66,12 @@ async function emitLive(hookName: GeminiHookEventName, input: GeminiHookInput, s
   const body = liveSignalFor(hookName, input);
   if (!body) return;
   try {
+    // Gemini CLI runs as `node`, which on its own could be any node process,
+    // a recycled PID included. It's named only when its arguments carry the
+    // `@google/gemini-cli` install path, and the signal says so, so the app
+    // checks the same thing. ACP mode serves several editor sessions from
+    // one process and is never named.
+    const agent = findAgentProcess(AGENT_PROCESS.gemini_cli);
     await emitLiveSignal({
       // This host's own name, not the shared `cli_agent` tool type the cloud
       // path files these events under. The app keys one decaying envelope per
@@ -80,8 +86,7 @@ async function emitLive(hookName: GeminiHookEventName, input: GeminiHookInput, s
       // this process's parent — still per-session in practice, since the hook
       // is spawned from the session process.
       session: sessionId ?? `ppid-${process.ppid}`,
-      // No `pid`. Gemini CLI runs as `node`, and a PID the app can only
-      // check as "some node process" can't be told apart from a recycled one.
+      ...livePidFields(agent),
       ...body
     });
   } catch {

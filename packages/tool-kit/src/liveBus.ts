@@ -112,7 +112,8 @@ export interface LiveBusSignal {
    * alive.
    *
    * Present only for agents whose process hosts one conversation at a time:
-   * Claude Code, and Codex outside `app-server`. Claude Code changes
+   * Claude Code, Gemini CLI outside ACP mode, and Codex outside
+   * `app-server`. Claude Code changes
    * `session` on `/clear`, `/compact` and resume, so without this one
    * terminal reads as several concurrent streams. Every other emitter leaves
    * it out, because their host process (an editor window, an extension host,
@@ -123,6 +124,21 @@ export interface LiveBusSignal {
    * app that reads it falls back to `session` when it's missing.
    */
   pid?: number;
+  /**
+   * How {@link pid} was found, so the app can check it the same way. Absent
+   * means `executable`: the PID runs an agent CLI binary, and the app checks
+   * the executable path. `path` means it runs a script runtime (`node`,
+   * `bun`, `deno`) whose arguments contain {@link pidMarker}, and the app
+   * checks the arguments for it too. That's the only way to tell an npm
+   * install of Claude Code or Gemini CLI from any other node process.
+   *
+   * An app that reads `pid` but not this field would check the executable,
+   * find `node` and retire the stream on every liveness pass. No released
+   * app reads `pid` yet, so the two ship together.
+   */
+  pidMatch?: "path";
+  /** The install-path marker a `path` match found, e.g. `@google/gemini-cli`. */
+  pidMarker?: string;
   event: LiveBusEvent;
   /** Only meaningful on `prompt_submitted`. */
   sizeBucket?: PromptSizeBucket;
