@@ -69,7 +69,9 @@ A command with no flag is set 1: an install from before `StopFailure` and
 `Notification` were registered, which never sends `halted` for an API error
 or `awaiting` for a permission prompt. The app reads a missing `hookSet` from
 `claude_code` as set 1 and names the upgrade command. The plugin's
-`hooks/hooks.json` carries the same flag.
+`hooks/hooks.json` carries the same flag. A hook run from the plugin also
+sends `viaPlugin: true`, read from the `CLAUDE_PLUGIN_ROOT` Claude Code exports
+to plugin hooks, so the app names `claude plugin update` for those instead.
 
 Change the registered list and the set moves with it: `HOOK_SET` in
 `src/setup.ts`, the plugin's `hooks.json`, and `kCurrentHookSets` in the app.

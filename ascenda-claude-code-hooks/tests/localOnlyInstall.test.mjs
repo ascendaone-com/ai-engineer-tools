@@ -189,10 +189,12 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
   });
   await new Promise((resolve) => listener.listen(socket, resolve));
 
-  const env = { ASCENDA_LIVE_BUS_SOCKET: socket };
+  // Claude Code exports CLAUDE_PLUGIN_ROOT to plugin hooks only. Cleared
+  // here so a suite run from inside one doesn't add viaPlugin to every line.
+  const env = { ASCENDA_LIVE_BUS_SOCKET: socket, CLAUDE_PLUGIN_ROOT: "" };
   // Run each hook as setup registered it, `--hook-set` included, so the keys
   // checked below are the ones a real install sends.
-  const send = (hook, payload) => runAsync(m, [hook, "--hook-set", String(HOOK_SET)], { env, input: JSON.stringify({ session_id: "s-halt", cwd: m.project, ...payload }) });
+  const send = (hook, payload, extra = {}) => runAsync(m, [hook, "--hook-set", String(HOOK_SET)], { env: { ...env, ...extra }, input: JSON.stringify({ session_id: "s-halt", cwd: m.project, ...payload }) });
   const results = [
     // An API error ends the turn: StopFailure fires instead of Stop.
     await send("StopFailure", { error: "rate_limit", last_assistant_message: "partial answer about AcmeCorp" }),
@@ -201,7 +203,9 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
     // An older Claude Code with no notification_type: the wording decides.
     await send("Notification", { message: "Claude is waiting for your input" }),
     // A permission prompt is a wait mid-turn. The work hasn't ended.
-    await send("Notification", { notification_type: "permission_prompt", message: "Claude needs your permission to use Bash" })
+    await send("Notification", { notification_type: "permission_prompt", message: "Claude needs your permission to use Bash" }),
+    // The same API error, from a hook the plugin registered.
+    await send("StopFailure", { error: "rate_limit", last_assistant_message: "partial answer about AcmeCorp" }, { CLAUDE_PLUGIN_ROOT: "/plugins/ascenda" })
   ];
 
   await new Promise((resolve) => listener.close(resolve));
@@ -212,7 +216,7 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
   }
   const signals = received.map((line) => JSON.parse(line));
   // The permission prompt is a wait mid-turn, so it's awaiting, not halted.
-  assert.deepEqual(signals.map((signal) => signal.event), ["halted", "halted", "halted", "awaiting"]);
+  assert.deepEqual(signals.map((signal) => signal.event), ["halted", "halted", "halted", "awaiting", "halted"]);
   signals.forEach((signal, index) => {
     // Nothing from the payload rides along. `pid` is the agent process, and
     // is present only when the suite runs under a `claude`. `pidMatch` and
@@ -221,14 +225,19 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
     // errorKind is a reason field (P-D64.1, #452), and only on the
     // StopFailure halted. resumesAt (P-D64.2) may ride with a rate_limit
     // errorKind and nowhere else, and only as a whole number of seconds.
-    const { pid, pidMatch, pidMarker, errorKind, resumesAt, ...rest } = signal;
+    // viaPlugin says where the hook was installed from, only from a plugin
+    // hook, and only as true.
+    const { pid, pidMatch, pidMarker, errorKind, resumesAt, viaPlugin, ...rest } = signal;
+    const fromPlugin = index === 4;
+    if (fromPlugin) assert.equal(viaPlugin, true, "a plugin hook says so");
+    else assert.equal("viaPlugin" in signal, false, `only a plugin hook carries viaPlugin, not ${signal.event} #${index}`);
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
     if (pidMatch !== undefined || pidMarker !== undefined) {
       assert.ok(pid !== undefined, "pidMatch and pidMarker only ride with a pid");
       assert.equal(pidMatch, "path");
       assert.equal(pidMarker, "@anthropic-ai/claude-code");
     }
-    if (index === 0) {
+    if (index === 0 || fromPlugin) {
       assert.ok(["rate_limit", "error"].includes(errorKind), `errorKind must be rate_limit or error, got ${errorKind}`);
       assert.equal(errorKind, "rate_limit", "StopFailure's halted says it was a usage limit");
       assert.ok(resumesAt === undefined || Number.isInteger(resumesAt), `resumesAt must be absent or epoch seconds, got ${resumesAt}`);

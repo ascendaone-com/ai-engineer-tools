@@ -16,7 +16,9 @@ const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/
 function runHook(hook, payload, env) {
   return new Promise((resolve) => {
     const child = spawn("node", [CLI, hook], {
-      env: { ...process.env, ASCENDA_TOOL_INSTALLATION_ID: "", ASCENDA_EVENT_WRITE_TOKEN: "", ...env }
+      // CLAUDE_PLUGIN_ROOT is cleared so a suite run from a plugin hook
+      // doesn't add viaPlugin to the signals checked here.
+      env: { ...process.env, ASCENDA_TOOL_INSTALLATION_ID: "", ASCENDA_EVENT_WRITE_TOKEN: "", CLAUDE_PLUGIN_ROOT: "", ...env }
     });
     child.on("close", (status) => resolve(status));
     child.stdin.end(JSON.stringify(payload));
