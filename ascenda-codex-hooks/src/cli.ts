@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCodexEvent } from "./mapCodexEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -76,6 +76,10 @@ async function emitLive(hookName: CodexHookEventName, input: CodexHookInput, ses
   const body = liveSignalFor(hookName, input);
   if (!body) return;
   try {
+    // The Codex process itself, when this is the TUI or `codex exec`. The
+    // `app-server` that editor integrations run hosts many threads at once,
+    // so it is never named, and the stream falls back to the session.
+    const pid = findAgentPid(AGENT_PROCESS.codex);
     await emitLiveSignal({
       // This host's own name, not the shared `cli_agent` tool type the cloud
       // path files these events under. The app keys one decaying envelope per
@@ -90,6 +94,7 @@ async function emitLive(hookName: CodexHookEventName, input: CodexHookInput, ses
       // this process's parent — still per-session in practice, since the hook
       // is spawned from the session process.
       session: sessionId ?? `ppid-${process.ppid}`,
+      ...(pid !== undefined ? { pid } : {}),
       ...body
     });
   } catch {

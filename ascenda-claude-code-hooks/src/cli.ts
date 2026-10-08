@@ -2,6 +2,9 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import {
+  AGENT_PROCESS,
+  findAgentProcess,
+  livePidFields,
   appendEventLog,
   bucketPromptSize,
   buildEventPayload,
@@ -17,6 +20,8 @@ import {
   markFailureNotified,
   persistEventWriteToken,
   readCollectorState,
+  readHookSet,
+  readViaPlugin,
   recordSendOutcome,
   resolveEventLogPath,
   shouldAnnounceFailure,
@@ -30,6 +35,8 @@ import {
 } from "@ascenda-one/tool-kit";
 import type { CollectorState, DisclosureFamily, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
+import { liveEventFor } from "./liveEvent.js";
+import { autoContinueEnabled, resumesAtFor } from "./usageLimitReset.js";
 import {
   MissingInstallationIdError,
   envOverride,
@@ -40,7 +47,7 @@ import {
   resolveToolInstallationId
 } from "./config.js";
 import type { ResolvedInstallationId } from "./config.js";
-import { isNewSessionStart, mapClaudeEvent, milestoneInviting, notificationKind } from "./mapClaudeEvent.js";
+import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
 import { credentialsFilePath, readCredentials, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 
@@ -440,45 +447,20 @@ function explainRejection(result: IngestResult): string {
 }
 
 /**
- * Whether a Notification is Claude Code's idle prompt: the agent has sat
- * waiting for input for a while. Read from `notification_type` where Claude
- * Code sends it, and from the same constant-label match the interruption count
- * uses where it doesn't. Either way only the answer leaves this function.
- *
- * Why the live signal wants it: pressing Esc runs no hook at all, so an
- * interrupted turn never sends `stop`. The idle prompt is the first thing that
- * fires afterwards. After a turn that did stop it's redundant, and the app
- * ignores a `halted` for a session it no longer holds.
- */
-function isIdlePrompt(input: ClaudeHookInput): boolean {
-  const type = getString(input, ["notification_type", "notificationType"]);
-  if (type !== undefined) return type === "idle_prompt";
-  return notificationKind(getString(input, ["message"])) === "idle_prompt";
-}
-
-/**
- * Whisper this hook's moment to the desktop app's waterline gauges.
- *
- * Only the lifecycle beats the gauges actually render are mapped; anything
- * else is silence rather than a signal nothing consumes. `PreToolUse` — not
- * `PostToolUse` — carries the cadence heartbeat, because it fires at the
- * *leading* edge of the work and the gauge should rise as the agent starts,
- * not after it finishes.
+ * Whisper this hook's moment to the desktop app's waterline gauges. Which
+ * hooks speak, and as what, is {@link liveEventFor}'s decision.
  *
  * Never throws: {@link emitLiveSignal} already swallows everything, and the
  * try/catch is belt-and-braces so a future change here can't take a user's
  * turn down with it.
  */
 async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): Promise<void> {
-  const event: LiveBusEvent | undefined =
-    hookName === "UserPromptSubmit" ? "prompt_submitted"
-    : hookName === "PreToolUse" ? "tool_call"
-    : hookName === "PreCompact" ? "compaction"
-    : hookName === "PostToolUseFailure" ? "tool_failure"
-    : hookName === "Stop" ? "stop"
-    : hookName === "StopFailure" ? "halted"
-    : hookName === "Notification" && isIdlePrompt(input) ? "halted"
-    : undefined;
+  let event: LiveBusEvent | undefined;
+  try {
+    event = liveEventFor(hookName, input);
+  } catch {
+    return;
+  }
   if (!event) return;
 
   try {
@@ -499,6 +481,39 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       : undefined;
     const queued = promptSource === undefined ? undefined : promptSource === "queued";
 
+    const backgroundTasks = event === "stop" ? countBackgroundTasks(input) : undefined;
+    // Only StopFailure says why (P-D64.1). Read from the payload's `error`
+    // field alone, never the message: `rate_limit` is a usage limit
+    // and anything else, missing included, is `error`. A `halted` from the
+    // idle prompt carries no errorKind.
+    const errorKind = hookName === "StopFailure" && event === "halted"
+      ? (getString(input, ["error"]) === "rate_limit" ? "rate_limit" : "error")
+      : undefined;
+    // When a usage limit lifts and Claude Code will carry on by itself
+    // (P-D64.2). The time is only in the message, so this is the one place
+    // the hook reads it, in memory; just the number goes on the wire.
+    const resumesAt = errorKind === "rate_limit"
+      ? usageLimitResumesAt(input)
+      : undefined;
+
+    // The `claude` process itself. Its session id changes on /clear,
+    // /compact and resume while the process carries on, so the app keys the
+    // stream by this when it's present and can tell when the process exits.
+    // Looked up under the Claude Code rule whatever ASCENDA_TOOL_TYPE says:
+    // the override renames the stream, not the binary.
+    // An npm install running under `node` is found by its install path, and
+    // the signal says so, so the app checks the arguments as well.
+    const agent = findAgentProcess(AGENT_PROCESS.claude_code);
+
+    // The set the registration names (`--hook-set`), so the app can tell an
+    // install that predates StopFailure. Absent on an unflagged one, which
+    // the app reads as set 1.
+    const hookSet = readHookSet(process.argv);
+    // Claude Code exports CLAUDE_PLUGIN_ROOT to plugin hooks only. It tells
+    // the app to name a plugin update, not `setup`, for an out-of-date set.
+    // `true` or undefined, never false (P-D64.3).
+    const viaPlugin = readViaPlugin(process.env);
+
     await emitLiveSignal({
       tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
       // Concurrent sessions must count as separate streams for the X gauge.
@@ -508,14 +523,65 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       session: getString(input, ["session_id", "sessionId"])
         ?? process.env.ASCENDA_SESSION_ID
         ?? `ppid-${process.ppid}`,
+      ...livePidFields(agent),
       event,
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
-      ...(queued !== undefined ? { queued } : {})
+      ...(queued !== undefined ? { queued } : {}),
+      ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
+      ...(hookSet !== undefined ? { hookSet } : {}),
+      ...(viaPlugin === true ? { viaPlugin } : {}),
+      ...(errorKind !== undefined ? { errorKind } : {}),
+      ...(resumesAt !== undefined ? { resumesAt } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.
   }
 }
+
+/**
+ * The `resumesAt` for a rate-limited StopFailure, or undefined. Only when
+ * `autoContinueAtUsageLimit` is on, because otherwise nothing happens at the
+ * reset and there's nothing to wait for; and only for a reset within six
+ * hours, which leaves weekly limits out.
+ */
+function usageLimitResumesAt(input: ClaudeHookInput): number | undefined {
+  const projectDir = process.env.CLAUDE_PROJECT_DIR ?? getString(input, ["cwd"]);
+  if (!autoContinueEnabled({ projectDir })) return undefined;
+  const now = new Date();
+  // error_details is a string on some builds and { type, message } on others.
+  const texts = [
+    getString(input, ["error_details"]),
+    getNestedString(input, [["error_details", "message"]]),
+    getString(input, ["last_assistant_message"])
+  ];
+  for (const text of texts) {
+    const at = resumesAtFor(text, now);
+    if (at !== undefined) return at;
+  }
+  return undefined;
+}
+
+/**
+ * Background tasks still running as the turn stops: shells, subagents,
+ * monitors. Claude Code lists them in the Stop payload's `background_tasks`,
+ * and while any run the session isn't finished, whatever the stop says.
+ *
+ * Undefined when the payload has no array, so an older Claude Code sends no
+ * count at all rather than a zero it never measured. An entry whose status
+ * says it has already ended is not counted; every other entry is, including
+ * one with no status, because the field's values aren't documented and
+ * "running" is the only one seen.
+ */
+function countBackgroundTasks(input: ClaudeHookInput): number | undefined {
+  const tasks = input.background_tasks;
+  if (!Array.isArray(tasks)) return undefined;
+  return tasks.filter((task) => {
+    const status = task && typeof task === "object" ? (task as Record<string, unknown>).status : undefined;
+    return typeof status !== "string" || !ENDED_TASK_STATUSES.has(status);
+  }).length;
+}
+
+const ENDED_TASK_STATUSES = new Set(["completed", "failed", "killed", "stopped", "cancelled"]);
 
 /**
  * The one-time notice for a collector that is failing right now.

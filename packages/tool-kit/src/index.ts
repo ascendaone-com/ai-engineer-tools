@@ -31,6 +31,7 @@ export {
   cliAgentHookBinPath,
   findStaleHookCommands,
   isCliAgentManagementCommand,
+  registeredHookSets,
   runCliAgentSetup,
   writeHookSettings
 } from "./cliAgentSetup";
@@ -93,8 +94,12 @@ export {
   forgeFullNameFromConfig,
   recordForgeProjectAlias
 } from "./forgeProject";
-export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates } from "./liveBus";
-export type { LiveBusEvent, LiveBusSignal, PromptSizeBucket } from "./liveBus";
+export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates, LIVE_BUS_BACKGROUND_TRUST_MS } from "./liveBus";
+export type { LiveBusEvent, LiveBusSignal, LiveBusStopFailureKind, PromptSizeBucket } from "./liveBus";
+export { HOOK_SET_FLAG, UNVERSIONED_HOOK_SET, describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand, isHookSet, readHookSet, readViaPlugin } from "./hookSet";
+export type { HookSetChanges } from "./hookSet";
+export { AGENT_PROCESS, findAgentPid, findAgentProcess, livePidFields, psArgsLookup, psLookup, scriptMarkerIn } from "./agentProcess";
+export type { AgentProcessMatch, AgentProcessRule, FindAgentPidOptions, ProcessArgsLookup, ProcessInfo, ProcessLookup } from "./agentProcess";
 export {
   AscendaApiError,
   createPairingSession,

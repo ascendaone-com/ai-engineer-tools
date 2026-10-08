@@ -4,12 +4,25 @@ import type { CliAgentSetupSpec } from "@ascenda-one/tool-kit";
 import { ASCENDA_TOOL_TYPE, GEMINI_HOST } from "./types.js";
 
 /**
- * Only the hooks that map to a catalog event. `BeforeModel`, `AfterModel`
- * and `BeforeToolSelection` fire per LLM round trip and would multiply
- * volume for signal the tool hooks already carry; `Notification` has no
- * counterpart.
+ * The hooks that map to a catalog event, plus `Notification`. `BeforeModel`,
+ * `AfterModel` and `BeforeToolSelection` fire per LLM round trip and would
+ * multiply volume for signal the tool hooks already carry.
+ *
+ * `Notification` has no catalog counterpart and sends nothing to the cloud.
+ * It is registered for the local live bus alone: a `ToolPermission`
+ * notification is the only way Gemini says it has stopped to wait on the
+ * person, and without it the desktop app reads a confirmation dialog as work
+ * (`liveSignalFor`). One process per confirmation is bounded by how often a
+ * person is asked, not by how fast the agent runs.
  */
-export const HOOK_EVENTS = ["SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "BeforeTool", "AfterTool", "PreCompress"] as const;
+export const HOOK_EVENTS = ["SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "BeforeTool", "AfterTool", "PreCompress", "Notification"] as const;
+
+/**
+ * The version of {@link HOOK_EVENTS}, registered as `--hook-set <n>`. Set 1
+ * is every unflagged registration, from before `Notification`. Bump it with
+ * the list, and `kCurrentHookSets` in the app with it.
+ */
+export const HOOK_SET = 2;
 
 /**
  * Gemini's default hook timeout is generous. Telemetry that cannot complete
@@ -27,6 +40,7 @@ export const SETUP: CliAgentSetupSpec = {
   packageName: "@ascenda-one/gemini-hooks",
   binaryName: "ascenda-gemini-hook",
   hookEvents: HOOK_EVENTS,
+  hookSet: HOOK_SET,
   restartHint: "Restart Gemini CLI to load the hooks.",
   // Nothing beyond the shared set: Gemini's hooks expose no posture, no
   // model, no git action and no context figure.

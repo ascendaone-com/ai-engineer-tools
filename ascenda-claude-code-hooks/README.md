@@ -96,6 +96,25 @@ rather than appending, hooks belonging to anyone else are left alone, and the
 file is backed up to `.ascenda-backup` before the first write. Settings that
 are not valid JSON abort the run rather than being overwritten.
 
+#### Upgrading
+
+Re-run `setup` with the scope you installed with. It keeps your pairing, adds
+the hooks this version registers, and prints what it added:
+
+```text
+  hooks        ~/.claude/settings.json (11 events)
+               upgraded: added StopFailure, Notification; hook set 1 → 2
+```
+
+`status` prints the installed hook set and, when it's older, the command to
+run. The Flow app on your Mac shows one line in **Connections → Ingest
+telemetry** when an agent's signals come from an older set. Restart Claude
+Code afterwards: a session keeps the hooks it started with.
+
+If you use the plugin, run `claude plugin update ascenda@ascenda-one` instead.
+Its `hooks.json` registers the same set. Having both the plugin and a `setup` install runs every hook
+twice, and `setup` warns when the other scope already registers them.
+
 Hooks then need **no environment at all**: the command pins the absolute path
 of the Node that ran setup, and configuration comes from the credentials file.
 Claude Code spawns hooks with whatever environment it was launched from, so
@@ -148,7 +167,7 @@ pairing        claude_code:… (not paired, installed 2026-09-23T05:13:40.907Z)
 token          — none until this install is paired
 delivery       inactive — nothing is sent, and nothing is queued for later
 local features active — the session prompts and the live socket signal need no pairing
-hooks          10/10 registered in ~/.claude/settings.json
+hooks          11/11 registered in ~/.claude/settings.json
 ```
 
 `uninstall` removes an unpaired install the same way, and says there is no

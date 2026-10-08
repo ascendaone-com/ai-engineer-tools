@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ascenda-gemini-hook",
+            "command": "ascenda-gemini-hook --hook-set 2",
             "timeout": 5
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ascenda-gemini-hook",
+            "command": "ascenda-gemini-hook --hook-set 2",
             "timeout": 5
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ascenda-gemini-hook",
+            "command": "ascenda-gemini-hook --hook-set 2",
             "timeout": 5
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ascenda-gemini-hook",
+            "command": "ascenda-gemini-hook --hook-set 2",
             "timeout": 5
           }
         ]
@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ascenda-gemini-hook",
+            "command": "ascenda-gemini-hook --hook-set 2",
             "timeout": 5
           }
         ]
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ascenda-gemini-hook",
+            "command": "ascenda-gemini-hook --hook-set 2",
             "timeout": 5
           }
         ]
@@ -71,7 +71,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ascenda-gemini-hook",
+            "command": "ascenda-gemini-hook --hook-set 2",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ascenda-gemini-hook --hook-set 2",
             "timeout": 5
           }
         ]

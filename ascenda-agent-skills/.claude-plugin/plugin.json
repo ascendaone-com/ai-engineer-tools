@@ -1,7 +1,7 @@
 {
   "name": "ascenda",
   "displayName": "Ascenda",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Cognitive performance and AI-work telemetry for Claude Code — a passive work-signals skill, two read skills over the Flow app's local MCP server (today's work-demand context, and the Reveal of the imported history), a metadata-only MCP reporting tool, and lifecycle hooks, all reading from the same Ascenda pairing.",
   "author": {
     "name": "Ascenda One",

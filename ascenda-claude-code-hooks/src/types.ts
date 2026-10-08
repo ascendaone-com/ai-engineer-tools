@@ -9,8 +9,11 @@ export type ClaudeHookEventName =
   // failed tool call fires PostToolUseFailure and never reaches PostToolUse.
   // Registering only PostToolUse makes failures invisible entirely.
   | "PostToolUse" | "PostToolUseFailure"
-  // StopFailure fires *instead of* Stop when an API error ends the turn.
-  | "PreCompact" | "PostCompact" | "Stop" | "StopFailure" | "Notification" | "SessionEnd";
+  | "PreCompact" | "PostCompact" | "Stop"
+  // Fires in place of Stop when the turn ends on an API error: a usage limit,
+  // an overloaded server, a billing or auth failure.
+  | "StopFailure"
+  | "Notification" | "SessionEnd";
 
 /**
  * The same names as a value, so an unrecognised argument can be rejected

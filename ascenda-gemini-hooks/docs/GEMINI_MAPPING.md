@@ -31,7 +31,8 @@ event volume several-fold for signal the tool hooks already carry. They are the
 one place any agent exposes per-inference latency, so revisit if model-level
 timing becomes a wanted metric — but do it deliberately, with volume in mind.
 
-`Notification` has no catalog counterpart.
+`Notification` has no catalog counterpart. It is registered anyway, for the
+local live bus alone (below): it sends nothing to the cloud.
 
 ## Quirks
 
@@ -56,7 +57,7 @@ It exists because four local features have no other input: the live gauges,
 the Away Mode keep-awake assertion (without it the Mac sleeps mid-work), the
 settle bell, and the paired handoff to the Waterline screen saver.
 
-The vocabulary is much smaller than the event catalog above — five values —
+The vocabulary is much smaller than the event catalog above — six values —
 and the app drops anything it cannot parse, so the mapping is deliberately
 partial and leading-edge. The signal reports `tool: "gemini_cli"`, this host's
 own name rather than the shared `cli_agent` tool type, because the app keys
@@ -71,12 +72,20 @@ adapters into one and under-count concurrency.
 | AfterTool (success or unknown) | *(silent — BeforeTool already counted the call)* |
 | PreCompress | `compaction` |
 | AfterAgent | `stop` |
+| Notification (`ToolPermission`) | `awaiting` — stopped at a confirmation dialog, waiting on the person |
 | SessionStart, SessionEnd | *(silent — the turn is the beat, not the CLI run)* |
-| BeforeModel, AfterModel, BeforeToolSelection, Notification | *(silent — per round trip)* |
+| BeforeModel, AfterModel, BeforeToolSelection | *(silent — per round trip)* |
+| Notification (any other type) | *(silent — not known to be a wait)* |
 
 Emission is additive and best-effort: it is abandoned after 50 ms, swallows
 every error, and a machine with no listener — which is most machines, and
 every CI runner — behaves exactly as it did before this existed.
+
+Each registered command ends `--hook-set 2`, and the signal carries it as
+`hookSet`, a positive integer read from the hook's own arguments (install
+provenance, P-D64.3). An install from before `Notification` was registered has no flag
+and sends no `awaiting`, and the app reads the missing field as set 1 and
+names the upgrade command: `npx @ascenda-one/gemini-hooks setup`.
 
 `SessionEnd` is silent on purpose: it lands immediately after the last
 `AfterAgent`, and a second `stop` would draw two session ends for one turn.
