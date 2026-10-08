@@ -154,8 +154,8 @@ export interface LiveBusSignal {
    */
   backgroundTasks?: number;
   /**
-   * Only meaningful on `halted`, and only when the host said the turn ended
-   * on an API error (Claude Code's `StopFailure`). A `halted` without it
+   * P-D64.1. Only meaningful on `halted`, and only when the host said the
+   * turn ended on an API error (Claude Code's `StopFailure`). A `halted` without it
    * means the turn was interrupted or ended without a `stop`.
    */
   errorKind?: LiveBusStopFailureKind;

@@ -78,3 +78,41 @@ test("StopFailure is halted, with a usage limit told apart from the rest", async
     { tool: "claude_code", session: "s3", event: "halted", errorKind: "error" }
   ]);
 });
+
+test("errorKind comes from the payload's error field, never from the message", async () => {
+  const [signal] = await linesFor([["StopFailure", {
+    session_id: "s1",
+    hook_event_name: "StopFailure",
+    error: "server_error",
+    last_assistant_message: "API Error: rate limit reached, usage limit hit",
+    error_details: { type: "rate_limit", message: "rate_limit" }
+  }]]);
+  assert.deepEqual(signal, { tool: "claude_code", session: "s1", event: "halted", errorKind: "error" });
+});
+
+test("an idle-prompt halted carries no errorKind", async () => {
+  const signals = await linesFor([
+    ["Notification", { session_id: "s1", hook_event_name: "Notification", notification_type: "idle_prompt", message: "Claude is waiting for your input", error: "rate_limit" }],
+    ["Notification", { session_id: "s2", hook_event_name: "Notification", message: "Claude is waiting for your input" }]
+  ]);
+  assert.deepEqual(signals, [
+    { tool: "claude_code", session: "s1", event: "halted" },
+    { tool: "claude_code", session: "s2", event: "halted" }
+  ]);
+});
+
+test("errorKind is always rate_limit or error, whatever the error field holds", async () => {
+  const errors = ["rate_limit", "RATE_LIMIT", "rate limit", "server_error", "authentication_failed", "", 429, null, { kind: "rate_limit" }, ["rate_limit"]];
+  const signals = await linesFor(errors.map((error, i) => ["StopFailure", { session_id: `s${i}`, hook_event_name: "StopFailure", error }]));
+  assert.equal(signals.length, errors.length);
+  for (const signal of signals) {
+    assert.equal(signal.event, "halted");
+    assert.ok(["rate_limit", "error"].includes(signal.errorKind), `unexpected errorKind ${JSON.stringify(signal.errorKind)}`);
+  }
+  assert.deepEqual(signals.map((s) => s.errorKind), ["rate_limit", ...Array(errors.length - 1).fill("error")]);
+});
+
+test("error \"unknown\" is an error, not a usage limit (P-D64.1)", async () => {
+  const [signal] = await linesFor([["StopFailure", { session_id: "s1", hook_event_name: "StopFailure", error: "unknown" }]]);
+  assert.deepEqual(signal, { tool: "claude_code", session: "s1", event: "halted", errorKind: "error" });
+});
