@@ -19,6 +19,8 @@ import { fileURLToPath } from "node:url";
 // still setting Ascenda up unable to reach them.
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/cli.js");
+// The set setup registers, which every registered command passes back.
+const { HOOK_SET } = await import("../dist/setup.js");
 
 function machine(name) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `ascenda-${name}-`));
@@ -188,7 +190,9 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
   await new Promise((resolve) => listener.listen(socket, resolve));
 
   const env = { ASCENDA_LIVE_BUS_SOCKET: socket };
-  const send = (hook, payload) => runAsync(m, [hook], { env, input: JSON.stringify({ session_id: "s-halt", cwd: m.project, ...payload }) });
+  // Run each hook as setup registered it, `--hook-set` included, so the keys
+  // checked below are the ones a real install sends.
+  const send = (hook, payload) => runAsync(m, [hook, "--hook-set", String(HOOK_SET)], { env, input: JSON.stringify({ session_id: "s-halt", cwd: m.project, ...payload }) });
   const results = [
     // An API error ends the turn: StopFailure fires instead of Stop.
     await send("StopFailure", { error: "rate_limit", last_assistant_message: "partial answer about AcmeCorp" }),
@@ -211,12 +215,19 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
   assert.deepEqual(signals.map((signal) => signal.event), ["halted", "halted", "halted", "awaiting"]);
   signals.forEach((signal, index) => {
     // Nothing from the payload rides along. `pid` is the agent process, and
-    // is present only when the suite runs under a `claude`. errorKind is the
-    // one reason field (P-D64.1, #452), and only on the StopFailure halted.
-    // resumesAt (P-D64.2) may ride with a rate_limit errorKind and nowhere
-    // else, and only as a whole number of seconds.
-    const { pid, errorKind, resumesAt, ...rest } = signal;
+    // is present only when the suite runs under a `claude`. `pidMatch` and
+    // `pidMarker` say which process it names, under an npm Claude Code, and
+    // only ride with it: identity fields, outside D64 (register v1.45, v1.46).
+    // errorKind is a reason field (P-D64.1, #452), and only on the
+    // StopFailure halted. resumesAt (P-D64.2) may ride with a rate_limit
+    // errorKind and nowhere else, and only as a whole number of seconds.
+    const { pid, pidMatch, pidMarker, errorKind, resumesAt, ...rest } = signal;
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    if (pidMatch !== undefined || pidMarker !== undefined) {
+      assert.ok(pid !== undefined, "pidMatch and pidMarker only ride with a pid");
+      assert.equal(pidMatch, "path");
+      assert.equal(pidMarker, "@anthropic-ai/claude-code");
+    }
     if (index === 0) {
       assert.ok(["rate_limit", "error"].includes(errorKind), `errorKind must be rate_limit or error, got ${errorKind}`);
       assert.equal(errorKind, "rate_limit", "StopFailure's halted says it was a usage limit");
@@ -226,7 +237,10 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
       assert.equal("errorKind" in signal, false, `only StopFailure's halted carries errorKind, not ${signal.event} #${index}`);
       assert.equal("resumesAt" in signal, false, `only StopFailure's halted carries resumesAt, not ${signal.event} #${index}`);
     }
-    assert.deepEqual(Object.keys(rest).sort(), ["event", "session", "tool"]);
+    // hookSet is the registration's own flag, the same on every event, and
+    // says nothing about the turn.
+    assert.equal(rest.hookSet, HOOK_SET);
+    assert.deepEqual(Object.keys(rest).sort(), ["event", "hookSet", "session", "tool"]);
     assert.equal(signal.session, "s-halt");
   });
   assert.ok(!received.join("").includes("AcmeCorp"), "the last assistant message leaked onto the bus");
