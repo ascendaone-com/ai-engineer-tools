@@ -213,13 +213,19 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
     // Nothing from the payload rides along. `pid` is the agent process, and
     // is present only when the suite runs under a `claude`. errorKind is the
     // one reason field (P-D64.1, #452), and only on the StopFailure halted.
-    const { pid, errorKind, ...rest } = signal;
+    // resumesAt (P-D64.2) may ride with a rate_limit errorKind and nowhere
+    // else, and only as a whole number of seconds.
+    const { pid, errorKind, resumesAt, ...rest } = signal;
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
     if (index === 0) {
       assert.ok(["rate_limit", "error"].includes(errorKind), `errorKind must be rate_limit or error, got ${errorKind}`);
       assert.equal(errorKind, "rate_limit", "StopFailure's halted says it was a usage limit");
+      assert.ok(resumesAt === undefined || Number.isInteger(resumesAt), `resumesAt must be absent or epoch seconds, got ${resumesAt}`);
     }
-    else assert.equal("errorKind" in signal, false, `only StopFailure's halted carries errorKind, not ${signal.event} #${index}`);
+    else {
+      assert.equal("errorKind" in signal, false, `only StopFailure's halted carries errorKind, not ${signal.event} #${index}`);
+      assert.equal("resumesAt" in signal, false, `only StopFailure's halted carries resumesAt, not ${signal.event} #${index}`);
+    }
     assert.deepEqual(Object.keys(rest).sort(), ["event", "session", "tool"]);
     assert.equal(signal.session, "s-halt");
   });

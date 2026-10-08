@@ -33,6 +33,7 @@ import {
 import type { CollectorState, DisclosureFamily, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { liveEventFor } from "./liveEvent.js";
+import { autoContinueEnabled, resumesAtFor } from "./usageLimitReset.js";
 import {
   MissingInstallationIdError,
   envOverride,
@@ -479,11 +480,17 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
 
     const backgroundTasks = event === "stop" ? countBackgroundTasks(input) : undefined;
     // Only StopFailure says why (P-D64.1). Read from the payload's `error`
-    // field alone, never last_assistant_message or error_details: `rate_limit` is a usage limit
+    // field alone, never the message: `rate_limit` is a usage limit
     // and anything else, missing included, is `error`. A `halted` from the
     // idle prompt carries no errorKind.
     const errorKind = hookName === "StopFailure" && event === "halted"
       ? (getString(input, ["error"]) === "rate_limit" ? "rate_limit" : "error")
+      : undefined;
+    // When a usage limit lifts and Claude Code will carry on by itself
+    // (P-D64.2). The time is only in the message, so this is the one place
+    // the hook reads it, in memory; just the number goes on the wire.
+    const resumesAt = errorKind === "rate_limit"
+      ? usageLimitResumesAt(input)
       : undefined;
 
     // The `claude` process itself. Its session id changes on /clear,
@@ -507,11 +514,35 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
       ...(queued !== undefined ? { queued } : {}),
       ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
-      ...(errorKind !== undefined ? { errorKind } : {})
+      ...(errorKind !== undefined ? { errorKind } : {}),
+      ...(resumesAt !== undefined ? { resumesAt } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.
   }
+}
+
+/**
+ * The `resumesAt` for a rate-limited StopFailure, or undefined. Only when
+ * `autoContinueAtUsageLimit` is on, because otherwise nothing happens at the
+ * reset and there's nothing to wait for; and only for a reset within six
+ * hours, which leaves weekly limits out.
+ */
+function usageLimitResumesAt(input: ClaudeHookInput): number | undefined {
+  const projectDir = process.env.CLAUDE_PROJECT_DIR ?? getString(input, ["cwd"]);
+  if (!autoContinueEnabled({ projectDir })) return undefined;
+  const now = new Date();
+  // error_details is a string on some builds and { type, message } on others.
+  const texts = [
+    getString(input, ["error_details"]),
+    getNestedString(input, [["error_details", "message"]]),
+    getString(input, ["last_assistant_message"])
+  ];
+  for (const text of texts) {
+    const at = resumesAtFor(text, now);
+    if (at !== undefined) return at;
+  }
+  return undefined;
 }
 
 /**

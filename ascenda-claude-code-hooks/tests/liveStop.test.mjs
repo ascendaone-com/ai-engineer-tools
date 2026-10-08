@@ -23,7 +23,7 @@ function runHook(hook, payload, env) {
   });
 }
 
-async function linesFor(runs) {
+async function linesFor(runs, settings) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-livestop-"));
   const socket = path.join(root, "live.sock");
   const received = [];
@@ -31,7 +31,19 @@ async function linesFor(runs) {
     connection.on("data", (chunk) => received.push(...String(chunk).trim().split("\n")));
   });
   await new Promise((resolve) => listener.listen(socket, resolve));
-  const env = { HOME: root, ASCENDA_HOME: path.join(root, ".ascenda"), ASCENDA_LIVE_BUS_SOCKET: socket };
+  // Claude Code settings come only from this temporary home: no managed
+  // file, and no project, so the developer's own auto-continue can't leak in.
+  const env = {
+    HOME: root,
+    ASCENDA_HOME: path.join(root, ".ascenda"),
+    ASCENDA_LIVE_BUS_SOCKET: socket,
+    ASCENDA_CLAUDE_MANAGED_SETTINGS: path.join(root, "no-managed-settings.json"),
+    CLAUDE_PROJECT_DIR: root
+  };
+  if (settings) {
+    fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+    fs.writeFileSync(path.join(root, ".claude", "settings.json"), JSON.stringify(settings));
+  }
   for (const [hook, payload] of runs) assert.equal(await runHook(hook, payload, env), 0);
   await new Promise((resolve) => listener.close(resolve));
   fs.rmSync(root, { recursive: true, force: true });
@@ -115,4 +127,40 @@ test("errorKind is always rate_limit or error, whatever the error field holds", 
 test("error \"unknown\" is an error, not a usage limit (P-D64.1)", async () => {
   const [signal] = await linesFor([["StopFailure", { session_id: "s1", hook_event_name: "StopFailure", error: "unknown" }]]);
   assert.deepEqual(signal, { tool: "claude_code", session: "s1", event: "halted", errorKind: "error" });
+});
+
+// A reset two hours from now, written the way Claude Code writes it, in UTC.
+function resetInTwoHours() {
+  const at = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const hour = at.getUTCHours();
+  const minute = String(at.getUTCMinutes()).padStart(2, "0");
+  const clock = `${hour % 12 === 0 ? 12 : hour % 12}:${minute}${hour < 12 ? "am" : "pm"}`;
+  const expected = Math.round(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate(), hour, at.getUTCMinutes()) / 60_000) * 60;
+  return { text: `You've hit your limit · resets ${clock} (UTC)`, expected };
+}
+
+test("a usage limit says when it resets, when Claude Code will carry on by itself (P-D64.2)", async () => {
+  const { text, expected } = resetInTwoHours();
+  const signals = await linesFor([
+    ["StopFailure", { session_id: "s1", hook_event_name: "StopFailure", error: "rate_limit", last_assistant_message: text }],
+    ["StopFailure", { session_id: "s2", hook_event_name: "StopFailure", error: "rate_limit", error_details: { type: "rate_limit", message: text } }],
+    // Not a usage limit: the reset text is never read.
+    ["StopFailure", { session_id: "s3", hook_event_name: "StopFailure", error: "server_error", last_assistant_message: text }]
+  ], { autoContinueAtUsageLimit: true });
+  assert.deepEqual(signals, [
+    { tool: "claude_code", session: "s1", event: "halted", errorKind: "rate_limit", resumesAt: expected },
+    { tool: "claude_code", session: "s2", event: "halted", errorKind: "rate_limit", resumesAt: expected },
+    { tool: "claude_code", session: "s3", event: "halted", errorKind: "error" }
+  ]);
+  assert.ok(!JSON.stringify(signals).includes("hit your limit"), "the message itself never reaches the bus");
+});
+
+test("without auto-continue a usage limit has no reset to wait for", async () => {
+  const { text } = resetInTwoHours();
+  const [off, unset] = await Promise.all([
+    linesFor([["StopFailure", { session_id: "s1", error: "rate_limit", last_assistant_message: text }]], { autoContinueAtUsageLimit: false }),
+    linesFor([["StopFailure", { session_id: "s2", error: "rate_limit", last_assistant_message: text }]])
+  ]);
+  assert.deepEqual(off, [{ tool: "claude_code", session: "s1", event: "halted", errorKind: "rate_limit" }]);
+  assert.deepEqual(unset, [{ tool: "claude_code", session: "s2", event: "halted", errorKind: "rate_limit" }]);
 });

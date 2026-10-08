@@ -47,6 +47,14 @@ the events above. Three hook moments end a turn there:
 - `StopFailure` fires in place of `Stop` when the turn ends on an API error. It
   sends `halted` with `errorKind`: `rate_limit` for a usage limit, `error`
   for everything else. The app shows the session as stopped, not done.
+  A usage limit can also carry `resumesAt` (P-D64.2): when the limit lifts,
+  in epoch seconds on the minute. It's sent only when
+  `autoContinueAtUsageLimit` is on (managed, then project-local, then
+  project, then user settings, first one that sets it wins) and the reset
+  is no more than six hours away. The time is read from the reset clause of
+  `error_details` or `last_assistant_message` ("resets 4:30pm
+  (Asia/Nicosia)"), in memory. Only the number goes on the bus. A sentence
+  the parser can't read sends nothing.
 - The idle-prompt `Notification` ("waiting for your input") also sends
   `halted`, with no `errorKind`. Pressing Esc runs no hook, so an interrupted
   turn never sends `stop`, and the idle prompt is the first thing that fires

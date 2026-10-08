@@ -159,6 +159,14 @@ export interface LiveBusSignal {
    * means the turn was interrupted or ended without a `stop`.
    */
   errorKind?: LiveBusStopFailureKind;
+  /**
+   * P-D64.2. When a usage limit lifts and the agent will carry on by
+   * itself, in epoch seconds on the minute. Only on a `halted` whose
+   * `errorKind` is `rate_limit`, only when the agent is set to continue at
+   * the reset, and only for a reset within six hours. Absent means the app
+   * has no reset to wait for. Display and keep-awake state only.
+   */
+  resumesAt?: number;
 }
 
 /** The desktop app's bundle id, for the sandbox container path below. */
