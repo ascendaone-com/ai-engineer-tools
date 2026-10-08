@@ -148,7 +148,7 @@ export interface LiveBusSignal {
    * event of a stream, `halted` included, and never vary by event. They
    * don't enter the stream key and say nothing about why a turn ended, so
    * a guard on a signal's keys sets them aside with `pid` (register
-   * v1.45, P-D64.1 clause 4). The app drops `pid` when it can't check one
+   * v1.46, P-D64.1 clause 4). The app drops `pid` when it can't check one
    * of these, and the stream falls back to its session.
    */
   pidMatch?: "path";

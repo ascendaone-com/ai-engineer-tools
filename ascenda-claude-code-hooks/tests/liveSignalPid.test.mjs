@@ -109,7 +109,7 @@ test("a stop carries the claude process's pid alongside its backgroundTasks", on
 
 // An npm Claude Code runs as `node`, named by its install path. The fields
 // that say so are identity, like pid: errorKind stays the halted's only
-// reason (register v1.45).
+// reason (register v1.46).
 test("an npm Claude Code's halted carries its pid and how it was found", onMac, async () => {
   const { lines, pid } = await underClaude(
     "StopFailure",
