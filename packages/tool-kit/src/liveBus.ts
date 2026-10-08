@@ -186,14 +186,6 @@ export interface LiveBusSignal {
    */
   hookSet?: number;
   /**
-   * The hook ran from the Claude Code plugin rather than a `setup` install.
-   * Claude Code exports `CLAUDE_PLUGIN_ROOT` to plugin hooks and to no
-   * others. The app needs it to name the right upgrade: a plugin install
-   * updates the plugin, and running `setup` beside it registers every hook
-   * twice. Absent means a `setup` install, or a hook too old to say.
-   */
-  viaPlugin?: boolean;
-  /**
    * P-D64.1. Only meaningful on `halted`, and only when the host said the
    * turn ended on an API error (Claude Code's `StopFailure`). A `halted` without it
    * means the turn was interrupted or ended without a `stop`.

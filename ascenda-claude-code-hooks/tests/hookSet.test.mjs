@@ -117,7 +117,7 @@ test("setup says so when the other scope registers the same hooks", () => {
 });
 
 /** Runs one hook with `args` and returns what reached the live socket. */
-async function signalsFrom(args, payload, env = {}) {
+async function signalsFrom(args, payload) {
   const root = fs.mkdtempSync("/tmp/asc-hs-");
   const socket = path.join(root, "l.sock");
   const lines = [];
@@ -128,7 +128,7 @@ async function signalsFrom(args, payload, env = {}) {
   await new Promise((resolve) => server.listen(socket, resolve));
   try {
     const child = spawn("node", [CLI, ...args], {
-      env: { ...process.env, HOME: root, ASCENDA_HOME: root, ASCENDA_LIVE_BUS_SOCKET: socket, ASCENDA_LOCAL_ONLY: "1", CLAUDE_PLUGIN_ROOT: "", ...env },
+      env: { ...process.env, HOME: root, ASCENDA_HOME: root, ASCENDA_LIVE_BUS_SOCKET: socket, ASCENDA_LOCAL_ONLY: "1" },
       stdio: ["pipe", "ignore", "ignore"]
     });
     child.stdin.end(JSON.stringify(payload));
@@ -152,12 +152,4 @@ test("an unflagged registration sends no set, which the app reads as set 1", asy
   const lines = await signalsFrom(["PreToolUse"], { session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } });
   assert.equal(lines.length, 1);
   assert.equal("hookSet" in lines[0], false);
-});
-
-test("a plugin hook says so, and a setup hook doesn't", async () => {
-  const payload = { session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } };
-  const plugin = await signalsFrom(["PreToolUse"], payload, { CLAUDE_PLUGIN_ROOT: "/p/ascenda" });
-  assert.equal(plugin[0].viaPlugin, true, "the app names a plugin update for this one, not setup");
-  const installed = await signalsFrom(["PreToolUse", "--hook-set", "2"], payload);
-  assert.equal("viaPlugin" in installed[0], false);
 });
