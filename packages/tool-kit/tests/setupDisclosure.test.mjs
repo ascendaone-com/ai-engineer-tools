@@ -58,7 +58,7 @@ function familyOf(key) {
 
 const ADAPTERS = [
   {
-    spec: { displayName: "Claude Code", sends: ["model", "posture", "git", "edits", "waiting"] },
+    spec: { displayName: "Claude Code", sends: ["model", "posture", "git", "edits", "waiting", "subagents"] },
     emit: () => [
       ["SessionStart", { source: "startup", model: "claude-opus-5", permission_mode: "acceptEdits", cwd: CWD }],
       ["UserPromptSubmit", { prompt: "that is wrong, try again", permission_mode: "default", cwd: CWD }],
@@ -71,7 +71,9 @@ const ADAPTERS = [
       ["PreCompact", { trigger: "auto", cwd: CWD }],
       ["Stop", { cwd: CWD }],
       ["Notification", { message: "Claude needs your permission to use Bash", cwd: CWD }],
-      ["SessionEnd", { reason: "prompt_input_exit", cwd: CWD }]
+      ["SessionEnd", { reason: "prompt_input_exit", cwd: CWD }],
+      ["SubagentStart", { agent_id: "agent-abc123", agent_type: "Explore", cwd: CWD }],
+      ["SubagentStop", { agent_id: "agent-abc123", agent_type: "Explore", last_assistant_message: "done", cwd: CWD }]
     ].flatMap(([hook, input]) => mapClaudeEvent(hook, input))
   },
   {

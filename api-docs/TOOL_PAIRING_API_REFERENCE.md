@@ -197,6 +197,8 @@ The same registry is used across ingest, aggregate writing, and telemetry report
 | context_compression_auto | neutral |
 | editor_activity | neutral |
 | ai_turn_completed | neutral |
+| subagent_started | neutral |
+| subagent_stopped | neutral |
 | approach_churn_detected | risk |
 | goal_drift_detected | risk |
 | progress_stalled | risk |

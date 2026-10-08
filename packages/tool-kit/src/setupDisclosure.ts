@@ -61,6 +61,7 @@ export const FAMILY_SENTENCES: Readonly<Record<DisclosureFamily, string>> = {
   edits: "roughly how much a file changed, as a bucket, and whether you edited it after the agent wrote it",
   context: "how full the context window got",
   waiting: "that your agent stopped and waited for you, as one word: permission_request, idle_prompt, or other",
+  subagents: "when a subagent starts and stops, the id your agent gives it, and whether it was built in, from a plugin or one you defined — never its name or what it was asked",
   reading: "what the reader could not make sense of — lines it failed to parse, files it could not open, and prompts it judged machine-written rather than typed"
 };
 

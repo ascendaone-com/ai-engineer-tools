@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyAutonomyMode, classifyModelClass, classifySessionEndReason, isNewSessionStart, mapClaudeEvent } from "../dist/mapClaudeEvent.js";
+import { classifyAutonomyMode, classifyModelClass, classifySessionEndReason, classifySubagentType, isNewSessionStart, mapClaudeEvent, readSubagentId } from "../dist/mapClaudeEvent.js";
 
 // ── Real payload shapes ────────────────────────────────────────────────────
 //
@@ -735,4 +735,83 @@ test("runtime: every event says local unless Claude Code says it is hosted", () 
     if (saved === undefined) delete process.env.CLAUDE_CODE_REMOTE;
     else process.env.CLAUDE_CODE_REMOTE = saved;
   }
+});
+
+// ── Subagents ──────────────────────────────────────────────────────────────
+//
+// Shapes from Claude Code's hooks reference (checked 8 Oct 2026): both hooks
+// carry `agent_id` and `agent_type`; the stop adds `agent_transcript_path`
+// and `last_assistant_message`.
+
+test("SubagentStart maps to subagent_started with the id and the class", () => {
+  const [event, ...rest] = mapClaudeEvent("SubagentStart", { session_id: "s1", agent_id: "agent-abc123", agent_type: "Explore" });
+  assert.equal(rest.length, 0);
+  assert.equal(event.eventType, "subagent_started");
+  assert.equal(event.severity, "low");
+  assert.equal(event.metadata.subagentId, "agent-abc123");
+  assert.equal(event.metadata.subagentClass, "explore");
+});
+
+test("SubagentStop maps to subagent_stopped and reads neither the message nor the transcript path", () => {
+  const [event] = mapClaudeEvent("SubagentStop", {
+    session_id: "s1",
+    agent_id: "def456",
+    agent_type: "my-plugin:reviewer",
+    stop_hook_active: false,
+    agent_transcript_path: "/Users/x/.claude/projects/p/s1/subagents/agent-def456.jsonl",
+    last_assistant_message: "Analysis complete. Found 3 potential issues"
+  });
+  assert.equal(event.eventType, "subagent_stopped");
+  assert.equal(event.metadata.subagentId, "def456");
+  assert.equal(event.metadata.subagentClass, "plugin");
+  const wire = JSON.stringify(event);
+  assert.ok(!wire.includes("Analysis complete"));
+  assert.ok(!wire.includes("subagents/"));
+  assert.ok(!wire.includes("reviewer"));
+});
+
+test("subagentClass is omitted when the payload has no agent_type, and unknown when it isn't a string", () => {
+  assert.equal("subagentClass" in mapClaudeEvent("SubagentStart", { agent_id: "a1" })[0].metadata, false);
+  assert.equal(mapClaudeEvent("SubagentStart", { agent_id: "a1", agent_type: 7 })[0].metadata.subagentClass, "unknown");
+});
+
+test("classifySubagentType is total and never returns any part of a name", () => {
+  const cases = [
+    ["general-purpose", "general_purpose"],
+    ["Explore", "explore"],
+    [" Plan ", "plan"],
+    ["statusline-setup", "statusline_setup"],
+    ["claude-code-guide", "claude_code_guide"],
+    ["my-plugin:reviewer", "plugin"],
+    ["acme-billing-auditor", "custom"],
+    ["", "none"],
+    ["   ", "none"],
+    [null, "unknown"],
+    [42, "unknown"],
+    [{ name: "Explore" }, "unknown"]
+  ];
+  const allowed = new Set(["general_purpose", "explore", "plan", "statusline_setup", "claude_code_guide", "plugin", "custom", "none", "unknown"]);
+  for (const [input, expected] of cases) {
+    const got = classifySubagentType(input);
+    assert.equal(got, expected, JSON.stringify(input));
+    assert.ok(allowed.has(got));
+  }
+});
+
+test("readSubagentId keeps an id and drops anything that isn't one", () => {
+  assert.equal(readSubagentId({ agent_id: "agent-abc123" }), "agent-abc123");
+  assert.equal(readSubagentId({ agent_id: " def_456 " }), "def_456");
+  assert.equal(readSubagentId({}), undefined);
+  assert.equal(readSubagentId({ agent_id: "" }), undefined);
+  assert.equal(readSubagentId({ agent_id: 12 }), undefined);
+  assert.equal(readSubagentId({ agent_id: "/Users/me/secret plan.md" }), undefined);
+  assert.equal(readSubagentId({ agent_id: "a".repeat(129) }), undefined);
+});
+
+test("an event fired inside a subagent carries its subagentId; one outside carries none", () => {
+  const inside = mapClaudeEvent("PreToolUse", { tool_name: "Read", agent_id: "agent-abc123", agent_type: "Explore" })[0];
+  assert.equal(inside.metadata.subagentId, "agent-abc123");
+  assert.equal("subagentClass" in inside.metadata, false, "the class rides only the start and stop");
+  const outside = mapClaudeEvent("PreToolUse", { tool_name: "Read", agent_type: "my-session-agent" })[0];
+  assert.equal("subagentId" in outside.metadata, false);
 });

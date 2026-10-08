@@ -41,8 +41,13 @@ import { ASCENDA_TOOL_TYPE } from "./types.js";
  * Claude Code gives these hooks by default. It gets the same 5s timeout as
  * the rest anyway: Node's startup, or npx resolving the package on the plugin
  * channel, can eat most of 1.5s on a slow machine.
+ *
+ * `SubagentStart` and `SubagentStop` mark a subagent's span under its parent
+ * session. They're registered with no matcher, so every agent type fires them,
+ * including the empty type Claude Code's internal agents stop with. Their rate
+ * is one pair per subagent run, well below tool volume.
  */
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd"] as const;
+const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd", "SubagentStart", "SubagentStop"] as const;
 
 /**
  * Claude Code's default timeout for `command` hooks is 600s. Telemetry that
@@ -61,12 +66,13 @@ const HOOK_MARKER = "ascenda-claude-hook";
  * its mapper actually writes: `modelId`/`modelClass` on SessionStart, the
  * `autonomyMode` posture on most events, `gitAction` and `milestoneKind` off a
  * recognised bash command, `linesChangedBucket` and `userModified` on a file
- * write, and `interruptionKind` on a Notification.
+ * write, `interruptionKind` on a Notification, and `subagentId` and
+ * `subagentClass` on a subagent's start and stop.
  *
  * It omits `context` deliberately: compaction and pressure events are sent,
  * but no occupancy figure rides them, and the context line would claim one.
  */
-export const SENDS: readonly DisclosureFamily[] = ["model", "posture", "git", "edits", "waiting"];
+export const SENDS: readonly DisclosureFamily[] = ["model", "posture", "git", "edits", "waiting", "subagents"];
 
 type Scope = "project" | "user";
 

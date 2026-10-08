@@ -10,6 +10,23 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.33
+
+### Claude Code's subagents are counted
+
+- **Each subagent sends a start and a stop.** Claude Code's `SubagentStart` and
+  `SubagentStop` hooks are registered, and each sends Claude Code's id for the
+  subagent under the session that spawned it. That's how Ascenda can tell how
+  many agents you had running at once. A session that fans out to eight
+  subagents used to count as one.
+- **Its name stays on your machine.** A subagent you defined is sent as
+  `custom`, and one from a plugin as `plugin`. Built-in agents like `Explore`
+  and `Plan` are sent by name. What a subagent was asked and what it said back
+  are never read.
+- Tool calls made inside a subagent carry its id too.
+- `setup` and `pair` list subagents among what's sent. Re-run `setup` to pick
+  up the two new hooks, or update the plugin. `status` now counts thirteen.
+
 ## v0.1.32
 
 ### The Flow app hears when a turn stops early

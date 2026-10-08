@@ -96,7 +96,7 @@ test("--no-pair installs the hooks and records an installation with no pairing",
   assert.match(result.stdout, /active\s+the session prompts/);
 
   assert.ok(fs.existsSync(m.binary()), "the hook binary is installed");
-  assert.equal(registeredEvents(m.userSettings()).length, 11);
+  assert.equal(registeredEvents(m.userSettings()).length, 13);
 
   const credentials = m.credentials();
   assert.match(credentials.toolInstallationId, /^claude_code:/);
@@ -118,7 +118,7 @@ test("--no-pairing is accepted too, and the disclosure says it applies once pair
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(m.credentials().localOnly, true);
-  assert.equal(registeredEvents(m.userSettings()).length, 11);
+  assert.equal(registeredEvents(m.userSettings()).length, 13);
 
   // The pairing disclosure still prints — someone choosing to stay local is
   // entitled to know what pairing would cost — but it is framed as what
@@ -136,7 +136,7 @@ test("a pairing that cannot reach the backend still finishes the install", async
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /pairing\s+none — could not reach/);
   assert.match(result.stdout, /Installed, not paired\./);
-  assert.equal(registeredEvents(m.projectSettings()).length, 11);
+  assert.equal(registeredEvents(m.projectSettings()).length, 13);
   assert.equal(m.credentials().localOnly, true);
   m.cleanup();
 });
@@ -246,7 +246,7 @@ test("status reports an unpaired install as installed, and exits 0", () => {
   assert.match(here.stdout, /pairing\s+claude_code:\S+ \(not paired, installed /);
   assert.match(here.stdout, /delivery\s+inactive/);
   assert.match(here.stdout, /local features active/);
-  assert.match(here.stdout, /hooks\s+11\/11 registered/);
+  assert.match(here.stdout, /hooks\s+13\/13 registered/);
   assert.match(here.stdout, /^version {8}(unreleased \(built from a checkout, not a release\)|\d+\.\d+\.\d+)$/m, "status names the running build");
 
   // The scope trap: `status` defaults to --scope project while this machine
@@ -254,7 +254,7 @@ test("status reports an unpaired install as installed, and exits 0", () => {
   // hooks found there answer the question and the install is not broken.
   const fromProject = run(m, ["status"], { cwd: m.project, env: { CLAUDE_PROJECT_DIR: m.project } });
   assert.equal(fromProject.status, 0, "hooks in the user file cover this project too");
-  assert.match(fromProject.stdout, /11\/11 found in .*settings\.json \(--scope user\)/);
+  assert.match(fromProject.stdout, /13\/13 found in .*settings\.json \(--scope user\)/);
   m.cleanup();
 });
 
