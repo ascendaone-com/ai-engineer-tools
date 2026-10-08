@@ -41,7 +41,24 @@ export interface AgentProcessRule {
   executable(command: string): boolean;
   /** A second look at the arguments, for binaries that also run as a server. */
   args?(args: string): boolean;
+  /**
+   * Install-path markers for a CLI that runs as a script under `node`, `bun`
+   * or `deno`. A runtime ancestor counts when its arguments contain one
+   * between slashes, as in `node /opt/homebrew/lib/node_modules/@google/gemini-cli/bundle/gemini.js`.
+   */
+  scriptMarkers?: readonly string[];
 }
+
+/**
+ * How a PID was found, so the app can check it the same way.
+ *
+ * `executable` is the agent's own binary. `path` is a script runtime, and
+ * `marker` is the install path its arguments contained: the executable alone
+ * says "some node process", which a recycled PID could also be.
+ */
+export type AgentProcessMatch =
+  | { pid: number; match: "executable" }
+  | { pid: number; match: "path"; marker: string };
 
 /**
  * Which executables count as an agent CLI, per live-bus tool name.
@@ -54,6 +71,15 @@ export interface AgentProcessRule {
  *    `claude.app/Contents/MacOS/claude`) or as the native installer's
  *    `~/.local/share/claude/versions/<version>`, whose basename is a version
  *    number.
+ *  - Claude Code from npm execs the native binary its postinstall copied to
+ *    `@anthropic-ai/claude-code/bin/claude.exe`, `claude` through npm's bin
+ *    link. Releases before the native binary ran `cli.js` under `node`,
+ *    which is what the script marker is for.
+ *  - Gemini CLI runs `@google/gemini-cli/bundle/gemini.js` under `node`, and
+ *    relaunches itself once with a bigger heap. The child runs the
+ *    conversation and is the nearer ancestor. `--acp` (and the older
+ *    `--experimental-acp`) serves editor sessions over one process, so it
+ *    isn't named.
  *  - Codex runs as `codex`, or as `codex-aarch64-apple-darwin` once
  *    Homebrew's symlink is resolved. The same binary serves `app-server` and
  *    `mcp-server` for editor integrations, and those host many threads.
@@ -68,13 +94,35 @@ export interface AgentProcessRule {
 export const AGENT_PROCESS: Readonly<Record<string, AgentProcessRule>> = {
   claude_code: {
     executable: (command) =>
-      path.basename(command) === "claude" || /\/claude\/versions\/[^/]+$/.test(command)
+      path.basename(command) === "claude" ||
+      /\/claude\/versions\/[^/]+$/.test(command) ||
+      /\/@anthropic-ai\/claude-code\/bin\/claude\.exe$/.test(command),
+    scriptMarkers: ["@anthropic-ai/claude-code"]
   },
   codex: {
     executable: (command) => /^codex(-(aarch64|x86_64)-apple-darwin)?$/.test(path.basename(command)),
     args: (args) => !/\s(app-server|mcp-server)(\s|$)/.test(args)
+  },
+  gemini_cli: {
+    executable: () => false,
+    args: (args) => !/\s--(experimental-)?acp(\s|=|$)/.test(args),
+    scriptMarkers: ["@google/gemini-cli"]
   }
 };
+
+/** Runtimes a CLI may run under as a script. Their path names no agent. */
+const SCRIPT_RUNTIME = /^(node|bun|deno)$/;
+
+/**
+ * The first of `markers` that appears between slashes in `args`.
+ *
+ * The slashes keep `@anthropic-ai/claude-code` from matching the
+ * `ascenda-claude-code-hooks` path in a hook's own command line, or a
+ * sibling package like `@anthropic-ai/claude-code-darwin-arm64`.
+ */
+export function scriptMarkerIn(args: string, markers: readonly string[]): string | undefined {
+  return markers.find((marker) => args.includes(`/${marker}/`));
+}
 
 /** Enough levels for `claude → sh → npm exec → sh → node`, with room to spare. */
 const MAX_DEPTH = 6;
@@ -121,25 +169,63 @@ export interface FindAgentPidOptions {
  * when `ps` fails, or off macOS. The nearest match wins, so a `claude`
  * started from inside another `claude`'s shell names the inner one. Never
  * throws.
+ *
+ * The hook's own process is never a candidate. Its command line names the
+ * hook package, and a walk that started there could match on that.
  */
-export function findAgentPid(rule: AgentProcessRule | undefined, options: FindAgentPidOptions = {}): number | undefined {
+export function findAgentProcess(
+  rule: AgentProcessRule | undefined,
+  options: FindAgentPidOptions = {}
+): AgentProcessMatch | undefined {
   if (!rule) return undefined;
   if ((options.platform ?? process.platform) !== "darwin") return undefined;
   const lookup = options.lookup ?? psLookup;
   const argsLookup = options.argsLookup ?? psArgsLookup;
+  const markers = rule.scriptMarkers ?? [];
 
   let pid = options.startPid ?? process.ppid;
   for (let depth = 0; depth < MAX_DEPTH && pid > 1; depth++) {
     const info = lookup(pid);
     if (!info) return undefined;
-    if (rule.executable(info.command)) {
-      if (!rule.args) return pid;
-      const args = argsLookup(pid);
-      // A matching binary we can't read the arguments of may be the server
-      // shape, so it isn't named.
-      return args !== undefined && rule.args(args) ? pid : undefined;
+    if (pid !== process.pid) {
+      if (rule.executable(info.command)) {
+        // A matching binary we can't read the arguments of may be the
+        // server shape, so it isn't named.
+        return accepts(rule, rule.args ? argsLookup(pid) : "") ? { pid, match: "executable" } : undefined;
+      }
+      if (markers.length > 0 && SCRIPT_RUNTIME.test(path.basename(info.command))) {
+        const args = argsLookup(pid);
+        const marker = args === undefined ? undefined : scriptMarkerIn(args, markers);
+        // A runtime running something else is a wrapper, and the walk
+        // carries on past it.
+        if (marker !== undefined) {
+          return accepts(rule, args) ? { pid, match: "path", marker } : undefined;
+        }
+      }
     }
     pid = info.ppid;
   }
   return undefined;
+}
+
+function accepts(rule: AgentProcessRule, args: string | undefined): boolean {
+  if (!rule.args) return true;
+  return args !== undefined && rule.args(args);
+}
+
+/** {@link findAgentProcess}, for a caller that only wants the number. */
+export function findAgentPid(rule: AgentProcessRule | undefined, options: FindAgentPidOptions = {}): number | undefined {
+  return findAgentProcess(rule, options)?.pid;
+}
+
+/**
+ * The live-bus fields for a match: `pid`, plus `pidMatch` and `pidMarker`
+ * when it was a path match. Empty when there's no match.
+ */
+export function livePidFields(
+  match: AgentProcessMatch | undefined
+): { pid?: number; pidMatch?: "path"; pidMarker?: string } {
+  if (!match) return {};
+  if (match.match === "executable") return { pid: match.pid };
+  return { pid: match.pid, pidMatch: "path", pidMarker: match.marker };
 }
