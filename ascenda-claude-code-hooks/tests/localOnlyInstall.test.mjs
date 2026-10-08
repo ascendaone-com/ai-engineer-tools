@@ -211,10 +211,11 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
   assert.deepEqual(signals.map((signal) => signal.event), ["halted", "halted", "halted", "awaiting"]);
   for (const signal of signals) {
     // Nothing from the payload rides along. `pid` is the agent process, and
-    // is present only when the suite runs under a `claude`, so it's the one
-    // key allowed beyond these three.
-    const { pid, ...rest } = signal;
+    // is present only when the suite runs under a `claude`. StopFailure's
+    // errorKind is the one reason field.
+    const { pid, errorKind, ...rest } = signal;
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    assert.ok(errorKind === undefined || errorKind === "rate_limit" || errorKind === "error");
     assert.deepEqual(Object.keys(rest).sort(), ["event", "session", "tool"]);
     assert.equal(signal.session, "s-halt");
   }

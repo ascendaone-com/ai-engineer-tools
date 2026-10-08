@@ -478,6 +478,11 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     const queued = promptSource === undefined ? undefined : promptSource === "queued";
 
     const backgroundTasks = event === "stop" ? countBackgroundTasks(input) : undefined;
+    // Only StopFailure says why. A `halted` from the idle prompt carries no
+    // errorKind: the turn was interrupted or ended without a Stop.
+    const errorKind = hookName === "StopFailure"
+      ? (getString(input, ["error"]) === "rate_limit" ? "rate_limit" : "error")
+      : undefined;
 
     // The `claude` process itself. Its session id changes on /clear,
     // /compact and resume while the process carries on, so the app keys the
@@ -499,7 +504,8 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       event,
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
       ...(queued !== undefined ? { queued } : {}),
-      ...(backgroundTasks !== undefined ? { backgroundTasks } : {})
+      ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
+      ...(errorKind !== undefined ? { errorKind } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.
