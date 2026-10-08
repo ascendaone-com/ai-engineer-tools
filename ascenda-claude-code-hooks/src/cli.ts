@@ -491,6 +491,9 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     // install that predates StopFailure. Absent on an unflagged one, which
     // the app reads as set 1.
     const hookSet = readHookSet(process.argv);
+    // Claude Code exports this to plugin hooks only. It tells the app to
+    // name a plugin update, not `setup`, for an out-of-date set.
+    const viaPlugin = Boolean(process.env.CLAUDE_PLUGIN_ROOT);
 
     await emitLiveSignal({
       tool: process.env.ASCENDA_TOOL_TYPE ?? "claude_code",
@@ -506,7 +509,8 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       ...(prompt !== undefined ? { sizeBucket: bucketPromptSize(prompt) } : {}),
       ...(queued !== undefined ? { queued } : {}),
       ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
-      ...(hookSet !== undefined ? { hookSet } : {})
+      ...(hookSet !== undefined ? { hookSet } : {}),
+      ...(viaPlugin ? { viaPlugin } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.

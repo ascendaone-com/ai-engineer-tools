@@ -154,6 +154,14 @@ export interface LiveBusSignal {
    * nothing at all for the rest.
    */
   hookSet?: number;
+  /**
+   * The hook ran from the Claude Code plugin rather than a `setup` install.
+   * Claude Code exports `CLAUDE_PLUGIN_ROOT` to plugin hooks and to no
+   * others. The app needs it to name the right upgrade: a plugin install
+   * updates the plugin, and running `setup` beside it registers every hook
+   * twice. Absent means a `setup` install, or a hook too old to say.
+   */
+  viaPlugin?: boolean;
 }
 
 /** The desktop app's bundle id, for the sandbox container path below. */
