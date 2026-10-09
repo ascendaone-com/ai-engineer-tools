@@ -64,3 +64,20 @@ test("defaultTokenFilePath: no Windows-illegal character survives sanitising", (
   for (const ch of illegal) assert.ok(!name.includes(ch), `sanitised name still contains ${ch}`);
   assert.equal(name, "a_________b");
 });
+
+test("an expiry is recorded with the token, and a token without one clears it", () => {
+  const { readTokenExpiry, tokenExpiryFilePath, EVENT_TOKEN_TTL_MS } = require("../out/index.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-"));
+  const file = path.join(dir, "tokens", "tok");
+
+  persistEventWriteToken(file, "tok_renewed", "2026-11-08T00:15:00.000Z");
+  assert.equal(readTokenExpiry(file), Date.parse("2026-11-08T00:15:00.000Z"));
+
+  // A re-pair returns no expiry. The renewed token's date would be wrong for it.
+  persistEventWriteToken(file, "tok_paired");
+  assert.ok(!fs.existsSync(tokenExpiryFilePath(file)));
+  assert.equal(readTokenExpiry(file), fs.statSync(file).mtimeMs + EVENT_TOKEN_TTL_MS, "estimated from the file's age");
+
+  assert.equal(readTokenExpiry(path.join(dir, "missing")), undefined);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

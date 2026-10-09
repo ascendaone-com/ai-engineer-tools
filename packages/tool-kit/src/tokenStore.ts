@@ -24,7 +24,26 @@ export function defaultTokenFilePath(toolInstallationId: string): string {
   return path.join(ascendaHome(), "tokens", sanitizeFilePart(toolInstallationId));
 }
 
-export function persistEventWriteToken(tokenFilePath: string, token: string): void {
+/**
+ * Where a token's expiry is kept: `expiry/<name>` beside the token file.
+ *
+ * A subdirectory, not a sibling file, because {@link listPersistedToolInstallationIds}
+ * reads every file in `tokens/` whose name starts with the tool type as an
+ * installation id, and so does every collector already installed. A sibling
+ * `claude_code_<id>.expires-at` would look like a second installation to them.
+ */
+export function tokenExpiryFilePath(tokenFilePath: string): string {
+  return path.join(path.dirname(tokenFilePath), "expiry", path.basename(tokenFilePath));
+}
+
+/**
+ * Writes the token, and its expiry when the caller knows it.
+ *
+ * Pairing doesn't return one, so a call without `expiresAt` removes any
+ * expiry left by the token it replaces. {@link readTokenExpiry} then falls
+ * back to the token file's age.
+ */
+export function persistEventWriteToken(tokenFilePath: string, token: string, expiresAt?: string): void {
   const dir = path.dirname(tokenFilePath);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(tokenFilePath, token, { encoding: "utf8", mode: 0o600 });
@@ -36,6 +55,45 @@ export function persistEventWriteToken(tokenFilePath: string, token: string): vo
   if (process.platform !== "win32") {
     fs.chmodSync(dir, 0o700);
     fs.chmodSync(tokenFilePath, 0o600);
+  }
+
+  const expiryFile = tokenExpiryFilePath(tokenFilePath);
+  try {
+    if (expiresAt && Number.isFinite(Date.parse(expiresAt))) {
+      fs.mkdirSync(path.dirname(expiryFile), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(expiryFile, expiresAt, { encoding: "utf8", mode: 0o600 });
+    } else {
+      fs.rmSync(expiryFile, { force: true });
+    }
+  } catch {
+    // The expiry is a hint for renewing early. Losing it costs one early
+    // renewal, never the token, so it must not fail the write that matters.
+  }
+}
+
+/** Server tokens live this long from issue (TOOL_PAIRING_API_REFERENCE.md, "Renew event token"). */
+export const EVENT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * When the token in `tokenFilePath` expires, in epoch ms, or undefined when
+ * there's no token file to ask about.
+ *
+ * The server's `expiresAt` from the last renewal when it was kept. Otherwise
+ * the token file's modification time plus {@link EVENT_TOKEN_TTL_MS}: a
+ * paired token is written the moment it arrives, so the file is never older
+ * than the token, and the estimate errs late by however long that took.
+ */
+export function readTokenExpiry(tokenFilePath: string): number | undefined {
+  try {
+    const recorded = Date.parse(fs.readFileSync(tokenExpiryFilePath(tokenFilePath), "utf8").trim());
+    if (Number.isFinite(recorded)) return recorded;
+  } catch {
+    // No recorded expiry. Estimate from the token file below.
+  }
+  try {
+    return fs.statSync(tokenFilePath).mtimeMs + EVENT_TOKEN_TTL_MS;
+  } catch {
+    return undefined;
   }
 }
 

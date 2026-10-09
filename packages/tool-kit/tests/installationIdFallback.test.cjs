@@ -99,3 +99,12 @@ test("a skipped send is journalled under the tool type's placeholder id, with no
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A recorded expiry lives in tokens/expiry/, which must not read as a second
+// installation: an ambiguous answer stops a GUI-launched hook from sending.
+test("a recorded token expiry is not an installation", () => {
+  withHome(() => {
+    persistEventWriteToken(defaultTokenFilePath("claude_code:aaa"), "tok_a", "2026-11-08T00:15:00.000Z");
+    assert.deepEqual(listPersistedToolInstallationIds("claude_code"), ["claude_code:aaa"]);
+  });
+});

@@ -192,3 +192,118 @@ test("renewal stays on by default: a rejected token is renewed once", async () =
     global.fetch = originalFetch;
   }
 });
+
+// Renewal on a 401 can't save an expired token: the server only rotates a
+// live one. So a sender renews before it sends once the token is inside
+// TOKEN_RENEW_LEAD_MS of expiry, and records the new expiry for next time.
+function expiryFixture({ expiresInMs, recorded = true, renewToken, renewStatus = 200 }) {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { persistEventWriteToken } = require("../out/index.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-expiry-"));
+  const tokenFilePath = path.join(dir, "tokens", "token");
+  const now = Date.parse("2026-10-09T12:00:00.000Z");
+  persistEventWriteToken(tokenFilePath, "token-1", recorded ? new Date(now + expiresInMs).toISOString() : undefined);
+  if (!recorded) {
+    const { EVENT_TOKEN_TTL_MS } = require("../out/index.js");
+    const issued = new Date(now + expiresInMs - EVENT_TOKEN_TTL_MS);
+    fs.utimesSync(tokenFilePath, issued, issued);
+  }
+
+  const calls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, init) => {
+    calls.push({ url: String(url), auth: init.headers.Authorization });
+    if (String(url).includes("renew-token")) {
+      if (renewStatus !== 200) return new Response(JSON.stringify({ error: "invalid_token" }), { status: renewStatus });
+      return new Response(JSON.stringify({ eventWriteToken: "token-2", expiresAt: "2026-11-08T12:00:00.000Z" }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ status: "accepted" }), { status: 200 });
+  };
+  const instance = new AscendaEventSender({
+    apiBaseUrl: "https://api.example.test",
+    toolInstallationId: "claude_code:abc123",
+    source: "claude_code",
+    eventWriteToken: "token-1",
+    tokenFilePath,
+    stateFilePath: path.join(dir, "state.json"),
+    outboxFilePath: path.join(dir, "outbox.jsonl"),
+    outboxDrain: false,
+    eventLogFile: null,
+    timeProvider: { now: () => now },
+    ...(renewToken === undefined ? {} : { renewToken })
+  });
+  const event = { eventType: "ai_turn_completed", severity: "low", metadata: {} };
+  return { instance, event, calls, tokenFilePath, restore: () => (global.fetch = originalFetch) };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+test("a token inside the renewal lead is renewed before the event is sent", async () => {
+  const { readTokenFile, readTokenExpiry } = require("../out/index.js");
+  const f = expiryFixture({ expiresInMs: 5 * DAY_MS });
+  try {
+    assert.equal(await f.instance.send(f.event), "accepted");
+    assert.ok(f.calls[0].url.includes("renew-token"), "renewal goes first");
+    assert.equal(f.calls[0].auth, "Bearer token-1");
+    assert.equal(f.calls[1].auth, "Bearer token-2", "the event goes out on the new token");
+    assert.equal(readTokenFile(f.tokenFilePath), "token-2");
+    assert.equal(readTokenExpiry(f.tokenFilePath), Date.parse("2026-11-08T12:00:00.000Z"));
+
+    await f.instance.send(f.event);
+    assert.equal(f.calls.filter((c) => c.url.includes("renew-token")).length, 1, "once per sender");
+  } finally {
+    f.restore();
+  }
+});
+
+test("a token with more than the lead left is not renewed", async () => {
+  const { TOKEN_RENEW_LEAD_MS } = require("../out/index.js");
+  const f = expiryFixture({ expiresInMs: TOKEN_RENEW_LEAD_MS + DAY_MS });
+  try {
+    await f.instance.send(f.event);
+    assert.ok(!f.calls.some((c) => c.url.includes("renew-token")));
+  } finally {
+    f.restore();
+  }
+});
+
+test("with no recorded expiry, the token file's age decides", async () => {
+  const f = expiryFixture({ expiresInMs: 2 * DAY_MS, recorded: false });
+  try {
+    await f.instance.send(f.event);
+    assert.ok(f.calls[0].url.includes("renew-token"), "a 28-day-old token file is renewed");
+  } finally {
+    f.restore();
+  }
+});
+
+test("renewToken: false never renews early either", async () => {
+  const f = expiryFixture({ expiresInMs: DAY_MS, renewToken: false });
+  try {
+    await f.instance.send(f.event);
+    assert.ok(!f.calls.some((c) => c.url.includes("renew-token")));
+  } finally {
+    f.restore();
+  }
+});
+
+// Two processes renewing the same token at once: the second is refused,
+// because the first revoked the token it presented. The first's replacement
+// is on disk by then, and the second should send on it.
+test("a refused renewal adopts the token another process persisted", async () => {
+  const fs = require("node:fs");
+  const f = expiryFixture({ expiresInMs: 5 * DAY_MS, renewStatus: 401 });
+  const fetchWithRace = global.fetch;
+  global.fetch = async (url, init) => {
+    if (String(url).includes("renew-token")) fs.writeFileSync(f.tokenFilePath, "token-from-other-process");
+    return fetchWithRace(url, init);
+  };
+  try {
+    assert.equal(await f.instance.send(f.event), "accepted");
+    assert.equal(f.calls[1].auth, "Bearer token-from-other-process");
+  } finally {
+    f.restore();
+  }
+});

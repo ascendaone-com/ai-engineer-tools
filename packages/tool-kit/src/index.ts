@@ -14,7 +14,7 @@ export {
 } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection, mintIdempotencyKey } from "./payload";
 export { COLLECTOR_VERSION, UNRELEASED_COLLECTOR_VERSION, describeCollectorVersion } from "./collectorVersion";
-export { AscendaEventSender, AscendaSemanticEventError, buildEventPayload } from "./eventSender";
+export { AscendaEventSender, AscendaSemanticEventError, TOKEN_RENEW_LEAD_MS, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
 export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";
 export type { EventLogEntry } from "./eventLog";
@@ -50,7 +50,16 @@ export {
 } from "./credentials";
 export type { HostCredentials, MachineCredentials } from "./credentials";
 export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
-export { ascendaHome, defaultTokenFilePath, listPersistedToolInstallationIds, persistEventWriteToken, readTokenFile } from "./tokenStore";
+export {
+  EVENT_TOKEN_TTL_MS,
+  ascendaHome,
+  defaultTokenFilePath,
+  listPersistedToolInstallationIds,
+  persistEventWriteToken,
+  readTokenExpiry,
+  readTokenFile,
+  tokenExpiryFilePath
+} from "./tokenStore";
 export {
   defaultStateFilePath,
   readCollectorState,
