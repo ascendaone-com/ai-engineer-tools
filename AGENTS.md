@@ -64,3 +64,32 @@ git diff --cached | grep -nE "asc-core-be|asc-ascenda|/Users/|reference machine|
 
 A hit is not automatically wrong — it is a prompt to ask whether that detail
 is load-bearing for a maintainer, or just expensive.
+
+## GitHub access
+
+Git and `gh` sign in separately, so check each one on its own.
+
+- **git pushes over SSH.** `origin` points at a host alias in
+  `~/.ssh/config` that picks the key for the `ascendaone-com` account. Pushes
+  go as that account whatever `gh` says. Don't change the remote to HTTPS.
+- **`gh` uses its own token.** A machine can have several GitHub accounts
+  signed in to `gh`, and only some can write here. Opening a PR fails with
+  "must be a collaborator" when the wrong one is active, and re-running a
+  workflow needs admin.
+
+Before any `gh` write (a PR, a review, a run), check which account is active:
+
+```bash
+gh auth status
+```
+
+If it isn't one with write access, pass that account's token to the one
+command and leave the active account alone:
+
+```bash
+GH_TOKEN=$(gh auth token --user ascendaone-com) gh pr create --base main
+```
+
+Tags and release runs are the maintainer's call. Pushing a `v*.*.*` tag
+publishes to npm, the VS Code Marketplace and Open VSX, and can't be taken
+back. Ask first, even for a dry run of `release.yml`.

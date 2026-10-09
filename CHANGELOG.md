@@ -62,8 +62,6 @@ targets, error counts or internal resource names — this repository is public.
 - Plugin installs upgrade with `claude plugin update ascenda@ascenda-one`. The
   plugin is now 0.2.1, so the update reaches you.
 
-## v0.1.31
-
 ### Counted unless you object
 
 - **`status` shows what your organisation counts unless you object.** An
@@ -83,8 +81,6 @@ targets, error counts or internal resource names — this repository is public.
 - With an organisation that counts nothing this way, or a server that
   doesn't support it yet, `status` looks exactly as it did.
 
-## v0.1.30
-
 ### The agent can read what the Reveal showed you
 
 - **A third skill in the Claude Code plugin, `ascenda-reveal-read`.** Once
@@ -92,13 +88,12 @@ targets, error counts or internal resource names — this repository is public.
   showed you when you imported your history: which days ran heavy, how the
   weeks went, the hour band your work leans to, one crossing of two facts,
   and the receipt. It holds that and says nothing unless you ask, or a piece
-  of work has to be placed in the day. Counts and dates only; your projects
-  reach it as opaque digests, and the bird you kept never does.
+  of work has to be placed in the day.
+- **Counts and dates only.** Your projects reach it as opaque digests, and
+  the bird you kept never does.
 - Needs the Flow app with `get_reveal` on its local server (Flow 0.1.16 or
   later) and an agent paired with the *Demand & workload* scope. Without
   either, the skill is silent.
-
-## v0.1.29
 
 ### See your organisation's changes in `status`
 
@@ -132,6 +127,21 @@ targets, error counts or internal resource names — this repository is public.
   does today, then shows what was granted. Each grant can be turned off on
   its own, in the app's consent settings, and the organisation only ever
   sees group counts, never who joined.
+
+### The GitHub collector records only the person who paired it
+
+- **Set `ASCENDA_FORGE_LOGIN` to your own GitHub login, typed once.** The
+  example workflow and the README used `${{ github.actor }}`, which is
+  whoever triggered the run. A colleague's pull request or review then
+  matched and was recorded under your installation, and a review request
+  never matched you, because its actor is the person asking.
+- **If you copied the old example, change that line.** Store your login as a
+  repository secret, say `ASCENDA_FORGE_LOGIN_OCTOCAT`, and read it from
+  there. The collector can't tell a typed login from the actor, so the fix
+  is in your workflow file.
+- **One step per person.** The installation secrets belong to one person, so
+  a repository several people have paired in needs a step each, or a matrix
+  over their suffixes. The README shows both.
 
 ## v0.1.28
 
