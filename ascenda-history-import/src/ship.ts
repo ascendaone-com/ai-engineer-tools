@@ -270,7 +270,7 @@ export function toWirePayload(
   // session's dominant model, folded across the whole transcript, while
   // `modelId` is the model a live session opened with. Same derived class, two
   // different underlying facts — fusing them would make the column
-  // uninterpretable in exactly the way P-D28 exists to prevent one level up.
+  // uninterpretable.
   const modelClass = classifyModelClass(metadata.primaryModel as string | undefined);
   if (modelClass !== undefined) metadata.modelClass = modelClass;
   const context = workContextOf(event.repoRef);

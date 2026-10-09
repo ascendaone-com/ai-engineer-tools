@@ -81,8 +81,8 @@ export type HistoricalProvenance =
  * `HistoricalImport` lease. This comment previously said the gate was still
  * rolling out and that this package must not ship as if it were live; that was
  * accurate when written on 19 August and stopped being accurate when the
- * backend merged, which is exactly the drift P-D30.1 rule 3 requires this line
- * to be kept ahead of.
+ * backend merged, which is the drift this line has to stay ahead
+ * of: when production changes, a claim about it here changes with it.
  *
  * **The gate does not read this string.** The backend decides on the event's
  * *provenance* — the closed `historical_*` set — precisely so an importer that

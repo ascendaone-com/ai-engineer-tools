@@ -482,7 +482,7 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     const queued = promptSource === undefined ? undefined : promptSource === "queued";
 
     const backgroundTasks = event === "stop" ? countBackgroundTasks(input) : undefined;
-    // Only StopFailure says why (P-D64.1). Read from the payload's `error`
+    // Only StopFailure says why. Read from the payload's `error`
     // field alone, never the message: `rate_limit` is a usage limit
     // and anything else, missing included, is `error`. A `halted` from the
     // idle prompt carries no errorKind.
@@ -490,7 +490,7 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
       ? (getString(input, ["error"]) === "rate_limit" ? "rate_limit" : "error")
       : undefined;
     // When a usage limit lifts and Claude Code will carry on by itself
-    // (P-D64.2). The time is only in the message, so this is the one place
+    // (`resumesAt`). The time is only in the message, so this is the one place
     // the hook reads it, in memory; just the number goes on the wire.
     const resumesAt = errorKind === "rate_limit"
       ? usageLimitResumesAt(input)
@@ -511,7 +511,7 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
     const hookSet = readHookSet(process.argv);
     // Claude Code exports CLAUDE_PLUGIN_ROOT to plugin hooks only. It tells
     // the app to name a plugin update, not `setup`, for an out-of-date set.
-    // `true` or undefined, never false (P-D64.3).
+    // `true` or undefined, never false.
     const viaPlugin = readViaPlugin(process.env);
 
     await emitLiveSignal({

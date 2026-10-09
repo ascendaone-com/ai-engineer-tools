@@ -52,8 +52,8 @@ targets, error counts or internal resource names — this repository is public.
   trusting the count and treats it as gone quiet.
 - **Claude Code's `StopFailure` hook is registered.** It fires when an API
   error, like a usage limit or an expired login, ends a turn. The app hears
-  that the work has stopped, and whether it hit a usage limit (per
-  P-D64.1 and #452), so the waterline drains straight away.
+  that the work has stopped, and whether it hit a usage limit, so the
+  waterline drains straight away.
 - **A usage limit says when it lifts, if Claude Code will carry on by
   itself.** With `autoContinueAtUsageLimit` on, the hook reads the reset
   time from Claude Code's message and hands the app the time alone. Away
@@ -78,10 +78,9 @@ targets, error counts or internal resource names — this repository is public.
   nothing to add says `already current`.
 - **Flow names the command when your hooks are older.** Each hook now tells
   the app which set of hooks it was registered with, and whether it came from
-  the plugin (per P-D64.3). When Claude Code or Gemini CLI signals come from
-  an older set, **Connections → Ingest telemetry** shows one line with the
-  exact command. Dismiss it and it stays gone until a later release adds hooks
-  again.
+  the plugin. When Claude Code or Gemini CLI signals come from an older set,
+  **Connections → Ingest telemetry** shows one line with the exact command.
+  Dismiss it and it stays gone until a later release adds hooks again.
 - **`status` prints the hook set**, and the upgrade command when it's behind.
 - `setup` warns when the other scope already registers the same hooks. Both
   fire, so every event runs twice.

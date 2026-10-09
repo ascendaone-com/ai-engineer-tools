@@ -347,7 +347,7 @@ test("the background trust window is an hour", () => {
   assert.equal(LIVE_BUS_BACKGROUND_TRUST_MS, 60 * 60 * 1000);
 });
 
-// P-D64.3 closes install provenance at two fields with fixed types. A caller
+// Install provenance is closed at two fields with fixed types. A caller
 // that passes anything else gets the field left off, never sent.
 test("install provenance goes out only with its ratified types", async () => {
   const p = sockPath();

@@ -289,7 +289,7 @@ test("the signal carries the hook set its registration names, and none when unfl
     assert.equal(lines.length, 1);
     assert.equal("hookSet" in lines[0], false);
   });
-  // P-D64.3: a positive integer or nothing, never a wrong number.
+  // hookSet is a positive integer or nothing, never a wrong number.
   await withListener(async (socketPath, lines, settle) => {
     runHook(PROMPT_HOOK, promptPayload("x"), socketPath, ["--hook-set", "0"]);
     await settle();
