@@ -162,7 +162,7 @@ test("a plugin hook says so, and a setup hook doesn't", async () => {
   assert.equal("viaPlugin" in installed[0], false);
 });
 
-// P-D64.3: hookSet is a positive integer or absent, viaPlugin is true or
+// hookSet is a positive integer or absent, viaPlugin is true or
 // absent, and both come from the hook's own argv and environment.
 test("a malformed set or an empty plugin root sends nothing, never a wrong value", async () => {
   const payload = { session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } };

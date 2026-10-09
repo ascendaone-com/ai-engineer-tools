@@ -1,5 +1,5 @@
 /**
- * Reading a usage limit's reset out of Claude Code's sentence (P-D64.2).
+ * Reading a usage limit's reset out of Claude Code's sentence.
  * Every case pins `now` and the zone, so a run anywhere gives the same
  * answer. The rule throughout: an answer only when the sentence is clear,
  * and `undefined` otherwise.

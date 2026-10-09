@@ -133,7 +133,7 @@ test("errorKind is always rate_limit or error, whatever the error field holds", 
   assert.deepEqual(signals.map((s) => s.errorKind), ["rate_limit", ...Array(errors.length - 1).fill("error")]);
 });
 
-test("error \"unknown\" is an error, not a usage limit (P-D64.1)", async () => {
+test("error \"unknown\" is an error, not a usage limit", async () => {
   const [signal] = await linesFor([["StopFailure", { session_id: "s1", hook_event_name: "StopFailure", error: "unknown" }]]);
   assert.deepEqual(signal, { tool: "claude_code", session: "s1", event: "halted", errorKind: "error" });
 });
@@ -148,7 +148,7 @@ function resetInTwoHours() {
   return { text: `You've hit your limit · resets ${clock} (UTC)`, expected };
 }
 
-test("a usage limit says when it resets, when Claude Code will carry on by itself (P-D64.2)", async () => {
+test("a usage limit says when it resets, when Claude Code will carry on by itself", async () => {
   const { text, expected } = resetInTwoHours();
   const signals = await linesFor([
     ["StopFailure", { session_id: "s1", hook_event_name: "StopFailure", error: "rate_limit", last_assistant_message: text }],

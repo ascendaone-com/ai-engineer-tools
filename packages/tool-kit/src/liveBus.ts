@@ -148,9 +148,9 @@ export interface LiveBusSignal {
    * {@link pid} names, and nothing else. They ride with `pid` on every
    * event of a stream, `halted` included, and never vary by event. They
    * don't enter the stream key and say nothing about why a turn ended, so
-   * a guard on a signal's keys sets them aside with `pid` (register
-   * v1.47, P-D64.1 clause 4). The app drops `pid` when it can't check one
-   * of these, and the stream falls back to its session.
+   * a guard on a signal's keys sets them aside with `pid`. The app drops
+   * `pid` when it can't check one of these, and the stream falls back to
+   * its session.
    */
   pidMatch?: "path";
   /** The install-path marker a `path` match found, e.g. `@google/gemini-cli`. */
@@ -185,8 +185,8 @@ export interface LiveBusSignal {
    * The app reads absence as set 1 for the tools it knows a set for, and as
    * nothing at all for the rest.
    *
-   * Install provenance (P-D64.3, register v1.48): a positive integer, read
-   * from the hook's own argv only. {@link emitLiveSignal} drops any other
+   * Install provenance: a positive integer, read from the hook's own argv
+   * only. {@link emitLiveSignal} drops any other
    * value rather than send it.
    */
   hookSet?: number;
@@ -197,20 +197,21 @@ export interface LiveBusSignal {
    * updates the plugin, and running `setup` beside it registers every hook
    * twice. Absent means a `setup` install, or a hook too old to say.
    *
-   * Install provenance, like {@link hookSet} (P-D64.3, register v1.48):
+   * Install provenance, like {@link hookSet}:
    * `true` or absent, never `false`, and set only from the hook's own
    * environment (`readViaPlugin`). {@link emitLiveSignal} drops any other
    * value rather than send it.
    */
   viaPlugin?: true;
   /**
-   * P-D64.1. Only meaningful on `halted`, and only when the host said the
-   * turn ended on an API error (Claude Code's `StopFailure`). A `halted` without it
-   * means the turn was interrupted or ended without a `stop`.
+   * Why the turn stopped. Only meaningful on `halted`, and only when the
+   * host said the turn ended on an API error (Claude Code's `StopFailure`).
+   * A `halted` without it means the turn was interrupted or ended without a
+   * `stop`.
    */
   errorKind?: LiveBusStopFailureKind;
   /**
-   * P-D64.2. When a usage limit lifts and the agent will carry on by
+   * When a usage limit lifts and the agent will carry on by
    * itself, in epoch seconds on the minute. Only on a `halted` whose
    * `errorKind` is `rate_limit`, only when the agent is set to continue at
    * the reset, and only for a reset within six hours. Absent means the app
@@ -346,8 +347,8 @@ const NOBODY_LISTENING = new Set(["ECONNREFUSED", "ENOENT"]);
  * at worst — connection setup on a Unix socket is negligible.
  */
 /**
- * The signal as it may go out. P-D64.3 closes install provenance at two
- * fields with fixed types, so a `hookSet` that isn't a positive integer, or a
+ * The signal as it may go out. Install provenance is closed at two fields
+ * with fixed types, so a `hookSet` that isn't a positive integer, or a
  * `viaPlugin` that isn't `true`, is left off rather than sent. Absent is
  * always a true reading; a wrong value never is.
  */

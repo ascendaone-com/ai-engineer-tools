@@ -49,7 +49,7 @@ export function readHookSet(argv: readonly string[]): number | undefined {
   return isHookSet(value) ? value : undefined;
 }
 
-/** A value `hookSet` may carry on the wire (P-D64.3): a positive integer. */
+/** A value `hookSet` may carry on the wire: a positive integer. */
 export function isHookSet(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
@@ -57,7 +57,7 @@ export function isHookSet(value: unknown): value is number {
 /**
  * `true` when Claude Code ran this hook from its plugin, else undefined.
  *
- * P-D64.3 clause 2: derived only from `CLAUDE_PLUGIN_ROOT` being set, which
+ * Derived only from `CLAUDE_PLUGIN_ROOT` being set, which
  * Claude Code does for plugin hooks alone, and never from what the path
  * says. An empty value isn't a plugin root. Never `false`: a `setup`
  * install leaves the field out.

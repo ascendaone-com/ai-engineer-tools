@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 /**
  * When a usage limit lifts, for the `resumesAt` on a rate-limited `halted`
- * (P-D64.2). Claude Code says it only in prose, "resets 4:30pm
+ * Claude Code says it only in prose, "resets 4:30pm
  * (Asia/Nicosia)", so the time is read out of that sentence here, in memory,
  * and only the number leaves. The sentence itself is never stored, logged or
  * sent.

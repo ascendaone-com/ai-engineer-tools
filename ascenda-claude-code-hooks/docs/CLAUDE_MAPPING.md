@@ -86,7 +86,7 @@ the events above. Three hook moments end a turn there:
 - `StopFailure` fires in place of `Stop` when the turn ends on an API error. It
   sends `halted` with `errorKind`: `rate_limit` for a usage limit, `error`
   for everything else. The app shows the session as stopped, not done.
-  A usage limit can also carry `resumesAt` (P-D64.2): when the limit lifts,
+  A usage limit can also carry `resumesAt`: when the limit lifts,
   in epoch seconds on the minute. It's sent only when
   `autoContinueAtUsageLimit` is on (managed, then project-local, then
   project, then user settings, first one that sets it wins) and the reset
@@ -103,7 +103,7 @@ the events above. Three hook moments end a turn there:
 ## The hook set
 
 Every registered command ends `--hook-set 3`, and every live signal repeats
-the number as `hookSet`, a positive integer (P-D64.3). Set 3 is the thirteen
+the number as `hookSet`, a positive integer. Set 3 is the thirteen
 events `setup` registers today. Set 2 is the eleven before `SubagentStart` and
 `SubagentStop`. A command with no flag is set 1: an install from before `StopFailure` and
 `Notification` were registered, which never sends `halted` for an API error
@@ -112,9 +112,9 @@ or `awaiting` for a permission prompt. The app reads a missing `hookSet` from
 `hooks/hooks.json` carries the same flag. A hook run from the plugin also
 sends `viaPlugin: true`, read from the `CLAUDE_PLUGIN_ROOT` Claude Code exports
 to plugin hooks, so the app names `claude plugin update` for those instead.
-It's `true` or absent, never `false`. Both are install provenance under
-P-D64.3 (register v1.48): read from the hook's own arguments and
-environment, display only, and dropped by the emitter if malformed.
+It's `true` or absent, never `false`. Both are install provenance: read from
+the hook's own arguments and environment, used only for what the app shows,
+and dropped by the emitter if malformed.
 
 Change the registered list and the set moves with it: `HOOK_SET` in
 `src/setup.ts`, the plugin's `hooks.json`, and `kCurrentHookSets` in the app.
@@ -361,7 +361,7 @@ field, not about the work.
 
 Nothing server-side validates metadata vocabulary, so a collector typo becomes
 permanent history in an immutable corpus. These values freeze the way
-`retrospective` did under P-D28: once emitted they are in the record and cannot
+`retrospective` did: once emitted they are in the record and cannot
 be renamed retroactively. They are provisional pending a decision-register
 ratification; the tests in `tests/mapClaudeEvent.test.mjs` spell out every
 string deliberately, because the consumer is in another repository and cannot

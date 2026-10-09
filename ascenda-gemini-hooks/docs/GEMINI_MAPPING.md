@@ -82,10 +82,11 @@ every error, and a machine with no listener — which is most machines, and
 every CI runner — behaves exactly as it did before this existed.
 
 Each registered command ends `--hook-set 2`, and the signal carries it as
-`hookSet`, a positive integer read from the hook's own arguments (install
-provenance, P-D64.3). An install from before `Notification` was registered has no flag
-and sends no `awaiting`, and the app reads the missing field as set 1 and
-names the upgrade command: `npx @ascenda-one/gemini-hooks setup`.
+`hookSet`, a positive integer read from the hook's own arguments. It's install
+provenance, used only for what the app shows. An install from before
+`Notification` was registered has no flag and sends no `awaiting`, and the app
+reads the missing field as set 1 and names the upgrade command:
+`npx @ascenda-one/gemini-hooks setup`.
 
 `SessionEnd` is silent on purpose: it lands immediately after the last
 `AfterAgent`, and a second `stop` would draw two session ends for one turn.

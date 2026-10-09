@@ -13,7 +13,7 @@ test("the set rides argv after the hook name, and anything malformed reads as ab
   assert.equal(readHookSet(["node", "cli.js", "--hook-set", "two"]), undefined);
   assert.equal(readHookSet(["node", "cli.js", "--hook-set", "0"]), undefined);
   assert.equal(readHookSet(["node", "cli.js", "--hook-set", "1.5"]), undefined);
-  // P-D64.3: a positive integer or nothing. Number() would take each of these.
+  // A positive integer or nothing. Number() would take each of these.
   for (const raw of ["-1", " 2", "0x2", "1e0", "02", "", "99999999999999999999"]) {
     assert.equal(readHookSet(["node", "cli.js", "--hook-set", raw]), undefined, `--hook-set ${JSON.stringify(raw)}`);
   }
