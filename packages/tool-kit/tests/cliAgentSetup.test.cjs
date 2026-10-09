@@ -372,3 +372,103 @@ test("status names an older hook set and the command that upgrades it", async ()
     assert.ok(log.join("\n").includes("hook set       1, this version registers 2. Upgrade: npx @ascenda-one/flat-hooks setup"));
   });
 });
+
+// A token on disk isn't proof of a pairing: it lapses after 30 days, or gets
+// revoked, and the file stays. Setup checks it with a read before keeping it.
+
+const SAVED_ID = "cli_agent:00000000-0000-4000-8000-000000000002";
+
+function withSavedPairing(home, { lastOutcome } = {}) {
+  fs.writeFileSync(path.join(home, "credentials.json"), JSON.stringify({
+    tools: { [flat.host]: { apiBaseUrl: "http://ascenda.test", toolInstallationId: SAVED_ID, pairedAt: "2026-09-01T00:00:00.000Z" } }
+  }));
+  fs.mkdirSync(path.join(home, "tokens"), { recursive: true });
+  fs.writeFileSync(path.join(home, "tokens", SAVED_ID.replace(/[^A-Za-z0-9._-]/g, "_")), "saved-token");
+  if (lastOutcome) {
+    fs.mkdirSync(path.join(home, "state"), { recursive: true });
+    fs.writeFileSync(path.join(home, "state", `${SAVED_ID.replace(/[^A-Za-z0-9._-]/g, "_")}.json`), JSON.stringify({
+      toolInstallationId: SAVED_ID, lastAttemptAt: "2026-10-08T00:00:00.000Z", lastOutcome, consecutiveFailures: 3
+    }));
+  }
+}
+
+async function withFetch(handler, run) {
+  const realFetch = global.fetch;
+  const requested = [];
+  global.fetch = async (url, init) => {
+    requested.push({ url: String(url), method: init?.method ?? "GET", auth: init?.headers?.Authorization });
+    return handler(String(url), init);
+  };
+  try {
+    return await run(requested);
+  } finally {
+    global.fetch = realFetch;
+  }
+}
+
+test("setup keeps a saved token the server still accepts, and doesn't renew it", async () => {
+  await sandbox(async ({ home, project, log }) => {
+    withSavedPairing(home);
+    await withFetch(() => new Response("[]", { status: 200 }), async (requested) => {
+      assert.equal(await runCliAgentSetup(["setup", "--project-dir", project], flat), 0);
+      assert.deepEqual(requested.map((r) => `${r.method} ${r.url}`), ["GET http://ascenda.test/v1/tool-installations/initiatives"]);
+      assert.equal(requested[0].auth, "Bearer saved-token");
+    });
+    assert.ok(log.join("\n").includes(`${SAVED_ID} (existing)`));
+  });
+});
+
+test("setup pairs again under the same id when the saved token is rejected", async () => {
+  await sandbox(async ({ home, project, log }) => {
+    withSavedPairing(home);
+    await withFetch((url, init) => {
+      if (url.endsWith("/initiatives")) return new Response("", { status: 401 });
+      if (url.endsWith("/v1/tool-pairing-sessions") && init?.method === "POST") {
+        const body = JSON.parse(init.body);
+        assert.equal(body.toolInstallationId, SAVED_ID, "the hooks keep the id they were installed with");
+        return new Response(JSON.stringify({ pairingSessionId: "ps-1", code: "123456", expiresAt: new Date(Date.now() + 60_000).toISOString() }), { status: 201 });
+      }
+      if (url.endsWith("/ps-1/status")) return new Response(JSON.stringify({ status: "paired", eventWriteToken: "fresh-token" }), { status: 200 });
+      return new Response("", { status: 404 });
+    }, async (requested) => {
+      assert.equal(await runCliAgentSetup(["setup", "--project-dir", project], flat), 0);
+      assert.ok(!requested.some((r) => r.url.includes("renew")), "the check never rotates the token");
+    });
+    const token = fs.readFileSync(path.join(home, "tokens", SAVED_ID.replace(/[^A-Za-z0-9._-]/g, "_")), "utf8").trim();
+    assert.equal(token, "fresh-token");
+    const out = log.join("\n");
+    assert.ok(out.includes("isn't accepted any more"), out);
+    assert.ok(out.includes(`${SAVED_ID} (new)`), out);
+    assert.ok(credentialsOf(home, flat.host).pairedAt);
+  });
+});
+
+test("setup keeps the saved token when the server can't be reached, and says so if the last send was refused", async () => {
+  await sandbox(async ({ home, project, log }) => {
+    withSavedPairing(home, { lastOutcome: "auth_failed" });
+    await withFetch(() => { throw new TypeError("fetch failed"); }, async (requested) => {
+      assert.equal(await runCliAgentSetup(["setup", "--project-dir", project], flat), 0);
+      assert.equal(requested.length, 1, "no pairing is attempted offline");
+    });
+    const token = fs.readFileSync(path.join(home, "tokens", SAVED_ID.replace(/[^A-Za-z0-9._-]/g, "_")), "utf8").trim();
+    assert.equal(token, "saved-token");
+    const credentials = credentialsOf(home, flat.host);
+    assert.ok(credentials.pairedAt, "an offline setup doesn't drop the pairing");
+    assert.equal(credentials.localOnly, undefined);
+    const out = log.join("\n");
+    assert.ok(out.includes(`${SAVED_ID} (existing)`), out);
+    assert.ok(out.includes("the last send was refused"), out);
+  });
+});
+
+test("setup keeps the saved token quietly when the check fails and the journal is healthy", async () => {
+  await sandbox(async ({ home, project, log }) => {
+    withSavedPairing(home, { lastOutcome: "accepted" });
+    await withFetch(() => new Response("", { status: 503 }), async () => {
+      assert.equal(await runCliAgentSetup(["setup", "--project-dir", project], flat), 0);
+    });
+    const out = log.join("\n");
+    assert.ok(out.includes(`${SAVED_ID} (existing)`), out);
+    assert.ok(!out.includes("refused"), out);
+  });
+});

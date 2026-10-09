@@ -259,8 +259,9 @@ The environment's network access must also allow the Ascenda API host.
 **Tokens never rotate in a cloud session.** Renewal revokes the previous
 token, and the replacement would die with the container, taking the
 environment's copy down for every later session. So the hooks record a
-rejected token as a failed send and stop there. Tokens last 30 days; when one runs out, pair again
-and replace the token in the environment.
+rejected token as a failed send and stop there. Tokens last 30 days. On a
+laptop the hooks renew theirs well before then, but a cloud session can't, so
+pair again before the 30 days are up and replace the token in the environment.
 
 ### Register hooks manually
 

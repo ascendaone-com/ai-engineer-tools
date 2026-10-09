@@ -27,6 +27,15 @@ targets, error counts or internal resource names — this repository is public.
 - `setup` and `pair` list subagents among what's sent. Re-run `setup` to pick
   up the two new hooks, or update the plugin. `status` now counts thirteen.
 
+### `setup` pairs again when your token has lapsed
+
+- **Codex, Cursor, Gemini CLI and Windsurf.** `setup` checks the saved token
+  with the server before keeping it. If it's been revoked or is past its 30
+  days, you get a pairing code, and the new pairing keeps your installation id.
+  Before this, setup kept the dead token and said all was well.
+- Offline, setup keeps the token it has. If the last send was refused, it says
+  so and asks you to run setup again once you're back online.
+
 ## v0.1.32
 
 ### Flow can tell an agent working from one waiting on you, or one that stopped

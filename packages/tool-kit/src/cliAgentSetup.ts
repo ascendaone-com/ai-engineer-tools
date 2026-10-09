@@ -5,11 +5,12 @@ import * as path from "path";
 import { describeCollectorVersion } from "./collectorVersion";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
-import { createPairingSession, getPairingStatus } from "./http";
+import { createPairingSession, getPairingStatus, readInitiatives } from "./http";
 import { describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand } from "./hookSet";
 import { initiativesStatusLines } from "./initiatives";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
+import { defaultStateFilePath, readCollectorState } from "./stateStore";
 import { runStudyJoin } from "./studyJoin";
 import { runStudyObjection, studyNoticeStatus } from "./studyNotices";
 import { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
@@ -386,9 +387,11 @@ function resolvePairedToken(spec: CliAgentSetupSpec): { apiBaseUrl: string; even
 type Identity = { toolInstallationId: string; paired: boolean };
 
 /**
- * Reuse an existing pairing when this host already has one, otherwise create
- * one. The local dev server auto-confirms; a real backend needs the 6-digit
- * code confirmed in the Ascenda app, so it is printed and polled for.
+ * Reuse an existing pairing when this host has one whose token still works,
+ * otherwise pair. A lapsed token pairs again under the same installation id,
+ * so the hooks keep their identity. The local dev server auto-confirms; a
+ * real backend needs the 6-digit code confirmed in the Ascenda app, so it is
+ * printed and polled for.
  */
 async function resolveIdentity(apiBaseUrl: string, options: SetupOptions, spec: CliAgentSetupSpec): Promise<Identity | undefined> {
   const existingId = options.toolInstallationId ?? readHostCredentials(spec.host)?.toolInstallationId;
@@ -397,8 +400,11 @@ async function resolveIdentity(apiBaseUrl: string, options: SetupOptions, spec: 
     if (!options.dryRun) persistEventWriteToken(defaultTokenFilePath(existingId), options.token);
     return { toolInstallationId: existingId, paired: false };
   }
-  if (existingId && readTokenFile(defaultTokenFilePath(existingId))) {
-    return { toolInstallationId: existingId, paired: false };
+  const existingToken = existingId ? readTokenFile(defaultTokenFilePath(existingId)) : undefined;
+  if (existingId && existingToken) {
+    const check = await checkSavedToken(apiBaseUrl, existingId, existingToken);
+    if (check === "keep") return { toolInstallationId: existingId, paired: false };
+    console.log(`\n  The saved token for ${existingId} isn't accepted any more. Pairing again.`);
   }
   if (options.dryRun) {
     return { toolInstallationId: existingId ?? `${spec.toolType}:<paired at run time>`, paired: false };
@@ -419,6 +425,31 @@ async function resolveIdentity(apiBaseUrl: string, options: SetupOptions, spec: 
 
   persistEventWriteToken(defaultTokenFilePath(toolInstallationId), token);
   return { toolInstallationId, paired: true };
+}
+
+/** How long setup waits on the token check before keeping the token unchecked. */
+const TOKEN_CHECK_TIMEOUT_MS = 5000;
+
+/**
+ * Whether a token already on disk still works. A token on disk can be past
+ * its 30 days or revoked, and keeping it would leave setup reporting a
+ * pairing that sends nothing. The check is a read: renewing would answer the
+ * same question, but it rotates the token.
+ *
+ * Only a 401 means re-pair. Anything else keeps the token, so setup run
+ * offline or against a server without this read leaves the pairing alone.
+ * The send journal can't decide it either way (the last send may predate a
+ * fix), but when the check can't run and the last send was refused, saying
+ * so is the one hint the person gets.
+ */
+async function checkSavedToken(apiBaseUrl: string, toolInstallationId: string, token: string): Promise<"keep" | "repair"> {
+  const read = await readInitiatives(apiBaseUrl, token, AbortSignal.timeout(TOKEN_CHECK_TIMEOUT_MS));
+  if (read.kind === "rejected") return "repair";
+  if (read.kind === "failed" && readCollectorState(defaultStateFilePath(toolInstallationId))?.lastOutcome === "auth_failed") {
+    console.log(`\n  Couldn't check the saved token (${read.reason}), and the last send was refused.`);
+    console.log("  Keeping it for now. Run setup again once the server is reachable.");
+  }
+  return "keep";
 }
 
 async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, expiresAt: string): Promise<string | undefined> {
