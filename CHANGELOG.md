@@ -27,16 +27,20 @@ targets, error counts or internal resource names — this repository is public.
 - `setup` and `pair` list subagents among what's sent. Re-run `setup` to pick
   up the two new hooks, or update the plugin. `status` now counts thirteen.
 
-### `setup` pairs again when your token has lapsed
+### Your connection renews before it lapses
 
-- **Codex, Cursor, Gemini CLI and Windsurf.** `setup` checks the saved token
-  with the server before keeping it. If it's been revoked or is past its 30
-  days, you get a pairing code, and the new pairing keeps your installation id.
-  Before this, setup kept the dead token and said all was well.
+- **Tokens renew while they still work.** A paired install used to stop
+  sending 30 days after its last renewal, and only `pair` brought it back.
+  Now it renews once fewer than 21 days are left. Installs paired before this
+  release renew too, as long as their token is still live.
+- **If yours has already lapsed, pair again.** Claude Code's `pair` does it.
+- **`setup` pairs again for Codex, Cursor, Gemini CLI and Windsurf.** It
+  checks the saved token with the server before keeping it. If it's been
+  revoked or is past its 30 days, you get a pairing code, and the new pairing
+  keeps your installation id. Before this, setup kept the dead token and said
+  all was well.
 - Offline, setup keeps the token it has. If the last send was refused, it says
   so and asks you to run setup again once you're back online.
-
-## v0.1.32
 
 ### Flow can tell an agent working from one waiting on you, or one that stopped
 
@@ -52,8 +56,8 @@ targets, error counts or internal resource names — this repository is public.
   trusting the count and treats it as gone quiet.
 - **Claude Code's `StopFailure` hook is registered.** It fires when an API
   error, like a usage limit or an expired login, ends a turn. The app hears
-  that the work has stopped, and whether it hit a usage limit (per
-  P-D64.1 and #452), so the waterline drains straight away.
+  that the work has stopped, and whether it hit a usage limit, so the
+  waterline drains straight away.
 - **A usage limit says when it lifts, if Claude Code will carry on by
   itself.** With `autoContinueAtUsageLimit` on, the hook reads the reset
   time from Claude Code's message and hands the app the time alone. Away
@@ -64,7 +68,7 @@ targets, error counts or internal resource names — this repository is public.
   prompt.** Esc runs no hook, so until now the app waited three minutes
   before deciding a session had gone quiet.
 - **Gemini CLI registers one more hook, `Notification`**, for tool
-  confirmations. Claude Code's `status` now counts eleven hooks.
+  confirmations.
 - Cursor and Windsurf have no hook for waits, so nothing changes there.
 - Nothing new is sent to Ascenda. These signals stay on your machine, on the
   same local socket the gauges already read, and carry no words: not the
@@ -78,7 +82,7 @@ targets, error counts or internal resource names — this repository is public.
   nothing to add says `already current`.
 - **Flow names the command when your hooks are older.** Each hook now tells
   the app which set of hooks it was registered with, and whether it came from
-  the plugin (per P-D64.3). When Claude Code or Gemini CLI signals come from
+  the plugin. When Claude Code or Gemini CLI signals come from
   an older set, **Connections → Ingest telemetry** shows one line with the
   exact command. Dismiss it and it stays gone until a later release adds hooks
   again.
