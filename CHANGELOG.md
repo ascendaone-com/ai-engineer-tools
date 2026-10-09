@@ -10,6 +10,23 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.33
+
+### The GitHub collector records only the person who paired it
+
+- **Set `ASCENDA_FORGE_LOGIN` to your own GitHub login, typed once.** The
+  example workflow and the README used `${{ github.actor }}`, which is
+  whoever triggered the run. A colleague's pull request or review then
+  matched and was recorded under your installation, and a review request
+  never matched you, because its actor is the person asking.
+- **If you copied the old example, change that line.** Store your login as a
+  repository secret, say `ASCENDA_FORGE_LOGIN_OCTOCAT`, and read it from
+  there. The collector can't tell a typed login from the actor, so the fix
+  is in your workflow file.
+- **One step per person.** The installation secrets belong to one person, so
+  a repository several people have paired in needs a step each, or a matrix
+  over their suffixes. The README shows both.
+
 ## v0.1.32
 
 ### The Flow app hears when a turn stops early
