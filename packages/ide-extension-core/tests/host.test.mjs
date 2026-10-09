@@ -63,3 +63,14 @@ test("source stays pinned to the identity an install paired under", () => {
   assert.equal(host.resolveTelemetrySource("vscode_extension:abc-123"), "vscode_extension");
   assert.equal(host.resolveTelemetrySource("nonsense-prefix"), "cursor_mcp", "falls back to live detection");
 });
+
+test("every source in the vendored contract stays pinned when it is the paired prefix", () => {
+  // Read from the contract file, not the export, so a source dropped from the
+  // export fails here too.
+  const contract = require("@ascenda-one/tool-contract/contracts/tool-telemetry-contract.v2.json");
+  const host = hostFor("Cursor", "cursor");
+  assert.ok(contract.sources.includes("code_forge"));
+  for (const source of contract.sources) {
+    assert.equal(host.resolveTelemetrySource(`${source}:abc-123`), source);
+  }
+});
