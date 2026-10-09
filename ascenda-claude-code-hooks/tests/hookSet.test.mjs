@@ -57,7 +57,7 @@ test("setup upgrades an older install in place and says what it added", () => {
   const m = machine();
   try {
     seedOldInstall(m.projectSettings);
-    const first = run(m, ["setup", "--no-pair", "--project-dir", m.project]);
+    const first = run(m, ["setup", "--no-pair", "--scope", "project", "--project-dir", m.project]);
     assert.equal(first.status, 0, first.stderr);
     assert.match(first.stdout, /upgraded: added StopFailure, Notification, SubagentStart, SubagentStop; hook set 1 → 3/);
 
@@ -71,8 +71,8 @@ test("setup upgrades an older install in place and says what it added", () => {
     }
     assert.equal(settings.hooks.Stop[0].hooks[0].command, "say done", "a hook the person wrote stays where it was");
 
-    const again = run(m, ["setup", "--no-pair", "--project-dir", m.project]);
-    assert.match(again.stdout, /13 events, already current/);
+    const again = run(m, ["setup", "--no-pair", "--scope", "project", "--project-dir", m.project]);
+    assert.match(again.stdout, /13 events, (this project only, )?already current/);
     assert.doesNotMatch(again.stdout, /upgraded:/, "a re-run that changed nothing claims nothing");
   } finally {
     m.cleanup();
@@ -104,13 +104,50 @@ test("status names an older hook set and the command that upgrades it", () => {
   }
 });
 
-test("setup says so when the other scope registers the same hooks", () => {
+test("setup moves its hooks out of the other scope, so each event runs once", () => {
   const m = machine();
   try {
     run(m, ["setup", "--no-pair", "--scope", "user"]);
-    const result = run(m, ["setup", "--no-pair", "--project-dir", m.project]);
-    assert.match(result.stdout, /registers these hooks too, so each event runs twice/);
-    assert.ok(result.stdout.includes(m.userSettings));
+    const userFile = JSON.parse(fs.readFileSync(m.userSettings, "utf8"));
+    userFile.hooks.Stop.unshift({ hooks: [{ type: "command", command: "say done" }] });
+    fs.writeFileSync(m.userSettings, JSON.stringify(userFile, null, 2));
+
+    const result = run(m, ["setup", "--no-pair", "--scope", "project", "--project-dir", m.project]);
+    assert.match(result.stdout, /moved {8}removed the copy in .*settings\.json, so each event runs once/);
+    const after = JSON.parse(fs.readFileSync(m.userSettings, "utf8"));
+    assert.deepEqual(Object.keys(after.hooks), ["Stop"], "only the person's own hook is left in the other file");
+    assert.equal(after.hooks.Stop[0].hooks[0].command, "say done");
+    assert.ok(fs.existsSync(`${m.userSettings}.ascenda-backup`));
+    const project = JSON.parse(fs.readFileSync(m.projectSettings, "utf8"));
+    assert.equal(Object.keys(project.hooks).length, 13);
+  } finally {
+    m.cleanup();
+  }
+});
+
+test("a project install in the home folder is made a user install", () => {
+  const m = machine();
+  try {
+    const result = run(m, ["setup", "--no-pair", "--scope", "project", "--project-dir", m.home]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /scope {8}user/);
+    assert.equal(fs.existsSync(path.join(m.home, ".claude", "settings.local.json")), false);
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(m.userSettings, "utf8")).hooks).length, 13);
+  } finally {
+    m.cleanup();
+  }
+});
+
+test("a re-run moves an old home-folder install into the user file", () => {
+  const m = machine();
+  try {
+    seedOldInstall(path.join(m.home, ".claude", "settings.local.json"));
+    const result = run(m, ["setup", "--no-pair"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /moved {8}removed the copy in .*settings\.local\.json/);
+    const left = JSON.parse(fs.readFileSync(path.join(m.home, ".claude", "settings.local.json"), "utf8"));
+    assert.deepEqual(Object.keys(left.hooks), ["Stop"]);
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(m.userSettings, "utf8")).hooks).length, 13);
   } finally {
     m.cleanup();
   }

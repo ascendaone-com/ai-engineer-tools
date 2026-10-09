@@ -37,8 +37,12 @@ export type LiveSignalBody = Omit<LiveBusSignal, "tool" | "session">;
  *    tool breaking, and only the second is a failure. The impulse means
  *    "something broke"; flashing it because someone cancelled their own
  *    agent would be a lie the gauge cannot walk back.
- *  - `sessionStart`/`sessionEnd` bracket the app's session rather than a
- *    turn, and `stop` already carries the turn's close.
+ *  - `sessionStart` brackets the app's session rather than a turn and says
+ *    nothing. `sessionEnd` is `halted`: closing a conversation mid-turn
+ *    sends no `stop`, and without it the session held its level until it
+ *    went stale. After a turn that did stop it is redundant, and the app
+ *    ignores a `halted` for a session it no longer holds, so it never draws
+ *    a second session end.
  *  - The shell, MCP and file hooks are specialised views of calls
  *    `preToolUse` already reported — the same double-count the telemetry
  *    mapper avoids by leaving them unregistered.
@@ -66,6 +70,7 @@ export function liveSignalFor(hookName: CursorHookEventName, input: CursorHookIn
     case "postToolUseFailure": return input.is_interrupt === true ? undefined : { event: "tool_failure" };
     case "preCompact": return { event: "compaction" };
     case "stop": return { event: "stop" };
+    case "sessionEnd": return { event: "halted" };
     default: return undefined;
   }
 }

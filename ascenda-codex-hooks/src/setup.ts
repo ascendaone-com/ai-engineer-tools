@@ -43,7 +43,7 @@ export const SETUP: CliAgentSetupSpec = {
   packageName: "@ascenda-one/codex-hooks",
   binaryName: "ascenda-codex-hook",
   hookEvents: HOOK_EVENTS,
-  restartHint: "Restart Codex, then open /hooks to review and trust the Ascenda hooks. Registration alone does not enable execution. After a session, verify the cli_agent send journal and metadata.host: codex in the event log.",
+  restartHint: "Restart Codex, then open /hooks to review and trust the Ascenda hooks. Registration alone does not run them.",
   // Codex reports the posture it was working under and its approval gate; it
   // sends no model, no git action and no per-file change size.
   sends: ["posture", "waiting"],

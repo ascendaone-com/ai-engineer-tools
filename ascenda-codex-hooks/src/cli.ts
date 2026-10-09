@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCodexEvent } from "./mapCodexEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -34,6 +34,8 @@ async function main(): Promise<void> {
   const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
   let turnDurationMs: number | undefined;
+  // That this agent ran a hook at all, for `status` and `doctor`.
+  stampLastHook(CODEX_HOST, hookName);
   if (hookName === "UserPromptSubmit") recordTurnStart(CODEX_HOST, sessionId);
   if (hookName === "Stop") turnDurationMs = consumeTurnDurationMs(CODEX_HOST, sessionId);
 

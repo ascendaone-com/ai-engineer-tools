@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCursorEvent } from "./mapCursorEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -36,6 +36,8 @@ async function main(): Promise<void> {
     : undefined;
 
   let turnDurationMs: number | undefined;
+  // That this agent ran a hook at all, for `status` and `doctor`.
+  stampLastHook(CURSOR_HOST, hookName);
   if (hookName === "beforeSubmitPrompt") recordTurnStart(CURSOR_HOST, sessionId);
   if (hookName === "stop") turnDurationMs = consumeTurnDurationMs(CURSOR_HOST, sessionId);
 

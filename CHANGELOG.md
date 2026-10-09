@@ -10,6 +10,40 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.34
+
+### Claude Code hooks work on a fresh account
+
+- **Hooks load in every project.** `setup` registers them in
+  `~/.claude/settings.json` by default. Run from your home folder, it used to
+  write a file Claude Code reads only when started in the home folder. Re-run
+  `setup` and it moves an existing install for you. `--scope project` still
+  works.
+- **Hooks find Node on their own.** Each hook now runs a small launcher that
+  finds Node 20 or newer, so they keep working when Claude Code opens from the
+  Dock or an IDE, and after nvm or fnm removes the version that ran `setup`.
+- **`status` and `doctor` say whether anything is running.** Both name the
+  Node your hooks will use and the last hook Claude Code ran. `doctor` also
+  checks who is listening for the live signal and pings the Waterline screen
+  saver to prove a signal arrives.
+- **The screen saver catches up when it starts.** Signals sent while nothing
+  was listening are kept for half an hour, so an agent waiting on you before
+  the saver started still shows as waiting. Closing Claude Code mid-turn now
+  ends that session's water straight away.
+- **An install without pairing says it's ready.** `setup --no-pair` tells you
+  the screen saver works now and that pairing is optional. In a terminal,
+  `setup`, `status` and `doctor` mark each line and use colour.
+
+### Codex, Cursor, Gemini and Windsurf hooks work on a fresh account too
+
+- **The same install rules.** `setup` registers hooks for every project by
+  default and moves an older project install. Each hook runs through the
+  launcher that finds Node. Windsurf run from your home folder used to write a
+  file it never reads.
+- **Each adapter has `doctor`.** It names the Node, where the hooks are
+  registered and the last hook the agent ran, then checks the live signal.
+- **Quitting Cursor or Gemini CLI mid-turn ends that session's water.**
+
 ## v0.1.33
 
 ### Claude Code's subagents are counted

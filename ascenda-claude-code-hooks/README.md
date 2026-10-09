@@ -59,8 +59,8 @@ npx @ascenda-one/claude-code-hooks setup
 
 This pairs (printing a 6-digit code to confirm in the Ascenda app), installs a
 self-contained hook bundle to `~/.ascenda/bin`, writes
-`~/.ascenda/credentials.json`, and registers the hooks in this project's
-`.claude/settings.local.json`. Restart Claude Code and events flow — no shell
+`~/.ascenda/credentials.json`, and registers the hooks in `~/.claude/settings.json`,
+so they load in every project. Restart Claude Code and events flow — no shell
 exports, no settings file to hand-edit.
 
 ```bash
@@ -74,7 +74,7 @@ npx @ascenda-one/claude-code-hooks uninstall   # removes hooks and the binary
 | `--local [port]` | shorthand for a local [dev server](../ascenda-dev-server/) (default `4477`) |
 | `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
 | `--no-pair` | install the local half only: hooks work, nothing is sent |
-| `--scope project\|user` | register in this project (default) or in `~/.claude/settings.json` |
+| `--scope user\|project` | register in `~/.claude/settings.json` (default, every project) or in this project's `.claude/settings.local.json` |
 | `--project-dir <path>` | project root for `--scope project` (default cwd) |
 | `--dry-run` | print what would change, write nothing |
 
@@ -87,10 +87,12 @@ DevAuth. Stop it with `./scripts/setup-local.sh --stop`. See
 
 | Path | |
 | --- | --- |
-| `~/.ascenda/bin/ascenda-claude-hook` | the self-contained bundle — no `npm -g`, no sudo, no PATH edit |
+| `~/.ascenda/bin/ascenda-claude-hook` | the launcher every hook command names: a small `sh` script that finds Node and runs the bundle |
+| `~/.ascenda/bin/ascenda-claude-hook.mjs` | the self-contained bundle — no `npm -g`, no sudo, no PATH edit |
+| `~/.ascenda/bin/ascenda-claude-hook.node` | the Node the launcher last found, starting with the one that ran setup |
 | `~/.ascenda/credentials.json` | `apiBaseUrl` + `toolInstallationId`, `0600` (plus `localOnly` on an install with no pairing) |
 | `~/.ascenda/tokens/<id>` | the event write token, `0600`, rotated in place on renew |
-| `.claude/settings.local.json` | one hook entry per lifecycle event, `timeout: 5` |
+| `~/.claude/settings.json` | one hook entry per lifecycle event, `timeout: 5` (`.claude/settings.local.json` under `--scope project`) |
 
 Registration is idempotent and marker-keyed: re-running replaces our entries
 rather than appending, hooks belonging to anyone else are left alone, and the
@@ -114,35 +116,36 @@ Code afterwards: a session keeps the hooks it started with.
 
 If you use the plugin, run `claude plugin update ascenda@ascenda-one` instead.
 Its `hooks.json` registers the same set. Having both the plugin and a `setup` install runs every hook
-twice, and `setup` warns when the other scope already registers them.
+twice. `setup` moves its own entries out of the other scope's file (and out of
+`~/.claude/settings.local.json`, where a project install run from the home
+folder used to put them, loading only when Claude Code started in `~`), but it
+can't remove the plugin's.
 
-Hooks then need **no environment at all**: the command pins the absolute path
-of the Node that ran setup, and configuration comes from the credentials file.
-Claude Code spawns hooks with whatever environment it was launched from, so
-anything depending on shell exports stops working the moment the editor is
-opened from a launcher rather than a terminal. The variables below still
-override the file when set.
+Hooks then need **no environment at all**. The command names the launcher, and
+the launcher finds Node: the one that ran setup while it's still there, and
+otherwise the first Node 20 or newer on `PATH`, in Homebrew, volta, nvm's
+default alias, fnm, asdf or mise, which it records for next time. So a hook
+keeps working when Claude Code is opened from the Dock or an IDE, and after a
+version manager removes the Node that ran setup. If there is no Node at all,
+`SessionStart` says so once and the other hooks stay quiet. Configuration comes
+from the credentials file; the variables below still override it when set.
 
 `status` also flags hook entries pointing at a binary that no longer exists —
-those fail silently on every event otherwise. It checks one scope, defaulting
-to `project` like `setup`; if it finds nothing there it looks in the other one
-and says where the hooks actually are. User settings apply in every project, so
-hooks found there answer a project-scope check.
+those fail silently on every event otherwise — and names the Node the hooks
+will run and the last hook Claude Code ran. It checks one scope, defaulting to
+`user` like `setup`; if it finds nothing there it looks in the other one and
+says where the hooks actually are.
 
 #### Installing without a pairing
 
 `--no-pair` installs the hooks and stops before pairing. A `setup` that tried
 to pair and couldn't finish — the backend unreachable, nobody at the keyboard
 to confirm the code, the session expired — lands in the same place instead of
-failing. The install completes either way, and the summary names which half is
-running:
+failing. The install completes either way, and the summary says which it was.
+Asked for, it reads as finished; a pairing that didn't finish warns, and offers
+the retry:
 
-```text
-Installed, not paired.
-  active       the session prompts, and the live signal to a socket on this machine
-  inactive     delivery to https://api.ascenda.one. Nothing is sent, and nothing is queued for later.
-  pair later   npx @ascenda-one/claude-code-hooks pair
-```
+![setup --no-pair finishing with "Ready."](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/cli-setup-no-pair.png)
 
 Two things work with no pairing at all, which is why this mode exists. The
 session prompts are composed locally in the hook process. The live signal goes
@@ -299,7 +302,16 @@ SessionEnd hooks share 1.5s between them.
 npx -y @ascenda-one/claude-code-hooks doctor
 ```
 
-`doctor` prints the installation id and where it came from (environment,
+`doctor` starts with the local half, which needs no pairing: the Node the
+hooks will run (found with a bare `PATH`, the way a Dock-launched Claude Code
+starts them), which settings files register them and whether those load in
+every project, the last hook Claude Code ran, who is listening on the live
+socket (the desktop app, or the Waterline screen saver and whether it is the
+one on screen), and a ping that the saver answers in its heartbeat. The System
+Settings preview never listens, so testing with it shows resting water;
+`doctor` says so.
+
+Then it prints the installation id and where it came from (environment,
 credentials file, or the token store on disk), the token's presence and age,
 the last recorded send outcome, any sends skipped for want of an installation
 id, and the result of a live round trip against the real ingest endpoint. It is the first thing to run when the Ascenda app shows a

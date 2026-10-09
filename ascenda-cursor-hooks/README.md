@@ -20,6 +20,7 @@ opened from the Dock.
 
 ```bash
 npx @ascenda-one/cursor-hooks status      # exits non-zero if anything is unwired
+npx @ascenda-one/cursor-hooks doctor      # can the hooks run, has one run, and does the screen saver hear them
 npx @ascenda-one/cursor-hooks uninstall   # removes hooks, the binary and this pairing
 ```
 
@@ -28,8 +29,9 @@ npx @ascenda-one/cursor-hooks uninstall   # removes hooks, the binary and this p
 | `--api-base-url <url>` | ingest host (default `https://api.ascenda.one`) |
 | `--local [port]` | shorthand for a local [dev server](../ascenda-dev-server/) (default `4477`) |
 | `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
-| `--scope project\|user` | register in this project (default) or in `~/.cursor/hooks.json` |
+| `--scope user\|project` | register in `~/.cursor/hooks.json` for every project (default), or in this project only |
 | `--project-dir <path>` | project root for `--scope project` (default cwd) |
+| `--no-pair` | install without pairing: the screen saver and live view work, nothing is sent |
 | `--dry-run` | print what would change, write nothing |
 
 `examples/` holds the equivalent hand-written config for anyone who would

@@ -91,11 +91,12 @@ test("--no-pair installs the hooks and records an installation with no pairing",
   const result = run(m, ["setup", "--no-pair", "--scope", "user", "--project-dir", m.project]);
 
   assert.equal(result.status, 0, result.stderr);
-  // Which half is live has to be on the screen. A degrade that reads like a
-  // success is how someone comes to believe they paired.
-  assert.match(result.stdout, /Installed, not paired\./);
-  assert.match(result.stdout, /inactive\s+delivery to/);
-  assert.match(result.stdout, /active\s+the session prompts/);
+  // Asked for, so it reads as finished: someone who wanted only the screen
+  // saver has to be told it works, not that something is inactive.
+  assert.match(result.stdout, /Ready\. The screen saver and the Ascenda app's live view work now\./);
+  assert.match(result.stdout, /need no account or pairing/);
+  assert.match(result.stdout, /pairing\s+none, as asked \(--no-pair\)/);
+  assert.doesNotMatch(result.stdout, /Installed, not paired/);
 
   assert.ok(fs.existsSync(m.binary()), "the hook binary is installed");
   assert.equal(registeredEvents(m.userSettings()).length, 13);
@@ -123,10 +124,15 @@ test("--no-pairing is accepted too, and the disclosure says it applies once pair
   assert.equal(registeredEvents(m.userSettings()).length, 13);
 
   // The pairing disclosure still prints — someone choosing to stay local is
-  // entitled to know what pairing would cost — but it is framed as what
-  // pairing would start, because right now it describes nothing.
-  assert.match(result.stdout, /Nothing is sent from an install with no pairing\. What pairing would start sending:/);
+  // entitled to know what pairing would cost — but after the install has
+  // said it is ready, under "optional", so it cannot be read as what was
+  // just installed.
+  assert.match(result.stdout, /Until you pair, nothing leaves this machine/);
+  // Pairing sends data to a server, so the line says so rather than naming
+  // an account that could be read as local.
+  assert.match(result.stdout, /Ascenda's servers/);
   assert.match(result.stdout, /What this sends from Claude Code, once paired:/);
+  assert.ok(result.stdout.indexOf("Ready.") < result.stdout.indexOf("What this sends"), "the disclosure follows the result");
   m.cleanup();
 });
 
@@ -136,9 +142,10 @@ test("a pairing that cannot reach the backend still finishes the install", async
   const result = run(m, ["setup", "--api-base-url", `http://127.0.0.1:${port}`, "--project-dir", m.project]);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /pairing\s+none — could not reach/);
+  // Tried and failed is not the same as asked not to: this one warns.
+  assert.match(result.stdout, /pairing\s+not paired: could not reach/);
   assert.match(result.stdout, /Installed, not paired\./);
-  assert.equal(registeredEvents(m.projectSettings()).length, 13);
+  assert.equal(registeredEvents(m.userSettings()).length, 13);
   assert.equal(m.credentials().localOnly, true);
   m.cleanup();
 });
@@ -170,7 +177,10 @@ test("a hook on an unpaired install emits on the live bus and journals nothing",
   // recording an outage that is not happening.
   assert.equal(tool.stderr, "");
   assert.equal(prompt.stderr, "");
-  assert.equal(fs.existsSync(m.stateDir()), false, "an unpaired install has nothing to journal");
+  // The one file a hook always leaves is its last-run stamp, which records
+  // only the event name and the time (see hookHealth.ts).
+  const state = fs.existsSync(m.stateDir()) ? fs.readdirSync(m.stateDir()) : [];
+  assert.deepEqual(state, ["claude_code-last-hook.json"], "an unpaired install has nothing to journal");
 
   // The session prompt is unaffected — it never depended on a pairing.
   const session = await runAsync(m, ["SessionStart"], { env, input: JSON.stringify({ session_id: "s-local", source: "startup", cwd: m.project }) });
@@ -290,10 +300,10 @@ test("status reports an unpaired install as installed, and exits 0", () => {
   assert.match(here.stdout, /hooks\s+13\/13 registered/);
   assert.match(here.stdout, /^version {8}(unreleased \(built from a checkout, not a release\)|\d+\.\d+\.\d+)$/m, "status names the running build");
 
-  // The scope trap: `status` defaults to --scope project while this machine
-  // was set up with --scope user. User settings apply in every project, so the
-  // hooks found there answer the question and the install is not broken.
-  const fromProject = run(m, ["status"], { cwd: m.project, env: { CLAUDE_PROJECT_DIR: m.project } });
+  // The scope trap: asked about one project on a machine set up with --scope
+  // user. User settings apply in every project, so the hooks found there
+  // answer the question and the install is not broken.
+  const fromProject = run(m, ["status", "--scope", "project"], { cwd: m.project, env: { CLAUDE_PROJECT_DIR: m.project } });
   assert.equal(fromProject.status, 0, "hooks in the user file cover this project too");
   assert.match(fromProject.stdout, /13\/13 found in .*settings\.json \(--scope user\)/);
   m.cleanup();
@@ -305,9 +315,13 @@ test("doctor names the mode and skips the round trip it has no token for", () =>
 
   const result = run(m, ["doctor"]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /Mode\s+installed, not paired — local features active, telemetry inactive/);
-  assert.match(result.stdout, /Token\s+none — this install has no pairing/);
-  assert.match(result.stdout, /Nothing is sent from this install/);
+  assert.match(result.stdout, /Mode\s+not paired\. The live signal works; nothing is sent to Ascenda's servers/);
+  // The rows that would each say "none" are left out rather than listed.
+  assert.doesNotMatch(result.stdout, /Token\s+none/);
+  assert.match(result.stdout, /Not paired, which is fine/);
+  assert.match(result.stdout, /Nothing leaves this machine and nothing is queued/);
+  // The whole closing paragraph survives the trim of the unpaired rows.
+  assert.match(result.stdout, /sessions to Ascenda's servers, so they appear in the app:/);
   assert.doesNotMatch(result.stdout, /FAILED/);
   m.cleanup();
 });
@@ -317,8 +331,8 @@ test("--dry-run --no-pair writes nothing and says so", () => {
   const result = run(m, ["setup", "--no-pair", "--dry-run", "--scope", "user", "--project-dir", m.project]);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Dry run — nothing was written\./);
-  assert.match(result.stdout, /pairing\s+none — asked not to pair/);
+  assert.match(result.stdout, /Dry run\. Nothing was written\./);
+  assert.match(result.stdout, /pairing\s+none, as asked/);
   assert.equal(fs.existsSync(path.join(m.home, ".ascenda", "credentials.json")), false);
   assert.equal(fs.existsSync(m.userSettings()), false);
   m.cleanup();

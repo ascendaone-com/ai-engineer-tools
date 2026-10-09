@@ -10,9 +10,14 @@ import { describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfComma
 import { initiativesStatusLines } from "./initiatives";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
+import { describeAge, hookRunnerCommand, hookRunnerPaths, installHookRunner, readLastHook, removeHookRunner, resolveHookNode, tidyHomePath } from "./hookRunner";
+import { liveSignalDoctorLines } from "./liveSignalDoctor";
+import type { HookRegistration } from "./liveSignalDoctor";
 import { defaultStateFilePath, readCollectorState } from "./stateStore";
 import { runStudyJoin } from "./studyJoin";
 import { runStudyObjection, studyNoticeStatus } from "./studyNotices";
+import { terminalStyle } from "./terminalStyle";
+import type { TerminalStyle, Tone } from "./terminalStyle";
 import { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFile } from "./tokenStore";
 
 /**
@@ -29,8 +34,9 @@ import { ascendaHome, defaultTokenFilePath, persistEventWriteToken, readTokenFil
  *
  * The Claude Code adapter has its own `setup` that predates this one and
  * carries its own concerns (a top-level credentials entry, the invites on
- * stdout). The two follow the same rules: pin the interpreter, back up
- * before touching a file, refuse to overwrite what cannot be parsed.
+ * stdout). The two follow the same rules: start hooks through the launcher
+ * (`hookRunner.ts`), register them for every project unless asked not to,
+ * back up before touching a file, refuse to overwrite what cannot be parsed.
  */
 export type HookSettingsFormat = {
   /** Where the agent reads hooks from, per scope. */
@@ -84,7 +90,7 @@ export type CliAgentSetupSpec = {
 
 export type SetupScope = "project" | "user";
 
-type SetupAction = "install" | "status" | "uninstall" | "help";
+type SetupAction = "install" | "status" | "uninstall" | "doctor" | "help";
 
 type SetupOptions = {
   apiBaseUrl?: string;
@@ -105,15 +111,24 @@ type SetupOptions = {
  * Checked before stdin is read: a management command carries no payload, so
  * reading stdin first would hang on a pipe nothing will ever write to.
  */
-const MANAGEMENT_COMMANDS = new Set(["setup", "install", "status", "uninstall", "join", "object", "-h", "--help"]);
+const MANAGEMENT_COMMANDS = new Set(["setup", "install", "status", "uninstall", "doctor", "join", "object", "-h", "--help"]);
 
 export function isCliAgentManagementCommand(argument: string | undefined): boolean {
   return argument !== undefined && MANAGEMENT_COMMANDS.has(argument);
 }
 
-/** Where `setup` places the self-contained hook bundle. No sudo, no npm -g. */
+/** Where `setup` places the hook launcher, which the hooks file names. No sudo, no npm -g. */
 export function cliAgentHookBinPath(binaryName: string): string {
-  return path.join(ascendaHome(), "bin", binaryName);
+  return hookRunnerPaths(binaryName).launcher;
+}
+
+/**
+ * How to run this adapter again from a terminal: the installed launcher, not
+ * npx. It needs no Node on PATH, and it is the version that was just
+ * installed rather than whatever npm has as latest.
+ */
+export function cliAgentSelfCommand(spec: CliAgentSetupSpec): string {
+  return process.platform === "win32" ? `npx ${spec.packageName}` : tidyHomePath(cliAgentHookBinPath(spec.binaryName), os.homedir());
 }
 
 function usage(spec: CliAgentSetupSpec): string {
@@ -121,6 +136,7 @@ function usage(spec: CliAgentSetupSpec): string {
 
   npx ${spec.packageName} setup [options]
   npx ${spec.packageName} status
+  npx ${spec.packageName} doctor
   npx ${spec.packageName} uninstall
   npx ${spec.packageName} join <code>
   npx ${spec.packageName} object <purpose> [--undo]
@@ -131,7 +147,7 @@ Options
   --tool-installation-id <id>   reuse an existing pairing instead of creating one
   --token <eventWriteToken>     reuse an existing token (stored 0600, never printed)
   --no-pair                     install without pairing: local features on, nothing sent
-  --scope project|user          where hooks are registered (default project)
+  --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
   -h, --help
@@ -161,19 +177,25 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   }
   if (options.action === "status") return await printStatus(options, spec);
   if (options.action === "uninstall") return uninstall(options, spec);
+  if (options.action === "doctor") return await runDoctor(options, spec);
 
   const apiBaseUrl = (options.apiBaseUrl ?? readHostCredentials(spec.host)?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
-  console.log(`Ascenda setup for ${spec.displayName} — ${apiBaseUrl}`);
+  const ui = terminalStyle();
+  const row = (tone: Tone, label: string, value: string) => console.log(`  ${ui.mark(tone)} ${label.padEnd(12)} ${value}`);
+  const detail = (label: string, value: string) => console.log(ui.dim(`    ${label.padEnd(12)} ${value}`));
+  console.log(`${ui.bold("Ascenda setup")} ${ui.dim(`· ${spec.displayName} · ${apiBaseUrl}`)}`);
 
   // Before pairing, not after: pairing is where the consent is given, and a
   // statement printed underneath a completed pairing is a notification rather
   // than a disclosure.
   //
-  // Printed on an unpaired install too, and the heading carries it: "once
-  // paired" is the true tense for an install that sends nothing yet, whether
-  // that was asked for (`--no-pair`) or a pairing that could not finish. The
-  // lines below say what is true now.
-  console.log(`\n${renderSetupDisclosure({ sends: spec.sends, displayName: spec.displayName })}\n`);
+  // A run that will not pair still prints it, because someone choosing to
+  // stay local is entitled to know what pairing would cost. But it goes at
+  // the end, under "pairing is optional": printed first, its "what this
+  // sends" read as what had just been installed, and the install that
+  // followed read as a degraded one.
+  if (!options.skipPairing) console.log(`\n${renderSetupDisclosure({ sends: spec.sends, displayName: spec.displayName })}`);
+  console.log("");
 
   // Pairing is the only step that needs a person and a network, and the only
   // one that can be left out: the hook bundle and the agent's hooks file know
@@ -181,29 +203,19 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   // half — the live signal to a socket on this machine — and sends nothing,
   // which is what an unpaired hook already did.
   //
-  // Two ways to arrive, and both say so: asked for (`--no-pair`), or a
-  // pairing that could not finish (host unreachable, code unconfirmed,
-  // session expired). A degrade nobody is told about is how someone comes to
-  // believe they paired.
+  // Two ways to arrive, told apart on screen: asked for (`--no-pair`), which
+  // is a finished install, or a pairing that could not finish (host
+  // unreachable, code unconfirmed, session expired), which warns. A degrade
+  // nobody is told about is how someone comes to believe they paired; a
+  // chosen local install that reads like a failure is how someone new
+  // decides the install broke.
   let identity: Identity | undefined;
-  let unpairedReason: string | undefined;
-  if (options.skipPairing) {
-    unpairedReason = "asked not to pair (--no-pair)";
-  } else {
-    identity = await resolveIdentity(apiBaseUrl, options, spec);
-    if (identity) {
-      console.log(`  pairing      ${identity.toolInstallationId}${identity.paired ? " (new)" : " (existing)"}`);
-    } else {
-      unpairedReason = "pairing did not finish — installing the local half anyway";
-    }
-  }
-  if (unpairedReason) {
-    console.log(`  pairing      none: ${unpairedReason}`);
-    console.log("               local features on, nothing is sent");
-  }
+  if (!options.skipPairing) identity = await resolveIdentity(apiBaseUrl, options, spec);
 
   const binary = installBinary(spec, options.dryRun);
-  console.log(`  hook binary  ${binary}`);
+  const node = options.dryRun || process.platform === "win32" ? undefined : resolveHookNode(binary);
+  if (node?.problem) row("bad", "hook binary", `${tidyHomePath(binary, os.homedir())}, but ${node.problem}. Install Node 20 or newer, then run setup again`);
+  else row("ok", "hook binary", `${tidyHomePath(binary, os.homedir())}${node?.version ? ui.dim(` (Node ${node.version})`) : ""}`);
 
   if (!options.dryRun) {
     // An unpaired install still records an id: it is what a later `pair`
@@ -222,34 +234,93 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
       ...(identity ? { pairedAt: now } : { localOnly: true, installedAt: now })
     });
   }
-  console.log(`  credentials  ${credentialsFilePath()} (tools.${spec.host})`);
 
+  if (isHomeProject(options)) {
+    detail("scope", "user (a project install in the home folder only loads when the agent starts there)");
+    options.scope = "user";
+  }
   const settingsFile = spec.settings.settingsPath(options.scope, options.projectDir);
   const before = registeredHookSets(readSettings(settingsFile), spec);
   const written = writeHookSettings(settingsFile, binary, spec, options.dryRun);
   if (written === null) return 1;
-  console.log(`  hooks        ${settingsFile} (${spec.hookEvents.length} events${written ? "" : ", already current"})`);
+  const reach = options.scope === "user" ? "every project" : "this project only";
+  row("ok", "hooks", `${tidyHomePath(settingsFile, os.homedir())} ${ui.dim(`(${spec.hookEvents.length} events, ${reach}${written ? "" : ", already current"})`)}`);
   const changes = spec.hookSet === undefined ? undefined : describeHookSetChanges(hookSetChanges(before, spec.hookEvents), spec.hookSet);
-  if (changes) console.log(`               ${changes}`);
+  if (changes) detail("", changes);
+
+  // Both scopes fire. An install in the other one means every event runs
+  // twice and every count doubles, and an older install there may name a
+  // binary this run just replaced. Our entries are told apart from anyone
+  // else's by the marker, so they are moved rather than reported: this run's
+  // file keeps them, the other loses them, and its other hooks are untouched.
+  const otherFile = spec.settings.settingsPath(options.scope === "user" ? "project" : "user", options.projectDir);
+  if (otherFile !== settingsFile && registeredHookSets(readSettings(otherFile), spec).size > 0) {
+    if (options.dryRun) {
+      row("info", "moved", `would remove the copy in ${tidyHomePath(otherFile, os.homedir())}, so each event runs once`);
+    } else if (removeOurHookEntries(otherFile, spec)) {
+      row("ok", "moved", `removed the copy in ${tidyHomePath(otherFile, os.homedir())}, so each event runs once ${ui.dim("(backup beside it)")}`);
+    } else {
+      row("warn", "note", `${tidyHomePath(otherFile, os.homedir())} registers these hooks too, so each event runs twice.`);
+      detail("", `Remove the ${spec.binaryName} entries from one of the two files.`);
+    }
+  }
+
+  const chosenLocal = options.skipPairing;
+  if (identity) row("ok", "pairing", `${identity.toolInstallationId}${ui.dim(identity.paired ? " (new)" : " (existing)")}`);
+  else if (chosenLocal) row("info", "pairing", `none, as asked ${ui.dim("(--no-pair)")}`);
+  else row("warn", "pairing", "not paired: pairing did not finish");
+  detail("credentials", `${tidyHomePath(credentialsFilePath(), os.homedir())} (tools.${spec.host})`);
 
   if (options.dryRun) {
-    console.log("\nDry run — nothing was written.");
+    console.log("\nDry run. Nothing was written.");
     return 0;
   }
 
-  console.log(`\nDone. ${spec.restartHint}`);
-  if (!identity) {
-    console.log(`Pair later:     npx ${spec.packageName} setup`);
+  const self = cliAgentSelfCommand(spec);
+  const next = (label: string, value: string) => console.log(`  ${ui.bold(label.padEnd(6))} ${value}`);
+  console.log("");
+  if (chosenLocal) {
+    console.log(`${ui.mark("ok")} ${ui.bold("Ready.")} The screen saver and the Ascenda app's live view work now.`);
+    console.log("  They run on this machine and need no account or pairing.");
+  } else if (!identity) {
+    console.log(`${ui.mark("warn")} ${ui.bold("Installed, not paired.")} The screen saver and the live view work now.`);
+    console.log("  Your sessions won't reach Ascenda's servers until pairing completes.");
+  } else {
+    console.log(`${ui.mark("ok")} ${ui.bold("Done.")} Paired, and the hooks are installed.`);
   }
-  console.log(`Check anytime:  npx ${spec.packageName} status`);
+  console.log("");
+  next("Next", spec.restartHint);
+  next("Check", ui.cyan(`${self} doctor`));
+  // Pairing is part of setup for these adapters, so setup is how to pair.
+  if (!identity) next(chosenLocal ? "Pair" : "Retry", `${ui.cyan(`${self} setup`)}${chosenLocal ? ui.dim("  (optional)") : ""}`);
+
+  if (chosenLocal) {
+    console.log("");
+    console.log(ui.dim("  Pairing sends the details below to Ascenda's servers, under the account the"));
+    console.log(ui.dim("  Ascenda app is signed in to when you confirm the code, so your sessions appear"));
+    console.log(ui.dim("  in the app. Until you pair, nothing leaves this machine."));
+    console.log("");
+    console.log(ui.dim(renderSetupDisclosure({ sends: spec.sends, displayName: spec.displayName }).split("\n").map((line) => `  ${line}`).join("\n")));
+  }
   return 0;
+}
+
+/**
+ * A project install aimed at the home folder. The agent reads a project file
+ * there only when it starts in the home folder, so it is made a user install.
+ */
+function isHomeProject(options: SetupOptions): boolean {
+  return options.scope === "project" && path.resolve(options.projectDir) === path.resolve(os.homedir());
 }
 
 // ------------------------------------------------------------------ args ---
 
 function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
+  // User scope by default. The hooks drive surfaces that belong to the whole
+  // machine (the screen saver, the desktop app's gauges), so registering them
+  // for one folder made them work only when the agent started there.
   const options: SetupOptions = {
-    scope: "project",
+    scope: "user",
     projectDir: process.cwd(),
     dryRun: false,
     skipPairing: false,
@@ -273,6 +344,9 @@ function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
         break;
       case "uninstall":
         options.action = "uninstall";
+        break;
+      case "doctor":
+        options.action = "doctor";
         break;
       case "--api-base-url":
         options.apiBaseUrl = next();
@@ -479,22 +553,12 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
 // ---------------------------------------------------------------- binary ---
 
 /**
- * Copy the running bundle to ~/.ascenda/bin. `npx` caches its download in a
- * temp directory that is not stable across runs, so hooks must not point at it.
+ * The launcher, the bundle beside it and the Node record (`hookRunner.ts`).
+ * `npx` caches its download in a temp directory that is not stable across
+ * runs, so hooks must not point at it.
  */
 function installBinary(spec: CliAgentSetupSpec, dryRun: boolean): string {
-  const target = cliAgentHookBinPath(spec.binaryName);
-  if (dryRun) return target;
-
-  const source = process.argv[1];
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  // Same file when re-running an already-installed binary; copying it onto
-  // itself would truncate it.
-  if (path.resolve(source) !== path.resolve(target)) {
-    fs.copyFileSync(source, target);
-  }
-  if (process.platform !== "win32") fs.chmodSync(target, 0o755);
-  return target;
+  return installHookRunner({ binaryName: spec.binaryName, setupCommand: `npx ${spec.packageName} setup`, dryRun });
 }
 
 // -------------------------------------------------------------- settings ---
@@ -551,12 +615,13 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
 }
 
 /**
- * Pin the interpreter to the Node running setup. Agents spawn hooks with the
+ * The launcher, which finds Node itself. Agents spawn hooks with the
  * environment they were launched with, which on a GUI launch may not have a
- * version-manager Node on PATH.
+ * version-manager Node on PATH, and a pinned Node path breaks the day that
+ * version is uninstalled.
  */
 function hookCommand(binary: string, spec: CliAgentSetupSpec): string {
-  return `"${process.execPath}" "${binary}"${hookSetArgument(spec.hookSet)}`;
+  return `${hookRunnerCommand(binary)}${hookSetArgument(spec.hookSet)}`;
 }
 
 /**
@@ -629,7 +694,26 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   console.log(`pairing        ${credentials?.toolInstallationId ?? "— not paired"}${localOnly ? " (installed, not paired — local features active, telemetry inactive)" : ""}`);
   console.log(`token          ${localOnly ? "— none needed until this install is paired" : tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
+  // Registered is not the same as runnable. Agents swallow a hook that
+  // cannot start, so a full count used to sit beside a machine where no hook
+  // had ever run. Asked with a bare PATH, the way a Dock-launched agent asks.
+  const node = process.platform === "win32" ? undefined : resolveHookNode(binary);
+  if (node) {
+    console.log(node.problem
+      ? `node           — ${node.problem}. Install Node 20 or newer, then run setup again`
+      : `node           ${node.node} (${node.version}, ${node.how === "recorded" ? "recorded at setup" : "found by the launcher"})`);
+  }
+  const last = readLastHook(spec.host);
+  console.log(last
+    ? `last hook      ${last.event}, ${describeAge(Date.now() - Date.parse(last.at))}`
+    : `last hook      — none has run yet. Start ${spec.displayName} (restart it if it was open during setup)`);
   console.log(`hooks          ${registered}/${spec.hookEvents.length} registered in ${settingsFile}`);
+  // Checked before saying nothing is there: "0 registered" in one scope
+  // reads as a failed install when the hooks are in the other.
+  const otherScope: SetupScope = options.scope === "user" ? "project" : "user";
+  const otherFile = spec.settings.settingsPath(otherScope, options.projectDir);
+  const elsewhere = registered === 0 && otherFile !== settingsFile ? countRegistered(readSettings(otherFile), spec) : 0;
+  if (elsewhere > 0) console.log(`               ${elsewhere}/${spec.hookEvents.length} found in ${otherFile} (--scope ${otherScope})`);
   if (spec.hookSet !== undefined && registered > 0) {
     const sets = [...registeredHookSets(settings, spec).values()];
     const oldest = Math.min(...sets);
@@ -665,38 +749,132 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   // not also requiring a token here: an exported ASCENDA_EVENT_WRITE_TOKEN is
   // a supported way to hold one, and this check has never read it.
   const paired = localOnly || credentials?.toolInstallationId !== undefined;
-  const healthy = paired && registered === spec.hookEvents.length && fs.existsSync(binary) && !stale.length;
+  // User hooks apply in every project, so hooks found there answer a
+  // project-scope check. The reverse does not hold.
+  const wired = registered === spec.hookEvents.length || (options.scope === "project" && elsewhere === spec.hookEvents.length);
+  const healthy = paired && wired && fs.existsSync(binary) && !stale.length && !node?.problem;
   return healthy ? 0 : 1;
 }
 
-/** Removes our hook entries, the installed binary and this host's credentials. Tokens are left alone: revocation is app-side. */
+function countRegistered(settings: HookSettings, spec: CliAgentSetupSpec): number {
+  return spec.hookEvents.filter((event) => (settings.hooks?.[event] ?? []).some((entry) => isOurs(entry, spec))).length;
+}
+
+/**
+ * Where this adapter's hooks are registered, for `doctor`: the user file and
+ * this folder's project file, each listed only when it holds some.
+ */
+export function cliAgentRegistrations(spec: CliAgentSetupSpec, projectDir = process.cwd()): HookRegistration[] {
+  const home = os.homedir();
+  const userFile = spec.settings.settingsPath("user", projectDir);
+  const projectFile = spec.settings.settingsPath("project", projectDir);
+  const found: HookRegistration[] = [];
+  for (const [scope, file] of [["user", userFile], ["project", projectFile]] as const) {
+    if (scope === "project" && file === userFile) continue;
+    const registered = countRegistered(readSettings(file), spec);
+    if (registered === 0) continue;
+    found.push({
+      file: tidyHomePath(file, home),
+      registered,
+      scope,
+      homeProject: scope === "project" && path.resolve(projectDir) === path.resolve(home)
+    });
+  }
+  return found;
+}
+
+/**
+ * `doctor`: the live signal first, which needs no pairing and is the whole
+ * story for an install that has none, then the account half.
+ */
+async function runDoctor(options: SetupOptions, spec: CliAgentSetupSpec): Promise<number> {
+  const ui = terminalStyle();
+  const lines: string[] = [`${ui.bold("Ascenda doctor")} ${ui.dim(`· ${spec.displayName}`)}`, ""];
+  try {
+    lines.push(...await liveSignalDoctorLines({
+      displayName: spec.displayName,
+      tool: spec.host,
+      launcher: process.platform === "win32" ? undefined : cliAgentHookBinPath(spec.binaryName),
+      registrations: cliAgentRegistrations(spec, options.projectDir),
+      eventCount: spec.hookEvents.length,
+      selfCommand: cliAgentSelfCommand(spec),
+      setupCommand: `npx ${spec.packageName} setup`,
+      ui
+    }));
+  } catch (error) {
+    lines.push(`  Live signal           (could not be checked: ${error instanceof Error ? error.message : String(error)})`);
+  }
+  lines.push("", ...accountLines(ui, spec));
+  console.log(lines.join("\n"));
+  return 0;
+}
+
+function accountLines(ui: TerminalStyle, spec: CliAgentSetupSpec): string[] {
+  const credentials = readHostCredentials(spec.host);
+  const id = credentials?.toolInstallationId;
+  const localOnly = isLocalOnlyHostInstall(spec.host, (installationId) => readTokenFile(defaultTokenFilePath(installationId)) !== undefined);
+  const row = (tone: Tone, label: string, value: string) => `  ${ui.mark(tone)} ${label.padEnd(20)} ${value}`;
+  if (!id || localOnly) {
+    return [
+      `  ${ui.bold("Account sync")} ${ui.dim("(optional; this install isn't paired)")}`,
+      ...(id ? [ui.dim(row("info", "Installation id", id))] : []),
+      "",
+      "  Not paired, which is fine: the screen saver and the live view above work",
+      "  without it. Nothing leaves this machine and nothing is queued. To send your",
+      "  sessions to Ascenda's servers, so they appear in the app:",
+      `    ${ui.cyan(`${cliAgentSelfCommand(spec)} setup`)}`
+    ];
+  }
+  const token = readTokenFile(defaultTokenFilePath(id)) ?? process.env.ASCENDA_EVENT_WRITE_TOKEN?.trim();
+  const state = readCollectorState(defaultStateFilePath(id));
+  const outcome = state?.lastOutcome;
+  return [
+    `  ${ui.bold("Account sync")}`,
+    row("info", "Installation id", id),
+    token ? row("ok", "Token", "present") : row("bad", "Token", ui.red(`missing, so nothing can be sent. Run: npx ${spec.packageName} setup`)),
+    outcome
+      ? row(outcome === "accepted" ? "ok" : "warn", "Last send", `${outcome}${state?.lastAttemptAt ? ui.dim(` (${state.lastAttemptAt})`) : ""}`)
+      : row("info", "Last send", "none yet")
+  ];
+}
+
+/**
+ * Takes our entries out of one hooks file, keeping everything else, with a
+ * backup beside it. Returns false when the file could not be parsed.
+ */
+function removeOurHookEntries(settingsFile: string, spec: CliAgentSetupSpec): boolean {
+  if (!fs.existsSync(settingsFile)) return true;
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as HookSettings;
+    const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
+    for (const event of Object.keys(hooks)) {
+      const kept = hooks[event].filter((entry) => !isOurs(entry, spec));
+      if (kept.length) hooks[event] = kept;
+      else delete hooks[event];
+    }
+    const updated: HookSettings = { ...settings, hooks };
+    if (!Object.keys(hooks).length) delete updated.hooks;
+    fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
+    fs.writeFileSync(settingsFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Removes our hook entries, the installed launcher and bundle, and this host's credentials. Tokens are left alone: revocation is app-side. */
 function uninstall(options: SetupOptions, spec: CliAgentSetupSpec): number {
   const settingsFile = spec.settings.settingsPath(options.scope, options.projectDir);
-
   if (fs.existsSync(settingsFile)) {
-    try {
-      const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as HookSettings;
-      const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
-      for (const event of Object.keys(hooks)) {
-        const kept = hooks[event].filter((entry) => !isOurs(entry, spec));
-        if (kept.length) hooks[event] = kept;
-        else delete hooks[event];
-      }
-      const updated: HookSettings = { ...settings, hooks };
-      if (!Object.keys(hooks).length) delete updated.hooks;
-      fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
-      fs.writeFileSync(settingsFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
-      console.log(`hooks removed from ${settingsFile}`);
-    } catch {
+    if (!removeOurHookEntries(settingsFile, spec)) {
       console.error(`could not parse ${settingsFile} — remove the ascenda hook entries by hand`);
       return 1;
     }
+    console.log(`hooks removed from ${settingsFile}`);
   }
 
-  const binary = cliAgentHookBinPath(spec.binaryName);
-  if (fs.existsSync(binary)) {
-    fs.rmSync(binary);
-    console.log(`removed ${binary}`);
+  for (const file of removeHookRunner(spec.binaryName)) {
+    if (!file.endsWith(".node") && !file.endsWith(".no-node")) console.log(`removed ${file}`);
   }
   if (readHostCredentials(spec.host)) {
     removeHostCredentials(spec.host);

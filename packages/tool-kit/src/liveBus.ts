@@ -3,6 +3,7 @@ import * as net from "net";
 import * as os from "os";
 import * as path from "path";
 import { isHookSet } from "./hookSet";
+import { holdForSaver } from "./saverHandoff";
 
 /**
  * The live presence bus — a local, best-effort side-channel telling the
@@ -227,7 +228,7 @@ const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
  * appex, whose sandbox redirects HOME into its container — so a listener
  * there binds inside the container rather than at the real home.
  */
-const SAVER_HOST_BUNDLE_ID = "com.apple.ScreenSaver.Engine.legacyScreenSaver";
+export const SAVER_HOST_BUNDLE_ID = "com.apple.ScreenSaver.Engine.legacyScreenSaver";
 
 /**
  * Every place a listener might be, in preference order.
@@ -279,7 +280,7 @@ export function liveBusSocketCandidates(): string[] {
  * candidate on this list may refuse every connection. {@link emitLiveSignal}
  * therefore treats the list as an order to try, never as the answer.
  */
-function existingSocketCandidates(): string[] {
+export function existingSocketCandidates(): string[] {
   const candidates = liveBusSocketCandidates();
   if (process.env.ASCENDA_LIVE_BUS_SOCKET) return candidates;
   return candidates.filter((candidate) => {
@@ -344,6 +345,9 @@ const NOBODY_LISTENING = new Set(["ECONNREFUSED", "ENOENT"]);
  * short-lived (one per lifecycle event), so there is no long-lived process
  * to hold a socket open, and at these rates — a handful of signals a second
  * at worst — connection setup on a Unix socket is negligible.
+ *
+ * When no candidate takes it, the signal is held for the screen saver
+ * ({@link holdForSaver}), which replays it when it next binds.
  */
 /**
  * The signal as it may go out. P-D64.3 closes install provenance at two
@@ -359,16 +363,36 @@ function onTheWire(signal: LiveBusSignal): LiveBusSignal {
 }
 
 export function emitLiveSignal(signal: LiveBusSignal): Promise<void> {
-  return new Promise<void>((resolve) => {
+  const wire = onTheWire(signal);
+  return deliverLine(`${JSON.stringify(wire)}\n`).then((delivered) => {
+    // Nobody took it. If the screen saver has ever run on this account, it
+    // is the listener most likely to want this later: the person submits,
+    // walks away, and the saver starts minutes afterwards. The note lets it
+    // start from the state the work is in, not from nothing.
+    if (!delivered) holdForSaver(wire);
+  });
+}
+
+/**
+ * Sends one line to the first candidate that accepts it, and resolves with
+ * that candidate's path, or undefined when nobody took it. Never rejects.
+ *
+ * A candidate that accepts and then fails the write still counts as
+ * delivered: it has the signal or has lost it, and sending the line again
+ * elsewhere would count it twice.
+ */
+export function deliverLine(line: string): Promise<string | undefined> {
+  return new Promise<string | undefined>((resolve) => {
     // No socket file anywhere: the app simply isn't running. That is the
     // ordinary case for anyone who doesn't use it, and it is not an error.
     const candidates = existingSocketCandidates();
     if (candidates.length === 0) {
-      resolve();
+      resolve(undefined);
       return;
     }
 
     let settled = false;
+    let accepted: string | undefined;
     let socket: net.Socket | undefined;
     const drop = () => {
       try {
@@ -383,11 +407,15 @@ export function emitLiveSignal(signal: LiveBusSignal): Promise<void> {
       settled = true;
       clearTimeout(timer);
       drop();
-      resolve();
+      resolve(accepted);
     };
 
+    // Deliberately NOT unref'd. The socket is, so a slow listener can't
+    // hold the process up, which leaves this timer as the one handle
+    // keeping a hook alive until the write lands or the budget runs out.
+    // Unref both and Node may exit mid-connect with nothing written and a
+    // clean exit code.
     const timer = setTimeout(done, WRITE_TIMEOUT_MS);
-    if (typeof timer.unref === "function") timer.unref();
 
     const tryFrom = (index: number) => {
       if (settled) return;
@@ -419,8 +447,9 @@ export function emitLiveSignal(signal: LiveBusSignal): Promise<void> {
       attempt.on("connect", () => {
         if (settled || socket !== attempt) return;
         connected = true;
+        accepted = candidates[index];
         try {
-          attempt.write(`${JSON.stringify(onTheWire(signal))}\n`, done);
+          attempt.write(line, done);
         } catch {
           done();
         }

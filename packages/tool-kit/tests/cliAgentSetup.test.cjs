@@ -53,7 +53,10 @@ test("registers every hook event in the spec's shape, with the scaffold on a new
   const settings = read(file);
   assert.equal(settings.version, 1, "Cursor's file is versioned");
   assert.deepEqual(Object.keys(settings.hooks).sort(), ["start", "stop"]);
-  assert.match(settings.hooks.stop[0].command, /^".*node[^"]*" "\/home\/dev\/\.ascenda\/bin\/ascenda-flat-hook" stop$/);
+  // The launcher, which finds Node itself; Windows keeps the pinned Node.
+  assert.match(settings.hooks.stop[0].command, process.platform === "win32"
+    ? /^".*node[^"]*" "\/home\/dev\/\.ascenda\/bin\/ascenda-flat-hook" stop$/
+    : /^"\/home\/dev\/\.ascenda\/bin\/ascenda-flat-hook" stop$/);
 
   const nestedFile = tempFile("settings.json");
   writeHookSettings(nestedFile, "/x/ascenda-nested-hook", nested, false);
@@ -169,7 +172,9 @@ test("setup --no-pair installs the hooks and never reaches the network", async (
     // The id is what a later `pair` attaches to. Without it the hooks above
     // end up orphaned beside a freshly minted one.
     assert.match(credentials.toolInstallationId, /^cli_agent:/);
-    assert.ok(log.join("\n").includes("nothing is sent"), "the person is told what they get");
+    // Asked for, so it reads as finished rather than as a degrade.
+    assert.ok(log.join("\n").includes("need no account or pairing"), "the person is told what they get");
+    assert.ok(!log.join("\n").includes("Installed, not paired"));
   });
 });
 
@@ -301,7 +306,8 @@ test("a pairing that cannot finish degrades to the same install, and says so", a
     assert.equal(credentialsOf(home, flat.host).localOnly, true);
     const said = log.join("\n");
     assert.ok(said.includes("pairing did not finish"), "the degrade is named, not silent");
-    assert.ok(said.includes("Pair later"), "and the way out is offered");
+    assert.ok(said.includes("Installed, not paired."), "and it warns, unlike a chosen --no-pair");
+    assert.ok(said.includes("Retry"), "and the way out is offered");
   });
 });
 
@@ -470,5 +476,91 @@ test("setup keeps the saved token quietly when the check fails and the journal i
     const out = log.join("\n");
     assert.ok(out.includes(`${SAVED_ID} (existing)`), out);
     assert.ok(!out.includes("refused"), out);
+  });
+});
+
+// ------------------------------------------- fresh-account install rules ---
+
+// A spec whose two scopes are different files, as every real agent's are:
+// user under a fake home, project under the project folder.
+function scopedSpec(userDir) {
+  return {
+    ...flat,
+    host: "scoped", binaryName: "ascenda-scoped-hook",
+    settings: {
+      ...flat.settings,
+      settingsPath: (scope, dir) => scope === "user" ? path.join(userDir, "hooks.json") : path.join(dir, ".scoped", "hooks.json")
+    }
+  };
+}
+
+test("setup registers for every project by default, and moves an old project install", { skip: process.platform === "win32" }, async () => {
+  await sandbox(async ({ home, project, log }) => {
+    const spec = scopedSpec(path.join(home, "user"));
+    // An older, project-scope install from before the default changed.
+    assert.equal(await runCliAgentSetup(["setup", "--no-pair", "--scope", "project", "--project-dir", project], spec), 0);
+    const projectFile = path.join(project, ".scoped", "hooks.json");
+    assert.equal(read(projectFile).hooks.stop.length, 1);
+
+    log.length = 0;
+    assert.equal(await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], spec), 0);
+    const userFile = path.join(home, "user", "hooks.json");
+    assert.equal(read(userFile).hooks.stop.length, 1, "registered in the user file");
+    assert.equal(read(projectFile).hooks, undefined, "and taken out of the project file, so each event runs once");
+    assert.ok(fs.existsSync(`${projectFile}.ascenda-backup`));
+    assert.match(log.join("\n"), /every project/);
+  });
+});
+
+test("setup installs the launcher, the bundle beside it and the Node it ran with", { skip: process.platform === "win32" }, async () => {
+  await sandbox(async ({ home, project }) => {
+    const spec = scopedSpec(path.join(home, "user"));
+    await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], spec);
+    const launcher = path.join(home, "bin", spec.binaryName);
+    assert.match(fs.readFileSync(launcher, "utf8"), /^#!\/bin\/sh/);
+    assert.ok(fs.existsSync(`${launcher}.mjs`), "the bundle");
+    assert.equal(fs.readFileSync(`${launcher}.node`, "utf8").trim(), process.execPath);
+    assert.match(read(path.join(home, "user", "hooks.json")).hooks.stop[0].command, new RegExp(`^"${launcher.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}" stop$`));
+
+    assert.equal(await runCliAgentSetup(["uninstall", "--project-dir", project], spec), 0);
+    for (const file of [launcher, `${launcher}.mjs`, `${launcher}.node`]) assert.equal(fs.existsSync(file), false, file);
+  });
+});
+
+test("doctor reports the local half first and calls a fresh install ready", { skip: process.platform === "win32" }, async () => {
+  const previousSocket = process.env.ASCENDA_LIVE_BUS_SOCKET;
+  process.env.ASCENDA_LIVE_BUS_SOCKET = path.join(os.tmpdir(), `ascenda-none-${process.pid}.sock`);
+  try {
+    await sandbox(async ({ home, project, log }) => {
+      const spec = scopedSpec(path.join(home, "user"));
+      await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], spec);
+      log.length = 0;
+      assert.equal(await runCliAgentSetup(["doctor", "--project-dir", project], spec), 0);
+      const out = log.join("\n");
+      assert.match(out, /Live signal/);
+      assert.match(out, /✓ Hooks {16}2\/2 in .*hooks\.json \(every project\)/);
+      assert.match(out, /· Last hook {12}none yet/);
+      assert.match(out, /✓ Ready\./);
+      assert.ok(out.indexOf("Live signal") < out.indexOf("Account sync"));
+      assert.match(out, /Not paired, which is fine/);
+    });
+  } finally {
+    if (previousSocket === undefined) delete process.env.ASCENDA_LIVE_BUS_SOCKET;
+    else process.env.ASCENDA_LIVE_BUS_SOCKET = previousSocket;
+  }
+});
+
+test("doctor is a management word, so a launcher with no Node errors rather than hanging", () => {
+  assert.equal(isCliAgentManagementCommand("doctor"), true);
+});
+
+test("--no-pair says where pairing would send data: a server, not a local account", async () => {
+  await sandbox(async ({ project, log }) => {
+    await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], flat);
+    const out = log.join("\n");
+    assert.match(out, /Pairing sends the details below to Ascenda's servers/);
+    assert.match(out, /signed in to when you confirm the code/);
+    assert.match(out, /Until you pair, nothing leaves this machine\./);
+    assert.doesNotMatch(out, /this Mac|your Ascenda account/);
   });
 });

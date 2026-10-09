@@ -38,7 +38,10 @@ test("the mapping, hook by hook", () => {
   assert.equal(liveEventFor("PostToolUseFailure", { error: "boom" }), "tool_failure");
   assert.equal(liveEventFor("Stop", {}), "stop");
   assert.equal(liveEventFor("StopFailure", { error: "rate_limit" }), "halted");
-  for (const hook of ["SessionStart", "PostToolUse", "PostCompact", "SessionEnd"]) {
+  // A session closed mid-turn sends no stop. Without this it stayed lit
+  // until it went stale.
+  assert.equal(liveEventFor("SessionEnd", { reason: "prompt_input_exit" }), "halted");
+  for (const hook of ["SessionStart", "PostToolUse", "PostCompact"]) {
     assert.equal(liveEventFor(hook, {}), undefined, `${hook} must stay silent`);
   }
 });

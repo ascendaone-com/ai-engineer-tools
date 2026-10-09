@@ -38,7 +38,7 @@ Codex **awaits** command hooks and treats **exit code 2 as blocking** the user's
 One command pairs Codex, installs the hook binary, and registers the hooks:
 
 ```bash
-npx -y @ascenda-one/codex-hooks setup --scope user
+npx -y @ascenda-one/codex-hooks setup
 ```
 
 It prints a 6-digit code — confirm it in the Ascenda app under
@@ -53,23 +53,29 @@ credentials file, which is per agent — so pairing Codex cannot disturb a
 Claude Code or Cursor pairing on the same machine, and a Codex hook launched
 from the Dock with an empty environment still names itself correctly.
 
-`--scope user` registers machine-wide. Omit it and hooks land in
-`<cwd>/.codex/hooks.json`, instrumenting that project only — which is the
-default, so pass the flag unless you mean one repo.
+Hooks register machine-wide by default. `--scope project` puts them in
+`<cwd>/.codex/hooks.json` instead, for that project only. Each hook runs
+through a small launcher at `~/.ascenda/bin/ascenda-codex-hook` that finds
+Node 20 or newer itself, so hooks keep working when Codex starts without
+your shell's PATH. `--no-pair` installs without pairing: the screen saver
+and live view work, and nothing is sent.
 
 ### 2. Check it
 
 ```bash
-npx @ascenda-one/codex-hooks status --scope user
+npx @ascenda-one/codex-hooks status
+~/.ascenda/bin/ascenda-codex-hook doctor
 ```
 
-Names the pairing, the binary and how many of the 7 events are registered.
-Exits non-zero when something is missing, so it can gate a CI step.
+`status` names the pairing, the Node the hooks will run, the last hook Codex
+ran and how many events are registered. It exits non-zero when something is
+missing, so it can gate a CI step. `doctor` also checks the live signal, and
+pings the Waterline screen saver when it is running.
 
 To undo everything it wrote:
 
 ```bash
-npx @ascenda-one/codex-hooks uninstall --scope user
+npx @ascenda-one/codex-hooks uninstall
 ```
 
 ### 3. Restart Codex and review hooks

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, livePidFields, readHookSet, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, stampLastHook, livePidFields, readHookSet, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapGeminiEvent } from "./mapGeminiEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -31,6 +31,8 @@ async function main(): Promise<void> {
   const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
   let turnDurationMs: number | undefined;
+  // That this agent ran a hook at all, for `status` and `doctor`.
+  stampLastHook(GEMINI_HOST, hookName);
   if (hookName === "BeforeAgent") recordTurnStart(GEMINI_HOST, sessionId);
   if (hookName === "AfterAgent") turnDurationMs = consumeTurnDurationMs(GEMINI_HOST, sessionId);
 

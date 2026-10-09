@@ -253,10 +253,12 @@ test("the specialised shell, MCP and file hooks stay silent", () => {
   }
 });
 
-test("the turn is the beat, not the app session", () => {
-  // stop already carries the turn's close; these bracket the whole session.
+test("the turn is the beat, and the session's end halts whatever is left", () => {
+  // stop already carries the turn's close; sessionStart brackets the session.
   assert.equal(liveSignalFor("sessionStart", {}), undefined);
-  assert.equal(liveSignalFor("sessionEnd", {}), undefined);
+  // Closing a conversation mid-turn sends no stop. halted ends it now, and
+  // after a turn that did stop the app ignores it.
+  assert.equal(liveSignalFor("sessionEnd", {}).event, "halted");
 });
 
 test("hooks with no gauge counterpart stay silent", () => {
