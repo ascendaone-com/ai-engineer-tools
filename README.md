@@ -11,6 +11,12 @@ and do not establish is set out in
 Three surfaces, each one command. Pick the tools you actually use — they all
 report into the same paired installation, and any one of them works alone.
 
+**You need Node.js 20 or newer** for the `npx` installs and for the Claude Code
+plugin, whose hooks run through `npx`. Check with `node --version`. If it is
+missing or older, install the current LTS from
+[nodejs.org](https://nodejs.org/en/download). Without Node the hooks cannot run,
+so nothing is reported.
+
 ### VS Code or Cursor
 
 1. Open the Extensions pane — **⇧⌘X** (macOS) or **Ctrl+Shift+X** (Windows/Linux).
