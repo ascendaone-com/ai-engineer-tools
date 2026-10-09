@@ -22,7 +22,7 @@ Agent (Claude Code / Cursor / other MCP host)
   -> ascenda-agent-mcp (stdio, this package)
   -> AscendaEventSender.sendSemanticSignal (@ascenda-one/tool-kit)
   -> Ascenda backend (POST /v1/tool-events, consentScope: semantic_work_signals)
-  -> paired anonymous Ascenda user
+  -> paired pseudonymous Ascenda user
   -> Weekly Loop trigger evaluation / work-map (backend)
 ```
 

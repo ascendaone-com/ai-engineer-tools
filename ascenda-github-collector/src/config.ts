@@ -19,12 +19,15 @@ export function loadConfigFromEnv(): ForgeCollectorConfig {
 
   // The whole collector is first-person, so without knowing who "I" am there
   // is nothing it may legitimately emit. Failing here is the point: defaulting
-  // to the payload's actor would silently start recording other people.
+  // to the payload's actor would silently start recording other people. The
+  // same goes for a workflow that sets this to `github.actor`, which nothing
+  // here can detect, so the examples type the login in once instead.
   const viewerLogin = process.env.ASCENDA_FORGE_LOGIN?.trim();
   if (!viewerLogin) {
     throw new Error(
       "Missing ASCENDA_FORGE_LOGIN — the collector only ever emits your own " +
-      "review activity, so it cannot run without knowing whose it is."
+      "review activity, so it cannot run without knowing whose it is. Set it " +
+      "to your own GitHub login, not ${{ github.actor }}."
     );
   }
 

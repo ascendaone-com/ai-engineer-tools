@@ -4,16 +4,21 @@ OpenAI Codex hooks adapter for Ascenda AI workload telemetry.
 
 Part of [ai-engineer-tools](../). Event mapping: [docs/CODEX_MAPPING.md](./docs/CODEX_MAPPING.md). Codex hooks reference: [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks).
 
-## Role in workload detection
+## What it sends
 
-Third agent producer after the IDE extensions and [Claude Code hooks](../ascenda-claude-code-hooks/). Contributes the same AI interaction load signals — prompts, correction loops, tool calls, verification runs, compaction pressure, long agent turns — from Codex sessions, into the shared canonical event catalog.
+Metadata only. It doesn't send prompts, responses, code, file names,
+repository names, branch names or terminal output. [Privacy defaults](#privacy-defaults)
+has the detail.
 
-| Workload input | How this adapter contributes |
+It records the same signals as the [Claude Code hooks](../ascenda-claude-code-hooks/),
+from Codex sessions:
+
+| Signal | What the hook records |
 | --- | --- |
-| AIInteractionLoad | Prompts, tool calls, correction loops, compaction |
-| FocusDuration | Session starts, long turns (`agent_loop_long`, measured locally) |
-| Workflow friction | Tool failures, context pressure |
-| Verification load | shell test/lint/build → `editor_verification_activity` / `compile_error` |
+| Agent interaction | That a prompt, correction loop or compaction happened, and for each tool call the tool's name (`shell`, `apply_patch`) |
+| Long agent runs | Session starts, and that a turn ran long (`agent_loop_long`, measured locally) |
+| Friction | Tool failures and context pressure |
+| Verification | A test, lint or build command ran (`editor_verification_activity` / `compile_error`) |
 
 Identity: Codex rides the canonical `cli_agent` toolType/source (the backend registry has no codex value yet); events carry `metadata.host: "codex"` for later disaggregation.
 

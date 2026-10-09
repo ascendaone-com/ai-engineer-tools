@@ -29,19 +29,55 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.32
 
-### The Flow app hears when a turn stops early
+### Flow can tell an agent working from one waiting on you, or one that stopped
 
+- **The hooks now tell the Flow app on your Mac when an agent is waiting on
+  you.** In Claude Code that's a permission prompt, an `AskUserQuestion` or
+  an MCP form. In Codex it's an approval. In Gemini CLI it's a tool
+  confirmation. Until now a parked approval looked like work for up to three
+  minutes.
+- **Background work keeps a session open.** When Claude Code stops a turn
+  with shells or subagents still running, the hook tells the app how many.
+  The waterline doesn't drain and the settle bell won't ring "All quiet"
+  while they run. After an hour with no word from that session, the app stops
+  trusting the count and treats it as gone quiet.
 - **Claude Code's `StopFailure` hook is registered.** It fires when an API
-  error, like a rate limit or an expired login, ends a turn. Ascenda sends
-  nothing for it. It only tells the Flow app on your Mac, over the local
-  socket, that the work has stopped, so the waterline drains straight away.
+  error, like a usage limit or an expired login, ends a turn. The app hears
+  that the work has stopped, and whether it hit a usage limit (per
+  P-D64.1 and #452), so the waterline drains straight away.
+- **A usage limit says when it lifts, if Claude Code will carry on by
+  itself.** With `autoContinueAtUsageLimit` on, the hook reads the reset
+  time from Claude Code's message and hands the app the time alone. Away
+  mode keeps your Mac awake until the reset, so the agent can pick up where
+  it stopped. Weekly limits don't count. Anything more than six hours off is
+  left out.
 - **Pressing Esc gets the same treatment, once Claude Code shows its idle
   prompt.** Esc runs no hook, so until now the app waited three minutes
   before deciding a session had gone quiet.
-- Re-run `setup` to pick up the new hook. Plugin installs get it with the
-  plugin update. `status` now counts eleven hooks.
+- **Gemini CLI registers one more hook, `Notification`**, for tool
+  confirmations. Claude Code's `status` now counts eleven hooks.
+- Cursor and Windsurf have no hook for waits, so nothing changes there.
+- Nothing new is sent to Ascenda. These signals stay on your machine, on the
+  same local socket the gauges already read, and carry no words: not the
+  question, not the command, not your answer.
 
-## v0.1.31
+### Upgrading picks up the new hooks, and Flow says when you haven't
+
+- **Run `setup` again to upgrade.** Use the scope you installed with. It keeps
+  your pairing, adds the hooks this version registers and prints what changed:
+  `upgraded: added StopFailure, Notification; hook set 1 → 2`. A run with
+  nothing to add says `already current`.
+- **Flow names the command when your hooks are older.** Each hook now tells
+  the app which set of hooks it was registered with, and whether it came from
+  the plugin (per P-D64.3). When Claude Code or Gemini CLI signals come from
+  an older set, **Connections → Ingest telemetry** shows one line with the
+  exact command. Dismiss it and it stays gone until a later release adds hooks
+  again.
+- **`status` prints the hook set**, and the upgrade command when it's behind.
+- `setup` warns when the other scope already registers the same hooks. Both
+  fire, so every event runs twice.
+- Plugin installs upgrade with `claude plugin update ascenda@ascenda-one`. The
+  plugin is now 0.2.1, so the update reaches you.
 
 ### Counted unless you object
 
@@ -62,8 +98,6 @@ targets, error counts or internal resource names — this repository is public.
 - With an organisation that counts nothing this way, or a server that
   doesn't support it yet, `status` looks exactly as it did.
 
-## v0.1.30
-
 ### The agent can read what the Reveal showed you
 
 - **A third skill in the Claude Code plugin, `ascenda-reveal-read`.** Once
@@ -71,13 +105,12 @@ targets, error counts or internal resource names — this repository is public.
   showed you when you imported your history: which days ran heavy, how the
   weeks went, the hour band your work leans to, one crossing of two facts,
   and the receipt. It holds that and says nothing unless you ask, or a piece
-  of work has to be placed in the day. Counts and dates only; your projects
-  reach it as opaque digests, and the bird you kept never does.
+  of work has to be placed in the day.
+- **Counts and dates only.** Your projects reach it as opaque digests, and
+  the bird you kept never does.
 - Needs the Flow app with `get_reveal` on its local server (Flow 0.1.16 or
   later) and an agent paired with the *Demand & workload* scope. Without
   either, the skill is silent.
-
-## v0.1.29
 
 ### See your organisation's changes in `status`
 
@@ -111,6 +144,21 @@ targets, error counts or internal resource names — this repository is public.
   does today, then shows what was granted. Each grant can be turned off on
   its own, in the app's consent settings, and the organisation only ever
   sees group counts, never who joined.
+
+### The GitHub collector records only the person who paired it
+
+- **Set `ASCENDA_FORGE_LOGIN` to your own GitHub login, typed once.** The
+  example workflow and the README used `${{ github.actor }}`, which is
+  whoever triggered the run. A colleague's pull request or review then
+  matched and was recorded under your installation, and a review request
+  never matched you, because its actor is the person asking.
+- **If you copied the old example, change that line.** Store your login as a
+  repository secret, say `ASCENDA_FORGE_LOGIN_OCTOCAT`, and read it from
+  there. The collector can't tell a typed login from the actor, so the fix
+  is in your workflow file.
+- **One step per person.** The installation secrets belong to one person, so
+  a repository several people have paired in needs a step each, or a matrix
+  over their suffixes. The README shows both.
 
 ## v0.1.28
 

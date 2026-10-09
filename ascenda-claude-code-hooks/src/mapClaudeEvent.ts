@@ -541,7 +541,7 @@ function readModelIdentifier(input: ClaudeHookInput): string | undefined {
  */
 export { classifyModelClass };
 
-function getToolName(input: ClaudeHookInput): string | undefined {
+export function getToolName(input: ClaudeHookInput): string | undefined {
   return getString(input, ["toolName", "tool_name", "name"]) ?? getNestedString(input, [["tool", "name"], ["tool_use", "name"], ["payload", "toolName"]]);
 }
 

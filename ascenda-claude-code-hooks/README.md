@@ -6,18 +6,19 @@ Part of [ai-engineer-tools](../). For what these measurements do and do not
 establish, see [What this measures](../#what-this-measures-and-what-that-does-not-yet-prove).
 Event mapping: [docs/CLAUDE_MAPPING.md](./docs/CLAUDE_MAPPING.md).
 
-## Role in workload detection (Phase 1)
+## What it sends
 
-This package is the **primary AI interaction load** source in the tooling repo. For AI engineers, digital telemetry from agent workflows is potentially more valuable than wearables in Phase 1.
+Metadata only. It doesn't send prompts, responses, code, file names,
+repository names, branch names or terminal output. [Privacy defaults](#privacy-defaults)
+has the detail, and [Build from source](#build-from-source) shows how to read
+what runs on your machine.
 
-| Workload input | How this adapter contributes |
+| Signal | What the hook records |
 | --- | --- |
-| AIInteractionLoad | Prompts, tool calls, correction loops, compaction |
-| FocusDuration | Long agent loops (`agent_loop_long`) |
-| Workflow friction | Tool failures, context pressure |
-| Verification load | Test/lint/build bash → `editor_verification_activity` / `compile_error` |
-
-Signals feed backend aggregation into creation / verification / supervision composition and the prototype workload score. Subjective strain and meeting load come from the app; baselines from backend Phase 3.
+| Agent interaction | That a prompt, correction loop or compaction happened, and for each tool call the tool's name (`Bash`, `Edit`) |
+| Long agent runs | That a loop ran long (`agent_loop_long`) |
+| Friction | Tool failures and context pressure |
+| Verification | A test, lint or build command ran (`editor_verification_activity` / `compile_error`) |
 
 ## Architecture
 
@@ -25,7 +26,7 @@ Signals feed backend aggregation into creation / verification / supervision comp
 Claude Code hook adapter
   -> toolInstallationId + eventWriteToken
   -> Ascenda backend (POST /v1/tool-events)
-  -> paired anonymous Ascenda user
+  -> paired pseudonymous Ascenda user
   -> workload aggregation + baseline comparison
   -> app notification / dashboard
 ```
@@ -96,6 +97,25 @@ rather than appending, hooks belonging to anyone else are left alone, and the
 file is backed up to `.ascenda-backup` before the first write. Settings that
 are not valid JSON abort the run rather than being overwritten.
 
+#### Upgrading
+
+Re-run `setup` with the scope you installed with. It keeps your pairing, adds
+the hooks this version registers, and prints what it added:
+
+```text
+  hooks        ~/.claude/settings.json (13 events)
+               upgraded: added SubagentStart, SubagentStop; hook set 2 → 3
+```
+
+`status` prints the installed hook set and, when it's older, the command to
+run. The Flow app on your Mac shows one line in **Connections → Ingest
+telemetry** when an agent's signals come from an older set. Restart Claude
+Code afterwards: a session keeps the hooks it started with.
+
+If you use the plugin, run `claude plugin update ascenda@ascenda-one` instead.
+Its `hooks.json` registers the same set. Having both the plugin and a `setup` install runs every hook
+twice, and `setup` warns when the other scope already registers them.
+
 Hooks then need **no environment at all**: the command pins the absolute path
 of the Node that ran setup, and configuration comes from the credentials file.
 Claude Code spawns hooks with whatever environment it was launched from, so
@@ -148,7 +168,7 @@ pairing        claude_code:… (not paired, installed 2026-09-23T05:13:40.907Z)
 token          — none until this install is paired
 delivery       inactive — nothing is sent, and nothing is queued for later
 local features active — the session prompts and the live socket signal need no pairing
-hooks          10/10 registered in ~/.claude/settings.json
+hooks          11/11 registered in ~/.claude/settings.json
 ```
 
 `uninstall` removes an unpaired install the same way, and says there is no
@@ -469,14 +489,6 @@ leaving the machine. On a detached HEAD, outside a checkout, or with no
 readable salt the key is omitted entirely rather than sent blank.
 
 Correction detection uses local pattern matching on prompt text in the hook process only — classified metadata (`reason: repeated_reprompting`) is sent; raw prompt text is not.
-
-## Roadmap
-
-| Phase | Scope |
-| --- | --- |
-| Phase 1 | Hook mappings, metadata-only ingest, shared pairing tokens |
-| Phase 2 | Standalone CLI pairing (`ascenda-claude-pair`) |
-| Phase 3 | Session rollup metadata aligned with backend baselines |
 
 ## Compliance
 

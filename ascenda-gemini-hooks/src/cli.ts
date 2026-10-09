@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, livePidFields, readHookSet, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapGeminiEvent } from "./mapGeminiEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -65,7 +65,16 @@ async function main(): Promise<void> {
 async function emitLive(hookName: GeminiHookEventName, input: GeminiHookInput, sessionId: string | undefined): Promise<void> {
   const body = liveSignalFor(hookName, input);
   if (!body) return;
+  // The registration's `--hook-set`, so the app can tell an install that
+  // predates `Notification`. Absent on an unflagged one.
+  const hookSet = readHookSet(process.argv);
   try {
+    // Gemini CLI runs as `node`, which on its own could be any node process,
+    // a recycled PID included. It's named only when its arguments carry the
+    // `@google/gemini-cli` install path, and the signal says so, so the app
+    // checks the same thing. ACP mode serves several editor sessions from
+    // one process and is never named.
+    const agent = findAgentProcess(AGENT_PROCESS.gemini_cli);
     await emitLiveSignal({
       // This host's own name, not the shared `cli_agent` tool type the cloud
       // path files these events under. The app keys one decaying envelope per
@@ -80,7 +89,9 @@ async function emitLive(hookName: GeminiHookEventName, input: GeminiHookInput, s
       // this process's parent — still per-session in practice, since the hook
       // is spawned from the session process.
       session: sessionId ?? `ppid-${process.ppid}`,
-      ...body
+      ...livePidFields(agent),
+      ...body,
+      ...(hookSet !== undefined ? { hookSet } : {})
     });
   } catch {
     // A cosmetic gauge is never worth a word in the user's transcript.

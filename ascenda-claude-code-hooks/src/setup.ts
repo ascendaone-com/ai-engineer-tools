@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, defaultTokenFilePath, describeCollectorVersion, getPairingStatus, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { credentialsFilePath, hookBinPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
@@ -48,6 +48,19 @@ import { ASCENDA_TOOL_TYPE } from "./types.js";
  * is one pair per subagent run, well below tool volume.
  */
 const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd", "SubagentStart", "SubagentStop"] as const;
+
+/**
+ * The version of {@link HOOK_EVENTS}, written onto every registered command
+ * as `--hook-set <n>` and copied onto each live signal, so the desktop app
+ * can tell an install that predates `StopFailure` and say how to upgrade it.
+ *
+ * Set 1 is every registration without the flag. Set 2 added `StopFailure`
+ * and `Notification`, eleven events. Set 3 is the thirteen above, adding
+ * `SubagentStart` and `SubagentStop`. Bump this whenever the list changes,
+ * along with the plugin's `hooks/hooks.json` and `kCurrentHookSets` in the
+ * app.
+ */
+export const HOOK_SET = 3;
 
 /**
  * Claude Code's default timeout for `command` hooks is 600s. Telemetry that
@@ -169,9 +182,21 @@ export async function runSetup(argv: string[]): Promise<number> {
   console.log(`  credentials  ${credentialsFilePath()}`);
 
   const settingsFile = settingsPath(options);
+  const before = ourHookSets(readSettingsFile(settingsFile));
   const written = writeSettings(settingsFile, binary, options.dryRun);
   if (written === null) return 1;
   console.log(`  hooks        ${settingsFile} (${HOOK_EVENTS.length} events${written ? "" : ", already current"})`);
+  const changes = describeHookSetChanges(hookSetChanges(before, HOOK_EVENTS), HOOK_SET);
+  if (changes) console.log(`               ${changes}`);
+  // Both scopes fire. An install in the other one means every event runs
+  // twice and every count doubles, and setup only ever touches one file.
+  const otherFile = settingsPath({ ...options, scope: options.scope === "user" ? "project" : "user" });
+  if (otherFile !== settingsFile && ourHookSets(readSettingsFile(otherFile)).size > 0) {
+    // Not `uninstall --scope`: that also removes the binary and the pairing
+    // this install shares.
+    console.log(`  note         ${otherFile} registers these hooks too, so each event runs twice.`);
+    console.log("               Remove the ascenda-claude-hook entries from one of the two files.");
+  }
 
   if (options.dryRun) {
     console.log("\nDry run — nothing was written.");
@@ -448,7 +473,7 @@ export function writeSettings(settingsFile: string, binary: string, dryRun: bool
 
   for (const event of HOOK_EVENTS) {
     const kept = (hooks[event] ?? []).filter((group) => !isOurs(group));
-    hooks[event] = [...kept, { hooks: [{ type: "command", command: `${command} ${event}`, timeout: HOOK_TIMEOUT_SECONDS }] }];
+    hooks[event] = [...kept, { hooks: [{ type: "command", command: `${command} ${event}${hookSetArgument(HOOK_SET)}`, timeout: HOOK_TIMEOUT_SECONDS }] }];
   }
 
   const updated: Settings = { ...settings, hooks };
@@ -505,15 +530,34 @@ export function findStaleHookCommands(settings: Settings, binary: string): strin
 
 // --------------------------------------------------------------- lifecycle ---
 
+/** A settings file, or an empty one when it is missing or unparseable. */
+function readSettingsFile(settingsFile: string): Settings {
+  try {
+    return JSON.parse(fs.readFileSync(settingsFile, "utf8")) as Settings;
+  } catch {
+    return {};
+  }
+}
+
+/** Each event with one of our hooks, mapped to the hook set its command names. */
+export function ourHookSets(settings: Settings): Map<string, number> {
+  const sets = new Map<string, number>();
+  for (const [event, groups] of Object.entries(settings.hooks ?? {})) {
+    for (const group of groups ?? []) {
+      if (!isOurs(group)) continue;
+      for (const entry of group.hooks ?? []) {
+        if (typeof entry?.command !== "string") continue;
+        const set = hookSetOfCommand(entry.command);
+        sets.set(event, Math.min(set, sets.get(event) ?? set));
+      }
+    }
+  }
+  return sets;
+}
+
 /** Reads a settings file and counts our hooks in it. Missing or unparseable reads as none. */
 function countRegistered(settingsFile: string, binary: string): { settings: Settings; registered: number } {
-  const settings = (() => {
-    try {
-      return JSON.parse(fs.readFileSync(settingsFile, "utf8")) as Settings;
-    } catch {
-      return {} as Settings;
-    }
-  })();
+  const settings = readSettingsFile(settingsFile);
   return { settings, registered: HOOK_EVENTS.filter((event) => (settings.hooks?.[event] ?? []).some(isOurs)).length };
 }
 
@@ -556,6 +600,13 @@ async function printStatus(options: Options): Promise<number> {
   console.log(`hooks          ${registered}/${HOOK_EVENTS.length} registered in ${settingsFile}`);
   if (elsewhere && elsewhere.registered > 0) {
     console.log(`               ${elsewhere.registered}/${HOOK_EVENTS.length} found in ${otherFile} (--scope ${otherScope.scope})`);
+  }
+  const where = registered > 0 ? { settings, scope: options.scope } : elsewhere && elsewhere.registered > 0 ? { settings: elsewhere.settings, scope: otherScope.scope } : undefined;
+  if (where) {
+    const oldest = Math.min(...ourHookSets(where.settings).values());
+    console.log(oldest < HOOK_SET
+      ? `hook set       ${oldest}, this version registers ${HOOK_SET}. Upgrade: npx @ascenda-one/claude-code-hooks setup${where.scope === "user" ? " --scope user" : ""}`
+      : `hook set       ${HOOK_SET} (current)`);
   }
 
   if (stale.length) {

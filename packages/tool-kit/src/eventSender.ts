@@ -30,7 +30,7 @@ import {
   outboxDrainEnabled
 } from "./outbox";
 import { TimeProvider, systemTimeProvider } from "./timeProvider";
-import { persistEventWriteToken } from "./tokenStore";
+import { persistEventWriteToken, readTokenExpiry, readTokenFile } from "./tokenStore";
 import { CollectorState, OutboxDiscardReason, defaultStateFilePath, recordOutboxDiscard, recordSendOutcome } from "./stateStore";
 import { mintIdempotencyKey } from "./payload";
 import { COLLECTOR_VERSION } from "./collectorVersion";
@@ -191,6 +191,14 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const RETRY_DELAY_MS = 250;
 
 /**
+ * Renew once a token has less than this left. Tokens last 30 days, so any
+ * hook run after a token's ninth day rotates it, and a machine has to sit
+ * unused for three weeks before its token can lapse. A lapsed token can't be
+ * renewed: the server only rotates a live one, and the fix is a fresh `pair`.
+ */
+export const TOKEN_RENEW_LEAD_MS = 21 * 24 * 60 * 60 * 1000;
+
+/**
  * Shared one-shot event sender for agent hook adapters (Claude Code, Codex).
  * Sends metadata-only events with the standard consent scope and provenance,
  * renews the event write token once on auth failure, and persists rotations.
@@ -201,6 +209,8 @@ export class AscendaEventSender {
   private lastDrain: OutboxDrainReport | undefined;
   /** One outbox pass per sender, i.e. per hook process. The hook is on the user's critical path. */
   private outboxServiced = false;
+  /** One look at the token's expiry per sender, for the same reason. */
+  private expiryChecked = false;
 
   /** Resolved once, so every clock read in one pass sees the same instant. */
   private readonly time: TimeProvider;
@@ -338,6 +348,7 @@ export class AscendaEventSender {
    * hook during an outage to one bounded round trip instead of three.
    */
   private async post(payload: AscendaEventPayload): Promise<IngestResult> {
+    await this.renewIfExpiring();
     const halted = await this.serviceOutbox();
 
     let outcome: IngestOutcome;
@@ -569,18 +580,45 @@ export class AscendaEventSender {
     appendEventLog(logFile, { loggedAt: new Date().toISOString(), delivery, payload, ...(outbox ? { outbox } : {}) });
   }
 
-  /** Never throws: a renewal that errors is a failed renewal, not a failed turn. */
+  /**
+   * Renews ahead of expiry, at most once per sender. Waiting for the 401
+   * doesn't work: by then the token has expired, and the server won't renew
+   * an expired token.
+   */
+  private async renewIfExpiring(): Promise<void> {
+    if (this.expiryChecked || this.config.renewToken === false) return;
+    this.expiryChecked = true;
+    const expiresAt = readTokenExpiry(this.config.tokenFilePath);
+    if (expiresAt === undefined || this.time.now() < expiresAt - TOKEN_RENEW_LEAD_MS) return;
+    await this.renewEventToken();
+  }
+
+  /**
+   * Never throws: a renewal that errors is a failed renewal, not a failed turn.
+   *
+   * A refused renewal usually means another process got there first. Hooks
+   * and the MCP server share one token file, and renewing revokes the token
+   * it replaces, so the loser holds a revoked token while the winner's
+   * replacement is already on disk. Adopting that counts as a renewal.
+   */
   async renewEventToken(): Promise<boolean> {
     if (this.config.renewToken === false) return false;
     try {
       const renewed = await renewToolToken(this.config.apiBaseUrl, this.eventWriteToken, this.signal());
-      if (!renewed) return false;
+      if (!renewed) return this.adoptPersistedToken();
       this.eventWriteToken = renewed.eventWriteToken;
-      persistEventWriteToken(this.config.tokenFilePath, renewed.eventWriteToken);
+      persistEventWriteToken(this.config.tokenFilePath, renewed.eventWriteToken, renewed.expiresAt);
       return true;
     } catch {
       return false;
     }
+  }
+
+  private adoptPersistedToken(): boolean {
+    const persisted = readTokenFile(this.config.tokenFilePath);
+    if (!persisted || persisted === this.eventWriteToken) return false;
+    this.eventWriteToken = persisted;
+    return true;
   }
 
   private signal(): AbortSignal {

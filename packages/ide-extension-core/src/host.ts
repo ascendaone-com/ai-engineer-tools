@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { AscendaTelemetrySource } from "@ascenda-one/tool-contract";
+import { ASCENDA_TELEMETRY_SOURCES, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
 
 export type HostKind = "cursor" | "antigravity" | "vscode" | "unknown";
 
@@ -39,17 +39,19 @@ export function getHostDisplayName(): string {
   return vscode.env.appName || "Editor";
 }
 
-const KNOWN_SOURCES: readonly AscendaTelemetrySource[] = ["vscode_extension", "cursor_mcp", "claude_code", "copilot_otel", "cli_agent", "mcp_server", "activity_signals"];
-
 /**
  * Telemetry source must stay consistent with the identity this installation
  * paired under (the toolType prefix of its toolInstallationId); live host
  * detection is only the fallback for ids without a recognisable prefix.
  * Without this, an install paired as vscode_extension that later runs inside
  * Cursor would silently flip its reported source mid-stream.
+ *
+ * The prefix is checked against the contract's own source list. A hand-kept
+ * copy here once dropped `code_forge` and still type-checked, because a subset
+ * of the union satisfies the union's array type.
  */
 export function resolveTelemetrySource(toolInstallationId: string | undefined): AscendaTelemetrySource {
   const prefix = toolInstallationId?.split(":")[0];
-  if (prefix && (KNOWN_SOURCES as readonly string[]).includes(prefix)) return prefix as AscendaTelemetrySource;
+  if (prefix && (ASCENDA_TELEMETRY_SOURCES as readonly string[]).includes(prefix)) return prefix as AscendaTelemetrySource;
   return getTelemetrySource();
 }

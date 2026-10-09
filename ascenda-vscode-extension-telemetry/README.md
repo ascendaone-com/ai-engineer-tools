@@ -25,8 +25,8 @@ leave in an editor. Whether the traces track the underlying construct is the
 open question — see
 [What this measures](../#what-this-measures-and-what-that-does-not-yet-prove).
 
-Subjective strain (NASA-TLX-style check-ins), meeting load, and personalised
-baselines are handled by the Ascenda app and backend — not this extension.
+Check-ins, meeting load and personal baselines live in the Ascenda app and
+backend. This extension doesn't touch them.
 
 ### Running in Cursor
 
@@ -84,7 +84,7 @@ only.
 - Loose-coupled pairing model:
   - extension stores only `toolInstallationId`
   - extension stores scoped `eventWriteToken`
-  - backend privately maps tool → anonymous app user → push device
+  - backend privately maps tool → pseudonymous app user → push device
 
 ## Loose coupling invariant
 
@@ -106,7 +106,7 @@ The backend resolves:
 
 ```text
 toolInstallationId
-  -> anonymous Ascenda user
+  -> pseudonymous Ascenda user
   -> active app device
   -> APNs / FCM push token
 ```
@@ -264,14 +264,6 @@ lower than the published extension — check the filename `vsce` prints.
 In Cursor, install a VSIX through **Extensions → … (Views and More Actions) →
 Install from VSIX…**, which needs no `PATH` setup. Reload the editor afterwards.
 Uninstall from the Extensions view like any other extension.
-
-## Roadmap
-
-| Phase | Scope |
-| --- | --- |
-| Phase 1 | Editor + terminal signals, pairing contract alignment, consent scope on ingest |
-| Phase 2 | Copilot OTEL adapter (if available) |
-| Phase 3 | Consume backend personalised baseline deltas in status UX |
 
 ## The pairing QR never leaves your machine
 

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const { writeSettings, findStaleHookCommands } = await import("../dist/setup.js");
+const { writeSettings, findStaleHookCommands, HOOK_SET } = await import("../dist/setup.js");
 
 const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // Written out rather than imported from setup.js: this is the independent
@@ -35,13 +35,22 @@ test("registers every hook event, and none we do not map", () => {
   // the agent stopping to wait on the person. It was absent for as long as it
   // mapped to nothing, and the two halves moved together.
   assert.ok(hooks.Notification, "Notification must be registered or the interruption count is silently zero");
-  assert.match(hooks.Notification[0].hooks[0].command, /ascenda-claude-hook" Notification$/);
-  assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse$/);
+  assert.match(hooks.Notification[0].hooks[0].command, /ascenda-claude-hook" Notification --hook-set 3$/);
+  assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse --hook-set 3$/);
   assert.equal(hooks.PostToolUse[0].hooks[0].timeout, 5, "must not inherit the 600s default");
   // SessionEnd closes what SessionStart opened. Its 5s timeout matters more
   // than most: without one, Claude Code gives SessionEnd hooks 1.5s in total.
-  assert.match(hooks.SessionEnd[0].hooks[0].command, /ascenda-claude-hook" SessionEnd$/);
+  assert.match(hooks.SessionEnd[0].hooks[0].command, /ascenda-claude-hook" SessionEnd --hook-set 3$/);
   assert.equal(hooks.SessionEnd[0].hooks[0].timeout, 5);
+});
+
+test("the hook set moves with the list it versions", () => {
+  // Set 3 is these thirteen events. Changing EVENTS without bumping HOOK_SET
+  // leaves every older install looking current to the app, which is the gap
+  // the set exists to close. Bump both, and the plugin's hooks.json and the
+  // app's kCurrentHookSets with them.
+  assert.equal(HOOK_SET, 3);
+  assert.equal(EVENTS.length, 13);
 });
 
 test("the example settings register the same hooks, each with a timeout", () => {
@@ -51,7 +60,7 @@ test("the example settings register the same hooks, each with a timeout", () => 
   const example = read(new URL("../examples/settings.local.json", import.meta.url));
   assert.deepEqual(Object.keys(example.hooks).sort(), [...EVENTS].sort());
   for (const [event, groups] of Object.entries(example.hooks)) {
-    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event}`);
+    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set 3`);
     assert.equal(groups[0].hooks[0].timeout, 5, event);
   }
 });

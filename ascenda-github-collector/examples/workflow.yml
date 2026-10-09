@@ -1,9 +1,21 @@
 # Collaboration signals — review load and pull-request activity — for one
 # repository. Drop this at .github/workflows/ascenda-collaboration.yml.
 #
-# Both secrets come from pairing a collector identity on your machine:
+# Each step belongs to one person. Three values come from pairing a collector
+# identity on that person's machine:
 #   npx -y @ascenda-one/claude-code-hooks pair --tool-type github_collector
 # which prints the installation id and the path of the token file to read.
+# Store them as repository secrets with that person's suffix:
+#
+#   ASCENDA_TOOL_INSTALLATION_ID_OCTOCAT   the installation id
+#   ASCENDA_EVENT_WRITE_TOKEN_OCTOCAT      the token file's contents
+#   ASCENDA_FORGE_LOGIN_OCTOCAT            their GitHub login, typed once
+#
+# ASCENDA_FORGE_LOGIN is the paired person's own login. Never set it to
+# ${{ github.actor }}: the actor is whoever triggered the run, so a
+# colleague's pull request or review would be recorded under your
+# installation, and a review request (whose actor is the requester) would
+# never match you.
 #
 # This collector has its own tool type and rides workflow_telemetry, not
 # ide_telemetry: how you work with your team is separately revocable from
@@ -22,8 +34,12 @@ jobs:
     steps:
       # Exits 0 on every path that is not a configuration error, including
       # "nothing to emit" — a telemetry step must never turn a build red.
-      - run: npx @ascenda-one/github-collector
+      #
+      # One step per participant. Add a copy with another suffix for each
+      # colleague who pairs; each step emits only its own person's activity.
+      - name: ascenda (octocat)
+        run: npx @ascenda-one/github-collector
         env:
-          ASCENDA_TOOL_INSTALLATION_ID: ${{ secrets.ASCENDA_TOOL_INSTALLATION_ID }}
-          ASCENDA_EVENT_WRITE_TOKEN: ${{ secrets.ASCENDA_EVENT_WRITE_TOKEN }}
-          ASCENDA_FORGE_LOGIN: ${{ github.actor }}
+          ASCENDA_TOOL_INSTALLATION_ID: ${{ secrets.ASCENDA_TOOL_INSTALLATION_ID_OCTOCAT }}
+          ASCENDA_EVENT_WRITE_TOKEN: ${{ secrets.ASCENDA_EVENT_WRITE_TOKEN_OCTOCAT }}
+          ASCENDA_FORGE_LOGIN: ${{ secrets.ASCENDA_FORGE_LOGIN_OCTOCAT }}

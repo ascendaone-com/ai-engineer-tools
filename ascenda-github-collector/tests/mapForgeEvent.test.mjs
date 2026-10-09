@@ -73,6 +73,44 @@ test("login comparison ignores case", () => {
   assert.equal(events.length, 1);
 });
 
+// ── the viewer is configured, never the run's actor ───────────────────────
+//
+// The installation secrets belong to one person, but the workflow runs for
+// everyone who touches the repository. These are the runs a colleague
+// triggers, mapped with the paired person's configured login. Wiring the
+// login to `github.actor` would hand each of them a matching viewer.
+
+const BOB = "bob-colleague";
+
+test("a colleague's PR emits nothing under my configured login", () => {
+  const payload = prPayload("opened", { sender: { login: BOB } });
+  payload.pull_request.user.login = BOB;
+  assert.deepEqual(mapForgeEvent("pull_request", payload, ME), []);
+});
+
+test("a colleague's review emits nothing under my configured login", () => {
+  const payload = {
+    action: "submitted", repository: repo, sender: { login: BOB },
+    pull_request: { user: { login: ME } },
+    review: { user: { login: BOB }, state: "approved" }
+  };
+  // Even on my own PR: the review is Bob's work.
+  assert.deepEqual(mapForgeEvent("pull_request_review", payload, ME), []);
+});
+
+test("a review a colleague requests of me is mine, though they triggered the run", () => {
+  // The actor on review_requested is the requester. Only a configured login
+  // can match the requested reviewer here.
+  const payload = prPayload("review_requested", {
+    sender: { login: BOB }, requested_reviewer: { login: ME }
+  });
+  payload.pull_request.user.login = BOB;
+  const events = mapForgeEvent("pull_request", payload, ME);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "review_requested_of_me");
+  assert.deepEqual(mapForgeEvent("pull_request", payload, BOB), []);
+});
+
 // ── what must never travel ────────────────────────────────────────────────
 
 test("no repository name, PR title, number, or other login is emitted", () => {

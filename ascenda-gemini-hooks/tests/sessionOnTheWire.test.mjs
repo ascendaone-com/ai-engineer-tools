@@ -14,6 +14,7 @@ sessionOnTheWire({
   toolType: "cli_agent",
   hooks: HOOK_EVENTS,
   sessionField: "session_id",
+  silent: ["Notification"],
   payloads: {
   SessionStart: { hook_event_name: "SessionStart", source: "startup" },
   SessionEnd: { hook_event_name: "SessionEnd", reason: "exit" },
@@ -21,6 +22,7 @@ sessionOnTheWire({
   AfterAgent: { hook_event_name: "AfterAgent", prompt: "run the tests" },
   BeforeTool: { hook_event_name: "BeforeTool", tool_name: "run_shell_command", tool_input: { command: "pytest -q" } },
   AfterTool: { hook_event_name: "AfterTool", tool_name: "run_shell_command", tool_input: { command: "pytest -q" }, tool_response: { exitCode: 0 } },
-  PreCompress: { hook_event_name: "PreCompress", trigger: "auto" }
+  PreCompress: { hook_event_name: "PreCompress", trigger: "auto" },
+  Notification: { hook_event_name: "Notification", notification_type: "ToolPermission", message: "Allow run_shell_command?" }
 }
 });

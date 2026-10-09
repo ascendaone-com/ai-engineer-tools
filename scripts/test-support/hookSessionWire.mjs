@@ -58,8 +58,9 @@ function runHook(cli, hook, input, env) {
  * @param {readonly string[]} spec.hooks  Every hook `setup` registers.
  * @param {Record<string, object>} spec.payloads  One payload per hook, without the session field.
  * @param {string} spec.sessionField   The payload field the adapter reads the session from.
+ * @param {readonly string[]} [spec.silent]  Hooks registered for the local live bus alone, which send nothing.
  */
-export function sessionOnTheWire({ cli, toolType, hooks, payloads, sessionField }) {
+export function sessionOnTheWire({ cli, toolType, hooks, payloads, sessionField, silent = [] }) {
   const SESSION = "7d2e9c41-3a5b-4f80-b6c2-91e0a4d7f358";
 
   test("every registered hook has a payload in this test", () => {
@@ -67,7 +68,8 @@ export function sessionOnTheWire({ cli, toolType, hooks, payloads, sessionField 
   });
 
   for (const hook of hooks) {
-    test(`${hook}: every event it sends reaches ingest carrying the payload's ${sessionField}`, async () => {
+    const quiet = silent.includes(hook);
+    test(quiet ? `${hook}: sends nothing to ingest` : `${hook}: every event it sends reaches ingest carrying the payload's ${sessionField}`, async () => {
       await withIngest(async (apiBaseUrl, received) => {
         const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-hook-wire-"));
         const env = {
@@ -83,6 +85,10 @@ export function sessionOnTheWire({ cli, toolType, hooks, payloads, sessionField 
         };
         const result = await runHook(cli, hook, { ...payloads[hook], [sessionField]: SESSION }, env);
         assert.equal(result.status, 0, result.stderr);
+        if (quiet) {
+          assert.equal(received.length, 0, `${hook} is registered for the live bus alone and sent ${received.length} events`);
+          return;
+        }
         assert.ok(received.length > 0, `${hook} sent nothing`);
         for (const payload of received) {
           assert.equal(payload.sessionId, SESSION, `${payload.eventType} from ${hook} carried sessionId=${JSON.stringify(payload.sessionId)}`);

@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeHookSettings } from "@ascenda-one/tool-kit";
-import { HOOK_EVENTS, SETUP } from "../dist/setup.js";
+import { HOOK_EVENTS, HOOK_SET, SETUP } from "../dist/setup.js";
+import { liveSignalFor } from "../dist/liveSignal.js";
 import { mapGeminiEvent } from "../dist/mapGeminiEvent.js";
 
 // The generic setup command is tested in tool-kit. What is this adapter's to
@@ -27,13 +28,27 @@ test("registers every hook that maps to a catalog event, in Gemini's own nested 
   const group = settings.hooks.AfterTool[0];
   assert.equal(group.hooks[0].type, "command");
   assert.equal(group.hooks[0].timeout, 5, "must not inherit the default timeout");
-  assert.match(group.hooks[0].command, /ascenda-gemini-hook"$/, "Gemini names the hook on stdin, so one command serves every event");
+  assert.match(group.hooks[0].command, /ascenda-gemini-hook" --hook-set 2$/, "Gemini names the hook on stdin, so one command serves every event");
   // Per-inference hooks would multiply volume for signal the tool hooks already carry.
   assert.equal(settings.hooks.AfterModel, undefined);
+  // Every registered hook must earn its process: a catalog event, or — for
+  // `Notification` alone today — a live-bus beat the desktop app renders.
   for (const event of HOOK_EVENTS) {
-    assert.ok(mapGeminiEvent(event, { hook_event_name: event, prompt: "x", tool_name: "run_shell_command" }, 90 * 60000).length > 0, `${event} is registered but maps to nothing`);
+    const input = { hook_event_name: event, prompt: "x", tool_name: "run_shell_command", notification_type: "ToolPermission" };
+    const cloud = mapGeminiEvent(event, input, 90 * 60000).length > 0;
+    const live = liveSignalFor(event, input) !== undefined;
+    assert.ok(cloud || live, `${event} is registered but maps to nothing`);
   }
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("the hook set moves with the list it versions", () => {
+  // Set 2 is the eight events with Notification. Change the list, bump the
+  // set, and the app's kCurrentHookSets with it.
+  assert.equal(HOOK_SET, 2);
+  assert.equal(SETUP.hookSet, HOOK_SET);
+  assert.equal(HOOK_EVENTS.length, 8);
+  assert.ok(HOOK_EVENTS.includes("Notification"));
 });
 
 test("settings live where Gemini CLI looks for them", () => {

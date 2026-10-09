@@ -182,6 +182,23 @@ agent on the machine.) The editor extension's own pairing cannot be reused here
 — its token lives in the editor's private secret storage, by design — so the
 CLI tools hold their own installation, paired against the same account.
 
+### Upgrading the hooks
+
+An install keeps the hooks it registered until `setup` runs again. So when a
+release adds a hook, existing installs don't have it yet: until you upgrade,
+Claude Code installs from before v0.1.32 send no signal when an API error ends
+a turn, and Gemini CLI installs send none for a tool confirmation. The Flow
+app says so in **Connections → Ingest telemetry** and names the command.
+
+```bash
+npx -y @ascenda-one/claude-code-hooks setup --scope user
+```
+
+Use the scope you installed with, and swap in `gemini-hooks` for Gemini CLI.
+Setup is safe to re-run. It keeps your pairing, replaces its own entries and
+prints what it added. Restart the agent afterwards. Plugin installs upgrade
+with `claude plugin update ascenda@ascenda-one` instead.
+
 ## Build from source
 
 You do not need this to use the tools — everything above installs prebuilt. It
@@ -298,7 +315,7 @@ Verified on Azure Dev: ingest, tool-scoped renew, `list`, and `revoke`
 
 ## Privacy & compliance
 
-Workspace identifiers are hashed with a random salt generated on first run and stored only at `~/.ascenda/salt`. It is never sent, so the hashes cannot be reversed to folder or repository names by anyone holding the telemetry. Deleting the file re-anonymises the machine.
+Workspace identifiers are hashed with a random salt generated on first run and stored only at `~/.ascenda/salt`. It is never sent, so the hashes cannot be reversed to folder or repository names by anyone holding the telemetry. Deleting the file resets the hashes.
 
 Metadata-only by default. **Not a medical device** — it measures workload
 patterns for self-awareness, not diagnosis or treatment, and makes no clinical

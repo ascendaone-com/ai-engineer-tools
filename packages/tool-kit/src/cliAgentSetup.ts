@@ -6,6 +6,7 @@ import { describeCollectorVersion } from "./collectorVersion";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
 import { createPairingSession, getPairingStatus } from "./http";
+import { describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand } from "./hookSet";
 import { initiativesStatusLines } from "./initiatives";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
@@ -54,6 +55,18 @@ export type CliAgentSetupSpec = {
   binaryName: string;
   /** The hook events worth registering — only those that map to a catalog event. */
   hookEvents: readonly string[];
+  /**
+   * The version of {@link hookEvents}, written onto every registered command
+   * as `--hook-set <n>` so the live signal can tell the desktop app an
+   * install is out of date. Bump it whenever `hookEvents` changes. Absent for
+   * an adapter whose list has never changed since installs went out.
+   *
+   * The flag ends the command that `settings.entry` receives, so it sits
+   * before anything `entry` appends. That suits Gemini, which names the hook
+   * on stdin. Cursor and Windsurf append the hook name and read it from
+   * `argv[2]`, so giving either one a set means moving the flag first.
+   */
+  hookSet?: number;
   /** What to do once hooks are registered, e.g. `Restart Cursor to load the hooks.` */
   restartHint: string;
   /**
@@ -211,9 +224,12 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   console.log(`  credentials  ${credentialsFilePath()} (tools.${spec.host})`);
 
   const settingsFile = spec.settings.settingsPath(options.scope, options.projectDir);
+  const before = registeredHookSets(readSettings(settingsFile), spec);
   const written = writeHookSettings(settingsFile, binary, spec, options.dryRun);
   if (written === null) return 1;
   console.log(`  hooks        ${settingsFile} (${spec.hookEvents.length} events${written ? "" : ", already current"})`);
+  const changes = spec.hookSet === undefined ? undefined : describeHookSetChanges(hookSetChanges(before, spec.hookEvents), spec.hookSet);
+  if (changes) console.log(`               ${changes}`);
 
   if (options.dryRun) {
     console.log("\nDry run — nothing was written.");
@@ -478,7 +494,7 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
     }
   }
 
-  const command = hookCommand(binary);
+  const command = hookCommand(binary, spec);
   const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
 
   for (const event of spec.hookEvents) {
@@ -508,8 +524,24 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
  * environment they were launched with, which on a GUI launch may not have a
  * version-manager Node on PATH.
  */
-function hookCommand(binary: string): string {
-  return `"${process.execPath}" "${binary}"`;
+function hookCommand(binary: string, spec: CliAgentSetupSpec): string {
+  return `"${process.execPath}" "${binary}"${hookSetArgument(spec.hookSet)}`;
+}
+
+/**
+ * Each event that has one of our hooks, mapped to the hook set its command
+ * names. An unreadable or missing file reads as none registered.
+ */
+export function registeredHookSets(settings: HookSettings, spec: CliAgentSetupSpec): Map<string, number> {
+  const sets = new Map<string, number>();
+  for (const [event, entries] of Object.entries(settings.hooks ?? {})) {
+    for (const entry of entries ?? []) {
+      if (!isOurs(entry, spec)) continue;
+      const set = hookSetOfCommand(spec.settings.commandOf(entry) as string);
+      sets.set(event, Math.min(set, sets.get(event) ?? set));
+    }
+  }
+  return sets;
 }
 
 function isOurs(entry: unknown, spec: CliAgentSetupSpec): boolean {
@@ -567,6 +599,13 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   console.log(`token          ${localOnly ? "— none needed until this install is paired" : tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
   console.log(`hooks          ${registered}/${spec.hookEvents.length} registered in ${settingsFile}`);
+  if (spec.hookSet !== undefined && registered > 0) {
+    const sets = [...registeredHookSets(settings, spec).values()];
+    const oldest = Math.min(...sets);
+    console.log(oldest < spec.hookSet
+      ? `hook set       ${oldest}, this version registers ${spec.hookSet}. Upgrade: npx ${spec.packageName} setup${options.scope === "user" ? " --scope user" : ""}`
+      : `hook set       ${spec.hookSet} (current)`);
+  }
 
   if (stale.length) {
     console.log(`stale hooks    ${stale.length} not pointing at the installed binary — each one fails silently per event:`);

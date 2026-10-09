@@ -73,6 +73,52 @@ also carries `subagentId`, because Claude Code adds `agent_id` to those
 payloads. `last_assistant_message` and `agent_transcript_path` on the stop
 payload are never read.
 
+## The live bus on a stop
+
+The desktop app's gauges and settle bell read a local socket, separate from
+the events above. Three hook moments end a turn there:
+
+- `Stop` sends `stop` with `backgroundTasks`, the number of entries in the
+  payload's `background_tasks` that haven't ended. Non-zero means the session
+  is still working: the app keeps it open and won't call it settled. It
+  trusts the count for an hour at most, because nothing fires when the last
+  background task exits.
+- `StopFailure` fires in place of `Stop` when the turn ends on an API error. It
+  sends `halted` with `errorKind`: `rate_limit` for a usage limit, `error`
+  for everything else. The app shows the session as stopped, not done.
+  A usage limit can also carry `resumesAt` (P-D64.2): when the limit lifts,
+  in epoch seconds on the minute. It's sent only when
+  `autoContinueAtUsageLimit` is on (managed, then project-local, then
+  project, then user settings, first one that sets it wins) and the reset
+  is no more than six hours away. The time is read from the reset clause of
+  `error_details` or `last_assistant_message` ("resets 4:30pm
+  (Asia/Nicosia)"), in memory. Only the number goes on the bus. A sentence
+  the parser can't read sends nothing.
+- The idle-prompt `Notification` ("waiting for your input") also sends
+  `halted`, with no `errorKind`. Pressing Esc runs no hook, so an interrupted
+  turn never sends `stop`, and the idle prompt is the first thing that fires
+  after it. Permission prompts and MCP elicitation forms send `awaiting`
+  instead, as does `PreToolUse` for `AskUserQuestion`.
+
+## The hook set
+
+Every registered command ends `--hook-set 3`, and every live signal repeats
+the number as `hookSet`, a positive integer (P-D64.3). Set 3 is the thirteen
+events `setup` registers today. Set 2 is the eleven before `SubagentStart` and
+`SubagentStop`. A command with no flag is set 1: an install from before `StopFailure` and
+`Notification` were registered, which never sends `halted` for an API error
+or `awaiting` for a permission prompt. The app reads a missing `hookSet` from
+`claude_code` as set 1 and names the upgrade command. The plugin's
+`hooks/hooks.json` carries the same flag. A hook run from the plugin also
+sends `viaPlugin: true`, read from the `CLAUDE_PLUGIN_ROOT` Claude Code exports
+to plugin hooks, so the app names `claude plugin update` for those instead.
+It's `true` or absent, never `false`. Both are install provenance under
+P-D64.3 (register v1.48): read from the hook's own arguments and
+environment, display only, and dropped by the emitter if malformed.
+
+Change the registered list and the set moves with it: `HOOK_SET` in
+`src/setup.ts`, the plugin's `hooks.json`, and `kCurrentHookSets` in the app.
+
 ## Outcome comes from the event, not the payload
 
 Verified against a live Claude Code session (27 Jul 2026), replacing what had

@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as net from "net";
 import * as os from "os";
 import * as path from "path";
+import { isHookSet } from "./hookSet";
 
 /**
  * The live presence bus — a local, best-effort side-channel telling the
@@ -41,6 +42,20 @@ export type PromptSizeBucket = "s" | "m" | "l" | "xl";
  * Note what is *not* here: there is no "queued" event. Nothing fires when a
  * user queues a message — the only trace queueing leaves is a label on the
  * turn that eventually runs (see {@link LiveBusSignal.queued}).
+ *
+ * `awaiting` is the one beat that is not work: the agent has stopped and is
+ * waiting on the person — a permission dialog, a question it asked, or an
+ * MCP server's form. The idle "waiting for your input" is not one of these:
+ * it follows a turn that already ended, so it is `halted`. It exists
+ * because every other beat reads as load, and a parked tool call was
+ * indistinguishable from a running one until the stale window ran out.
+ *
+ * It is a **state, not a moment**: it holds until that session's next beat
+ * of any kind, which is the only evidence an adapter ever gets that the
+ * person answered. The app caps it (`awaitingTtl` in
+ * `apps/macos/lib/src/flow/live_demand.dart`) because no host tells the bus
+ * that a session closed. Emit it only where the host itself says it is
+ * waiting; never infer it from silence, which is what stale already means.
  */
 export type LiveBusEvent =
   | "prompt_submitted"
@@ -48,12 +63,14 @@ export type LiveBusEvent =
   | "compaction"
   | "tool_failure"
   | "stop"
+  | "awaiting"
   /**
    * The turn ended without completing: the agent hit an API error, or it is
-   * sitting at an idle prompt after a turn that never sent `stop`. One event
-   * with no reason on purpose. The app only needs to know the work is no
-   * longer running, so it can drain the gauge now rather than wait for the
-   * session to go stale.
+   * sitting at an idle prompt after a turn that never sent `stop`. The app
+   * mainly needs to know the work is no longer running, so it can drain the
+   * gauge now rather than wait for the session to go stale. An API error
+   * also says which kind in {@link LiveBusSignal.errorKind}, so a usage limit
+   * can read as one. An idle prompt carries no kind.
    *
    * Never a `stop`. A stop means the agent finished its turn, and the app
    * celebrates that differently. A halted turn didn't finish.
@@ -62,6 +79,22 @@ export type LiveBusEvent =
    * against any app version.
    */
   | "halted";
+
+/**
+ * Why a `halted` from `StopFailure` ended the turn on an API error. Two
+ * values, because the display has two things to say: a usage limit is something the person
+ * waits out, and anything else is something they look at.
+ */
+export type LiveBusStopFailureKind = "rate_limit" | "error";
+
+/**
+ * How long a listener may trust a non-zero {@link LiveBusSignal.backgroundTasks}
+ * with no further word from the session. A count is a snapshot taken at the
+ * stop; nothing fires when the last background task exits, so a session that
+ * is closed, killed or forgotten leaves its last count standing. Past this,
+ * the session is treated as gone quiet. Listeners hold the same figure.
+ */
+export const LIVE_BUS_BACKGROUND_TRUST_MS = 60 * 60 * 1000;
 
 export interface LiveBusSignal {
   /**
@@ -80,6 +113,48 @@ export interface LiveBusSignal {
   tool: string;
   /** Opaque per-session id, so concurrent sessions count as separate streams. */
   session: string;
+  /**
+   * The agent CLI process this hook ran under, when it could be found (see
+   * `findAgentPid`). The app keys the stream by `tool`/`pid` when present
+   * and by `tool`/`session` when not, and checks that the process is still
+   * alive.
+   *
+   * Present only for agents whose process hosts one conversation at a time:
+   * Claude Code, Gemini CLI outside ACP mode, and Codex outside
+   * `app-server`. Claude Code changes
+   * `session` on `/clear`, `/compact` and resume, so without this one
+   * terminal reads as several concurrent streams. Every other emitter leaves
+   * it out, because their host process (an editor window, an extension host,
+   * a multi-thread server) can run several conversations at once and naming
+   * it would fuse them.
+   *
+   * Optional and additive: an app that predates it ignores the field, and an
+   * app that reads it falls back to `session` when it's missing.
+   */
+  pid?: number;
+  /**
+   * How {@link pid} was found, so the app can check it the same way. Absent
+   * means `executable`: the PID runs an agent CLI binary, and the app checks
+   * the executable path. `path` means it runs a script runtime (`node`,
+   * `bun`, `deno`) whose arguments contain {@link pidMarker}, and the app
+   * checks the arguments for it too. That's the only way to tell an npm
+   * install of Claude Code or Gemini CLI from any other node process.
+   *
+   * An app that reads `pid` but not this field would check the executable,
+   * find `node` and retire the stream on every liveness pass. No released
+   * app reads `pid` yet, so the two ship together.
+   *
+   * **Identity only.** This and {@link pidMarker} say which process
+   * {@link pid} names, and nothing else. They ride with `pid` on every
+   * event of a stream, `halted` included, and never vary by event. They
+   * don't enter the stream key and say nothing about why a turn ended, so
+   * a guard on a signal's keys sets them aside with `pid` (register
+   * v1.47, P-D64.1 clause 4). The app drops `pid` when it can't check one
+   * of these, and the stream falls back to its session.
+   */
+  pidMatch?: "path";
+  /** The install-path marker a `path` match found, e.g. `@google/gemini-cli`. */
+  pidMarker?: string;
   event: LiveBusEvent;
   /** Only meaningful on `prompt_submitted`. */
   sizeBucket?: PromptSizeBucket;
@@ -95,6 +170,53 @@ export interface LiveBusSignal {
    * a guarantee that more is pending, and the app must not treat it as one.
    */
   queued?: boolean;
+  /**
+   * Background tasks still running when the turn stopped. Only meaningful on
+   * `stop`, and only some tools can know it: absent means "not known", which
+   * listeners read as zero. Non-zero means the session isn't finished, so a
+   * listener must not treat this stop as the work being done. A count is
+   * trusted for {@link LIVE_BUS_BACKGROUND_TRUST_MS} at most.
+   */
+  backgroundTasks?: number;
+  /**
+   * The hook set the registration that fired this signal names on its
+   * command line (see `hookSet.ts`). Absent when the registration names
+   * none: an install from before hook sets, or an adapter that has no set.
+   * The app reads absence as set 1 for the tools it knows a set for, and as
+   * nothing at all for the rest.
+   *
+   * Install provenance (P-D64.3, register v1.48): a positive integer, read
+   * from the hook's own argv only. {@link emitLiveSignal} drops any other
+   * value rather than send it.
+   */
+  hookSet?: number;
+  /**
+   * The hook ran from the Claude Code plugin rather than a `setup` install.
+   * Claude Code exports `CLAUDE_PLUGIN_ROOT` to plugin hooks and to no
+   * others. The app needs it to name the right upgrade: a plugin install
+   * updates the plugin, and running `setup` beside it registers every hook
+   * twice. Absent means a `setup` install, or a hook too old to say.
+   *
+   * Install provenance, like {@link hookSet} (P-D64.3, register v1.48):
+   * `true` or absent, never `false`, and set only from the hook's own
+   * environment (`readViaPlugin`). {@link emitLiveSignal} drops any other
+   * value rather than send it.
+   */
+  viaPlugin?: true;
+  /**
+   * P-D64.1. Only meaningful on `halted`, and only when the host said the
+   * turn ended on an API error (Claude Code's `StopFailure`). A `halted` without it
+   * means the turn was interrupted or ended without a `stop`.
+   */
+  errorKind?: LiveBusStopFailureKind;
+  /**
+   * P-D64.2. When a usage limit lifts and the agent will carry on by
+   * itself, in epoch seconds on the minute. Only on a `halted` whose
+   * `errorKind` is `rate_limit`, only when the agent is set to continue at
+   * the reset, and only for a reset within six hours. Absent means the app
+   * has no reset to wait for. Display and keep-awake state only.
+   */
+  resumesAt?: number;
 }
 
 /** The desktop app's bundle id, for the sandbox container path below. */
@@ -223,6 +345,19 @@ const NOBODY_LISTENING = new Set(["ECONNREFUSED", "ENOENT"]);
  * to hold a socket open, and at these rates — a handful of signals a second
  * at worst — connection setup on a Unix socket is negligible.
  */
+/**
+ * The signal as it may go out. P-D64.3 closes install provenance at two
+ * fields with fixed types, so a `hookSet` that isn't a positive integer, or a
+ * `viaPlugin` that isn't `true`, is left off rather than sent. Absent is
+ * always a true reading; a wrong value never is.
+ */
+function onTheWire(signal: LiveBusSignal): LiveBusSignal {
+  const out: Record<string, unknown> = { ...signal };
+  if ("hookSet" in out && !isHookSet(out.hookSet)) delete out.hookSet;
+  if ("viaPlugin" in out && out.viaPlugin !== true) delete out.viaPlugin;
+  return out as unknown as LiveBusSignal;
+}
+
 export function emitLiveSignal(signal: LiveBusSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     // No socket file anywhere: the app simply isn't running. That is the
@@ -285,7 +420,7 @@ export function emitLiveSignal(signal: LiveBusSignal): Promise<void> {
         if (settled || socket !== attempt) return;
         connected = true;
         try {
-          attempt.write(`${JSON.stringify(signal)}\n`, done);
+          attempt.write(`${JSON.stringify(onTheWire(signal))}\n`, done);
         } catch {
           done();
         }

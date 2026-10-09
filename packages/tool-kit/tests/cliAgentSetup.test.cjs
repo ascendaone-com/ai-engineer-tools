@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { findStaleHookCommands, isCliAgentManagementCommand, runCliAgentSetup, writeHookSettings } = require("../out/index.js");
+const { findStaleHookCommands, isCliAgentManagementCommand, registeredHookSets, runCliAgentSetup, writeHookSettings } = require("../out/index.js");
 
 // The settings write is the highest-blast-radius thing setup does: it edits a
 // file the agent reads on every event. These pin the merge-don't-clobber
@@ -328,5 +328,47 @@ test("a paired install that loses its token is still reported as broken", async 
 
     const { isLocalOnlyHostInstall } = require("../out/index.js");
     assert.equal(isLocalOnlyHostInstall(flat.host, () => false), false);
+  });
+});
+
+// An install from before a hook was added keeps its old list until setup runs
+// again. Re-running has to add what is missing, say so, and stamp the set the
+// live signal reports, without duplicating what was already there.
+test("re-running setup upgrades an older registration and says what it added", async () => {
+  // The nested shape, because the only adapter with a set today (Gemini)
+  // names its hook on stdin and registers one command for every event.
+  const versioned = { ...nested, hookSet: 2 };
+  await sandbox(async ({ project, log }) => {
+    const file = path.join(project, "settings.json");
+    fs.writeFileSync(file, JSON.stringify({ hooks: { start: [{ hooks: [{ type: "command", command: '"/n" "/old/ascenda-nested-hook"' }] }] } }));
+
+    assert.equal(await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], versioned), 0);
+    const first = log.join("\n");
+    assert.ok(first.includes("upgraded: added stop; hook set 1 → 2"), first);
+    const hooks = read(file).hooks;
+    assert.equal(hooks.start.length, 1, "the old entry is replaced, not kept beside the new one");
+    assert.match(hooks.start[0].hooks[0].command, /ascenda-nested-hook" --hook-set 2$/);
+    assert.match(hooks.stop[0].hooks[0].command, /ascenda-nested-hook" --hook-set 2$/);
+    assert.deepEqual([...registeredHookSets(read(file), versioned)], [["start", 2], ["stop", 2]]);
+
+    log.length = 0;
+    await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], versioned);
+    const again = log.join("\n");
+    assert.ok(again.includes("already current"), again);
+    assert.ok(!again.includes("upgraded:"), "a no-op run claims no upgrade");
+
+    log.length = 0;
+    await runCliAgentSetup(["status", "--project-dir", project], versioned);
+    assert.ok(log.join("\n").includes("hook set       2 (current)"));
+  });
+});
+
+test("status names an older hook set and the command that upgrades it", async () => {
+  const versioned = { ...nested, hookSet: 2 };
+  await sandbox(async ({ project, log }) => {
+    await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], nested);
+    log.length = 0;
+    await runCliAgentSetup(["status", "--project-dir", project], versioned);
+    assert.ok(log.join("\n").includes("hook set       1, this version registers 2. Upgrade: npx @ascenda-one/flat-hooks setup"));
   });
 });

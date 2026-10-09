@@ -52,10 +52,11 @@ separately revocable.
 
 ## Use in GitHub Actions
 
-Ready to copy: [`examples/workflow.yml`](./examples/workflow.yml). Both secrets
-come from pairing a collector identity of its own —
-`npx -y @ascenda-one/claude-code-hooks pair --tool-type github_collector` — which
-prints the installation id and names the token file to read.
+Ready to copy: [`examples/workflow.yml`](./examples/workflow.yml). Each person
+pairs a collector identity of their own,
+`npx -y @ascenda-one/claude-code-hooks pair --tool-type github_collector`, which
+prints the installation id and names the token file to read. Those go into
+repository secrets with that person's suffix, along with their GitHub login.
 
 ```yaml
 name: ascenda-collaboration
@@ -69,12 +70,38 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     steps:
-      - run: npx @ascenda-one/github-collector
+      - name: ascenda (octocat)
+        run: npx @ascenda-one/github-collector
         env:
-          ASCENDA_TOOL_INSTALLATION_ID: ${{ secrets.ASCENDA_TOOL_INSTALLATION_ID }}
-          ASCENDA_EVENT_WRITE_TOKEN: ${{ secrets.ASCENDA_EVENT_WRITE_TOKEN }}
-          ASCENDA_FORGE_LOGIN: ${{ github.actor }}
+          ASCENDA_TOOL_INSTALLATION_ID: ${{ secrets.ASCENDA_TOOL_INSTALLATION_ID_OCTOCAT }}
+          ASCENDA_EVENT_WRITE_TOKEN: ${{ secrets.ASCENDA_EVENT_WRITE_TOKEN_OCTOCAT }}
+          ASCENDA_FORGE_LOGIN: ${{ secrets.ASCENDA_FORGE_LOGIN_OCTOCAT }}
 ```
+
+### `ASCENDA_FORGE_LOGIN` is configured, never derived
+
+Set it to the paired person's own login, once, when you store their secrets.
+Don't use `${{ github.actor }}`. The actor is whoever triggered the run, and
+the installation secrets belong to one person:
+
+- When a colleague opens a pull request or submits a review, they're the
+  actor *and* the author, so the event matches and lands under your
+  installation. That records a colleague.
+- On `review_requested` the actor is the person asking. Your request would
+  only match if you'd asked yourself, so `review_requested_of_me` never fires.
+
+The collector can't tell a typed login from one wired to the actor, so this
+rule lives in your workflow file.
+
+### One step per participant
+
+A step carries one person's installation, so a repository shared by several
+people who've paired needs one step each, every one with its own suffixed
+secrets. Each step reads the same payload and emits only its own person's
+activity; the others exit with nothing to send. A matrix over the suffixes
+works too, with `secrets[format('ASCENDA_FORGE_LOGIN_{0}', matrix.who)]` and
+the same for the other two. Bear in mind that anyone who can edit the workflow
+can read every participant's write token in a run.
 
 The step exits 0 on every path that is not a configuration error, including
 "nothing to emit". A telemetry step must never be the reason a build goes red.

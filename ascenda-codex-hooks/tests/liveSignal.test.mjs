@@ -34,7 +34,7 @@ const LIVE_BUS_SRC = path.resolve(HERE, "../../packages/tool-kit/src/liveBus.ts"
  * from either end of the socket, and the app drops anything else on the
  * floor. Turn both around together; never widen this one alone.
  */
-const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "halted"];
+const APP_PARSES = ["prompt_submitted", "tool_call", "compaction", "tool_failure", "stop", "awaiting", "halted"];
 
 /** The union tool-kit actually declares, read from its source. */
 function toolKitVocabulary() {
@@ -197,7 +197,7 @@ const SESSION_ID = "cdx-1";
 const SESSION_ON_STDIN = { session_id: SESSION_ID };
 const PROMPT_HOOK = "UserPromptSubmit";
 const promptPayload = (prompt) => ({ prompt });
-const SILENT_HOOK = ["PermissionRequest", {}];
+const SILENT_HOOK = ["SubagentStart", {}];
 
 const FIXTURES = [
   ["SessionStart", { source: "startup" }],
@@ -235,11 +235,31 @@ test("PostToolUse speaks only for a failure — Codex has no separate failure ho
 test("hooks with no gauge counterpart stay silent", () => {
   // PostCompact is the compaction PreCompact already rang; the rest have
   // nothing the gauges render.
-  for (const hook of ["SessionStart", "PostCompact", "PermissionRequest", "SubagentStart", "SubagentStop"]) {
+  for (const hook of ["SessionStart", "PostCompact", "SubagentStart", "SubagentStop"]) {
     assert.equal(liveSignalFor(hook, {}), undefined, `${hook} must stay silent`);
   }
 });
 
 test("a prompt-less UserPromptSubmit omits the bucket rather than inventing one", () => {
   assert.deepEqual(liveSignalFor("UserPromptSubmit", {}), { event: "prompt_submitted" });
+});
+
+test("PermissionRequest is awaiting: the agent stopped at the approval gate", () => {
+  // PreToolUse already said "tool_call" for this call, before the gate. Without
+  // this beat a parked approval reads as running work until the stale window
+  // runs out, and Away Mode holds the Mac awake for a dialog nobody answers.
+  assert.deepEqual(liveSignalFor("PermissionRequest", { tool_name: "shell" }), { event: "awaiting" });
+});
+
+test("the built CLI puts awaiting on the socket for an approval gate", async () => {
+  await withListener(async (socketPath, lines, settle) => {
+    const result = runHook("PermissionRequest", { tool_name: "shell" }, socketPath);
+    assert.equal(result.status, 0, `hook must exit 0; stderr: ${result.stderr}`);
+    await settle();
+    // `pid` is present only when the suite itself runs under a Codex TUI.
+    const [{ pid, ...signal }] = lines;
+    assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    assert.equal(lines.length, 1);
+    assert.deepEqual(signal, { tool: HOST, session: SESSION_ID, event: "awaiting" });
+  });
 });
