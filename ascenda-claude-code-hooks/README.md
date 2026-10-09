@@ -103,8 +103,8 @@ Re-run `setup` with the scope you installed with. It keeps your pairing, adds
 the hooks this version registers, and prints what it added:
 
 ```text
-  hooks        ~/.claude/settings.json (11 events)
-               upgraded: added StopFailure, Notification; hook set 1 → 2
+  hooks        ~/.claude/settings.json (13 events)
+               upgraded: added SubagentStart, SubagentStop; hook set 2 → 3
 ```
 
 `status` prints the installed hook set and, when it's older, the command to
@@ -282,7 +282,9 @@ for machine-wide coverage:
     "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Stop", "timeout": 5 }] }],
     "StopFailure": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks StopFailure", "timeout": 5 }] }],
     "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification", "timeout": 5 }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionEnd", "timeout": 5 }] }]
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionEnd", "timeout": 5 }] }],
+    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStart", "timeout": 5 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStop", "timeout": 5 }] }]
   }
 }
 ```
@@ -438,6 +440,8 @@ Stop
 StopFailure
 Notification
 SessionEnd
+SubagentStart
+SubagentStop
 ```
 
 ## Ascenda event mappings
@@ -458,6 +462,8 @@ Stop               -> ai_turn_completed (every turn), agent_loop_long (long only
 StopFailure        -> nothing sent (live signal only)
 Notification       -> supervision_interruption (interruptionKind only, never the message)
 SessionEnd         -> recovery_offline_period (activity session_ended, sessionEndReason)
+SubagentStart      -> subagent_started (subagentId, subagentClass)
+SubagentStop       -> subagent_stopped (subagentId, subagentClass)
 ```
 
 ## Privacy defaults

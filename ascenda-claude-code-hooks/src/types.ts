@@ -13,7 +13,8 @@ export type ClaudeHookEventName =
   // Fires in place of Stop when the turn ends on an API error: a usage limit,
   // an overloaded server, a billing or auth failure.
   | "StopFailure"
-  | "Notification" | "SessionEnd";
+  | "Notification" | "SessionEnd"
+  | "SubagentStart" | "SubagentStop";
 
 /**
  * The same names as a value, so an unrecognised argument can be rejected
@@ -24,7 +25,8 @@ export type ClaudeHookEventName =
 export const CLAUDE_HOOK_EVENT_NAMES: readonly ClaudeHookEventName[] = [
   "SessionStart", "UserPromptSubmit", "PreToolUse",
   "PostToolUse", "PostToolUseFailure",
-  "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd"
+  "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd",
+  "SubagentStart", "SubagentStop"
 ];
 
 export function isClaudeHookEventName(value: string): value is ClaudeHookEventName {

@@ -59,20 +59,20 @@ test("setup upgrades an older install in place and says what it added", () => {
     seedOldInstall(m.projectSettings);
     const first = run(m, ["setup", "--no-pair", "--project-dir", m.project]);
     assert.equal(first.status, 0, first.stderr);
-    assert.match(first.stdout, /upgraded: added StopFailure, Notification; hook set 1 → 2/);
+    assert.match(first.stdout, /upgraded: added StopFailure, Notification, SubagentStart, SubagentStop; hook set 1 → 3/);
 
     const settings = JSON.parse(fs.readFileSync(m.projectSettings, "utf8"));
     assert.equal(settings.model, "opus", "the rest of the file is the person's");
-    assert.equal(Object.keys(settings.hooks).length, 11);
+    assert.equal(Object.keys(settings.hooks).length, 13);
     for (const [event, groups] of Object.entries(settings.hooks)) {
       const ours = groups.filter((g) => g.hooks.some((h) => h.command.includes("ascenda-claude-hook")));
       assert.equal(ours.length, 1, `${event} has exactly one of our hooks`);
-      assert.match(ours[0].hooks[0].command, new RegExp(` ${event} --hook-set 2$`));
+      assert.match(ours[0].hooks[0].command, new RegExp(` ${event} --hook-set 3$`));
     }
     assert.equal(settings.hooks.Stop[0].hooks[0].command, "say done", "a hook the person wrote stays where it was");
 
     const again = run(m, ["setup", "--no-pair", "--project-dir", m.project]);
-    assert.match(again.stdout, /11 events, already current/);
+    assert.match(again.stdout, /13 events, already current/);
     assert.doesNotMatch(again.stdout, /upgraded:/, "a re-run that changed nothing claims nothing");
   } finally {
     m.cleanup();
@@ -95,10 +95,10 @@ test("status names an older hook set and the command that upgrades it", () => {
   try {
     seedOldInstall(m.userSettings);
     const result = run(m, ["status", "--scope", "user"]);
-    assert.match(result.stdout, /hook set {7}1, this version registers 2\. Upgrade: npx @ascenda-one\/claude-code-hooks setup --scope user/);
+    assert.match(result.stdout, /hook set {7}1, this version registers 3\. Upgrade: npx @ascenda-one\/claude-code-hooks setup --scope user/);
 
     run(m, ["setup", "--no-pair", "--scope", "user"]);
-    assert.match(run(m, ["status", "--scope", "user"]).stdout, /hook set {7}2 \(current\)/);
+    assert.match(run(m, ["status", "--scope", "user"]).stdout, /hook set {7}3 \(current\)/);
   } finally {
     m.cleanup();
   }

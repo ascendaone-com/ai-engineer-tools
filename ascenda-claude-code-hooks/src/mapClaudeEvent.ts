@@ -1,5 +1,5 @@
 import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd } from "@ascenda-one/tool-kit";
-import type { AutonomyMode, SessionEndReason } from "@ascenda-one/tool-contract";
+import type { AutonomyMode, SessionEndReason, SubagentClass } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent, claudeRuntime } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
 
@@ -19,7 +19,11 @@ import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNe
  * `runtime` rides on every event for the same reason: a hosted session's
  * transcript never reaches the person's machine, so these events are the only
  * record of it, and a reader comparing them against a history import has to
- * know which rows the import could never have seen.
+ * know which rows the import could never have seen. *
+ * `subagentId` rides on any event whose hook fired inside a subagent, where
+ * Claude Code adds `agent_id` to the payload. A subagent's tool calls then
+ * count toward that subagent as well as the session, so a reader can see one
+ * still working between its start and stop.
  */
 export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): MappedAscendaEvent[] {
   const events = mapEvent(hookName, input);
@@ -29,9 +33,10 @@ export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookI
 
   const branchHash = deriveBranchHashForCwd(getString(input, ["cwd"]) ?? process.cwd());
   const runtime = claudeRuntime();
+  const subagentId = readSubagentId(input);
   return events.map((event) => ({
     ...event,
-    metadata: { host: CLAUDE_HOST, runtime, ...(branchHash ? { branchHash } : {}), ...event.metadata }
+    metadata: { host: CLAUDE_HOST, runtime, ...(branchHash ? { branchHash } : {}), ...(subagentId ? { subagentId } : {}), ...event.metadata }
   }));
 }
 
@@ -54,6 +59,8 @@ function mapEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): Mapped
     case "StopFailure": return [];
     case "Notification": return mapNotification(input);
     case "SessionEnd": return mapSessionEnd(input);
+    case "SubagentStart": return mapSubagent("subagent_started", input);
+    case "SubagentStop": return mapSubagent("subagent_stopped", input);
     default: return [];
   }
 }
@@ -170,6 +177,60 @@ export function classifySessionEndReason(raw: unknown): SessionEndReason {
 }
 
 const SESSION_END_REASONS: readonly SessionEndReason[] = ["clear", "resume", "logout", "prompt_input_exit", "other"];
+
+/**
+ * A subagent starting or stopping under this session. The payload's
+ * `session_id` is the parent session, and it reaches the wire as `sessionId`
+ * like every other event's; `subagentId` is stamped by {@link mapClaudeEvent}.
+ * Together they let a reader count the agents running at once.
+ *
+ * Only `agent_type` is read here, and only to pick a class. The stop payload
+ * also carries `last_assistant_message` and `agent_transcript_path`; those are
+ * content and a path, and nothing reads them.
+ */
+function mapSubagent(eventType: "subagent_started" | "subagent_stopped", input: ClaudeHookInput): MappedAscendaEvent[] {
+  const raw = input["agent_type"];
+  return [{
+    eventType,
+    severity: "low",
+    metadata: raw === undefined || raw === null ? {} : { subagentClass: classifySubagentType(raw) }
+  }];
+}
+
+/**
+ * Claude Code's `agent_type` onto {@link SubagentClass}. Total: every input
+ * gives a class, and no part of a name a person wrote comes back out. See the
+ * type for what each class covers, including why a built-in agent newer than
+ * this table reads as `custom`.
+ */
+export function classifySubagentType(raw: unknown): SubagentClass {
+  if (typeof raw !== "string") return "unknown";
+  const value = raw.trim().toLowerCase();
+  if (value === "") return "none";
+  if (value.includes(":")) return "plugin";
+  return BUILT_IN_SUBAGENTS[value] ?? "custom";
+}
+
+const BUILT_IN_SUBAGENTS: Record<string, SubagentClass> = {
+  "general-purpose": "general_purpose",
+  explore: "explore",
+  plan: "plan",
+  "statusline-setup": "statusline_setup",
+  "claude-code-guide": "claude_code_guide"
+};
+
+/**
+ * The payload's `agent_id`, when it is one. Claude Code generates these
+ * (`agent-abc123`, `def456`), so anything longer than 128 characters or
+ * holding anything but letters, digits, `-` and `_` isn't an id and is left
+ * off rather than sent.
+ */
+export function readSubagentId(input: ClaudeHookInput): string | undefined {
+  const raw = input["agent_id"];
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : undefined;
+}
 
 function mapUserPromptSubmit(input: ClaudeHookInput): MappedAscendaEvent[] {
   const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]]);

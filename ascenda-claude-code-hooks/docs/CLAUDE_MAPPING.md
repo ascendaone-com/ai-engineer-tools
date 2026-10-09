@@ -27,12 +27,51 @@ This adapter is the **primary Phase 1 source for `AIInteractionLoad`** and workf
 | StopFailure | *(nothing sent; live signal `halted` only)* | — |
 | Notification | *(skipped — no catalog event)* | — |
 | SessionEnd (every reason) | `recovery_offline_period` (`activity: session_ended`, `sessionEndReason`) | neutral |
+| SubagentStart | `subagent_started` (`subagentId`, `subagentClass`) | neutral |
+| SubagentStop | `subagent_stopped` (`subagentId`, `subagentClass`) | neutral |
 
 `SessionEnd` runs while Claude Code exits, so it doesn't send. It writes the
 event to the outbox and returns, and the next hook of the same install delivers
 it on its outbox pass: another open session's next tool call, or the next
 `SessionStart`. The event keeps the `occurredAt` and `idempotencyKey` it
 was built with.
+
+## Subagents
+
+`SubagentStart` and `SubagentStop` send a start and a stop for each subagent.
+The row's `sessionId` is the parent session, `subagentId` is Claude Code's
+`agent_id`, and `subagentClass` is what kind of agent it was. Count the open
+spans under each session and you have how many agents ran at once.
+
+Claude Code's `agent_type` is never sent. A custom agent's name comes from a
+file someone wrote, so it's reduced to a class:
+
+| `agent_type` | `subagentClass` |
+|---|---|
+| `general-purpose`, `Explore`, `Plan`, `statusline-setup`, `claude-code-guide` | `general_purpose`, `explore`, `plan`, `statusline_setup`, `claude_code_guide` |
+| contains `:` (a plugin's agent, `my-plugin:reviewer`) | `plugin` |
+| any other non-empty string | `custom` |
+| `""` | `none` |
+| not a string | `unknown` |
+| not in the payload | key omitted |
+
+A built-in agent newer than this table reads as `custom` until it's added.
+
+Three things a reader has to handle:
+
+- **Resumes.** A resumed subagent fires `SubagentStart` again under the same
+  `agent_id`. A start for an id that's already open continues that span.
+- **Internal agents.** Claude Code also fires `SubagentStop` for its own
+  agents (prompt suggestions, `/btw`), with no start before it. A stop with no
+  start isn't a span.
+- **Teammates.** An in-process agent-team teammate fires `SubagentStart` for
+  each message it handles. Whether it fires `SubagentStop` isn't documented,
+  so close an open span at the session's end.
+
+Any other event whose hook fired inside a subagent (its tool calls, mostly)
+also carries `subagentId`, because Claude Code adds `agent_id` to those
+payloads. `last_assistant_message` and `agent_transcript_path` on the stop
+payload are never read.
 
 ## The live bus on a stop
 
@@ -63,9 +102,10 @@ the events above. Three hook moments end a turn there:
 
 ## The hook set
 
-Every registered command ends `--hook-set 2`, and every live signal repeats
-the number as `hookSet`, a positive integer (P-D64.3). Set 2 is the eleven events `setup` registers today.
-A command with no flag is set 1: an install from before `StopFailure` and
+Every registered command ends `--hook-set 3`, and every live signal repeats
+the number as `hookSet`, a positive integer (P-D64.3). Set 3 is the thirteen
+events `setup` registers today. Set 2 is the eleven before `SubagentStart` and
+`SubagentStop`. A command with no flag is set 1: an install from before `StopFailure` and
 `Notification` were registered, which never sends `halted` for an API error
 or `awaiting` for a permission prompt. The app reads a missing `hookSet` from
 `claude_code` as set 1 and names the upgrade command. The plugin's

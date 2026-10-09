@@ -12,7 +12,7 @@ const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // to be a deliberate change here too. SessionStart earns its place twice —
 // it maps to create_focus_session, and it is the hook that carries the
 // intention invite.
-const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd"];
+const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd", "SubagentStart", "SubagentStop"];
 
 function tempSettings(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-settings-"));
@@ -35,22 +35,22 @@ test("registers every hook event, and none we do not map", () => {
   // the agent stopping to wait on the person. It was absent for as long as it
   // mapped to nothing, and the two halves moved together.
   assert.ok(hooks.Notification, "Notification must be registered or the interruption count is silently zero");
-  assert.match(hooks.Notification[0].hooks[0].command, /ascenda-claude-hook" Notification --hook-set 2$/);
-  assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse --hook-set 2$/);
+  assert.match(hooks.Notification[0].hooks[0].command, /ascenda-claude-hook" Notification --hook-set 3$/);
+  assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse --hook-set 3$/);
   assert.equal(hooks.PostToolUse[0].hooks[0].timeout, 5, "must not inherit the 600s default");
   // SessionEnd closes what SessionStart opened. Its 5s timeout matters more
   // than most: without one, Claude Code gives SessionEnd hooks 1.5s in total.
-  assert.match(hooks.SessionEnd[0].hooks[0].command, /ascenda-claude-hook" SessionEnd --hook-set 2$/);
+  assert.match(hooks.SessionEnd[0].hooks[0].command, /ascenda-claude-hook" SessionEnd --hook-set 3$/);
   assert.equal(hooks.SessionEnd[0].hooks[0].timeout, 5);
 });
 
 test("the hook set moves with the list it versions", () => {
-  // Set 2 is these eleven events. Changing EVENTS without bumping HOOK_SET
+  // Set 3 is these thirteen events. Changing EVENTS without bumping HOOK_SET
   // leaves every older install looking current to the app, which is the gap
   // the set exists to close. Bump both, and the plugin's hooks.json and the
   // app's kCurrentHookSets with them.
-  assert.equal(HOOK_SET, 2);
-  assert.equal(EVENTS.length, 11);
+  assert.equal(HOOK_SET, 3);
+  assert.equal(EVENTS.length, 13);
 });
 
 test("the example settings register the same hooks, each with a timeout", () => {
@@ -60,7 +60,7 @@ test("the example settings register the same hooks, each with a timeout", () => 
   const example = read(new URL("../examples/settings.local.json", import.meta.url));
   assert.deepEqual(Object.keys(example.hooks).sort(), [...EVENTS].sort());
   for (const [event, groups] of Object.entries(example.hooks)) {
-    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set 2`);
+    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set 3`);
     assert.equal(groups[0].hooks[0].timeout, 5, event);
   }
 });

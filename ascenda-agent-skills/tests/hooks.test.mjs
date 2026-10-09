@@ -39,7 +39,7 @@ test("both channels close the session they open", () => {
     assert.ok(hooks[event], `the plugin does not register ${event}`);
     assert.ok(setupHookEvents().includes(event), `setup does not register ${event}`);
   }
-  assert.equal(hooks.SessionEnd[0].hooks[0].command, "npx -y @ascenda-one/claude-code-hooks SessionEnd --hook-set 2");
+  assert.equal(hooks.SessionEnd[0].hooks[0].command, "npx -y @ascenda-one/claude-code-hooks SessionEnd --hook-set 3");
 });
 
 test("every plugin hook carries a timeout", () => {

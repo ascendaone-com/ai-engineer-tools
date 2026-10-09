@@ -101,7 +101,9 @@
     "review_given",
     "pull_request_opened",
     "ai_turn_completed",
-    "supervision_interruption"
+    "supervision_interruption",
+    "subagent_started",
+    "subagent_stopped"
   ],
   "sources": [
     "vscode_extension",
