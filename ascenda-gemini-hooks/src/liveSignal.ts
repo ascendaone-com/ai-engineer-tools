@@ -17,11 +17,12 @@ export type LiveSignalBody = Omit<LiveBusSignal, "tool" | "session">;
  * Deliberately partial, and deliberately leading-edge:
  *
  *  - `BeforeAgent` is the turn's opening beat and `AfterAgent` its close, so
- *    they carry `prompt_submitted` and `stop`. Gemini's `SessionStart` and
- *    `SessionEnd` bracket a whole CLI run rather than a turn and add nothing
- *    the pair above does not already say; `SessionEnd` in particular would
- *    be a second `stop` immediately after the last `AfterAgent`, which the
- *    saver would draw as two session ends.
+ *    they carry `prompt_submitted` and `stop`. `SessionStart` brackets a
+ *    whole CLI run and says nothing. `SessionEnd` is `halted`, not a second
+ *    `stop`: quitting mid-turn sends no `AfterAgent`, and without it the
+ *    session held its level until it went stale. After a turn that did stop
+ *    the app ignores a `halted` for a session it no longer holds, so it
+ *    never draws two session ends.
  *  - `BeforeTool`, not `AfterTool`, carries the cadence heartbeat, so the
  *    gauge rises as the agent starts rather than after it finishes.
  *  - `AfterTool` therefore speaks only when the call **failed**. Gemini has
@@ -56,6 +57,7 @@ export function liveSignalFor(hookName: GeminiHookEventName, input: GeminiHookIn
     case "AfterTool": return inferOutcome(input) === "failure" ? { event: "tool_failure" } : undefined;
     case "PreCompress": return { event: "compaction" };
     case "AfterAgent": return { event: "stop" };
+    case "SessionEnd": return { event: "halted" };
     case "Notification": return getString(input, ["notification_type"]) === "ToolPermission" ? { event: "awaiting" } : undefined;
     default: return undefined;
   }

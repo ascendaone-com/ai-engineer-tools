@@ -103,7 +103,15 @@ export {
   forgeFullNameFromConfig,
   recordForgeProjectAlias
 } from "./forgeProject";
-export { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates, LIVE_BUS_BACKGROUND_TRUST_MS } from "./liveBus";
+export { emitLiveSignal, deliverLine, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates, LIVE_BUS_BACKGROUND_TRUST_MS } from "./liveBus";
+export { holdForSaver, heldForSaver, probeSocket, readSaverStatuses, saverContainerDir, saverReplayPath, saverStatusDir, saverSupportDir, SAVER_REPLAY_WINDOW_MS } from "./saverHandoff";
+export type { SaverStatus, SaverStatusReading, SocketState } from "./saverHandoff";
+export { colourEnabled, terminalStyle } from "./terminalStyle";
+export type { TerminalStyle, Tone } from "./terminalStyle";
+export { describeAge, hookLauncherScript, hookRunnerCommand, hookRunnerPaths, installHookRunner, lastHookPath, readLastHook, removeHookRunner, resolveHookNode, stampLastHook, tidyHomePath } from "./hookRunner";
+export type { HookLauncherOptions, HookRunnerPaths, LastHook, NodeResolution } from "./hookRunner";
+export { DOCTOR_VALUE_COLUMN, doctorRow, liveSignalDoctorLines } from "./liveSignalDoctor";
+export type { HookRegistration, LiveSignalDoctorOptions } from "./liveSignalDoctor";
 export type { LiveBusEvent, LiveBusSignal, LiveBusStopFailureKind, PromptSizeBucket } from "./liveBus";
 export { HOOK_SET_FLAG, UNVERSIONED_HOOK_SET, describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand, isHookSet, readHookSet, readViaPlugin } from "./hookSet";
 export type { HookSetChanges } from "./hookSet";

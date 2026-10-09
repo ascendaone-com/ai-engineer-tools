@@ -34,6 +34,13 @@ import type { ClaudeHookEventName, ClaudeHookInput } from "./types.js";
  * thing that fires afterwards. It is not `awaiting`: the turn is over, and
  * nothing is parked on the person. After a turn that did stop it's
  * redundant, and the app ignores a `halted` for a session it no longer holds.
+ *
+ * `SessionEnd` is a third. Closing Claude Code mid-turn (Ctrl-C twice,
+ * `/exit` while a tool runs, a closed terminal) sends no `stop`, and without
+ * this the session held its level until it went stale, three minutes later.
+ * A `halted` never creates a session, and is ignored by a listener whose
+ * session already stopped, so the ordinary case (a stop, then the end)
+ * draws nothing twice.
  */
 export function liveEventFor(hookName: ClaudeHookEventName, input: ClaudeHookInput): LiveBusEvent | undefined {
   switch (hookName) {
@@ -43,6 +50,7 @@ export function liveEventFor(hookName: ClaudeHookEventName, input: ClaudeHookInp
     case "PostToolUseFailure": return "tool_failure";
     case "Stop": return "stop";
     case "StopFailure": return "halted";
+    case "SessionEnd": return "halted";
     case "Notification": return notificationLiveEvent(input);
     default: return undefined;
   }

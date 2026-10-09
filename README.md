@@ -1,231 +1,221 @@
 # ai-engineer-tools
 
-Privacy-first telemetry and pairing tooling that measures workflow friction in
-AI-assisted engineering — metadata only, never source code, prompts, or file
-names. These are the collection surfaces for Ascenda; what the measurements do
-and do not establish is set out in
+The collectors behind Ascenda: small, open-source hooks and an editor
+extension that notice how AI-assisted engineering work is going. They record
+metadata only, never source code, prompts or file names. What the
+measurements do and do not establish is set out in
 [What this measures](#what-this-measures-and-what-that-does-not-yet-prove).
+
+There are two ways to use them, and the first needs no account:
+
+- **On this Mac only.** The hooks send a live signal to a socket on your own
+  machine. The Ascenda Flow app's live view and the Waterline screen saver
+  read it to show that an agent is working, or waiting on you. Nothing leaves
+  the machine.
+- **With your Ascenda account.** Pair a tool once and its events also go to
+  Ascenda, so your sessions appear in the Flow app over time.
 
 ## Install
 
-Three surfaces, each one command. Pick the tools you actually use — they all
-report into the same paired installation, and any one of them works alone.
+Pick the tools you use. Each works alone, and each has its own pairing.
 
-### VS Code or Cursor
+| Agent | Command | Hooks registered in |
+| --- | --- | --- |
+| Claude Code | `npx -y @ascenda-one/claude-code-hooks setup` | `~/.claude/settings.json` |
+| Codex CLI | `npx -y @ascenda-one/codex-hooks setup` | `~/.codex/hooks.json` |
+| Cursor (agent) | `npx -y @ascenda-one/cursor-hooks setup` | `~/.cursor/hooks.json` |
+| Windsurf | `npx -y @ascenda-one/windsurf-hooks setup` | `~/.codeium/windsurf/hooks.json` |
+| Gemini CLI | `npx -y @ascenda-one/gemini-hooks setup` | `~/.gemini/settings.json` |
 
-1. Open the Extensions pane — **⇧⌘X** (macOS) or **Ctrl+Shift+X** (Windows/Linux).
-2. Search **Ascenda** and click **Install**. (Publisher: `ascenda-one`.)
+Add `--no-pair` to install without an account. `setup` then installs the hooks
+and stops; the live signal works, and nothing is sent.
 
-   ![Searching for Ascenda in the VS Code Extensions pane](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-marketplace-search.png)
+![setup --no-pair finishing with "Ready. The screen saver and the Ascenda app's live view work now."](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/cli-setup-no-pair.png)
 
-3. Open the Command Palette — **⇧⌘P** / **Ctrl+Shift+P** — and run **Ascenda: Connect App**.
+What `setup` does, for every agent:
 
-   ![The Ascenda commands in the VS Code Command Palette](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-command-palette.png)
+- **Registers the hooks for every project.** `--scope project` limits them to
+  the current folder instead. Re-running `setup` moves an older install from
+  the other place, so each event runs once.
+- **Installs a launcher that finds Node.** Each hook runs
+  `~/.ascenda/bin/ascenda-<agent>-hook`, a small shell script that uses the
+  Node 20+ that ran `setup` and finds another if that one goes (Homebrew, nvm,
+  fnm, volta, asdf, mise). Hooks keep working when the agent starts from the
+  Dock or an IDE without your shell's PATH. On Windows the hook runs the Node
+  that ran `setup` directly.
+- **Pairs,** unless you passed `--no-pair`: it prints a 6-digit code to confirm
+  in the Flow app under **Connections → Ingest telemetry**.
 
-Same extension serves both editors; the host is detected at runtime. If you
-prefer the command line:
+Nothing goes in your shell profile. Then restart the agent:
+
+- **Claude Code:** type `/hooks`. The Ascenda hooks are listed under **User**.
+- **Codex:** open `/hooks` and trust the Ascenda hooks. Codex doesn't run a
+  hook until you do.
+
+### Check it works
 
 ```bash
-code   --install-extension ascenda-one.ascenda   # VS Code
-cursor --install-extension ascenda-one.ascenda   # Cursor
+~/.ascenda/bin/ascenda-claude-hook doctor     # or ascenda-codex-hook, -cursor-, -gemini-, -windsurf-
 ```
 
-On macOS those CLIs are not on `PATH` by default — run **Shell Command: Install
-'code' command in PATH** from the Command Palette first, or just use the
-Extensions pane above.
+`doctor` checks the local half first, which needs no pairing. Can the hooks
+start, are they registered where the agent loads them, has the agent run one
+yet, and is anything listening for the live signal. When the screen saver is
+running it pings it and waits for the answer. Every line says how to fix
+what it finds.
 
-### Claude Code
+![doctor on a fresh install: Node found, 13 of 13 hooks registered, Ready](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/cli-doctor-ready.png)
+
+![doctor naming a problem: hooks not registered, with the command that fixes it](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/cli-doctor-problem.png)
+
+`status` is the short version, and exits non-zero when something is missing,
+so it can gate a CI step. `uninstall` removes the hooks, the launcher and the
+pairing.
+
+### What each agent can report
+
+The agents expose different hooks, so they can't all say the same things. A
+gap here is the agent's hook set, not something we infer around.
+
+| | Claude Code | Codex | Cursor | Gemini CLI | Windsurf |
+| --- | --- | --- | --- | --- | --- |
+| Working (prompts, tool calls) | yes | yes | yes | yes | yes |
+| Waiting on you (an approval) | yes | yes | no hook | yes | no hook |
+| Context compaction | yes | yes | yes | yes | no hook |
+| Quit mid-turn ends the session | yes | no hook | yes | yes | no hook |
+
+Each package's README lists its events in full.
+
+### Claude Code: the plugin, or `setup`
+
+The Claude Code plugin installs the hooks together with the work-signals
+skill and the MCP server:
 
 ```bash
 claude plugin marketplace add ascendaone-com/ai-engineer-tools
 claude plugin install ascenda@ascenda-one
 ```
 
-Installs the work-signals skill, the lifecycle hooks, and the MCP server
-together. From inside a session, use `/plugin marketplace add …` and
-`/plugin install …` instead.
+Its hooks run through `npx`, so they need Node on the PATH Claude Code was
+started with, and they don't get the launcher. Use the plugin or `setup` for
+the hooks, not both: with both, every event runs twice.
 
-### Codex
+### VS Code and the Cursor editor
+
+The editor extension records editor and terminal activity. It is one
+extension for both editors.
+
+1. Open the Extensions pane (**⇧⌘X**, or **Ctrl+Shift+X** on Windows and Linux).
+2. Search **Ascenda** and click **Install**. The publisher is `ascenda-one`.
+
+   ![Searching for Ascenda in the VS Code Extensions pane](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-marketplace-search.png)
+
+3. Open the Command Palette (**⇧⌘P** / **Ctrl+Shift+P**) and run
+   **Ascenda: Connect App**.
+
+   ![The Ascenda commands in the VS Code Command Palette](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-command-palette.png)
+
+From the command line instead:
 
 ```bash
-npx @ascenda-one/codex-hooks --help
+code   --install-extension ascenda-one.ascenda   # VS Code
+cursor --install-extension ascenda-one.ascenda   # Cursor
 ```
 
-Then register the hooks per
-[ascenda-codex-hooks](./ascenda-codex-hooks/#3-register-hooks-in-codex).
-
-### Cursor, Windsurf, Gemini CLI
-
-```bash
-npx @ascenda-one/cursor-hooks setup
-npx @ascenda-one/windsurf-hooks setup
-npx @ascenda-one/gemini-hooks setup
-```
-
-Each one pairs, installs its hook bundle and registers the hooks in the
-agent's own config — no exports, nothing to hand-edit. `status` reports
-whether everything is wired; `uninstall` reverses it.
-
-> **Pairing.** Every tool needs one pairing with the Ascenda app before it
-> sends anything. Pair once in VS Code/Cursor (**Ascenda: Connect App**), and
-> the CLI tools reuse that installation — see
-> [Pairing](#pairing) for what to carry across.
-
-## What this measures, and what that does not yet prove
-
-**What it captures — real, running, and all this repo does.** Named, observable
-events: context switches, AI prompt and correction loops, verification runs,
-tool-call density, context compaction, agent loop depth, after-hours activity.
-Counts and classifications, compared against your own trailing history.
-
-**The hypothesis under test.** That friction of this kind rises measurably
-before a person consciously registers being overloaded, and that a personal
-baseline surfaces the rise earlier than self-report alone. That is the reason
-the collection layer exists — it is not a result the collection layer
-demonstrates.
-
-**What is not established.** There is no peer-reviewed link between AI-tool
-operational metrics and any validated cognitive-load instrument, and our own
-calibration study has not been run. The demand signal is captured but is not
-yet an input to any state classifier. So: nothing here detects burnout,
-diagnoses a state, or predicts one. It counts things that happened and shows
-them against your own history.
-
-Stating that plainly is deliberate. Implying the inference already works is the
-specific failure this design exists to avoid, and it would be a strange thing
-to fake in a repository whose whole argument is that you can read the source.
-
-Wire contract: [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENCE.md).
-
-## Packages
-
-| Package | Published as | What it does |
-| --- | --- | --- |
-| [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/) | `ascenda-one.ascenda` (VS Code Marketplace + Open VSX) | IDE telemetry for VS Code and Cursor — one extension, runtime host detection; editor activity, terminal classification, sessions |
-| [ascenda-agent-skills](./ascenda-agent-skills/) | `ascenda@ascenda-one` (Claude Code plugin) | The Claude Code plugin — bundles the work-signals skill, hooks, and MCP server into one install. Also holds the Cursor rule and the emission criteria both share |
-| [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | `@ascenda-one/claude-code-hooks` (npm) | Claude Code agent hooks — prompts, tool calls, compaction, agent loops |
-| [ascenda-codex-hooks](./ascenda-codex-hooks/) | `@ascenda-one/codex-hooks` (npm) | OpenAI Codex lifecycle hooks — same agent signals as Claude hooks, via Codex's hooks.json |
-| [ascenda-cursor-hooks](./ascenda-cursor-hooks/) | `@ascenda-one/cursor-hooks` (npm) | Cursor agent hooks — same signals via Cursor's hooks.json, with `setup`/`status`/`uninstall` |
-| [ascenda-windsurf-hooks](./ascenda-windsurf-hooks/) | `@ascenda-one/windsurf-hooks` (npm) | Windsurf Cascade hooks — partial upstream coverage, documented rather than faked |
-| [ascenda-gemini-hooks](./ascenda-gemini-hooks/) | `@ascenda-one/gemini-hooks` (npm) | Gemini CLI hooks — per-inference hooks deliberately left unregistered |
-| [ascenda-agent-mcp](./ascenda-agent-mcp/) | `@ascenda-one/agent-mcp` (npm) | MCP server exposing `ascenda_emit_work_signal` — the one interface for agent-observed *semantic* patterns the deterministic hooks cannot see |
-| [ascenda-github-collector](./ascenda-github-collector/) | `@ascenda-one/github-collector` (npm) | Collaboration signals from a code forge — your own review load and PR activity, never anyone else's |
-| [ascenda-pairing-sim](./ascenda-pairing-sim/) | not published | Console app that simulates the mobile app for pairing tests (confirm / list / revoke / e2e) |
-| [ascenda-dev-server](./ascenda-dev-server/) | not published | Local mock of the `/v1` pairing + ingest contract — run any tool with no backend, phone, or DevAuth. Dev-only; binds to `127.0.0.1` |
-
-### Shared packages
-
-The repo is an npm workspace. The installable tools above are thin shells over shared packages:
-
-| Package | Role |
-| --- | --- |
-| [packages/tool-contract](./packages/tool-contract/) | Canonical DTOs, event catalog, and constants — mirrors [TOOL_PAIRING_API_REFERENCE.md](./api-docs/TOOL_PAIRING_API_REFERENCE.md); declared once, consumed everywhere |
-| [packages/tool-kit](./packages/tool-kit/) | vscode-free shared runtime: command classifier, buckets, after-hours calculation, token file store, `/v1` HTTP client |
-| [packages/ide-extension-core](./packages/ide-extension-core/) | The single extension implementation; host identity (VS Code vs Cursor) is detected at runtime |
+On macOS those commands aren't on PATH until you run **Shell Command: Install
+'code' command in PATH** from the Command Palette.
 
 ## Pairing
 
-Pairing is what links a tool installation to your Ascenda account. It happens
-**once per machine**, and every tool on that machine reuses it.
+Pairing links one tool installation to your Ascenda account. Each tool pairs
+on its own, and each pairing can be revoked on its own in the Flow app.
 
-1. In VS Code or Cursor, run **Ascenda: Connect App** (⇧⌘P / Ctrl+Shift+P).
-   The editor shows a QR code and a six-digit code, good for a few minutes:
+**The editor extension** pairs with **Ascenda: Connect App**, which shows a QR
+code and a six-digit code, good for a few minutes:
 
-   ![The Ascenda pairing panel in VS Code, showing a QR code and a six-digit pairing code](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-pairing-code.png)
+![The Ascenda pairing panel in VS Code, showing a QR code and a six-digit pairing code](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-pairing-code.png)
 
-2. Confirm in the Ascenda app under **Connections → Ingest telemetry** — scan
-   the QR, or paste the code into the pairing field. On Dev backends without a
-   phone, [ascenda-pairing-sim](./ascenda-pairing-sim/) stands in for the app.
+Confirm it in the Flow app under **Connections → Ingest telemetry**: scan the
+QR, or paste the code. The code carries no personal data.
 
-   ![The Connections pane in the Ascenda macOS app](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/macos-connections-pane.png)
+**The CLI agents** pair during `setup`, which prints the same kind of code. To
+pair an install made with `--no-pair`, run `setup` again (or, for Claude Code,
+`~/.ascenda/bin/ascenda-claude-hook pair`). It attaches to the installation
+already on file, so the hooks you have keep their identity.
 
-3. Run **Ascenda: Show Status** and note the `toolInstallationId`.
+The editor's pairing can't be shared with the CLI agents: its token lives in
+the editor's own secret storage, by design. Each CLI agent keeps its pairing
+under its own key in `~/.ascenda/credentials.json`, so several agents on one
+machine never borrow each other's identity. `ASCENDA_TOOL_INSTALLATION_ID`
+overrides that for every agent at once; set it only if you mean that.
 
-The pairing code carries no personal data — it links this editor installation
-to your account so signals can be routed to your device, and nothing more. The
-panel states the same thing where you can see it at the time.
+A `setup` whose pairing can't finish (the server unreachable, the code not
+confirmed in time) still installs the hooks, and says plainly that it isn't
+paired.
 
-Each CLI agent sets itself up with one command — it pairs (printing a 6-digit
-code to confirm in the app), installs the hook bundle, and registers the hooks:
+## Upgrading
+
+An install keeps the hooks it registered until `setup` runs again, so a
+release that adds a hook reaches you on the next `setup`. The Flow app says so
+in **Connections → Ingest telemetry** and names the command.
 
 ```bash
 npx -y @ascenda-one/claude-code-hooks setup     # or codex-, cursor-, gemini-, windsurf-hooks
 ```
 
-To install the hooks **without an account**, add `--no-pair`:
+`setup` is safe to re-run. It keeps your pairing, replaces its own entries,
+and prints what it added. Restart the agent afterwards. A plugin install
+upgrades with `claude plugin update ascenda@ascenda-one` instead.
 
-```bash
-npx -y @ascenda-one/codex-hooks setup --no-pair
-```
+## Packages
 
-The hooks are registered exactly as above, and they emit only the local live
-signal — the small message a listener on this machine reads to show that an
-agent is working right now. Nothing is sent to Ascenda, because there is no
-pairing to send it under; that was already true of an unpaired hook, and this
-is the supported way to ask for it.
+| Package | Published as | What it does |
+| --- | --- | --- |
+| [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/) | `@ascenda-one/claude-code-hooks` (npm) | Claude Code hooks: prompts, tool calls, compaction, waits, subagents |
+| [ascenda-codex-hooks](./ascenda-codex-hooks/) | `@ascenda-one/codex-hooks` (npm) | Codex CLI hooks, through Codex's `hooks.json` |
+| [ascenda-cursor-hooks](./ascenda-cursor-hooks/) | `@ascenda-one/cursor-hooks` (npm) | Cursor agent hooks |
+| [ascenda-windsurf-hooks](./ascenda-windsurf-hooks/) | `@ascenda-one/windsurf-hooks` (npm) | Windsurf Cascade hooks; the gaps in Windsurf's hook set are documented, not filled in |
+| [ascenda-gemini-hooks](./ascenda-gemini-hooks/) | `@ascenda-one/gemini-hooks` (npm) | Gemini CLI hooks; the per-inference hooks are deliberately left unregistered |
+| [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/) | `ascenda-one.ascenda` (VS Code Marketplace and Open VSX) | The editor extension for VS Code and Cursor: editor activity, terminal classification, sessions |
+| [ascenda-agent-skills](./ascenda-agent-skills/) | `ascenda@ascenda-one` (Claude Code plugin) | The plugin: the work-signals skill, the hooks and the MCP server in one install, plus the Cursor rule |
+| [ascenda-agent-mcp](./ascenda-agent-mcp/) | `@ascenda-one/agent-mcp` (npm) | MCP server exposing `ascenda_emit_work_signal`, for patterns only the agent can see |
+| [ascenda-history-import](./ascenda-history-import/) | `@ascenda-one/history-import` (npm) | Reads the AI-tool history already on your machine (Claude Code, Codex, Cursor, VS Code, git) into a baseline |
+| [ascenda-github-collector](./ascenda-github-collector/) | `@ascenda-one/github-collector` (npm) | Your own review load and pull request activity from a code forge, never anyone else's |
+| [ascenda-pairing-sim](./ascenda-pairing-sim/) | not published | Stands in for the app in pairing tests: confirm, list, revoke, end to end |
+| [ascenda-dev-server](./ascenda-dev-server/) | not published | A local mock of the `/v1` pairing and ingest API, so any tool runs with no backend. Binds to `127.0.0.1` |
 
-A `setup` whose pairing cannot finish — the host unreachable, the code
-unconfirmed, the session expired — lands in the same place rather than
-failing outright, and says which half is running. Either way the installation
-id is recorded, so running `setup` again later pairs the hooks you already
-have instead of leaving them under an id nothing uses. `status` reports the
-state as `installed, not paired — local features active, telemetry inactive`.
+### Shared packages
 
-Every adapter takes the flag, Claude Code included. On that one,
-`claude-code-hooks pair` finishes the job as well as re-running `setup`, and it
-attaches to the installation id already on file.
-Nothing to add to a shell profile: each agent's pairing lands under its own key
-in `~/.ascenda/credentials.json`, which is what lets several agents run on one
-machine without one inheriting another's identity. (`ASCENDA_TOOL_INSTALLATION_ID`
-still wins where it is set, so export it only if you mean it to cover every
-agent on the machine.) The editor extension's own pairing cannot be reused here
-— its token lives in the editor's private secret storage, by design — so the
-CLI tools hold their own installation, paired against the same account.
+The repo is an npm workspace. The tools above are thin shells over these:
 
-### Upgrading the hooks
-
-An install keeps the hooks it registered until `setup` runs again. So when a
-release adds a hook, existing installs don't have it yet: until you upgrade,
-Claude Code installs from before v0.1.32 send no signal when an API error ends
-a turn, and Gemini CLI installs send none for a tool confirmation. The Flow
-app says so in **Connections → Ingest telemetry** and names the command.
-
-```bash
-npx -y @ascenda-one/claude-code-hooks setup --scope user
-```
-
-Use the scope you installed with, and swap in `gemini-hooks` for Gemini CLI.
-Setup is safe to re-run. It keeps your pairing, replaces its own entries and
-prints what it added. Restart the agent afterwards. Plugin installs upgrade
-with `claude plugin update ascenda@ascenda-one` instead.
+| Package | Role |
+| --- | --- |
+| [packages/tool-contract](./packages/tool-contract/) | The event catalog, DTOs and constants, declared once. Mirrors the [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENCE.md) |
+| [packages/tool-kit](./packages/tool-kit/) | The shared runtime: `setup`, `status` and `doctor` for the CLI agents, the hook launcher, the live signal, the command classifier, the token store and the `/v1` client |
+| [packages/ide-extension-core](./packages/ide-extension-core/) | The single extension implementation; whether it runs in VS Code or Cursor is detected at runtime |
 
 ## Build from source
 
-You do not need this to use the tools — everything above installs prebuilt. It
-is here because "verify what you're running" is a reasonable thing to want from
-a telemetry tool, and this repo is Apache-2.0 precisely so you can.
+You don't need this to use the tools. It's here because "verify what you're
+running" is a reasonable thing to want from a telemetry tool, and the repo is
+Apache-2.0 so you can.
 
 ```bash
 npm install
-npm run build     # shared packages first, then tools
-npm run verify    # DRY guard rail (scripts/check-dry.sh) + full build + tests
+npm run build     # shared packages first, then the tools
+npm run verify    # the DRY guard rail (scripts/check-dry.sh), a full build, and every test
 ```
 
 The extension is bundled with esbuild at package time (`npm run package`), so
-the shared packages are inlined; per-folder F5 debugging works after a root
-build. Per-package development notes live in each package's own README.
+the shared packages are inlined. Each package's README has its own
+development notes.
 
-## Install from a release (air-gapped / no registry)
+## Install from a release (no registry)
 
-The registry paths above are the normal ones. This section is the fallback for
-machines that cannot reach the Marketplace or npm, and for anyone who wants to
-verify a checksum before running anything.
-
-Every tagged release attaches each shipped artifact plus a `manifest.json`. The
-manifest is the only supported way to discover artifacts — resolve downloads
-through it rather than from `main`. Requires **Node 20+**.
-
-The newest release is always at a stable `latest` URL:
+For machines that can't reach the Marketplace or npm, or for anyone who wants
+to check a checksum first. Every tagged release attaches each artifact and a
+`manifest.json`; resolve downloads through the manifest rather than from
+`main`. Requires **Node 20+**.
 
 ```bash
 BASE=https://github.com/ascendaone-com/ai-engineer-tools/releases/latest/download
@@ -233,42 +223,26 @@ curl -fsSLO "$BASE/manifest.json"
 cat manifest.json    # { version, minNode, artifacts: [{ name, url, sha256 }] }
 ```
 
-**1. Extension (VS Code / Cursor).** One VSIX for both hosts. Download the
-version named in the manifest and install it headlessly — this works with no
-marketplace dependency:
+**The editor extension.** One VSIX for both editors:
 
 ```bash
 curl -fsSLO "$BASE/ascenda-<version>.vsix"
 code   --install-extension ./ascenda-<version>.vsix   # VS Code
-cursor --install-extension ./ascenda-<version>.vsix   # Cursor — same file
+cursor --install-extension ./ascenda-<version>.vsix   # Cursor
 ```
 
-The extension is on both the VS Code Marketplace and Open VSX, so installing
-from there is preferred — you get auto-updates. The VSIX is the universal
-fallback, not the recommended path.
+Prefer the Marketplace or Open VSX when you can reach them; you get updates.
 
-**2. Hook CLIs (Claude Code / Codex / Cursor / Windsurf / Gemini CLI).** Published to npm, so the shortest path is:
+**The hooks.** Each is a self-contained ESM file with no dependencies.
+Download it anywhere and run its `setup`, which installs the launcher and the
+bundle in `~/.ascenda/bin`. No sudo, no `npm -g`, nothing to add to PATH:
 
 ```bash
-npx @ascenda-one/codex-hooks --help
-npx @ascenda-one/claude-code-hooks --help
+curl -fsSLO "$BASE/ascenda-codex-hooks.mjs"
+node ascenda-codex-hooks.mjs setup --no-pair
 ```
 
-They are also attached to every release as self-contained single-file ESM
-bundles — no `npm install`, no dependencies — for machines where you would
-rather not go through npm at all:
-
-```bash
-mkdir -p ~/.ascenda/bin
-curl -fsSL "$BASE/ascenda-codex-hooks.mjs" -o ~/.ascenda/bin/ascenda-codex-hook
-chmod +x ~/.ascenda/bin/ascenda-codex-hook
-export PATH="$HOME/.ascenda/bin:$PATH"    # add to your shell rc
-```
-
-`~/.ascenda/bin` is the install target rather than `npm i -g`: no sudo, and no
-npm-global permission failures on locked-down machines.
-
-**3. Verify before you run.** Check the checksum against the manifest, and
+**Verify before you run.** Check the checksum against the manifest, and
 optionally the build provenance:
 
 ```bash
@@ -281,50 +255,62 @@ gated on `npm run verify`, and signed with keyless Sigstore build provenance.
 
 ## Developing on this repo
 
-**Run everything with no backend, phone, or DevAuth:** see
-[TESTING.md](./TESTING.md) — `./scripts/dev-quickstart.sh` gets events flowing
-against a local mock server ([ascenda-dev-server](./ascenda-dev-server/)) in
-about two minutes. This is the fastest way to see the whole pipe work end to
-end without touching a real backend.
+[TESTING.md](./TESTING.md) runs everything with no backend, phone or
+sign-in: `./scripts/dev-quickstart.sh` gets events flowing against
+[ascenda-dev-server](./ascenda-dev-server/) in about two minutes.
 
-Per-package development notes:
-
-| Tool | Guide |
-| --- | --- |
-| VS Code / Cursor | [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/README.md) |
-| Claude Code | [ascenda-claude-code-hooks](./ascenda-claude-code-hooks/README.md) · [ascenda-agent-skills](./ascenda-agent-skills/README.md) |
-| Codex | [ascenda-codex-hooks](./ascenda-codex-hooks/README.md) |
-| Cursor agent | [ascenda-cursor-hooks](./ascenda-cursor-hooks/README.md) |
-| Windsurf | [ascenda-windsurf-hooks](./ascenda-windsurf-hooks/README.md) |
-| Gemini CLI | [ascenda-gemini-hooks](./ascenda-gemini-hooks/README.md) |
-| Semantic signals (MCP) | [ascenda-agent-mcp](./ascenda-agent-mcp/README.md) |
-| Pairing sim (app stand-in) | [ascenda-pairing-sim](./ascenda-pairing-sim/README.md) |
-
-To pair against a Dev backend without a phone:
+To pair against a dev backend without a phone:
 
 ```bash
 ascenda-pairing-sim e2e --tool-type cursor_mcp
 ```
 
-Point any tool at a non-default backend with `ASCENDA_API_BASE_URL` (CLIs) or
-the `ascenda.apiBaseUrl` setting (extension) — `http://localhost:5002` for a
-local backend, or the Azure Dev host. Never commit tokens.
+Point a CLI at another backend with `ASCENDA_API_BASE_URL`, or the extension
+with the `ascenda.apiBaseUrl` setting. Never commit tokens.
 
-Verified on Azure Dev: ingest, tool-scoped renew, `list`, and `revoke`
-(post-revoke ingest returns `401`).
+The terminal screenshots above are rendered from the real CLI by
+`node scripts/render-cli-shots.mjs`; re-run it when the output changes. See
+[docs/images](./docs/images/README.md).
 
-## Privacy & compliance
+## Privacy and compliance
 
-Workspace identifiers are hashed with a random salt generated on first run and stored only at `~/.ascenda/salt`. It is never sent, so the hashes cannot be reversed to folder or repository names by anyone holding the telemetry. Deleting the file resets the hashes.
+Workspace identifiers are hashed with a random salt generated on first run and
+stored only at `~/.ascenda/salt`. It is never sent, so the hashes can't be
+turned back into folder or repository names by anyone holding the telemetry.
+Deleting the file resets the hashes.
 
-Metadata-only by default. **Not a medical device** — it measures workload
+Metadata only, by default. **Not a medical device:** it measures workload
 patterns for self-awareness, not diagnosis or treatment, and makes no clinical
 claim. Consent is scoped and separately revocable: `ide_telemetry` for editor
 and agent signals, `workflow_telemetry` for collaboration signals, and
-`semantic_work_signals` for the agent-observed patterns — granting one does not
-grant the others.
+`semantic_work_signals` for the patterns an agent reports. Granting one does
+not grant the others.
 
-What the metadata-only guarantee covers in practice, per surface, is listed in
-each package's own README under **Privacy defaults**. Where a guarantee is
-enforced by schema rather than convention — the semantic signal tool rejects
-free text outright — that is stated there too.
+What the metadata-only guarantee covers on each surface is listed in each
+package's README under **Privacy defaults**, including where it is enforced
+by schema rather than convention: the semantic signal tool rejects free text
+outright.
+
+## What this measures, and what that does not yet prove
+
+**What it captures.** Named, observable events: context switches, prompt and
+correction loops, verification runs, tool-call density, context compaction,
+agent loop depth, after-hours activity. Counts and classifications, compared
+against your own history.
+
+**The hypothesis under test.** That friction of this kind rises measurably
+before a person notices being overloaded, and that a personal baseline shows
+the rise earlier than self-report alone. That is why the collectors exist. It
+is not a result they demonstrate.
+
+**What is not established.** There is no peer-reviewed link between AI-tool
+operational metrics and any validated cognitive-load instrument, and our own
+calibration study has not been run. So nothing here detects burnout,
+diagnoses a state, or predicts one. It counts things that happened and shows
+them against your own history.
+
+We say that plainly on purpose. Implying the inference already works is the
+failure this design exists to avoid, and a strange thing to fake in a
+repository whose whole argument is that you can read the source.
+
+Wire contract: [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENCE.md).

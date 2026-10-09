@@ -2,10 +2,12 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
-import type { DisclosureFamily } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import type { DisclosureFamily, Tone } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
-import { credentialsFilePath, hookBinPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
+import { describeAge, readLastHook, resolveHookNode } from "./hookHealth.js";
+import { LAUNCHER_OPTIONS } from "./launcher.js";
+import { credentialsFilePath, hookBinPath, selfCommand, hookBundlePath, hookNoNodePath, hookNodeRecordPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
 import type { MachineCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
 
@@ -122,7 +124,7 @@ Options
   --token <eventWriteToken>     reuse an existing token (stored 0600, never printed)
   --no-pair                     install without pairing: local features on, nothing sent
                                 (--no-pairing is accepted too)
-  --scope project|user          where hooks are registered (default project)
+  --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
   -h, --help
@@ -146,27 +148,34 @@ export async function runSetup(argv: string[]): Promise<number> {
 
   const apiBaseUrl = (options.apiBaseUrl ?? readCredentials()?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
 
-  console.log(`Ascenda setup — ${apiBaseUrl}`);
+  const ui = terminalStyle();
+  const row = (tone: Tone, label: string, value: string) => console.log(`  ${ui.mark(tone)} ${label.padEnd(12)} ${value}`);
+  const detail = (label: string, value: string) => console.log(ui.dim(`    ${label.padEnd(12)} ${value}`));
+
+  console.log(`${ui.bold("Ascenda setup")} ${ui.dim(`· Claude Code · ${apiBaseUrl}`)}`);
 
   // Before pairing, not after: pairing is where the consent is given, and a
   // statement printed underneath a completed pairing is a notification rather
   // than a disclosure.
   //
-  // On a run that will not pair, the same sentences are true of nothing yet, so
-  // they are introduced as what pairing would start rather than as a statement
-  // about this install. Suppressing them instead would be worse: someone
-  // choosing to stay local is entitled to know what pairing costs.
-  if (!options.pair) console.log("\n  Nothing is sent from an install with no pairing. What pairing would start sending:");
-  console.log(`\n${renderSetupDisclosure({ sends: SENDS, displayName: "Claude Code" })}\n`);
+  // A run that will not pair still prints it, because someone choosing to
+  // stay local is entitled to know what pairing would cost. But it goes at
+  // the end, under "pairing is optional": printed first, its "what this
+  // sends" read as what had just been installed, and the install that
+  // followed read as a degraded one.
+  if (options.pair) console.log(`\n${renderSetupDisclosure({ sends: SENDS, displayName: "Claude Code" })}\n`);
+  else console.log("");
 
   const identity = await resolveIdentity(apiBaseUrl, options);
   const unpaired = identity.pairing === "local-only";
-
-  console.log(`  pairing      ${unpaired ? `none — ${identity.reason}` : `${identity.toolInstallationId}${identity.pairing === "new" ? " (new)" : " (existing)"}`}`);
-  if (unpaired) console.log(`  installation ${identity.toolInstallationId} (recorded, so a later pair attaches to it)`);
+  // Asked for, as against tried and failed. The first is a finished install;
+  // the second is a pairing that did not happen and has to say so.
+  const chosenLocal = unpaired && !options.pair;
 
   const binary = installBinary(options.dryRun);
-  console.log(`  hook binary  ${binary}`);
+  const node = options.dryRun || process.platform === "win32" ? undefined : resolveHookNode();
+  if (node?.problem) row("bad", "hook binary", `${tidyHome(binary)}, but ${node.problem}. Install Node 20 or newer, then run setup again`);
+  else row("ok", "hook binary", `${tidyHome(binary)}${node?.version ? ui.dim(` (Node ${node.version})`) : ""}`);
 
   if (!options.dryRun) {
     const now = new Date().toISOString();
@@ -179,52 +188,103 @@ export async function runSetup(argv: string[]): Promise<number> {
       ...(unpaired ? { localOnly: true, installedAt: now } : { pairedAt: now })
     });
   }
-  console.log(`  credentials  ${credentialsFilePath()}`);
 
+  if (isHomeProject(options)) {
+    detail("scope", "user (a project install in the home folder only loads when Claude Code starts there)");
+    options.scope = "user";
+  }
   const settingsFile = settingsPath(options);
   const before = ourHookSets(readSettingsFile(settingsFile));
   const written = writeSettings(settingsFile, binary, options.dryRun);
   if (written === null) return 1;
-  console.log(`  hooks        ${settingsFile} (${HOOK_EVENTS.length} events${written ? "" : ", already current"})`);
+  const reach = options.scope === "user" ? "every project" : "this project only";
+  row("ok", "hooks", `${tidyHome(settingsFile)} ${ui.dim(`(${HOOK_EVENTS.length} events, ${reach}${written ? "" : ", already current"})`)}`);
   const changes = describeHookSetChanges(hookSetChanges(before, HOOK_EVENTS), HOOK_SET);
-  if (changes) console.log(`               ${changes}`);
+  if (changes) detail("", changes);
   // Both scopes fire. An install in the other one means every event runs
-  // twice and every count doubles, and setup only ever touches one file.
-  const otherFile = settingsPath({ ...options, scope: options.scope === "user" ? "project" : "user" });
-  if (otherFile !== settingsFile && ourHookSets(readSettingsFile(otherFile)).size > 0) {
-    // Not `uninstall --scope`: that also removes the binary and the pairing
-    // this install shares.
-    console.log(`  note         ${otherFile} registers these hooks too, so each event runs twice.`);
-    console.log("               Remove the ascenda-claude-hook entries from one of the two files.");
+  // twice and every count doubles, and an older install there may name a
+  // binary this run just replaced. Our entries are told apart from anyone
+  // else's by the marker, so they are moved rather than reported: this run's
+  // file keeps them, the other loses them, and its other hooks are untouched.
+  const otherFiles = new Set([
+    settingsPath({ ...options, scope: options.scope === "user" ? "project" : "user" }),
+    // The home folder's project file, where a project-scope setup run from
+    // `~` used to put them.
+    path.join(os.homedir(), ".claude", "settings.local.json")
+  ]);
+  otherFiles.delete(settingsFile);
+  for (const otherFile of otherFiles) {
+    if (ourHookSets(readSettingsFile(otherFile)).size === 0) continue;
+    if (options.dryRun) {
+      row("info", "moved", `would remove the copy in ${tidyHome(otherFile)}, so each event runs once`);
+    } else if (removeOurHooks(otherFile)) {
+      row("ok", "moved", `removed the copy in ${tidyHome(otherFile)}, so each event runs once ${ui.dim("(backup beside it)")}`);
+    } else {
+      row("warn", "note", `${tidyHome(otherFile)} registers these hooks too, so each event runs twice.`);
+      detail("", "Remove the ascenda-claude-hook entries from one of the two files.");
+    }
   }
 
+  if (chosenLocal) {
+    row("info", "pairing", `none, as asked ${ui.dim("(--no-pair)")}`);
+  } else if (unpaired) {
+    row("warn", "pairing", `not paired: ${identity.reason}`);
+    if (identity.hint) detail("", identity.hint);
+  } else {
+    row("ok", "pairing", `${identity.toolInstallationId}${ui.dim(identity.pairing === "new" ? " (new)" : " (existing)")}`);
+  }
+  if (unpaired) detail("installation", `${identity.toolInstallationId} (kept, so pairing later attaches to it)`);
+  detail("credentials", tidyHome(credentialsFilePath()));
+
   if (options.dryRun) {
-    console.log("\nDry run — nothing was written.");
+    console.log("\nDry run. Nothing was written.");
     return 0;
   }
 
-  // Which half is live, spelled out. A degrade that reads like a success is
-  // worse than a failed install: someone who believes they paired stops
-  // looking for the reason their work is not arriving.
-  if (unpaired) {
-    console.log("\nInstalled, not paired.");
-    console.log("  active       the session prompts, and the live signal to a socket on this machine");
-    console.log(`  inactive     delivery to ${apiBaseUrl}. Nothing is sent, and nothing is queued for later.`);
-    if (identity.hint) console.log(`  note         ${identity.hint}`);
-    console.log("  pair later   npx @ascenda-one/claude-code-hooks pair");
-    console.log("\nRestart Claude Code in this project to load the hooks.");
+  // Which half is live, spelled out, and in the right key. A failed pairing
+  // that reads like a success is how someone comes to believe they paired;
+  // a chosen local install that reads like a failure is how someone new
+  // decides the install broke. The screen saver needs no pairing at all.
+  const self = selfCommand();
+  const next = (label: string, value: string) => console.log(`  ${ui.bold(label.padEnd(6))} ${value}`);
+  console.log("");
+  if (chosenLocal) {
+    console.log(`${ui.mark("ok")} ${ui.bold("Ready.")} The screen saver and the Ascenda app's live view work now.`);
+    console.log("  They run on this machine and need no account or pairing.");
+  } else if (unpaired) {
+    console.log(`${ui.mark("warn")} ${ui.bold("Installed, not paired.")} The screen saver and the live view work now.`);
+    console.log(`  Your sessions won't reach Ascenda's servers until pairing completes.`);
   } else {
-    console.log("\nDone. Restart Claude Code in this project to load the hooks.");
+    console.log(`${ui.mark("ok")} ${ui.bold("Done.")} Paired, and the hooks are installed.`);
   }
-  console.log(`Check anytime:  npx @ascenda-one/claude-code-hooks status`);
+  console.log("");
+  next("Next", `${restartLine(options)} Then type ${ui.cyan("/hooks")}: Ascenda's are under ${options.scope === "user" ? "User" : "Local"}.`);
+  next("Check", ui.cyan(`${self} doctor`));
+  if (unpaired) next(chosenLocal ? "Pair" : "Retry", `${ui.cyan(`${self} pair`)}${chosenLocal ? ui.dim("  (optional)") : ""}`);
+
+  if (chosenLocal) {
+    console.log("");
+    console.log(ui.dim("  Pairing sends the details below to Ascenda's servers, under the account the"));
+    console.log(ui.dim("  Ascenda app is signed in to when you confirm the code, so your sessions appear"));
+    console.log(ui.dim("  in the app. Until you pair, nothing leaves this machine."));
+    console.log("");
+    console.log(ui.dim(renderSetupDisclosure({ sends: SENDS, displayName: "Claude Code" }).split("\n").map((line) => `  ${line}`).join("\n")));
+  }
   return 0;
 }
+
 
 // ------------------------------------------------------------------ args ---
 
 function parseArgs(argv: string[]): Options {
+  // User scope by default. The hooks drive surfaces that belong to the whole
+  // machine (the screen saver, the desktop app's gauges), so registering them
+  // in one project's file left every other project dark. And the common case
+  // made it worse: setup run from the home folder wrote
+  // ~/.claude/settings.local.json, which Claude Code reads only when it is
+  // started in the home folder itself.
   const options: Options = {
-    scope: "project",
+    scope: "user",
     projectDir: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
     dryRun: false,
     pair: true,
@@ -294,6 +354,16 @@ function parseArgs(argv: string[]): Options {
     }
   }
   return options;
+}
+
+/**
+ * The home folder's `.claude/settings.local.json` is a project file for the
+ * project at `~`, not a user file: it loads only when Claude Code is started
+ * in the home folder. A project-scope install there looks right in `/hooks`
+ * from `~` and is missing everywhere else, so it is treated as user scope.
+ */
+function isHomeProject(options: Options): boolean {
+  return options.scope === "project" && path.resolve(options.projectDir) === path.resolve(os.homedir());
 }
 
 // -------------------------------------------------------------- identity ---
@@ -413,25 +483,33 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
   return { reason: "no confirmation within 5 minutes" };
 }
 
+function tidyHome(file: string): string {
+  const home = os.homedir();
+  return file.startsWith(`${home}/`) ? `~${file.slice(home.length)}` : file;
+}
+
+function restartLine(options: Options): string {
+  return options.scope === "user"
+    ? "Restart Claude Code to load the hooks."
+    : "Restart Claude Code in this project to load the hooks.";
+}
+
 // ---------------------------------------------------------------- binary ---
 
 /**
- * Copy the running bundle to ~/.ascenda/bin. `npx` caches its download in a
- * temp directory that is not stable across runs, so hooks must not point at it.
+ * Copy the running bundle to ~/.ascenda/bin, with the launcher that runs it.
+ * `npx` caches its download in a temp directory that is not stable across
+ * runs, so hooks must not point at it.
+ *
+ * The launcher is what the hook commands name; see launcher.ts for why a
+ * shell script stands between Claude Code and Node. It is seeded with the
+ * Node running this setup, and finds another on its own if that one goes.
+ *
+ * Windows has no `/bin/sh`, so it keeps the earlier shape: the bundle at the
+ * command's path, run by the Node that ran setup.
  */
 function installBinary(dryRun: boolean): string {
-  const target = hookBinPath();
-  if (dryRun) return target;
-
-  const source = process.argv[1];
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  // Same file when re-running an already-installed binary; copying it onto
-  // itself would truncate it.
-  if (path.resolve(source) !== path.resolve(target)) {
-    fs.copyFileSync(source, target);
-  }
-  if (process.platform !== "win32") fs.chmodSync(target, 0o755);
-  return target;
+  return installHookRunner({ ...LAUNCHER_OPTIONS, dryRun });
 }
 
 // -------------------------------------------------------------- settings ---
@@ -494,12 +572,37 @@ export function writeSettings(settingsFile: string, binary: string, dryRun: bool
 }
 
 /**
- * Pin the interpreter to the Node running setup. Claude Code hooks inherit the
- * environment the editor was launched with, which on a GUI launch may not have
- * a version-manager Node on PATH.
+ * The launcher alone: it finds Node itself (launcher.ts). Naming Node here
+ * pinned the exact version that ran setup, and a version manager removes
+ * that path long before anyone thinks to re-run setup.
+ *
+ * Windows keeps the pinned interpreter, having no launcher.
  */
 function hookCommand(binary: string): string {
-  return `"${process.execPath}" "${binary}"`;
+  return hookRunnerCommand(binary);
+}
+
+/**
+ * Takes our entries out of one settings file, keeping everything else.
+ * Returns false when the file could not be read or written.
+ */
+function removeOurHooks(settingsFile: string): boolean {
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as Settings;
+    const hooks = { ...(settings.hooks ?? {}) };
+    for (const event of Object.keys(hooks)) {
+      const kept = hooks[event].filter((group) => !isOurs(group));
+      if (kept.length) hooks[event] = kept;
+      else delete hooks[event];
+    }
+    const updated: Settings = { ...settings, hooks };
+    if (!Object.keys(hooks).length) delete updated.hooks;
+    fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
+    fs.writeFileSync(settingsFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isOurs(group: HookGroup): boolean {
@@ -561,6 +664,30 @@ function countRegistered(settingsFile: string, binary: string): { settings: Sett
   return { settings, registered: HOOK_EVENTS.filter((event) => (settings.hooks?.[event] ?? []).some(isOurs)).length };
 }
 
+/**
+ * Where our hooks are registered, for `doctor`: the user file, the project
+ * file for `projectDir`, and the home folder's project file, each with a
+ * count. Only files that carry at least one of ours are listed.
+ */
+export function registrationSummary(projectDir: string): { file: string; scope: "user" | "project"; registered: number; homeProject: boolean }[] {
+  const binary = hookBinPath();
+  const files = new Map<string, "user" | "project">([
+    [settingsPath({ scope: "user", projectDir } as Options), "user"],
+    [settingsPath({ scope: "project", projectDir } as Options), "project"],
+    [path.join(os.homedir(), ".claude", "settings.local.json"), "project"]
+  ]);
+  const found: { file: string; scope: "user" | "project"; registered: number; homeProject: boolean }[] = [];
+  for (const [file, scope] of files) {
+    const { registered } = countRegistered(file, binary);
+    if (registered === 0) continue;
+    found.push({ file, scope, registered, homeProject: path.resolve(file) === path.resolve(os.homedir(), ".claude", "settings.local.json") });
+  }
+  return found;
+}
+
+/** How many events setup registers, for the summary above. */
+export const REGISTERED_EVENT_COUNT = HOOK_EVENTS.length;
+
 async function printStatus(options: Options): Promise<number> {
   const credentials = readCredentials();
   const settingsFile = settingsPath(options);
@@ -571,11 +698,11 @@ async function printStatus(options: Options): Promise<number> {
   const here = countRegistered(settingsFile, binary);
   const settings = here.settings;
   const registered = here.registered;
-  // `status` checks one scope — the same default `setup` writes to, which is
-  // `project`. A machine set up with `--scope user` therefore reported a flat
-  // `0/7 registered` from a project directory, which reads as "the install
-  // failed" rather than "you are looking in the other place". Look in the
-  // other scope before saying nothing is there, and name where it actually is.
+  // `status` checks one scope — the same default `setup` writes to. A
+  // machine set up in the other one used to report a flat `0/7 registered`,
+  // which reads as "the install failed" rather than "you are looking in the
+  // other place". Look in the other scope before saying nothing is there,
+  // and name where it actually is.
   const otherScope: Options = { ...options, scope: options.scope === "user" ? "project" : "user" };
   const otherFile = settingsPath(otherScope);
   const elsewhere = registered === 0 && otherFile !== settingsFile
@@ -597,6 +724,20 @@ async function printStatus(options: Options): Promise<number> {
     : "— no token for this pairing, so nothing can be sent"}`);
   console.log("local features active — the session prompts and the live socket signal need no pairing");
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
+  // Registered is not the same as runnable. Claude Code swallows a hook that
+  // cannot start, so "13/13 registered" used to sit beside a machine where
+  // no hook had ever run. Asked with a bare PATH, the way a Dock-launched
+  // Claude Code would ask.
+  const node = process.platform === "win32" ? undefined : resolveHookNode();
+  if (node) {
+    console.log(node.problem
+      ? `node           — ${node.problem}. Install Node 20 or newer, then run setup again`
+      : `node           ${node.node} (${node.version}, ${node.how === "recorded" ? "recorded at setup" : "found by the launcher"})`);
+  }
+  const last = readLastHook();
+  console.log(last
+    ? `last hook      ${last.event}, ${describeAge(Date.now() - Date.parse(last.at))}`
+    : "last hook      — none has run yet. Start Claude Code (restart it if it was open during setup), then check /hooks");
   console.log(`hooks          ${registered}/${HOOK_EVENTS.length} registered in ${settingsFile}`);
   if (elsewhere && elsewhere.registered > 0) {
     console.log(`               ${elsewhere.registered}/${HOOK_EVENTS.length} found in ${otherFile} (--scope ${otherScope.scope})`);
@@ -620,7 +761,7 @@ async function printStatus(options: Options): Promise<number> {
   const tokenValue = unpaired ? undefined : (tokenFile ? readTokenFile(tokenFile) : undefined) ?? envOverride("ASCENDA_EVENT_WRITE_TOKEN") ?? undefined;
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
   const [initiativeLines, notices] = await Promise.all([
-    initiativesStatusLines({ apiBaseUrl, eventWriteToken: tokenValue, pairCommand: "npx @ascenda-one/claude-code-hooks pair" }),
+    initiativesStatusLines({ apiBaseUrl, eventWriteToken: tokenValue, pairCommand: `${selfCommand()} pair` }),
     studyNoticeStatus({ apiBaseUrl, eventWriteToken: tokenValue, commandPrefix: "npx @ascenda-one/claude-code-hooks" })
   ]);
   console.log("");
@@ -630,8 +771,8 @@ async function printStatus(options: Options): Promise<number> {
   if (process.stdout.isTTY) await notices.markShown();
 
   if (unpaired) {
-    console.log("\nInstalled, not paired. Pair when you want the telemetry half:");
-    console.log("  npx @ascenda-one/claude-code-hooks pair");
+    console.log("\nNot paired, which the screen saver and the live view don't need.");
+    console.log(`To send your sessions to Ascenda's servers, so they appear in the app:  ${selfCommand()} pair`);
   }
 
   // User settings apply in every project, so hooks found there answer a
@@ -640,7 +781,7 @@ async function printStatus(options: Options): Promise<number> {
   // user` check that finds only project hooks still reports them missing.
   const wired = registered === HOOK_EVENTS.length
     || (options.scope === "project" && elsewhere?.registered === HOOK_EVENTS.length);
-  const healthy = credentials?.toolInstallationId && wired && fs.existsSync(binary) && !stale.length;
+  const healthy = credentials?.toolInstallationId && wired && fs.existsSync(binary) && !stale.length && !node?.problem;
   return healthy ? 0 : 1;
 }
 
@@ -665,29 +806,17 @@ function uninstall(options: Options): number {
   const settingsFile = settingsPath(options);
 
   if (fs.existsSync(settingsFile)) {
-    try {
-      const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as Settings;
-      const hooks = { ...(settings.hooks ?? {}) };
-      for (const event of Object.keys(hooks)) {
-        const kept = hooks[event].filter((group) => !isOurs(group));
-        if (kept.length) hooks[event] = kept;
-        else delete hooks[event];
-      }
-      const updated: Settings = { ...settings, hooks };
-      if (!Object.keys(hooks).length) delete updated.hooks;
-      fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
-      fs.writeFileSync(settingsFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
-      console.log(`hooks removed from ${settingsFile}`);
-    } catch {
+    if (!removeOurHooks(settingsFile)) {
       console.error(`could not parse ${settingsFile} — remove the ascenda hook entries by hand`);
       return 1;
     }
+    console.log(`hooks removed from ${settingsFile}`);
   }
 
-  const binary = hookBinPath();
-  if (fs.existsSync(binary)) {
-    fs.rmSync(binary);
-    console.log(`removed ${binary}`);
+  for (const file of [hookBinPath(), hookBundlePath(), hookNodeRecordPath(), hookNoNodePath()]) {
+    if (!fs.existsSync(file)) continue;
+    fs.rmSync(file);
+    if (file === hookBinPath() || file === hookBundlePath()) console.log(`removed ${file}`);
   }
   const credentialsFile = credentialsFilePath();
   if (fs.existsSync(credentialsFile)) {

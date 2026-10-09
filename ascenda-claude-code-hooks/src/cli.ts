@@ -33,7 +33,8 @@ import {
   runStudyJoin,
   runStudyObjection
 } from "@ascenda-one/tool-kit";
-import type { CollectorState, DisclosureFamily, LiveBusEvent, WorkContext } from "@ascenda-one/tool-kit";
+import { terminalStyle } from "@ascenda-one/tool-kit";
+import type { CollectorState, DisclosureFamily, LiveBusEvent, TerminalStyle, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { liveEventFor } from "./liveEvent.js";
 import { autoContinueEnabled, resumesAtFor } from "./usageLimitReset.js";
@@ -48,8 +49,10 @@ import {
 } from "./config.js";
 import type { ResolvedInstallationId } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
-import { credentialsFilePath, readCredentials, writeCredentials } from "./paths.js";
+import { credentialsFilePath, readCredentials, selfCommand, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
+import { stampLastHook } from "./hookHealth.js";
+import { doctorRow, localSignalLines } from "./liveDoctor.js";
 
 const INTENTION_INVITE =
   "Ascenda tip: if it's natural, you can ask what would make this session " +
@@ -278,6 +281,9 @@ async function main(): Promise<void> {
     );
   }
   const hookName: ClaudeHookEventName = command;
+  // First, and unconditionally: "has Claude Code ever run this hook" is the
+  // question a silent install could not answer. See hookHealth.ts.
+  stampLastHook(hookName);
 
   const input = await readJsonFromStdin();
 
@@ -664,12 +670,37 @@ function writeStdout(text: string): Promise<void> {
  * that made this bug expensive.
  */
 async function runDoctor(): Promise<void> {
-  const lines: string[] = ["Ascenda collector doctor", ""];
+  const ui = terminalStyle();
+  const lines: string[] = [ui.bold("Ascenda doctor"), ""];
+  // The local half first: it needs no pairing, so it is the whole story for
+  // an install that has none, and the first thing to rule out for one that does.
+  try {
+    lines.push(...await localSignalLines(process.env.CLAUDE_PROJECT_DIR ?? process.cwd()), "");
+  } catch (error) {
+    lines.push(`  Live signal           (could not be checked: ${error instanceof Error ? error.message : String(error)})`, "");
+  }
+  const unpaired = localOnlyInstall();
+  // Named for what it does for the person, and marked optional when it is
+  // off by choice: under a bare "Telemetry" heading, a column of "none"
+  // read as a failed install to someone who had only wanted the saver.
+  lines.push(unpaired
+    ? `  ${ui.bold("Account sync")} ${ui.dim("(optional; this install isn't paired)")}`
+    : `  ${ui.bold("Account sync")} ${ui.dim("(Telemetry)")}`);
+  const telemetryStart = lines.length;
+  const finish = async () => {
+    // Off by choice, every row but these two says "none" in its own words,
+    // and nine of those read as a list of faults.
+    if (unpaired) {
+      const kept = lines.slice(telemetryStart).filter((line) => !isTelemetryRow(line) || /^  (Installation id|Mode) /.test(line));
+      lines.splice(telemetryStart, lines.length - telemetryStart, ...kept);
+    }
+    for (let i = telemetryStart; i < lines.length; i++) lines[i] = markTelemetryLine(ui, lines[i], unpaired);
+    await writeStdout(`${lines.join("\n")}\n`);
+  };
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? "https://api.ascenda.one").replace(/\/$/, "");
   // An install with no pairing has to read as installed here, because it is.
   // Every line below that would otherwise report a missing token as a fault
-  // checks this first.
-  const unpaired = localOnlyInstall();
+  // checks `unpaired` first.
 
   lines.push(`  API base URL          ${apiBaseUrl}`);
 
@@ -682,8 +713,8 @@ async function runDoctor(): Promise<void> {
   } catch (error) {
     lines.push(`  Installation id       (unresolved — ${error instanceof Error ? error.message : String(error)})`);
     lines.push(...skippedSendLines(undefined));
-    lines.push("", "  Not paired on this machine. Run:", "    npx @ascenda-one/claude-code-hooks pair");
-    await writeStdout(`${lines.join("\n")}\n`);
+    lines.push("", "  Not paired on this machine. Run:", `    ${selfCommand()} pair`);
+    await finish();
     return;
   }
 
@@ -698,7 +729,7 @@ async function runDoctor(): Promise<void> {
   // contradict the line above it.
   const hasToken = fs.existsSync(tokenFilePath) || Boolean(process.env.ASCENDA_EVENT_WRITE_TOKEN);
   lines.push(`  Mode                  ${unpaired
-    ? "installed, not paired — local features active, telemetry inactive"
+    ? "not paired. The live signal works; nothing is sent to Ascenda's servers"
     : hasToken
       ? "paired — local features and telemetry active"
       : "paired, but no token on this machine — local features active, nothing can be sent"}`);
@@ -728,18 +759,41 @@ async function runDoctor(): Promise<void> {
   if (unpaired) {
     lines.push(
       "",
-      "  Nothing is sent from this install, and nothing is queued for later. The",
-      "  session prompts and the live signal to a socket on this machine run",
-      "  without a pairing. To turn delivery on:",
-      "    npx @ascenda-one/claude-code-hooks pair"
+      "  Not paired, which is fine: the screen saver and the live view above work",
+      "  without it. Nothing leaves this machine and nothing is queued. To send your",
+      "  sessions to Ascenda's servers, so they appear in the app:",
+      `    ${ui.cyan(`${selfCommand()} pair`)}`
     );
-    await writeStdout(`${lines.join("\n")}\n`);
+    await finish();
     return;
   }
 
   lines.push("", "  Live round trip...");
   lines.push(`  ${await liveRoundTrip()}`);
-  await writeStdout(`${lines.join("\n")}\n`);
+  await finish();
+}
+
+/** `  <label padded to 22><value>`, the shape every telemetry row is pushed in. */
+function isTelemetryRow(line: string): boolean {
+  // Labels are at most 20 characters, so a row always has two spaces before
+  // its value. Prose that happens to have a space at column 23 does not.
+  return line.length > 24 && line.startsWith("  ") && line[2] !== " " && line[22] === " " && line[23] === " " && line[24] !== " ";
+}
+
+/**
+ * Gives a telemetry row the same mark column as the live-signal rows above
+ * it. Rows are `  <label>  <value>` with the label in the first 22 columns;
+ * anything else (blank lines, prose, continuations) passes through. When the
+ * install isn't paired by choice, the rows describe something switched off,
+ * so they are dimmed rather than marked as faults.
+ */
+function markTelemetryLine(ui: TerminalStyle, line: string, unpaired: boolean): string {
+  if (!isTelemetryRow(line)) return unpaired ? ui.dim(line) : line;
+  const label = line.slice(2, 24).trim();
+  const value = line.slice(24);
+  const failed = /FAILED|missing|no token for|rejected/.test(value);
+  const row = doctorRow(ui, failed ? "bad" : /^(paired —|OK)/.test(value) ? "ok" : "info", label, value);
+  return unpaired ? ui.dim(row) : row;
 }
 
 async function liveRoundTrip(): Promise<string> {

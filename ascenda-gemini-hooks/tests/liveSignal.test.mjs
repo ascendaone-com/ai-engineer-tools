@@ -234,10 +234,10 @@ test("AfterTool speaks only for a failure — Gemini has no separate failure hoo
   assert.equal(liveSignalFor("AfterTool", { tool_name: "read_file" }), undefined);
 });
 
-test("the turn is the beat, not the CLI run: SessionEnd does not repeat AfterAgent's stop", () => {
-  // Both would arrive back to back and the saver would draw two session ends
-  // for one turn.
-  assert.equal(liveSignalFor("SessionEnd", {}), undefined);
+test("the turn is the beat, not the CLI run: SessionEnd halts rather than repeating AfterAgent's stop", () => {
+  // A second stop would draw two session ends for one turn. halted is what
+  // quitting mid-turn needs, and the app ignores it after a turn that stopped.
+  assert.equal(liveSignalFor("SessionEnd", {}).event, "halted");
   assert.equal(liveSignalFor("SessionStart", {}), undefined);
 });
 

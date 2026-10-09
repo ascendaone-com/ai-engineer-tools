@@ -71,7 +71,7 @@ test("setup --dry-run writes nothing and exits 0 with no backend", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-cursor-dry-"));
   const result = run(["setup", "--dry-run", "--project-dir", dir, "--api-base-url", "http://127.0.0.1:9"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Dry run — nothing was written/);
+  assert.match(result.stdout, /Dry run\. Nothing was written/);
   assert.equal(fs.existsSync(SETUP.settings.settingsPath("project", dir)), false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
