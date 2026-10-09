@@ -35,6 +35,11 @@ Same loose-coupled pairing model as the VS Code and Cursor extensions. See [TOOL
 
 ## Install
 
+**You need Node.js 20 or newer.** Both routes below run the hooks through `npx`,
+including the plugin. Check with `node --version`. If it is missing or older,
+install the current LTS from [nodejs.org](https://nodejs.org/en/download).
+Without Node the hooks cannot run, so nothing is reported.
+
 ### Recommended: the Claude Code plugin
 
 One command installs this adapter, the work-signals skill, and the MCP server
