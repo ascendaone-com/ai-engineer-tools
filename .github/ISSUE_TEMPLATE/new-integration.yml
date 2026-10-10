@@ -1,0 +1,52 @@
+name: New integration proposal
+description: Propose a collector for an agent, editor or tool that isn't covered yet.
+title: "[integration] <tool name>"
+labels: ["integration"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. A proposal is easier to say yes to when it shows what the tool exposes and which of those signals map to an existing event type. [CONTRIBUTING.md](https://github.com/ascendaone-com/ai-engineer-tools/blob/main/CONTRIBUTING.md) explains how an adapter is put together.
+  - type: input
+    id: tool
+    attributes:
+      label: Tool
+      description: Name, and a link to its docs.
+    validations:
+      required: true
+  - type: dropdown
+    id: mechanism
+    attributes:
+      label: How it would be collected
+      options:
+        - Hooks the tool runs as a command
+        - An in-process plugin or extension
+        - Reading history the tool stores on disk
+        - Something else (explain below)
+    validations:
+      required: true
+  - type: textarea
+    id: signals
+    attributes:
+      label: What the tool exposes
+      description: Which hooks, events or files, with a link to where they're documented. Note anything that only arrives with content attached (prompts, file names, paths), since that can't be forwarded.
+    validations:
+      required: true
+  - type: textarea
+    id: mapping
+    attributes:
+      label: Proposed mapping
+      description: Which signals map to which catalog event types in packages/tool-contract. Leave a signal unmapped if nothing fits, and say so.
+  - type: textarea
+    id: gaps
+    attributes:
+      label: Gaps and risks
+      description: Signals the tool doesn't give, anything that fires often enough to be noisy, and anything that could block the user's turn.
+  - type: dropdown
+    id: contributing
+    attributes:
+      label: Will you build it?
+      options:
+        - Yes, I'd like to open the PR
+        - Maybe, with some help
+        - No, just proposing it
