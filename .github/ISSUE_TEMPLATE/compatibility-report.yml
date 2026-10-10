@@ -1,0 +1,74 @@
+name: Compatibility report
+description: A collector worked, or didn't, with a particular agent, version or OS.
+title: "[compat] <agent> <version> on <OS>"
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reports that something works are as useful as reports that it doesn't. Agents change their hooks between releases, and a working combination is how we know a floor still holds.
+
+        The oldest collector release still treated as current is `minCollectorVersion` in [compatibility.json](https://github.com/ascendaone-com/ai-engineer-tools/blob/main/compatibility.json). If yours is older, upgrade first.
+
+        This issue is public. Don't paste prompts, file paths, repository names or tokens.
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - Claude Code
+        - Codex CLI
+        - Cursor (agent hooks)
+        - Cursor (editor extension)
+        - VS Code (editor extension)
+        - Windsurf
+        - Gemini CLI
+        - Other (say which below)
+    validations:
+      required: true
+  - type: input
+    id: agent-version
+    attributes:
+      label: Agent version
+      description: What the agent itself reports, for example `claude --version` or `gemini --version`.
+      placeholder: "2.4.1"
+    validations:
+      required: true
+  - type: input
+    id: collector-version
+    attributes:
+      label: Collector version
+      description: The first line of `~/.ascenda/bin/ascenda-<agent>-hook status`, or the extension version in your editor.
+      placeholder: "0.1.33"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and Node version
+      placeholder: "macOS 15.4, Node 22.11"
+    validations:
+      required: true
+  - type: dropdown
+    id: paired
+    attributes:
+      label: Install mode
+      options:
+        - Not paired (--no-pair)
+        - Paired to an Ascenda account
+        - Local dev server
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw. "Everything worked" is a fine answer.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor output
+      description: Output of `~/.ascenda/bin/ascenda-<agent>-hook doctor`. Remove the pairing line if you'd rather not post your installation id.
+      render: text
