@@ -74,6 +74,7 @@ npx @ascenda-one/claude-code-hooks uninstall   # removes hooks and the binary
 | `--local [port]` | shorthand for a local [dev server](../ascenda-dev-server/) (default `4477`) |
 | `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
 | `--no-pair` | install the local half only: hooks work, nothing is sent |
+| `--event-log [path\|off]` | keep every event in a local JSONL file (default `~/.ascenda/events.jsonl`). On by default without a pairing; `off` stops it |
 | `--scope user\|project` | register in `~/.claude/settings.json` (default, every project) or in this project's `.claude/settings.local.json` |
 | `--project-dir <path>` | project root for `--scope project` (default cwd) |
 | `--dry-run` | print what would change, write nothing |
@@ -147,11 +148,13 @@ the retry:
 
 ![setup --no-pair finishing with "Ready."](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/cli-setup-no-pair.png)
 
-Two things work with no pairing at all, which is why this mode exists. The
+Three things work with no pairing at all, which is why this mode exists. The
 session prompts are composed locally in the hook process. The live signal goes
 to a socket on your own machine, so a listener there sees an agent working the
-moment it starts. Neither owes anything to a backend, and gating the install on
-one kept them from the people still setting Ascenda up.
+moment it starts. And every event is written to `~/.ascenda/events.jsonl`, the
+same metadata a paired install would send, for you or any other tool to read.
+[examples/local-event-reader](../examples/local-event-reader/) is a small
+script that does. None of it owes anything to a backend.
 
 What that install holds: the hook binary, the registered events, and a
 credentials file with an installation id, `localOnly: true` and `installedAt`.
@@ -230,6 +233,7 @@ Optional environment:
 | `ASCENDA_EVENT_WRITE_TOKEN` | Only if you have no prior pairing to reuse — normally the token file supplies this |
 | `ASCENDA_EVENT_WRITE_TOKEN_FILE` | Override token file path (default `~/.ascenda/tokens/<toolInstallationId>`) |
 | `ASCENDA_SESSION_ID` | Stable session id across hooks |
+| `ASCENDA_EVENT_LOG_FILE` | Local JSONL event log path, or `off`. Wins over `setup --event-log`. Without either, an unpaired install writes `~/.ascenda/events.jsonl` and a paired one writes nothing |
 | `ASCENDA_WORKSPACE_HASH` | Override only. By default the hook derives this from the payload's own `cwd`: a machine-salted hash of the checkout folder's basename (never the path itself) |
 | `ASCENDA_PROJECT_HASH` | Override only. Defaults to the salted hash of the canonical repository's basename — a git worktree folds into the repo it was created from |
 | `ASCENDA_STATE_FILE` | Override the send journal path (default `~/.ascenda/state/<toolInstallationId>.json`) |

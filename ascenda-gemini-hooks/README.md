@@ -50,11 +50,14 @@ still cannot name its installation records the skipped send in the journal
 | `ASCENDA_TOOL_INSTALLATION_ID` | overrides the pairing `setup` recorded |
 | `ASCENDA_EVENT_WRITE_TOKEN` | overrides the stored token |
 | `ASCENDA_API_BASE_URL` | overrides the ingest host |
-| `ASCENDA_EVENT_LOG_FILE` | optional local JSONL log of every event |
+| `ASCENDA_EVENT_LOG_FILE` | local JSONL log of every event, or `off` |
 
-With `ASCENDA_EVENT_LOG_FILE` set and no pairing, events are written locally as
-`not_sent` instead of failing — so you can see exactly what would be
-transmitted before connecting anything. Every payload carries the UTC offset
+Without a pairing, every event is written to `~/.ascenda/events.jsonl` as
+`not_sent`, so you can see exactly what would be transmitted, or read the
+events with your own tools, without connecting anything.
+[examples/local-event-reader](../examples/local-event-reader/) shows how.
+`setup --event-log <path>` moves the file, `setup --event-log off` stops it,
+and the variable wins over both. Every payload carries the UTC offset
 and an idempotency key; both come from the shared sender in `tool-kit`, so
 this adapter holds only its mapping.
 

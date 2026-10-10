@@ -2,17 +2,34 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { AscendaEventPayload, IngestResult } from "@ascenda-one/tool-contract";
+import { readMachineCredentials } from "./credentials";
+import { ascendaHome } from "./tokenStore";
 
 /**
- * Opt-in local sink: one JSON object per line, holding the exact payload that
- * was put on the wire plus how delivery went. Two jobs, both of which the
- * ingest path cannot do — see what a tool emits with no backend running, and
- * audit what actually left the machine against the metadata-only claim.
+ * Local sink: one JSON object per line, holding the payload that was (or, on
+ * an unpaired install, would have been) put on the wire plus how delivery
+ * went. Three jobs the ingest path cannot do: see what a tool emits with no
+ * backend running, audit what left the machine against the metadata-only
+ * claim, and give anything else on this machine an event stream to read
+ * without an Ascenda account.
  *
- * Off unless ASCENDA_EVENT_LOG_FILE is set. Nothing here may throw: a sink that
- * can break telemetry, or the user's turn, is worse than no sink.
+ * Where it goes, first match wins:
+ *
+ *  1. `ASCENDA_EVENT_LOG_FILE` — a path, or `off`.
+ *  2. `eventLogPath` at the top of ~/.ascenda/credentials.json, written by
+ *     `setup --event-log`. A path, or `off`. This is what reaches a hook
+ *     spawned with no shell environment, which on macOS is the normal case.
+ *  3. On an install that was set up without pairing, ~/.ascenda/events.jsonl.
+ *     Unpaired means local, and local should produce something a person can
+ *     read. A paired install stays off unless one of the above turns it on.
+ *
+ * Nothing here may throw: a sink that can break telemetry, or the user's
+ * turn, is worse than no sink.
  */
 export const EVENT_LOG_ENV_VAR = "ASCENDA_EVENT_LOG_FILE";
+
+/** The value that turns the log off in either setting, including on an unpaired install. */
+export const EVENT_LOG_OFF = "off";
 
 /** Rotate at 5 MB — roughly 20k events, weeks of normal use. */
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -42,8 +59,72 @@ export function expandUserPath(configured: string | undefined): string | undefin
   return path.resolve(value);
 }
 
-export function resolveEventLogPath(): string | undefined {
-  return expandUserPath(process.env[EVENT_LOG_ENV_VAR]);
+/** Where an unpaired install writes when nothing else is configured. */
+export function defaultEventLogPath(): string {
+  return path.join(ascendaHome(), "events.jsonl");
+}
+
+/**
+ * Which rule decided. `disabled` is someone saying `off`; plain `off` is
+ * nothing configured on a paired install. `status` and `doctor` print the
+ * difference, because "never configured" and "configured somewhere this
+ * process can't see" look identical otherwise.
+ */
+export type EventLogSource = "env" | "credentials" | "unpaired-default" | "disabled" | "off";
+
+export type EventLogSetting = { path: string | undefined; source: EventLogSource };
+
+export type EventLogOptions = {
+  /** The install was set up without pairing, so the log is on unless turned off. */
+  localOnly?: boolean;
+};
+
+export function resolveEventLog(options: EventLogOptions = {}): EventLogSetting {
+  for (const [source, raw] of [
+    ["env", process.env[EVENT_LOG_ENV_VAR]],
+    ["credentials", readMachineCredentials()?.eventLogPath]
+  ] as const) {
+    const value = raw?.trim();
+    if (!value) continue;
+    if (value.toLowerCase() === EVENT_LOG_OFF) return { path: undefined, source: "disabled" };
+    return { path: expandUserPath(value), source };
+  }
+  if (options.localOnly) return { path: defaultEventLogPath(), source: "unpaired-default" };
+  return { path: undefined, source: "off" };
+}
+
+export function resolveEventLogPath(options: EventLogOptions = {}): string | undefined {
+  return resolveEventLog(options).path;
+}
+
+/**
+ * One line for `status` and `doctor`. `command` is how this adapter's setup
+ * is run, so the hint names something the person can type.
+ */
+export function describeEventLog(setting: EventLogSetting, command: string): string {
+  switch (setting.source) {
+    case "env":
+      return `${setting.path} (from ${EVENT_LOG_ENV_VAR})`;
+    case "credentials":
+      return `${setting.path} (set by ${command} --event-log)`;
+    case "unpaired-default":
+      return `${setting.path} (on because this install isn't paired; ${command} --event-log off to stop)`;
+    case "disabled":
+      return `off (turned off; ${command} --event-log to turn it on)`;
+    case "off":
+      return `off (${command} --event-log to keep a local copy of every event)`;
+  }
+}
+
+/**
+ * Parses `--event-log`'s optional value: bare turns it on at the default
+ * path, a path turns it on there, `off` turns it off. Returns how many extra
+ * argv entries it consumed, so callers can advance their index.
+ */
+export function parseEventLogFlag(argv: readonly string[], index: number): { value: string; consumed: number } {
+  const peek = argv[index + 1];
+  if (peek !== undefined && !peek.startsWith("-")) return { value: peek, consumed: 1 };
+  return { value: defaultEventLogPath(), consumed: 0 };
 }
 
 export function appendEventLog(logFilePath: string, entry: EventLogEntry): void {
@@ -63,9 +144,10 @@ export function appendEventLog(logFilePath: string, entry: EventLogEntry): void 
 }
 
 /**
- * One generation only. The log is a debugging and audit aid, not a durable
- * record — the backend holds that — so bounding disk use matters more than
- * keeping history.
+ * One generation only, so the log never takes more than about 10 MB. It is a
+ * local stream and an audit aid, not a durable record: a reader that wants
+ * history keeps its own, and bounding disk use on a machine that never asked
+ * for a log matters more than keeping old lines.
  */
 function rotateIfLarge(logFilePath: string): void {
   try {

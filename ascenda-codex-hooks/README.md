@@ -133,7 +133,9 @@ event. Check the local event log for `metadata.host: "codex"` and confirm its
 `toolInstallationId` matches `tools.codex` in the credentials file. The hook
 always exits `0`, so its exit code alone cannot prove delivery.
 
-Set `ASCENDA_EVENT_LOG_FILE` to also log each payload locally.
+An unpaired install logs every payload to `~/.ascenda/events.jsonl`. On a
+paired one, `setup --event-log` or `ASCENDA_EVENT_LOG_FILE` turns the same log
+on, and `off` turns it off.
 
 ## Build from source
 

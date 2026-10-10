@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily, Tone } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { describeAge, readLastHook, resolveHookNode } from "./hookHealth.js";
@@ -100,6 +100,8 @@ type Options = {
   dryRun: boolean;
   /** False under `--no-pair`: install the local half and stop there. */
   pair: boolean;
+  /** `--event-log`'s value: a path or `off`. Absent leaves the saved setting alone. */
+  eventLog?: string;
   action: "install" | "status" | "uninstall" | "help";
 };
 
@@ -123,6 +125,8 @@ Options
   --tool-installation-id <id>   reuse an existing pairing instead of creating one
   --token <eventWriteToken>     reuse an existing token (stored 0600, never printed)
   --no-pair                     install without pairing: local features on, nothing sent
+  --event-log [path|off]        keep every event in a local JSONL file (default ~/.ascenda/events.jsonl).
+                                On by default when not paired; machine-wide, shared by every agent
                                 (--no-pairing is accepted too)
   --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
@@ -187,6 +191,7 @@ export async function runSetup(argv: string[]): Promise<number> {
       // picks up.
       ...(unpaired ? { localOnly: true, installedAt: now } : { pairedAt: now })
     });
+    if (options.eventLog !== undefined) writeEventLogSetting(options.eventLog);
   }
 
   if (isHomeProject(options)) {
@@ -235,6 +240,10 @@ export async function runSetup(argv: string[]): Promise<number> {
   }
   if (unpaired) detail("installation", `${identity.toolInstallationId} (kept, so pairing later attaches to it)`);
   detail("credentials", tidyHome(credentialsFilePath()));
+  // Read back after writing, so the row shows what a hook will do.
+  const eventLog = resolveEventLog({ localOnly: unpaired });
+  if (eventLog.path) row("ok", "events", `${tidyHome(eventLog.path)} ${ui.dim("(on this machine only)")}`);
+  else if (options.eventLog !== undefined) row("info", "events", "off");
 
   if (options.dryRun) {
     console.log("\nDry run. Nothing was written.");
@@ -251,6 +260,7 @@ export async function runSetup(argv: string[]): Promise<number> {
   if (chosenLocal) {
     console.log(`${ui.mark("ok")} ${ui.bold("Ready.")} The screen saver and the Ascenda app's live view work now.`);
     console.log("  They run on this machine and need no account or pairing.");
+    if (eventLog.path) console.log(`  Every event is also written to ${tidyHome(eventLog.path)}, for you or any tool to read.`);
   } else if (unpaired) {
     console.log(`${ui.mark("warn")} ${ui.bold("Installed, not paired.")} The screen saver and the live view work now.`);
     console.log(`  Your sessions won't reach Ascenda's servers until pairing completes.`);
@@ -334,6 +344,12 @@ function parseArgs(argv: string[]): Options {
       case "--project-dir":
         options.projectDir = path.resolve(next());
         break;
+      case "--event-log": {
+        const { value, consumed } = parseEventLogFlag(argv, i);
+        options.eventLog = value;
+        i += consumed;
+        break;
+      }
       case "--no-pair":
       // `--no-pairing` is the spelling the CLI agents' setup landed under
       // first, and the one their README still showed for a day. Both parse
@@ -723,6 +739,7 @@ async function printStatus(options: Options): Promise<number> {
     ? "inactive — nothing is sent, and nothing is queued for later"
     : "— no token for this pairing, so nothing can be sent"}`);
   console.log("local features active — the session prompts and the live socket signal need no pairing");
+  console.log(`event log      ${describeEventLog(resolveEventLog({ localOnly: unpaired }), "npx @ascenda-one/claude-code-hooks setup")}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
   // Registered is not the same as runnable. Claude Code swallows a hook that
   // cannot start, so "13/13 registered" used to sit beside a machine where
