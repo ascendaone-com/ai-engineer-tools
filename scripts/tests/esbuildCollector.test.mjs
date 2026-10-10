@@ -65,7 +65,9 @@ test("a stamped bundle carries the release version", () => {
 });
 
 test("every shipped package bundles through the wrapper", () => {
-  const offenders = RELEASE_PACKAGES.filter(({ dir }) => {
+  // A library ships its compiled source and stamps no collector version, so
+  // there's nothing for the wrapper to do.
+  const offenders = RELEASE_PACKAGES.filter(({ kind }) => kind !== "library").filter(({ dir }) => {
     const { scripts } = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, dir, "package.json"), "utf8"));
     return !scripts?.bundle?.startsWith("node ../scripts/esbuild-collector.mjs ");
   }).map((p) => p.dir);

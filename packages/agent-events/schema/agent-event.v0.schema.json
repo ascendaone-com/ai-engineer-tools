@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/packages/agent-events/schema/agent-event.v0.schema.json",
+  "title": "Agent event, v0 (experimental)",
+  "description": "One thing a coding agent did, as written by Ascenda's collectors to the local event log. Metadata only: no prompt text, file contents, file names, command lines or command output. Experimental; see the package README for the compatibility policy.",
+  "type": "object",
+  "required": ["schema", "id", "time", "agent", "kind"],
+  "properties": {
+    "schema": { "const": "agent-event/v0" },
+    "id": { "type": "string", "minLength": 1, "description": "Unique per event. The same id twice means the same event." },
+    "time": { "type": "string", "format": "date-time", "description": "When it happened, UTC." },
+    "utcOffsetMinutes": { "type": "integer", "minimum": -840, "maximum": 840, "description": "Minutes the machine's clock was ahead of UTC at `time`." },
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which agent. Known values: claude_code, codex, cursor, gemini_cli, windsurf, vscode. Other agents send their own name.",
+      "examples": ["claude_code", "codex", "cursor", "gemini_cli", "windsurf", "vscode"]
+    },
+    "kind": {
+      "type": "string",
+      "description": "What happened. Read a kind you don't know as `other`: v0 may add kinds.",
+      "enum": [
+        "session.started",
+        "session.ended",
+        "prompt.submitted",
+        "tool.started",
+        "tool.completed",
+        "tool.failed",
+        "turn.completed",
+        "agent.waiting",
+        "context.compacted",
+        "subagent.started",
+        "subagent.stopped",
+        "other"
+      ]
+    },
+    "sessionId": { "type": "string", "description": "The agent's own session id, when it gives one." },
+    "subagentId": { "type": "string", "description": "Set on events inside a subagent, and on its start and stop." },
+    "tool": { "type": "string", "description": "The tool's name as the agent reports it, on tool.* kinds." },
+    "outcome": { "type": "string", "description": "How a tool call ended, when known: success, failure or cancelled." },
+    "durationBucket": { "type": "string", "description": "How long it took, as a bucket: 0-1m, 1-5m, 5-10m, 10-30m, 30-60m, 60m+. Never an exact duration." },
+    "projectHash": { "type": "string", "description": "Salted hash of the project. The salt stays on the machine." },
+    "collectorVersion": { "type": "string" },
+    "sourceType": { "type": "string", "description": "The collector's own name for the event, for debugging. Not part of the contract." }
+  },
+  "additionalProperties": true
+}
