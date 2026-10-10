@@ -1,3 +1,6 @@
-Ascenda Claude Code Hooks
+@ascenda-one/claude-code-hooks
+Copyright 2026 Ascenda One Pty Ltd
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
 
 Metadata-only AI workload telemetry adapter. Do not send source code, raw prompts, raw responses, file names, branch names, repository names, or terminal output by default.

@@ -9,7 +9,7 @@
     "directory": "ascenda-agent-mcp"
   },
   "type": "module",
-  "files": ["dist"],
+  "files": ["dist", "NOTICE"],
   "bin": {
     "ascenda-agent-mcp": "./dist/cli.js"
   },
@@ -20,6 +20,7 @@
     "test": "npm run build && node --test tests/*.test.mjs"
   },
   "license": "Apache-2.0",
+  "author": "Ascenda One Pty Ltd",
   "engines": {
     "node": ">=20"
   },

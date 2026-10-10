@@ -9,7 +9,7 @@
     "directory": "ascenda-history-import"
   },
   "type": "module",
-  "files": ["dist"],
+  "files": ["dist", "NOTICE"],
   "bin": {
     "ascenda-history-import": "./dist/cli.js"
   },
@@ -20,6 +20,7 @@
     "test": "node --test --require ./tests/isolateHome.cjs"
   },
   "license": "Apache-2.0",
+  "author": "Ascenda One Pty Ltd",
   "engines": {
     "node": ">=20"
   },

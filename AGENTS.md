@@ -65,6 +65,22 @@ git diff --cached | grep -nE "asc-core-be|asc-ascenda|/Users/|reference machine|
 A hit is not automatically wrong — it is a prompt to ask whether that detail
 is load-bearing for a maintainer, or just expensive.
 
+## Mermaid diagrams
+
+GitHub renders ```` ```mermaid ```` blocks, and a parse error replaces the
+whole diagram with a red error box. Nothing in CI catches it.
+
+- **No semicolons in labels, notes or messages.** Mermaid reads `;` as the
+  end of a statement, so `Note over T: Persist token; re-pair later` breaks
+  at the semicolon. Use a comma, or write it as `#59;`.
+- **Quote labels that hold brackets or braces.** In a flowchart, `A[GET
+  /v1/x/{id}]` is fine but `A[renew (401)]` isn't. Write `A["renew (401)"]`.
+- **`end` is a keyword.** A bare `end` in a message or node id closes the
+  enclosing `loop`, `alt` or `subgraph`. Capitalise it or quote it.
+
+Paste the block into <https://mermaid.live> before you push. If it renders
+there, it renders on GitHub.
+
 ## GitHub access
 
 Git and `gh` sign in separately, so check each one on its own.

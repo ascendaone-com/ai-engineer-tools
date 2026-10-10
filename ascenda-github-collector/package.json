@@ -9,7 +9,7 @@
     "directory": "ascenda-github-collector"
   },
   "type": "module",
-  "files": ["dist", "examples"],
+  "files": ["dist", "examples", "NOTICE"],
   "bin": {
     "ascenda-forge-collect": "./dist/cli.js"
   },
@@ -20,6 +20,7 @@
     "test": "node --test"
   },
   "license": "Apache-2.0",
+  "author": "Ascenda One Pty Ltd",
   "engines": {
     "node": ">=20"
   },
