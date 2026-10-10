@@ -6,6 +6,8 @@ import {
   ASCENDA_COLLABORATION_CONSENT_SCOPE,
   COLLABORATION_EVENT_TYPES,
   ASCENDA_SEMANTIC_PROVENANCE,
+  AscendaDeliveryEnvelope,
+  AscendaEventBody,
   AscendaEventMetadata,
   AscendaEventPayload,
   AscendaSeverity,
@@ -13,7 +15,8 @@ import {
   AscendaTelemetrySource,
   IngestResult,
   SEMANTIC_WORK_SIGNAL_EVENT_TYPES,
-  TOOL_EVENT_DELIVERED_STATUSES
+  TOOL_EVENT_DELIVERED_STATUSES,
+  joinEventPayload
 } from "@ascenda-one/tool-contract";
 import { EventLogEntry, appendEventLog, resolveEventLogPath } from "./eventLog";
 import { IngestOutcome, isRetryableStatus, postToolEvent, postToolEventsBatch, renewToolToken } from "./http";
@@ -137,27 +140,19 @@ export type OutboxDrainReport = {
 };
 
 /**
- * The canonical wire payload for a standard-scope host event. Shared so a
- * caller that logs an event without sending it records byte-for-byte what a
- * send would have put on the wire — otherwise the local log slowly stops being
- * evidence of anything.
+ * The body of a standard-scope host event: the event alone, with no Ascenda
+ * delivery fields. This is what a local sink records, and what
+ * {@link buildEventPayload} wraps for the wire.
  *
- * The semantic and collaboration senders build their own payloads: their
+ * The semantic and collaboration senders build their own bodies: their
  * consent scope, provenance and severity are properties of what the event is,
  * and folding them in here would mean an options bag that lets the wrong pair
  * be passed by accident.
- *
- * The `idempotencyKey` is minted here, at construction, for the same reason
- * `occurredAt` is: both are properties of the event, not of any one attempt
- * to deliver it. `post`/`attempt` below resend this same object, so a retry
- * carries the key the first attempt carried.
  */
-export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent): AscendaEventPayload {
+export function buildEventBody(identity: Omit<EventIdentity, "toolInstallationId">, mapped: MappedEvent): AscendaEventBody {
   return {
-    toolInstallationId: identity.toolInstallationId,
     source: identity.source,
     occurredAt: new Date().toISOString(),
-    idempotencyKey: mintIdempotencyKey(),
     utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
     sessionId: identity.sessionId ?? undefined,
     workspaceHash: identity.workspaceHash ?? undefined,
@@ -168,6 +163,24 @@ export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent):
     ...mapped,
     metadata: withCollectorVersion(mapped.metadata)
   };
+}
+
+/**
+ * The canonical wire payload for a standard-scope host event. Shared so a
+ * caller that logs an event without sending it records byte-for-byte what a
+ * send would have put on the wire. Otherwise the local log slowly stops being
+ * evidence of anything.
+ *
+ * The `idempotencyKey` is minted here, at construction, for the same reason
+ * `occurredAt` is: both are properties of the event, not of any one attempt
+ * to deliver it. `post`/`attempt` below resend this same object, so a retry
+ * carries the key the first attempt carried.
+ */
+export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent): AscendaEventPayload {
+  return joinEventPayload(
+    { toolInstallationId: identity.toolInstallationId, idempotencyKey: mintIdempotencyKey() },
+    buildEventBody(identity, mapped)
+  );
 }
 
 /**
@@ -280,12 +293,10 @@ export class AscendaEventSender {
       );
     }
 
-    const payload: AscendaEventPayload = {
-      toolInstallationId: this.config.toolInstallationId,
+    const body: AscendaEventBody = {
       source: this.config.source,
       eventType: mapped.eventType,
       occurredAt: new Date().toISOString(),
-      idempotencyKey: mintIdempotencyKey(),
       utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
@@ -296,7 +307,7 @@ export class AscendaEventSender {
       privacyMode: "metadata_only",
       metadata: withCollectorVersion(mapped.metadata)
     };
-    return this.post(payload);
+    return this.post(joinEventPayload(this.envelope(), body));
   }
 
   /**
@@ -315,12 +326,10 @@ export class AscendaEventSender {
       );
     }
 
-    const payload: AscendaEventPayload = {
-      toolInstallationId: this.config.toolInstallationId,
+    const body: AscendaEventBody = {
       source: this.config.source,
       eventType: mapped.eventType,
       occurredAt: new Date().toISOString(),
-      idempotencyKey: mintIdempotencyKey(),
       utcOffsetMinutes: utcOffsetMinutesAt(new Date()),
       severity: "low",
       sessionId: this.config.sessionId ?? undefined,
@@ -331,7 +340,12 @@ export class AscendaEventSender {
       privacyMode: "metadata_only",
       metadata: withCollectorVersion(mapped.metadata)
     };
-    return this.post(payload);
+    return this.post(joinEventPayload(this.envelope(), body));
+  }
+
+  /** A fresh envelope per event: the key belongs to the event, so every retry of it reuses this one. */
+  private envelope(): AscendaDeliveryEnvelope {
+    return { toolInstallationId: this.config.toolInstallationId, idempotencyKey: mintIdempotencyKey() };
   }
 
   /**
