@@ -210,6 +210,9 @@ The extension is bundled with esbuild at package time (`npm run package`), so
 the shared packages are inlined. Each package's README has its own
 development notes.
 
+Forks and commercial products built on these collectors are welcome under
+[Apache-2.0](./LICENSE).
+
 ## Install from a release (no registry)
 
 For machines that can't reach the Marketplace or npm, or for anyone who wants
