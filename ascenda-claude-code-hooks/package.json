@@ -9,7 +9,7 @@
     "directory": "ascenda-claude-code-hooks"
   },
   "type": "module",
-  "files": ["dist", "examples"],
+  "files": ["dist", "examples", "NOTICE"],
   "bin": {
     "ascenda-claude-hook": "./dist/cli.js"
   },
@@ -23,6 +23,7 @@
     "test": "node --test --require ./tests/isolateHome.cjs"
   },
   "license": "Apache-2.0",
+  "author": "Ascenda One Pty Ltd",
   "engines": {
     "node": ">=20"
   },

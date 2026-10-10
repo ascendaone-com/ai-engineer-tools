@@ -541,13 +541,13 @@ sequenceDiagram
     alt token near expiry or 401 token failure
       T->>A: POST /v1/tool-events/renew-token (Bearer eventWriteToken)
       A-->>T: fresh eventWriteToken + expiresAt
-      Note over T: Persist token; re-pair only if renew returns 401
+      Note over T: Persist token, re-pair only if renew returns 401
     end
 
     alt user revokes tool
       U->>A: DELETE /v1/connected-tools/{toolInstallationId}
       A-->>T: subsequent ingest = 401
-      Note over T: Renew fails; clear token and require full re-pair
+      Note over T: Renew fails, clear token and require full re-pair
     end
 ```
 
