@@ -10,8 +10,10 @@ There are two ways to use them, and the first needs no account:
 
 - **On this Mac only.** The hooks send a live signal to a socket on your own
   machine. The Ascenda Flow app's live view and the Waterline screen saver
-  read it to show that an agent is working, or waiting on you. Nothing leaves
-  the machine.
+  read it to show that an agent is working, or waiting on you. They also
+  write every event to `~/.ascenda/events.jsonl`, in an open format any tool
+  can read (see [Using the events yourself](#using-the-events-yourself)).
+  Nothing leaves the machine.
 - **With your Ascenda account.** Pair a tool once and its events also go to
   Ascenda, so your sessions appear in the Flow app over time.
 
@@ -193,6 +195,20 @@ The repo is an npm workspace. The tools above are thin shells over these:
 | [packages/tool-contract](./packages/tool-contract/) | The event catalog, DTOs and constants, declared once. Mirrors the [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENCE.md) |
 | [packages/tool-kit](./packages/tool-kit/) | The shared runtime: `setup`, `status` and `doctor` for the CLI agents, the hook launcher, the live signal, the command classifier, the token store and the `/v1` client |
 | [packages/ide-extension-core](./packages/ide-extension-core/) | The single extension implementation; whether it runs in VS Code or Cursor is detected at runtime |
+| [packages/agent-events](./packages/agent-events/) | `@ascenda-one/agent-events` on npm. The public event format, v0 and experimental: a JSON Schema, types and a log reader |
+
+## Using the events yourself
+
+Install any agent's hooks with `--no-pair` and every event lands in
+`~/.ascenda/events.jsonl`. Each line's `event` field follows an open, versioned
+format: which agent, what happened, which tool, how it ended. It's documented
+in [packages/agent-events](./packages/agent-events/), and
+[examples/local-event-reader](./examples/local-event-reader/) is a
+dependency-free script that reads it. Build a dashboard, feed your own tool,
+or check what the collectors record. None of it needs an Ascenda account.
+
+The format is v0 and experimental. If you build on it, tell us what's missing
+in an issue: that's what decides v1.
 
 ## Build from source
 
