@@ -9,6 +9,9 @@
 // The log is ~/.ascenda/events.jsonl unless ASCENDA_EVENT_LOG_FILE or
 // `setup --event-log <path>` says otherwise. An unpaired install writes it by
 // default. It rotates at 5 MB to events.jsonl.1, which the summary reads too.
+//
+// Each line's `event` field is the public agent event, v0. Its schema is in
+// packages/agent-events. This script reads only that field.
 
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -24,7 +27,9 @@ function defaultLogPath() {
   return path.join(process.env.ASCENDA_HOME ?? path.join(os.homedir(), ".ascenda"), "events.jsonl");
 }
 
-/** One log line to the few fields this reader shows, or undefined for a line it can't use. */
+const KINDS = new Set(["session.started", "session.ended", "prompt.submitted", "tool.started", "tool.completed", "tool.failed", "turn.completed", "agent.waiting", "context.compacted", "subagent.started", "subagent.stopped"]);
+
+/** One log line to the fields this reader shows, or undefined for a line it can't use. */
 function parse(line) {
   if (!line.trim()) return undefined;
   let entry;
@@ -33,14 +38,17 @@ function parse(line) {
   } catch {
     return undefined; // A half-written last line while an agent is mid-write.
   }
-  const payload = entry?.payload;
-  if (!payload?.eventType) return undefined;
+  const event = entry?.event;
+  // Lines from a collector older than v0 have no `event`; skip them.
+  if (event?.schema !== "agent-event/v0") return undefined;
   return {
-    time: new Date(payload.occurredAt ?? entry.loggedAt),
-    agent: payload.metadata?.host ?? payload.source,
-    session: payload.sessionId ?? "(no session)",
-    type: payload.eventType,
-    tool: payload.metadata?.toolName
+    time: new Date(event.time),
+    agent: event.agent,
+    session: event.sessionId ?? "(no session)",
+    // v0 can add kinds. One this script doesn't know reads as `other`.
+    kind: KINDS.has(event.kind) ? event.kind : "other",
+    tool: event.tool,
+    outcome: event.outcome
   };
 }
 
@@ -79,12 +87,12 @@ function summarise(events) {
     const s = sessions.get(key) ?? { agent: event.agent, session: event.session, first: event.time, last: event.time, prompts: 0, tools: 0, failures: 0, byTool: new Map() };
     if (event.time < s.first) s.first = event.time;
     if (event.time > s.last) s.last = event.time;
-    if (event.type === "ai_prompt_submitted") s.prompts++;
-    if (event.type === "ai_tool_call_started") {
+    if (event.kind === "prompt.submitted") s.prompts++;
+    if (event.kind === "tool.started") {
       s.tools++;
       if (event.tool) s.byTool.set(event.tool, (s.byTool.get(event.tool) ?? 0) + 1);
     }
-    if (event.type === "ai_tool_call_failed") s.failures++;
+    if (event.kind === "tool.failed") s.failures++;
     sessions.set(key, s);
   }
   const ordered = [...sessions.values()].sort((a, b) => a.last - b.last);
@@ -99,7 +107,8 @@ function summarise(events) {
 
 function printEvent(event) {
   const tool = event.tool ? ` ${event.tool}` : "";
-  console.log(`${clock(event.time)}  ${agentName(event.agent).padEnd(12)} ${event.type}${tool}`);
+  const outcome = event.outcome && event.outcome !== "success" ? ` (${event.outcome})` : "";
+  console.log(`${clock(event.time)}  ${agentName(event.agent).padEnd(12)} ${event.kind}${tool}${outcome}`);
 }
 
 /** Polls rather than watching: fs.watch misses appends on some filesystems, and a rename on rotation. */

@@ -294,3 +294,43 @@ test("eventLogFile: null disables logging even when the env var is set", async (
   });
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("each line carries the public v0 event beside the wire payload", () => {
+  const { toAgentEvent } = require("../out/index.js");
+  const file = path.join(tempDir(), "events.jsonl");
+  const payload = buildEventPayload(
+    { toolInstallationId: "cli_agent:abc", source: "cli_agent", sessionId: "s1", projectHash: "p1" },
+    { eventType: "ai_tool_call_failed", severity: "low", metadata: { host: "cursor", toolName: "Shell", outcome: "failure", durationBucket: "0-1m", subagentId: "sub-1" } }
+  );
+  appendEventLog(file, { loggedAt: "2026-01-01T00:00:00.000Z", delivery: "not_sent", payload });
+  const line = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual(line.event, toAgentEvent(payload));
+  assert.equal(line.event.schema, "agent-event/v0");
+  assert.equal(line.event.id, payload.idempotencyKey);
+  assert.equal(line.event.time, payload.occurredAt);
+  assert.equal(line.event.agent, "cursor", "the host names the agent; the source only names the tool type");
+  assert.equal(line.event.kind, "tool.failed");
+  assert.equal(line.event.tool, "Shell");
+  assert.equal(line.event.outcome, "failure");
+  assert.equal(line.event.sessionId, "s1");
+  assert.equal(line.event.subagentId, "sub-1");
+  assert.equal(line.event.projectHash, "p1");
+  assert.equal(line.event.sourceType, "ai_tool_call_failed");
+});
+
+test("the v0 event keeps to the schema's fields, and says nothing the wire payload doesn't", () => {
+  const { toAgentEvent } = require("../out/index.js");
+  const schema = require("@ascenda-one/agent-events/schema/agent-event.v0.schema.json");
+  const allowed = new Set(Object.keys(schema.properties));
+  const types = ["create_focus_session", "ai_prompt_submitted", "ai_tool_call_started", "ai_file_edit", "ai_turn_completed", "supervision_interruption", "subagent_started", "editor_activity"];
+  for (const eventType of types) {
+    const event = toAgentEvent(buildEventPayload(IDENTITY, { eventType, severity: "low", metadata: { toolName: "Edit", outcome: "unknown", workspaceLabel: "never-copied" } }));
+    for (const key of Object.keys(event)) assert.ok(allowed.has(key), `${eventType}: ${key} isn't in the schema`);
+    assert.ok(schema.properties.kind.enum.includes(event.kind), `${eventType}: ${event.kind}`);
+    assert.equal(event.outcome, undefined, "unknown is the same as not saying");
+    assert.equal(JSON.stringify(event).includes("never-copied"), false, "metadata is copied field by field, never wholesale");
+  }
+  assert.equal(toAgentEvent(buildEventPayload(IDENTITY, { eventType: "ai_prompt_submitted", severity: "low", metadata: { toolName: "Edit" } })).tool, undefined, "a tool name only rides tool events");
+  assert.equal(toAgentEvent(buildEventPayload({ toolInstallationId: "v:1", source: "vscode_extension" }, { eventType: "editor_activity", severity: "low", metadata: {} })).agent, "vscode");
+  assert.equal(toAgentEvent(buildEventPayload(IDENTITY, { eventType: "editor_activity", severity: "low", metadata: {} })).kind, "other");
+});

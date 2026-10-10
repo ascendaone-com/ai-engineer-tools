@@ -25,6 +25,8 @@ export const RELEASE_PACKAGES = [
   { dir: "ascenda-agent-mcp", name: "ascenda-agent-mcp", kind: "cli", npm: "@ascenda-one/agent-mcp" },
   { dir: "ascenda-github-collector", name: "ascenda-github-collector", kind: "cli", npm: "@ascenda-one/github-collector" },
   { dir: "ascenda-history-import", name: "ascenda-history-import", kind: "cli", npm: "@ascenda-one/history-import" },
+  // A library: published to npm, nothing staged as a release asset.
+  { dir: "packages/agent-events", name: "agent-events", kind: "library", npm: "@ascenda-one/agent-events" },
 ];
 
 /**

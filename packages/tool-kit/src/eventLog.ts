@@ -1,7 +1,9 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import type { AgentEventV0 } from "@ascenda-one/agent-events";
 import { AscendaEventPayload, IngestResult } from "@ascenda-one/tool-contract";
+import { toAgentEvent } from "./agentEvent";
 import { readMachineCredentials } from "./credentials";
 import { ascendaHome } from "./tokenStore";
 
@@ -23,6 +25,11 @@ import { ascendaHome } from "./tokenStore";
  *     Unpaired means local, and local should produce something a person can
  *     read. A paired install stays off unless one of the above turns it on.
  *
+ * Each line carries two shapes. `payload` is the wire payload, which follows
+ * the backend's contract and can change in any release. `event` is the
+ * public agent event (`@ascenda-one/agent-events`, v0), the part outside
+ * readers should build on.
+ *
  * Nothing here may throw: a sink that can break telemetry, or the user's
  * turn, is worse than no sink.
  */
@@ -38,6 +45,8 @@ export type EventLogEntry = {
   loggedAt: string;
   delivery: IngestResult | "not_sent";
   payload: AscendaEventPayload;
+  /** Filled in by {@link appendEventLog} when the caller leaves it out. */
+  event?: AgentEventV0;
   /**
    * Set when the outbox was involved: `queued` means this attempt failed and
    * the payload was kept for a later drain (so a `transport_error` line is
@@ -136,7 +145,8 @@ export function appendEventLog(logFilePath: string, entry: EventLogEntry): void 
     // previous PostToolUse can race). O_APPEND makes a single write atomic up
     // to PIPE_BUF, and a metadata-only line is a few hundred bytes, so lines
     // interleave only if a caller stuffs an unusually large metadata bag in.
-    fs.appendFileSync(logFilePath, `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600 });
+    const line: EventLogEntry = { ...entry, event: entry.event ?? toAgentEvent(entry.payload) };
+    fs.appendFileSync(logFilePath, `${JSON.stringify(line)}\n`, { encoding: "utf8", mode: 0o600 });
     if (process.platform !== "win32") fs.chmodSync(logFilePath, 0o600);
   } catch {
     // Unwritable path, full disk, read-only mount: the event still shipped.
