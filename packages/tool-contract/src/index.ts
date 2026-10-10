@@ -743,8 +743,8 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   /**
    * Machine-salted digest of the branch the work happened on — the same
    * salt, and the same derivation in tool-kit, that produces
-   * {@link AscendaEventPayload.workspaceHash} and
-   * {@link AscendaEventPayload.projectHash}. `refs/heads/feat/x` and `feat/x`
+   * {@link AscendaEventBody.workspaceHash} and
+   * {@link AscendaEventBody.projectHash}. `refs/heads/feat/x` and `feat/x`
    * are one branch and hash alike; the ref prefix is stripped before hashing.
    *
    * Metadata rather than a top-level field on purpose. The two identifiers up
@@ -1054,8 +1054,17 @@ export const EVENT_METADATA_FIELDS = [
   "collectorVersion"
 ] as const;
 
-export type AscendaEventPayload = {
-  toolInstallationId: string;
+/**
+ * The event itself: what happened, when, where, and under which consent
+ * scope. Nothing here depends on an Ascenda account, so a local sink or a
+ * third-party consumer can take a body on its own.
+ *
+ * `consentScope`, `provenance` and `privacyMode` sit here, not in the
+ * envelope, because they describe the event (a semantic signal is a
+ * different kind of claim from a host event) and travel with it wherever
+ * it goes.
+ */
+export type AscendaEventBody = {
   source: AscendaTelemetrySource;
   eventType: AscendaTelemetryEventType;
   occurredAt: string;
@@ -1097,6 +1106,16 @@ export type AscendaEventPayload = {
   provenance: string;
   privacyMode: AscendaPrivacyMode;
   metadata?: AscendaEventMetadata;
+};
+
+/**
+ * What Ascenda's ingest needs to deliver a body exactly once to the right
+ * pairing. The write token rides in the `Authorization` header, so it's
+ * never part of either half.
+ */
+export type AscendaDeliveryEnvelope = {
+  /** The paired installation this event is attributed to. Issued by pairing. */
+  toolInstallationId: string;
   /**
    * Client-minted replay guard, accepted on both `POST /v1/tool-events` and
    * `POST /v1/tool-events/batch`. Dedupe is enforced server-side; confirm the
@@ -1128,13 +1147,49 @@ export type AscendaEventPayload = {
   idempotencyKey?: string;
 };
 
+/** The envelope's keys, in the order they appear on the wire. */
+export const DELIVERY_ENVELOPE_KEYS = ["toolInstallationId", "idempotencyKey"] as const satisfies readonly (keyof AscendaDeliveryEnvelope)[];
+
+/**
+ * The JSON object `POST /v1/tool-events` takes: envelope and body flattened
+ * into one object. The ingest contract is fixed, so this shape doesn't move;
+ * the split above exists for code that only needs one half.
+ */
+export type AscendaEventPayload = AscendaDeliveryEnvelope & AscendaEventBody;
+
+/**
+ * Flattens an envelope and a body into the wire payload.
+ *
+ * Key order is part of the bytes a sender has always put on the wire, so it's
+ * kept: `toolInstallationId` first, then the body in its own order, with
+ * `idempotencyKey` straight after `occurredAt`. An absent key stays absent.
+ */
+export function joinEventPayload(envelope: AscendaDeliveryEnvelope, body: AscendaEventBody): AscendaEventPayload {
+  const payload: Record<string, unknown> = { toolInstallationId: envelope.toolInstallationId };
+  for (const [key, value] of Object.entries(body)) {
+    payload[key] = value;
+    if (key === "occurredAt" && envelope.idempotencyKey !== undefined) {
+      payload.idempotencyKey = envelope.idempotencyKey;
+    }
+  }
+  return payload as AscendaEventPayload;
+}
+
+/** The inverse of {@link joinEventPayload}: a wire payload split into its two halves. */
+export function splitEventPayload(payload: AscendaEventPayload): { envelope: AscendaDeliveryEnvelope; body: AscendaEventBody } {
+  const { toolInstallationId, idempotencyKey, ...body } = payload;
+  const envelope: AscendaDeliveryEnvelope = { toolInstallationId };
+  if (idempotencyKey !== undefined) envelope.idempotencyKey = idempotencyKey;
+  return { envelope, body };
+}
+
 /** Longest `idempotencyKey` the ingest doors accept; a longer one is rejected, not truncated. */
 export const IDEMPOTENCY_KEY_MAX_LENGTH = 128;
 
 /**
  * The two `status` words that mean an event is on the server and needs no
  * further delivery. `duplicate` is the answer to a replayed
- * {@link AscendaEventPayload.idempotencyKey} (or a replayed `importKey`); it
+ * {@link AscendaDeliveryEnvelope.idempotencyKey} (or a replayed `importKey`); it
  * writes nothing server-side and must be treated exactly like `accepted` for
  * eviction — retrying it would make a backlog immortal, and counting it as a
  * rejection would report a healthy collector as failing.
