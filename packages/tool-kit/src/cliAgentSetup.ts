@@ -3,7 +3,8 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { describeCollectorVersion } from "./collectorVersion";
-import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeHostCredentials } from "./credentials";
+import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeEventLogSetting, writeHostCredentials } from "./credentials";
+import { describeEventLog, parseEventLogFlag, resolveEventLog } from "./eventLog";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
 import { createPairingSession, getPairingStatus, readInitiatives } from "./http";
 import { describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand } from "./hookSet";
@@ -101,6 +102,8 @@ type SetupOptions = {
   dryRun: boolean;
   /** True under `--no-pair`: install the local half and stop there. */
   skipPairing: boolean;
+  /** `--event-log`'s value: a path or `off`. Absent leaves the saved setting alone. */
+  eventLog?: string;
   action: SetupAction;
 };
 
@@ -147,6 +150,8 @@ Options
   --tool-installation-id <id>   reuse an existing pairing instead of creating one
   --token <eventWriteToken>     reuse an existing token (stored 0600, never printed)
   --no-pair                     install without pairing: local features on, nothing sent
+  --event-log [path|off]        keep every event in a local JSONL file (default ~/.ascenda/events.jsonl).
+                                On by default when not paired; machine-wide, shared by every agent
   --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
@@ -233,6 +238,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
       toolInstallationId,
       ...(identity ? { pairedAt: now } : { localOnly: true, installedAt: now })
     });
+    if (options.eventLog !== undefined) writeEventLogSetting(options.eventLog);
   }
 
   if (isHomeProject(options)) {
@@ -270,6 +276,11 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   else if (chosenLocal) row("info", "pairing", `none, as asked ${ui.dim("(--no-pair)")}`);
   else row("warn", "pairing", "not paired: pairing did not finish");
   detail("credentials", `${tidyHomePath(credentialsFilePath(), os.homedir())} (tools.${spec.host})`);
+  // Read back after writing, so the row shows what a hook will do. A dry
+  // run hasn't written, so it reads what is saved now.
+  const eventLog = resolveEventLog({ localOnly: !identity });
+  if (eventLog.path) row("ok", "events", `${tidyHomePath(eventLog.path, os.homedir())} ${ui.dim("(on this machine only)")}`);
+  else if (options.eventLog !== undefined) row("info", "events", "off");
 
   if (options.dryRun) {
     console.log("\nDry run. Nothing was written.");
@@ -282,6 +293,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   if (chosenLocal) {
     console.log(`${ui.mark("ok")} ${ui.bold("Ready.")} The screen saver and the Ascenda app's live view work now.`);
     console.log("  They run on this machine and need no account or pairing.");
+    if (eventLog.path) console.log(`  Every event is also written to ${tidyHomePath(eventLog.path, os.homedir())}, for you or any tool to read.`);
   } else if (!identity) {
     console.log(`${ui.mark("warn")} ${ui.bold("Installed, not paired.")} The screen saver and the live view work now.`);
     console.log("  Your sessions won't reach Ascenda's servers until pairing completes.");
@@ -376,6 +388,12 @@ function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
       case "--dry-run":
         options.dryRun = true;
         break;
+      case "--event-log": {
+        const { value, consumed } = parseEventLogFlag(argv, i);
+        options.eventLog = value;
+        i += consumed;
+        break;
+      }
       case "--no-pair":
       // `--no-pairing` is the spelling this landed under first. Both appeared
       // only in an unreleased changelog, so this alias exists to spare anyone
@@ -693,6 +711,7 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   console.log(`api base url   ${credentials?.apiBaseUrl ?? "— not configured"}`);
   console.log(`pairing        ${credentials?.toolInstallationId ?? "— not paired"}${localOnly ? " (installed, not paired — local features active, telemetry inactive)" : ""}`);
   console.log(`token          ${localOnly ? "— none needed until this install is paired" : tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
+  console.log(`event log      ${describeEventLog(resolveEventLog({ localOnly }), `npx ${spec.packageName} setup`)}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
   // Registered is not the same as runnable. Agents swallow a hook that
   // cannot start, so a full count used to sit beside a machine where no hook
@@ -805,6 +824,8 @@ async function runDoctor(options: SetupOptions, spec: CliAgentSetupSpec): Promis
     lines.push(`  Live signal           (could not be checked: ${error instanceof Error ? error.message : String(error)})`);
   }
   lines.push("", ...accountLines(ui, spec));
+  const localOnly = isLocalOnlyHostInstall(spec.host, (id) => readTokenFile(defaultTokenFilePath(id)) !== undefined);
+  lines.push("", `  ${ui.bold("Local events")}  ${describeEventLog(resolveEventLog({ localOnly }), `npx ${spec.packageName} setup`)}`);
   console.log(lines.join("\n"));
   return 0;
 }
@@ -819,9 +840,9 @@ function accountLines(ui: TerminalStyle, spec: CliAgentSetupSpec): string[] {
       `  ${ui.bold("Account sync")} ${ui.dim("(optional; this install isn't paired)")}`,
       ...(id ? [ui.dim(row("info", "Installation id", id))] : []),
       "",
-      "  Not paired, which is fine: the screen saver and the live view above work",
-      "  without it. Nothing leaves this machine and nothing is queued. To send your",
-      "  sessions to Ascenda's servers, so they appear in the app:",
+      "  Not paired, which is fine: the screen saver, the live view and the local",
+      "  event log work without it. Nothing leaves this machine and nothing is queued.",
+      "  To send your sessions to Ascenda's servers, so they appear in the app:",
       `    ${ui.cyan(`${cliAgentSelfCommand(spec)} setup`)}`
     ];
   }

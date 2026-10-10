@@ -42,16 +42,20 @@ node ascenda-dev-server/dist/cli.js        # http://localhost:4477
 
 ### Without even the dev server
 
-Set `ASCENDA_EVENT_LOG_FILE` and every tool appends what it emits to a JSONL
-file — the exact wire payload plus a `delivery` field recording how it went.
-It needs no server and no pairing (unpaired events log as `not_sent`, an
-unreachable backend as `other`), so it is the shortest path to seeing for
-yourself what a tool actually transmits:
+An unpaired agent install writes every event to `~/.ascenda/events.jsonl`:
+the exact wire payload plus a `delivery` field recording how it went
+(`not_sent` with no pairing, `other` for an unreachable backend). It's the
+shortest path to seeing for yourself what a tool transmits:
 
 ```bash
-export ASCENDA_EVENT_LOG_FILE=~/.ascenda/logs/events.jsonl
-jq -c '[.delivery, .payload.eventType, .payload.metadata]' ~/.ascenda/logs/events.jsonl
+npx @ascenda-one/claude-code-hooks setup --no-pair
+jq -c '[.delivery, .payload.eventType, .payload.metadata]' ~/.ascenda/events.jsonl
 ```
+
+On a paired install, `setup --event-log [path]` or `ASCENDA_EVENT_LOG_FILE`
+turns the same log on. `off` in either place turns it off.
+[examples/local-event-reader](./examples/local-event-reader/) reads the file
+with no dependencies.
 
 The editors take the same setting as `ascenda.eventLogFile` instead: an editor
 is launched from a dock icon with no shell environment, so an env var never
