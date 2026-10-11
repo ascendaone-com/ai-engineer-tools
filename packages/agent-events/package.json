@@ -1,0 +1,28 @@
+{
+  "name": "@ascenda-one/agent-events",
+  "version": "0.1.0",
+  "description": "Experimental v0 event contract for coding-agent activity: a JSON Schema and TypeScript types for the events Ascenda's collectors write locally.",
+  "license": "Apache-2.0",
+  "author": "Ascenda One Pty Ltd",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
+    "directory": "packages/agent-events"
+  },
+  "publishConfig": { "access": "public" },
+  "main": "./out/index.js",
+  "types": "./out/index.d.ts",
+  "exports": {
+    ".": { "types": "./out/index.d.ts", "default": "./out/index.js" },
+    "./schema/agent-event.v0.schema.json": "./schema/agent-event.v0.schema.json"
+  },
+  "files": ["out/*.js", "out/*.d.ts", "schema", "NOTICE"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

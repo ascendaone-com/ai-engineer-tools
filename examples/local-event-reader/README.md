@@ -37,10 +37,16 @@ Prints each event as it lands, which is a quick way to see what a hook sends.
 
 ## What's in the file
 
-One JSON object per line. `payload` is the event exactly as a paired install
-would send it. It's metadata only: event types, tool names, size and duration
-buckets, hashed project ids. No prompt text, file contents, file names or
-command output ever appear in it.
+One JSON object per line. The `event` field is the public agent event, v0:
+which agent, what happened, which tool, how it ended. Its schema and the
+compatibility policy are in [packages/agent-events](../../packages/agent-events/).
+This script reads only that field, and so should anything you build.
+
+`payload` beside it is the event exactly as a paired install would send it.
+It follows Ascenda's own backend contract and can change in any release.
+
+Both are metadata only. No prompt text, file contents, file names or command
+output ever appear in either.
 
 The log rotates at 5 MB to `events.jsonl.1`, so it never takes more than about
 10 MB. To stop it, run `setup --event-log off`, or set
