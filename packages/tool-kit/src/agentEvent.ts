@@ -58,7 +58,9 @@ export function toAgentEvent(payload: AscendaEventPayload): AgentEventV0 {
     schema: AGENT_EVENT_SCHEMA,
     id: payload.idempotencyKey ?? `${payload.toolInstallationId}:${payload.occurredAt}:${payload.eventType}`,
     time: payload.occurredAt,
-    ...(typeof payload.utcOffsetMinutes === "number" ? { utcOffsetMinutes: payload.utcOffsetMinutes } : {}),
+    // `+ 0` turns the -0 a UTC machine computes into 0, which is what JSON
+    // writes anyway; without it the event in memory and the one on disk differ.
+    ...(typeof payload.utcOffsetMinutes === "number" ? { utcOffsetMinutes: payload.utcOffsetMinutes + 0 } : {}),
     agent: agentOf(payload),
     kind,
     ...(stringField(payload.sessionId) ? { sessionId: payload.sessionId as string } : {}),
