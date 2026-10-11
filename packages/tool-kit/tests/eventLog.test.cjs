@@ -11,12 +11,25 @@ const path = require("node:path");
 process.env.ASCENDA_STATE_DIR = require("node:fs").mkdtempSync(
   require("node:path").join(require("node:os").tmpdir(), "ascenda-test-state-")
 );
+// The saved setting lives in ~/.ascenda/credentials.json. Point that at a
+// scratch directory so a developer's own setting can't change these results.
+process.env.ASCENDA_HOME = require("node:fs").mkdtempSync(
+  require("node:path").join(require("node:os").tmpdir(), "ascenda-test-home-")
+);
 const {
   AscendaEventSender,
   EVENT_LOG_ENV_VAR,
   appendEventLog,
   buildEventPayload,
-  resolveEventLogPath
+  defaultEventLogPath,
+  describeEventLog,
+  parseEventLogFlag,
+  readMachineCredentials,
+  resolveEventLog,
+  resolveEventLogPath,
+  writeEventLogSetting,
+  writeMachineCredentials,
+  writeTopLevelCredentials
 } = require("../out/index.js");
 
 const IDENTITY = { toolInstallationId: "claude_code:abc", source: "claude_code" };
@@ -46,9 +59,66 @@ function entry(overrides = {}) {
   };
 }
 
-test("off unless the env var is set", () => {
-  withEnv(undefined, () => assert.equal(resolveEventLogPath(), undefined));
-  withEnv("   ", () => assert.equal(resolveEventLogPath(), undefined, "whitespace is not a path"));
+function withSaved(value, fn) {
+  const before = readMachineCredentials();
+  if (value === undefined) writeMachineCredentials({});
+  else writeEventLogSetting(value);
+  try {
+    return fn();
+  } finally {
+    writeMachineCredentials(before ?? {});
+  }
+}
+
+test("off on a paired install unless something turns it on", () => {
+  withSaved(undefined, () => {
+    withEnv(undefined, () => assert.equal(resolveEventLogPath(), undefined));
+    withEnv("   ", () => assert.equal(resolveEventLogPath(), undefined, "whitespace is not a path"));
+    withEnv(undefined, () => assert.equal(resolveEventLog().source, "off"));
+  });
+});
+
+test("on by default for an unpaired install, at ~/.ascenda/events.jsonl", () => {
+  withSaved(undefined, () => withEnv(undefined, () => {
+    assert.deepEqual(resolveEventLog({ localOnly: true }), { path: defaultEventLogPath(), source: "unpaired-default" });
+    assert.equal(defaultEventLogPath(), path.join(process.env.ASCENDA_HOME, "events.jsonl"));
+  }));
+});
+
+test("the env var wins over the saved setting, and the saved setting over the unpaired default", () => {
+  withSaved("~/saved.jsonl", () => {
+    withEnv(undefined, () => {
+      assert.deepEqual(resolveEventLog({ localOnly: true }), { path: path.join(os.homedir(), "saved.jsonl"), source: "credentials" });
+      assert.equal(resolveEventLogPath(), path.join(os.homedir(), "saved.jsonl"), "a saved path turns a paired install on too");
+    });
+    withEnv("/tmp/env.jsonl", () => assert.deepEqual(resolveEventLog({ localOnly: true }), { path: "/tmp/env.jsonl", source: "env" }));
+  });
+});
+
+test("off in either place turns it off, unpaired included", () => {
+  withSaved(undefined, () => withEnv("OFF", () => assert.deepEqual(resolveEventLog({ localOnly: true }), { path: undefined, source: "disabled" })));
+  withSaved("off", () => withEnv(undefined, () => assert.deepEqual(resolveEventLog({ localOnly: true }), { path: undefined, source: "disabled" })));
+  withSaved("off", () => withEnv("/tmp/env.jsonl", () => assert.equal(resolveEventLogPath(), "/tmp/env.jsonl", "the env var still wins")));
+});
+
+test("a re-pair keeps the saved setting", () => {
+  withSaved("off", () => {
+    writeTopLevelCredentials({ apiBaseUrl: "https://example.test", toolInstallationId: "claude_code:abc", pairedAt: "2026-01-01T00:00:00.000Z" });
+    assert.equal(readMachineCredentials().eventLogPath, "off");
+  });
+});
+
+test("--event-log takes an optional value", () => {
+  assert.deepEqual(parseEventLogFlag(["--event-log"], 0), { value: defaultEventLogPath(), consumed: 0 });
+  assert.deepEqual(parseEventLogFlag(["--event-log", "--no-pair"], 0), { value: defaultEventLogPath(), consumed: 0 });
+  assert.deepEqual(parseEventLogFlag(["--event-log", "off"], 0), { value: "off", consumed: 1 });
+  assert.deepEqual(parseEventLogFlag(["--event-log", "~/x.jsonl"], 0), { value: "~/x.jsonl", consumed: 1 });
+});
+
+test("status names which rule decided", () => {
+  assert.match(describeEventLog({ path: "/a", source: "unpaired-default" }, "npx x setup"), /isn't paired; npx x setup --event-log off/);
+  assert.match(describeEventLog({ path: undefined, source: "disabled" }, "npx x setup"), /^off \(turned off/);
+  assert.match(describeEventLog({ path: "/a", source: "env" }, "npx x setup"), /ASCENDA_EVENT_LOG_FILE/);
 });
 
 test("expands a leading ~ rather than creating a directory called ~", () => {

@@ -30,6 +30,13 @@ export type HostCredentials = {
   localOnly?: true;
   /** When `setup` ran, on an installation that has no `pairedAt` yet. */
   installedAt?: string;
+  /**
+   * Where the local event log goes, or `off` (see eventLog.ts). Machine-wide:
+   * read from the top level only, never from a `tools.<host>` entry, because
+   * every adapter on a machine shares one log file. Written by any adapter's
+   * `setup --event-log`.
+   */
+  eventLogPath?: string;
 };
 
 export type MachineCredentials = HostCredentials & {
@@ -65,10 +72,25 @@ export function writeMachineCredentials(credentials: MachineCredentials): void {
   }
 }
 
-/** Claude Code's top-level pairing, written without disturbing `tools`. */
+/**
+ * Claude Code's top-level pairing, written without disturbing `tools` or the
+ * machine-wide event log setting. A re-pair rewrites the pairing fields; it
+ * must not quietly turn someone's log on or off.
+ */
 export function writeTopLevelCredentials(credentials: HostCredentials): void {
   const existing = readMachineCredentials();
-  writeMachineCredentials({ ...credentials, ...(existing?.tools ? { tools: existing.tools } : {}) });
+  const eventLogPath = credentials.eventLogPath ?? existing?.eventLogPath;
+  writeMachineCredentials({
+    ...credentials,
+    ...(eventLogPath ? { eventLogPath } : {}),
+    ...(existing?.tools ? { tools: existing.tools } : {})
+  });
+}
+
+/** Saves the machine-wide event log setting: a path, or `off`. */
+export function writeEventLogSetting(value: string): void {
+  const existing = readMachineCredentials() ?? {};
+  writeMachineCredentials({ ...existing, eventLogPath: value });
 }
 
 /**

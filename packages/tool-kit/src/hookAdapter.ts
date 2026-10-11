@@ -194,8 +194,8 @@ export type HookDeliveryOptions = CliAgentIdentity & {
 };
 
 /**
- * Send mapped events, or — when the install is not paired and a local log is
- * configured — record what would have been sent. Returns silently either way;
+ * Send mapped events, or, when the install is not paired, record what would
+ * have been sent in the local event log. Returns silently either way;
  * a telemetry problem is never the user's problem.
  *
  * A send that cannot name its installation is journalled before anything
@@ -210,11 +210,16 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
   // An install that was asked not to pair has nothing to deliver with, and
   // that is not a fault worth reporting: without this it journals a skipped
   // send on every event for the life of the install, and `doctor` reads a
-  // chosen state as a broken one. The local half — the live signal to a
-  // socket on this machine — has already run by the time we reach here.
+  // chosen state as a broken one. The live signal to a socket on this
+  // machine has already run by the time we reach here. What's left is the
+  // local event log, which is on by default for exactly this install.
   const hasToken = (id: string) =>
     readTokenFile(process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(id)) !== undefined;
-  if (options.host && isLocalOnlyHostInstall(options.host, hasToken)) return;
+  if (options.host && isLocalOnlyHostInstall(options.host, hasToken)) {
+    const logFile = resolveEventLogPath({ localOnly: true });
+    if (logFile) logUnsent(logFile, events, options);
+    return;
+  }
 
   let config: CliAgentConfig;
   try {
@@ -224,20 +229,7 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
 
     const logFile = resolveEventLogPath();
     if (!logFile) throw error;
-    const contextHashes = resolveContextHashes(options.cwd);
-    for (const event of events) {
-      appendEventLog(logFile, {
-        loggedAt: new Date().toISOString(),
-        delivery: "not_sent",
-        payload: buildEventPayload({
-          toolInstallationId: `${options.toolType}:unpaired`,
-          source: options.source,
-          sessionId: options.sessionId ?? null,
-          workspaceHash: contextHashes.workspaceHash,
-          projectHash: contextHashes.projectHash
-        }, event)
-      });
-    }
+    logUnsent(logFile, events, options);
     return;
   }
 
@@ -266,6 +258,29 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
       notice(`Ascenda telemetry rejected: ${result}`);
     }
     return;
+  }
+}
+
+/**
+ * Records events no send was attempted for, because this install has no
+ * pairing or none could be resolved. The id is a placeholder because there
+ * is no pairing to name: `not_sent` plus this value is what tells these
+ * lines from delivered ones.
+ */
+function logUnsent(logFile: string, events: MappedEvent[], options: HookDeliveryOptions): void {
+  const contextHashes = resolveContextHashes(options.cwd);
+  for (const event of events) {
+    appendEventLog(logFile, {
+      loggedAt: new Date().toISOString(),
+      delivery: "not_sent",
+      payload: buildEventPayload({
+        toolInstallationId: `${options.toolType}:unpaired`,
+        source: options.source,
+        sessionId: process.env.ASCENDA_SESSION_ID?.trim() || options.sessionId || null,
+        workspaceHash: contextHashes.workspaceHash,
+        projectHash: contextHashes.projectHash
+      }, event)
+    });
   }
 }
 

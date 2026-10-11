@@ -12,6 +12,7 @@ const {
   readCollectorState,
   resolveCliAgentInstallationId,
   unresolvedStateFilePath,
+  writeEventLogSetting,
   writeHostCredentials
 } = require("../out/index.js");
 
@@ -44,6 +45,24 @@ async function isolated(run) {
     fs.rmSync(home, { recursive: true, force: true });
   }
 }
+
+test("an unpaired install with the log turned off writes nothing", async () => {
+  await isolated(async (home) => {
+    writeHostCredentials("cursor", { toolInstallationId: `cli_agent:${UUID_A}`, localOnly: true, installedAt: new Date().toISOString() });
+    const event = { eventType: "ai_tool_call_started", severity: "low", metadata: { host: "cursor" } };
+
+    process.env.ASCENDA_EVENT_LOG_FILE = "off";
+    await deliverHookEvents([event], { toolType: "cli_agent", host: "cursor", source: "cli_agent" });
+    assert.equal(fs.existsSync(path.join(home, "events.jsonl")), false);
+
+    // The same through the saved setting, which is what reaches a hook
+    // spawned with no shell environment.
+    delete process.env.ASCENDA_EVENT_LOG_FILE;
+    writeEventLogSetting("off");
+    await deliverHookEvents([event], { toolType: "cli_agent", host: "cursor", source: "cli_agent" });
+    assert.equal(fs.existsSync(path.join(home, "events.jsonl")), false);
+  });
+});
 
 test("one cli_agent token on disk: the id comes from disk, and the token from that file", async () => {
   await isolated(() => {
@@ -159,7 +178,7 @@ test("a delivery with no resolvable id is journalled as skipped_no_installation_
   });
 });
 
-test("an install that was asked not to pair delivers nothing, and journals nothing", async () => {
+test("an install that was asked not to pair delivers nothing, journals nothing, and keeps a local log", async () => {
   await isolated(async (home) => {
     // What `setup --no-pair` leaves behind: an id, the flag, no token.
     writeHostCredentials("cursor", {
@@ -176,6 +195,14 @@ test("an install that was asked not to pair delivers nothing, and journals nothi
     await deliverHookEvents([event], { toolType: "cli_agent", host: "cursor", source: "cli_agent" });
     await deliverHookEvents([event], { toolType: "cli_agent", host: "cursor", source: "cli_agent" });
     assert.equal(fs.existsSync(path.join(home, "state")), false);
+
+    // Unpaired means local, so the events land in the default log with
+    // nothing configured. That file is what an outside reader consumes.
+    const lines = fs.readFileSync(path.join(home, "events.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0].delivery, "not_sent");
+    assert.equal(lines[0].payload.eventType, "ai_tool_call_started");
+    assert.equal(lines[0].payload.toolInstallationId, "cli_agent:unpaired");
 
     // A token arriving later wins over the flag: pairing happened, so the
     // delivery path runs again. The send fails against a host that does not

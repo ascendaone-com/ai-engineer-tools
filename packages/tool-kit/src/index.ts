@@ -16,8 +16,8 @@ export { getString, getNumber, getNested, getNestedString, getNestedNumber, infe
 export { COLLECTOR_VERSION, UNRELEASED_COLLECTOR_VERSION, describeCollectorVersion } from "./collectorVersion";
 export { AscendaEventSender, AscendaSemanticEventError, TOKEN_RENEW_LEAD_MS, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
-export { EVENT_LOG_ENV_VAR, appendEventLog, expandUserPath, resolveEventLogPath } from "./eventLog";
-export type { EventLogEntry } from "./eventLog";
+export { EVENT_LOG_ENV_VAR, EVENT_LOG_OFF, appendEventLog, defaultEventLogPath, describeEventLog, expandUserPath, parseEventLogFlag, resolveEventLog, resolveEventLogPath } from "./eventLog";
+export type { EventLogEntry, EventLogOptions, EventLogSetting, EventLogSource } from "./eventLog";
 export {
   DEFAULT_API_BASE_URL,
   MissingInstallationIdError,
@@ -45,6 +45,7 @@ export {
   readMachineCredentials,
   removeHostCredentials,
   writeHostCredentials,
+  writeEventLogSetting,
   writeMachineCredentials,
   writeTopLevelCredentials
 } from "./credentials";

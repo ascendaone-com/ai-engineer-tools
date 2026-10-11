@@ -23,6 +23,8 @@ import {
   readHookSet,
   readViaPlugin,
   recordSendOutcome,
+  describeEventLog,
+  resolveEventLog,
   resolveEventLogPath,
   shouldAnnounceFailure,
   unresolvedToolInstallationId,
@@ -373,10 +375,11 @@ async function main(): Promise<void> {
     // token store, an id nobody can resolve. Those are outages and must shout.
     if (!unpaired && error instanceof MissingInstallationIdError) journalSkippedSend(error);
 
-    // With a log file configured, an unpaired install is a supported mode, not
-    // a failure: you can watch exactly what this tool would transmit before
-    // deciding to pair. Without one there is nowhere for the event to go.
-    const logFile = resolveEventLogPath();
+    // An unpaired install writes the local log unless someone turned it off:
+    // you can read exactly what this tool would transmit, or build on it,
+    // without ever pairing. A paired install whose send failed writes only if
+    // a log was configured. Without one there is nowhere for the event to go.
+    const logFile = resolveEventLogPath({ localOnly: unpaired });
     if (!logFile) {
       if (unpaired) return;
       throw error;
@@ -680,6 +683,7 @@ async function runDoctor(): Promise<void> {
     lines.push(`  Live signal           (could not be checked: ${error instanceof Error ? error.message : String(error)})`, "");
   }
   const unpaired = localOnlyInstall();
+  lines.push(`  ${ui.bold("Local events")}  ${describeEventLog(resolveEventLog({ localOnly: unpaired }), "npx @ascenda-one/claude-code-hooks setup")}`, "");
   // Named for what it does for the person, and marked optional when it is
   // off by choice: under a bare "Telemetry" heading, a column of "none"
   // read as a failed install to someone who had only wanted the saver.
@@ -759,9 +763,9 @@ async function runDoctor(): Promise<void> {
   if (unpaired) {
     lines.push(
       "",
-      "  Not paired, which is fine: the screen saver and the live view above work",
-      "  without it. Nothing leaves this machine and nothing is queued. To send your",
-      "  sessions to Ascenda's servers, so they appear in the app:",
+      "  Not paired, which is fine: the screen saver, the live view and the local",
+      "  event log work without it. Nothing leaves this machine and nothing is queued.",
+      "  To send your sessions to Ascenda's servers, so they appear in the app:",
       `    ${ui.cyan(`${selfCommand()} pair`)}`
     );
     await finish();
