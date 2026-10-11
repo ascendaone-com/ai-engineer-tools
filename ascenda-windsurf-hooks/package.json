@@ -9,8 +9,9 @@
     "directory": "ascenda-windsurf-hooks"
   },
   "type": "module",
-  "files": ["dist", "examples"],
+  "files": ["dist", "examples", "NOTICE"],
   "license": "Apache-2.0",
+  "author": "Ascenda One Pty Ltd",
   "bin": {
     "ascenda-windsurf-hook": "./dist/cli.js"
   },
