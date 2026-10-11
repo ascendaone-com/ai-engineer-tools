@@ -210,6 +210,9 @@ or check what the collectors record. None of it needs an Ascenda account.
 The format is v0 and experimental. If you build on it, tell us what's missing
 in an issue: that's what decides v1.
 
+Forks and commercial products built on these collectors are welcome under
+[Apache-2.0](./LICENSE).
+
 ## Build from source
 
 You don't need this to use the tools. It's here because "verify what you're
