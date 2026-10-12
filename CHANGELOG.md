@@ -10,6 +10,46 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.35
+
+### Your agents' events, on your own machine
+
+- **An install without pairing keeps a log.** Set up with `--no-pair`, or
+  with a pairing that didn't finish, every agent now writes each event to
+  `~/.ascenda/events.jsonl`. It's the same metadata a paired install would
+  send, and nothing leaves the machine. Until now Codex, Cursor, Gemini CLI
+  and Windsurf kept nothing locally, and Claude Code did only if you'd
+  exported `ASCENDA_EVENT_LOG_FILE`.
+- **You choose where it goes.** `setup --event-log` keeps the file on a
+  paired install too, `setup --event-log <path>` moves it, and
+  `setup --event-log off` stops it. The setting covers every agent on the
+  machine, the VS Code extension included, and a re-pair keeps it.
+  `ASCENDA_EVENT_LOG_FILE` still wins for one shell, and takes `off` as well.
+- **`setup`, `status` and `doctor` show the file.** Each names the path and
+  why the log is on.
+- The file rotates at 5 MB, keeps one older copy, and only your user can
+  read it.
+
+### An open event format: `@ascenda-one/agent-events`
+
+- **Every line of the log carries an `event`.** It says which agent, what
+  happened, which tool and how it ended, in a small format called
+  `agent-event/v0`. It holds nothing the collectors didn't already record.
+- **The format has its own package.** `@ascenda-one/agent-events` is new on
+  npm: a JSON Schema, TypeScript types and a reader for the log. No
+  dependencies, no account.
+- **It's experimental.** Fields and kinds can be added in any release.
+  Anything renamed or removed is listed in the notes for the release that
+  changes it. The package README has the full policy.
+- `examples/local-event-reader` in the repo reads the file with plain Node.
+  It sums up each session, or follows the log live with `--follow`.
+
+### Licences
+
+- Every package on npm now ships its licence and a NOTICE naming Ascenda One
+  Pty Ltd. `agent-mcp`, `github-collector` and `history-import` went out
+  without a LICENSE file before.
+
 ## v0.1.34
 
 ### Claude Code hooks work on a fresh account
