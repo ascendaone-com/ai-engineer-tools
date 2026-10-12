@@ -1,21 +1,66 @@
 # ai-engineer-tools
 
-The collectors behind Ascenda: small, open-source hooks and an editor
-extension that notice how AI-assisted engineering work is going. They record
-metadata only, never source code, prompts or file names. What the
-measurements do and do not establish is set out in
+Open-source collectors that record what your coding agents do, on your own
+machine. There are hooks for Claude Code, Codex, Cursor, Gemini CLI and
+Windsurf, and an editor extension for VS Code and Cursor. Installed without
+an account, the hooks write every event to a local file in an open format.
+They record metadata only, never source code, prompts or file names.
+What the events do and don't tell you is set out in
 [What this measures](#what-this-measures-and-what-that-does-not-yet-prove).
 
-There are two ways to use them, and the first needs no account:
+```text
+$ node examples/local-event-reader/read-events.mjs --follow
+Watching ~/.ascenda/events.jsonl. Ctrl-C to stop.
+07:29:39 AM  Claude Code  session.started
+07:29:41 AM  Claude Code  prompt.submitted
+07:29:44 AM  Claude Code  tool.started Read
+07:29:45 AM  Claude Code  tool.completed Read
+07:29:47 AM  Codex        prompt.submitted
+07:29:49 AM  Claude Code  tool.started Edit
+07:29:50 AM  Claude Code  tool.completed Edit
+07:29:52 AM  Codex        tool.started local_shell
+07:29:53 AM  Claude Code  tool.started Bash
+07:29:56 AM  Codex        tool.failed local_shell (failure)
+07:29:58 AM  Claude Code  tool.failed Bash (failure)
+07:30:00 AM  Claude Code  agent.waiting
+07:30:02 AM  Claude Code  turn.completed
+```
 
-- **On this Mac only.** The hooks send a live signal to a socket on your own
-  machine. The Ascenda Flow app's live view and the Waterline screen saver
-  read it to show that an agent is working, or waiting on you. They also
-  write every event to `~/.ascenda/events.jsonl`, in an open format any tool
-  can read (see [Using the events yourself](#using-the-events-yourself)).
-  Nothing leaves the machine.
-- **With your Ascenda account.** Pair a tool once and its events also go to
-  Ascenda, so your sessions appear in the Flow app over time.
+A Claude Code session and a Codex session side by side, read by
+[a small script](./examples/local-event-reader/) with no dependencies. The
+hook payloads were replayed through the real collectors, so you can run the
+same thing. Install any agent's hooks with `--no-pair` and you get this file.
+
+## Built with these collectors
+
+We build three things on the same collectors. You don't need any of them to
+use the collectors or to build on the events.
+
+**Waterline.** A free macOS screen saver that turns Claude Code, Codex and
+Cursor activity into a water level. It runs on your Mac, with no account.
+[See Waterline](https://www.ascendaflow.com/waterline?source=github)
+
+<img src="https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/waterline-paired.gif" width="640" alt="The Waterline screen saver: a clock over dark water whose level moves with agent activity">
+
+<sub>Waterline with Ascenda Flow paired, at double speed. Flow gives the water its colour.</sub>
+
+**Ascenda Flow.** A macOS app that shows how you work with your agents:
+how many you run at once, when your best work happens, and what gets in the
+way. It starts from the history Claude Code, Cursor and Codex already keep on
+your Mac. Free for individual engineers, with invitations going out by email.
+[Get early access](https://www.ascendaflow.com/?source=github)
+
+<img src="https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/flow-hud.gif" width="207" alt="The Flow HUD: a colour field labelled Activated, Clear, Strained and Drained, with a frame that fills as agents work">
+
+<sub>Flow's HUD while agents work, about 8× speed.</sub>
+
+**Founding Benchmark.** A study of how small AI-native teams work with
+agents: concurrency, who carries the review load, steering and rework. We're
+inviting 200 teams of roughly 2 to 15 engineers, selected in waves of 20.
+Selected teams get early access to Flow, and a comparison with similar teams
+once the cohort has enough of them. It's free, and each engineer decides
+whether to take part.
+[Apply with your team](https://www.ascendaflow.com/benchmark?source=github)
 
 ## Install
 
@@ -30,7 +75,7 @@ Pick the tools you use. Each works alone, and each has its own pairing.
 | Gemini CLI | `npx -y @ascenda-one/gemini-hooks setup` | `~/.gemini/settings.json` |
 
 Add `--no-pair` to install without an account. `setup` then installs the hooks
-and stops; the live signal works, and nothing is sent.
+and stops. The live signal and the local event log work, and nothing is sent.
 
 ![setup --no-pair finishing with "Ready. The screen saver and the Ascenda app's live view work now."](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/cli-setup-no-pair.png)
 
@@ -74,20 +119,6 @@ what it finds.
 so it can gate a CI step. `uninstall` removes the hooks, the launcher and the
 pairing.
 
-### What each agent can report
-
-The agents expose different hooks, so they can't all say the same things. A
-gap here is the agent's hook set, not something we infer around.
-
-| | Claude Code | Codex | Cursor | Gemini CLI | Windsurf |
-| --- | --- | --- | --- | --- | --- |
-| Working (prompts, tool calls) | yes | yes | yes | yes | yes |
-| Waiting on you (an approval) | yes | yes | no hook | yes | no hook |
-| Context compaction | yes | yes | yes | yes | no hook |
-| Quit mid-turn ends the session | yes | no hook | yes | yes | no hook |
-
-Each package's README lists its events in full.
-
 ### Claude Code: the plugin, or `setup`
 
 The Claude Code plugin installs the hooks together with the work-signals
@@ -126,6 +157,77 @@ cursor --install-extension ascenda-one.ascenda   # Cursor
 
 On macOS those commands aren't on PATH until you run **Shell Command: Install
 'code' command in PATH** from the Command Palette.
+
+## The event format
+
+Install any agent's hooks with `--no-pair` and every event lands in
+`~/.ascenda/events.jsonl`. Each line's `event` field follows an open, versioned
+format: which agent, what happened, which tool, how it ended. It's documented
+in [packages/agent-events](./packages/agent-events/), and
+[examples/local-event-reader](./examples/local-event-reader/) is a
+dependency-free script that reads it. Build a dashboard, feed your own tool,
+or check what the collectors record. None of it needs an Ascenda account.
+
+The format is v0 and experimental. If you build on it, tell us what's missing
+in an issue: that's what decides v1.
+
+### What each agent can report
+
+The agents expose different hooks, so they can't all say the same things. A
+gap here is the agent's hook set, not something we infer around.
+
+| | Claude Code | Codex | Cursor | Gemini CLI | Windsurf |
+| --- | --- | --- | --- | --- | --- |
+| Working (prompts, tool calls) | yes | yes | yes | yes | yes |
+| Waiting on you (an approval) | yes | yes | no hook | yes | no hook |
+| Context compaction | yes | yes | yes | yes | no hook |
+| Quit mid-turn ends the session | yes | no hook | yes | yes | no hook |
+
+Each package's README lists its events in full.
+
+## Privacy and the local-first design
+
+The collectors work in two ways, and the first needs no account:
+
+- **On your machine only.** The hooks write every event to
+  `~/.ascenda/events.jsonl` and send a live signal to a socket on your Mac,
+  which Waterline and the Flow app read. Nothing leaves the machine.
+- **With your Ascenda account.** [Pair](#pairing) a tool once and its events
+  go to Ascenda, so your sessions appear in Flow over time. The live signal
+  keeps working, and `setup --event-log` keeps the local file as well.
+
+Workspace identifiers are hashed with a random salt generated on first run and
+stored only at `~/.ascenda/salt`. It is never sent, so the hashes can't be
+turned back into folder or repository names by anyone holding the telemetry.
+Deleting the file resets the hashes.
+
+Metadata only, by default. **Not a medical device:** it measures workload
+patterns for self-awareness, not diagnosis or treatment, and makes no clinical
+claim. Consent is scoped and separately revocable: `ide_telemetry` for editor
+and agent signals, `workflow_telemetry` for collaboration signals, and
+`semantic_work_signals` for the patterns an agent reports. Granting one does
+not grant the others.
+
+What the metadata-only guarantee covers on each surface is listed in each
+package's README under **Privacy defaults**, including where it is enforced
+by schema rather than convention: the semantic signal tool rejects free text
+outright.
+
+## Build your own
+
+- **Read the events.** [packages/agent-events](./packages/agent-events/) has
+  the schema, the types and a reader, and
+  [examples/local-event-reader](./examples/local-event-reader/) is a working
+  starting point.
+- **Add an agent.** Each collector is a thin adapter over a shared runtime.
+  [CONTRIBUTING.md](./CONTRIBUTING.md) walks through adding one, and how to test
+  it with no backend.
+- **Report what breaks.** Agents change their hooks often. The
+  [issue forms](https://github.com/ascendaone-com/ai-engineer-tools/issues/new/choose)
+  take a compatibility report or a proposal for a new integration.
+
+Forks and commercial products built on these collectors are welcome under
+[Apache-2.0](./LICENSE).
 
 ## Pairing
 
@@ -196,22 +298,6 @@ The repo is an npm workspace. The tools above are thin shells over these:
 | [packages/tool-kit](./packages/tool-kit/) | The shared runtime: `setup`, `status` and `doctor` for the CLI agents, the hook launcher, the live signal, the command classifier, the token store and the `/v1` client |
 | [packages/ide-extension-core](./packages/ide-extension-core/) | The single extension implementation; whether it runs in VS Code or Cursor is detected at runtime |
 | [packages/agent-events](./packages/agent-events/) | `@ascenda-one/agent-events` on npm. The public event format, v0 and experimental: a JSON Schema, types and a log reader |
-
-## Using the events yourself
-
-Install any agent's hooks with `--no-pair` and every event lands in
-`~/.ascenda/events.jsonl`. Each line's `event` field follows an open, versioned
-format: which agent, what happened, which tool, how it ended. It's documented
-in [packages/agent-events](./packages/agent-events/), and
-[examples/local-event-reader](./examples/local-event-reader/) is a
-dependency-free script that reads it. Build a dashboard, feed your own tool,
-or check what the collectors record. None of it needs an Ascenda account.
-
-The format is v0 and experimental. If you build on it, tell us what's missing
-in an issue: that's what decides v1.
-
-Forks and commercial products built on these collectors are welcome under
-[Apache-2.0](./LICENSE).
 
 ## Build from source
 
@@ -290,25 +376,6 @@ with the `ascenda.apiBaseUrl` setting. Never commit tokens.
 The terminal screenshots above are rendered from the real CLI by
 `node scripts/render-cli-shots.mjs`; re-run it when the output changes. See
 [docs/images](./docs/images/README.md).
-
-## Privacy and compliance
-
-Workspace identifiers are hashed with a random salt generated on first run and
-stored only at `~/.ascenda/salt`. It is never sent, so the hashes can't be
-turned back into folder or repository names by anyone holding the telemetry.
-Deleting the file resets the hashes.
-
-Metadata only, by default. **Not a medical device:** it measures workload
-patterns for self-awareness, not diagnosis or treatment, and makes no clinical
-claim. Consent is scoped and separately revocable: `ide_telemetry` for editor
-and agent signals, `workflow_telemetry` for collaboration signals, and
-`semantic_work_signals` for the patterns an agent reports. Granting one does
-not grant the others.
-
-What the metadata-only guarantee covers on each surface is listed in each
-package's README under **Privacy defaults**, including where it is enforced
-by schema rather than convention: the semantic signal tool rejects free text
-outright.
 
 ## What this measures, and what that does not yet prove
 
