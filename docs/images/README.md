@@ -31,6 +31,8 @@ a branch preview will show a broken image until then. That is expected.
 | `cli-setup-no-pair.png` | `setup --no-pair` finishing with "Ready." **Generated**, see below | root README, Claude Code README |
 | `cli-doctor-ready.png` | `doctor` on a fresh install, with the verdict line. **Generated** | root README |
 | `cli-doctor-problem.png` | `doctor` naming a problem (hooks not registered) and its fix. **Generated** | root README |
+| `waterline-paired.gif` | The Waterline screen saver with Ascenda Flow paired, the water falling as agent work winds down. Made from the recording on ascendaflow.com/waterline at 2× speed, 800px wide, 12 fps | root README, Built with these collectors |
+| `flow-hud.gif` | The Flow HUD while agents work: 82 seconds of screen captures at about 8× speed, 414×414 (a 207-point window at 2×) | root README, Built with these collectors |
 
 ## Generated terminal shots
 
