@@ -3,7 +3,7 @@
 Claude Code hooks adapter for Ascenda AI workload telemetry.
 
 Part of [ai-engineer-tools](../). For what these measurements do and do not
-establish, see [What this measures](../#what-this-measures-and-what-that-does-not-yet-prove).
+establish, see [What this measures](../#what-this-measures).
 Event mapping: [docs/CLAUDE_MAPPING.md](./docs/CLAUDE_MAPPING.md).
 
 ## What it sends

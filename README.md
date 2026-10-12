@@ -6,7 +6,7 @@ Windsurf, and an editor extension for VS Code and Cursor. Installed without
 an account, the hooks write every event to a local file in an open format.
 They record metadata only, never source code, prompts or file names.
 What the events do and don't tell you is set out in
-[What this measures](#what-this-measures-and-what-that-does-not-yet-prove).
+[What this measures](#what-this-measures).
 
 ```text
 $ node examples/local-event-reader/read-events.mjs --follow
@@ -377,26 +377,21 @@ The terminal screenshots above are rendered from the real CLI by
 `node scripts/render-cli-shots.mjs`; re-run it when the output changes. See
 [docs/images](./docs/images/README.md).
 
-## What this measures, and what that does not yet prove
+## What this measures
 
-**What it captures.** Named, observable events: context switches, prompt and
-correction loops, verification runs, tool-call density, context compaction,
-agent loop depth, after-hours activity. Counts and classifications, compared
-against your own history.
+**What it records.** Events you can name: prompts and corrections, tool
+calls and how they ended, test and build runs, context compaction, how long
+agent loops run, how many agents are going at once, and work outside your
+usual hours. Counts and classifications, set against your own history.
 
-**The hypothesis under test.** That friction of this kind rises measurably
-before a person notices being overloaded, and that a personal baseline shows
-the rise earlier than self-report alone. That is why the collectors exist. It
-is not a result they demonstrate.
+**What we're testing.** Whether patterns like these shift before you notice
+the work getting heavier, and whether your own baseline shows that sooner than
+you'd see it yourself. That's the question the collectors were built to
+answer. We don't have the answer yet.
 
-**What is not established.** There is no peer-reviewed link between AI-tool
-operational metrics and any validated cognitive-load instrument, and our own
-calibration study has not been run. So nothing here detects burnout,
-diagnoses a state, or predicts one. It counts things that happened and shows
-them against your own history.
-
-We say that plainly on purpose. Implying the inference already works is the
-failure this design exists to avoid, and a strange thing to fake in a
-repository whose whole argument is that you can read the source.
+**What's still open.** No published study yet links agent activity like this
+to a validated measure of workload, and our own calibration study hasn't run.
+Today the collectors count what happened and show it against your history.
+The source is here, so you can check exactly what that means.
 
 Wire contract: [Tool Pairing API Reference](./api-docs/TOOL_PAIRING_API_REFERENCE.md).
