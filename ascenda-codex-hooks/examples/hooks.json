@@ -7,6 +7,7 @@
     "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks PreCompact", "timeout": 10 }] }],
     "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks PostCompact", "timeout": 10 }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks Stop", "timeout": 10 }] }],
-    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks PermissionRequest", "timeout": 10 }] }]
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks PermissionRequest", "timeout": 10 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/codex-hooks SessionEnd", "timeout": 3 }] }]
   }
 }

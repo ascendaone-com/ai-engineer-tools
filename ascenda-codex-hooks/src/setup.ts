@@ -1,6 +1,7 @@
 import * as os from "os";
 import * as path from "path";
 import type { CliAgentSetupSpec } from "@ascenda-one/tool-kit";
+import { checkCodexHookTrust } from "./hookTrust.js";
 import { ASCENDA_TOOL_TYPE, CODEX_HOST } from "./types.js";
 
 /**
@@ -23,7 +24,9 @@ export const HOOK_EVENTS = [
   "PreToolUse", "PostToolUse",
   "PreCompact", "PostCompact",
   "Stop",
-  "PermissionRequest"
+  "PermissionRequest",
+  // Codex 0.146 and later; an older Codex ignores an event it doesn't know.
+  "SessionEnd"
 ] as const;
 
 /**
@@ -33,6 +36,15 @@ export const HOOK_EVENTS = [
  * reached by a wedged process, and Codex awaits command hooks.
  */
 const HOOK_TIMEOUT_SECONDS = 10;
+
+/**
+ * Codex caps `SessionEnd` at 3 s (1 s when none is given) because it runs as
+ * the process exits, and drops a hook that asks for more. Registering the
+ * 10 s default would have it ignored or clamped depending on the version.
+ */
+const SESSION_END_TIMEOUT_SECONDS = 3;
+
+export const hookTimeoutSeconds = (event: string): number => event === "SessionEnd" ? SESSION_END_TIMEOUT_SECONDS : HOOK_TIMEOUT_SECONDS;
 
 type CodexHookGroup = { hooks?: Array<{ type?: string; command?: unknown }> };
 
@@ -47,13 +59,17 @@ export const SETUP: CliAgentSetupSpec = {
   // Codex reports the posture it was working under and its approval gate; it
   // sends no model, no git action and no per-file change size.
   sends: ["posture", "waiting"],
+  trust: {
+    check: checkCodexHookTrust,
+    fix: "Restart Codex and open /hooks, then approve the Ascenda hooks. A hook whose command changed needs approving again."
+  },
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".codex", "hooks.json") : path.join(projectDir, ".codex", "hooks.json"),
     // Codex nests as Gemini does — each event maps to an array of
     // { hooks: [{ type, command }] } — but reads the event from argv rather
     // than stdin, so unlike Gemini the name has to be on the command line.
-    entry: (command, event) => ({ hooks: [{ type: "command", command: `${command} ${event}`, timeout: HOOK_TIMEOUT_SECONDS }] }),
+    entry: (command, event) => ({ hooks: [{ type: "command", command: `${command} ${event}`, timeout: hookTimeoutSeconds(event) }] }),
     commandOf: (entry) => {
       const group = entry as CodexHookGroup | undefined;
       const command = group?.hooks?.find((hook) => typeof hook?.command === "string")?.command;
