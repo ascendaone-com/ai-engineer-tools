@@ -22,6 +22,7 @@ sessionOnTheWire({
   PreCompact: { trigger: "auto", cwd: "/tmp" },
   PostCompact: { trigger: "auto", cwd: "/tmp" },
   Stop: { cwd: "/tmp" },
-  PermissionRequest: { cwd: "/tmp" }
+  PermissionRequest: { cwd: "/tmp" },
+  SessionEnd: { cwd: "/tmp", reason: "other" }
 }
 });

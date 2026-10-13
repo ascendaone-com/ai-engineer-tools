@@ -26,12 +26,10 @@ relax — GitHub is where people actually read it.
   tests".
 - **Absolute paths from a developer machine.** No `/Users/<name>/…`. Use a
   placeholder or a repo-relative path.
-- **Measurements taken from a real person's machine.** Session counts, prompt
-  counts, after-hours tallies, token totals, store censuses, install dates,
-  monthly adoption curves. These are simultaneously someone's personal
-  telemetry and the empirical research that makes this tooling worth
-  something. State the invariant and the threshold; do not publish the
-  dataset that validates it.
+- **Content from a real person's machine.** Prompt or response text, file
+  paths, project, repository or branch names, and anything that names a
+  person or a customer. Counts measured on that machine are a different
+  thing, and they stay: see "Measured figures" below.
 - **A working description of a control that is not yet enforced.** Saying
   "the deployed backend does not check X, so Y currently rides in under Z" is
   an instruction sheet. Record that enforcement is server-side and still
@@ -48,15 +46,21 @@ store's field names and paths belong in the header comment — the code
 implements them anyway, so omitting them hides nothing from an outsider and
 costs the next maintainer real time.
 
-Cut: the measured proof. "Most user-role lines are tool results, not prompts;
-conflating them inflates prompt metrics by roughly an order of magnitude" is a
-maintainer's warning. Adding "108,528 lines reduce to 8,272 on a real store"
-hands a competitor a free validation set for their own classifier.
+### Measured figures: keep them
+
+Counts measured on a real store belong in comments, docs, changelog entries
+and PR descriptions. "158 of 983 sessions reported spanning more than a day"
+is what makes a rule land, and "on a real store" without the number invites a
+reader to assume the case is weaker than it is. Keep counts, sizes, minutes,
+ratios and session populations, and say what they were measured on and when.
+
+The line is content, not counts. Publish the number, never the prompt text,
+path or name it was counted from. Ask before publishing a figure that could
+identify a person, a customer or an internal system.
 
 ### Before pushing
 
-Grep your diff for internal names, absolute home paths, and precise counts
-that could only have come from a real machine:
+Grep your diff for internal names and absolute home paths:
 
 ```bash
 git diff --cached | grep -nE "asc-core-be|asc-ascenda|/Users/|reference machine|verified live"

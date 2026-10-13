@@ -32,11 +32,13 @@ export {
   cliAgentHookBinPath,
   findStaleHookCommands,
   isCliAgentManagementCommand,
+  ourHookPositions,
   registeredHookSets,
   runCliAgentSetup,
+  trustProblemLines,
   writeHookSettings
 } from "./cliAgentSetup";
-export type { CliAgentSetupSpec, HookSettingsFormat, SetupScope } from "./cliAgentSetup";
+export type { CliAgentSetupSpec, HookPosition, HookSettingsFormat, HookTrustReport, SetupScope } from "./cliAgentSetup";
 export { ALWAYS_SENT, FAMILY_SENTENCES, FREE_TEXT_KEYS, REFUSALS, renderSetupDisclosure } from "./setupDisclosure";
 export type { DisclosureFamily, SetupDisclosureOptions } from "./setupDisclosure";
 export {
@@ -110,7 +112,7 @@ export { holdForSaver, heldForSaver, probeSocket, readSaverStatuses, saverContai
 export type { SaverStatus, SaverStatusReading, SocketState } from "./saverHandoff";
 export { colourEnabled, terminalStyle } from "./terminalStyle";
 export type { TerminalStyle, Tone } from "./terminalStyle";
-export { describeAge, hookLauncherScript, hookRunnerCommand, hookRunnerPaths, installHookRunner, lastHookPath, readLastHook, removeHookRunner, resolveHookNode, stampLastHook, tidyHomePath } from "./hookRunner";
+export { describeAge, hookLauncherScript, hookRunnerCommand, hookRunnerPaths, installHookRunner, isDowngrade, lastHookPath, readLastHook, removeHookRunner, resolveHookNode, stampLastHook, tidyHomePath } from "./hookRunner";
 export type { HookLauncherOptions, HookRunnerPaths, LastHook, NodeResolution } from "./hookRunner";
 export { DOCTOR_VALUE_COLUMN, doctorRow, liveSignalDoctorLines } from "./liveSignalDoctor";
 export type { HookRegistration, LiveSignalDoctorOptions } from "./liveSignalDoctor";

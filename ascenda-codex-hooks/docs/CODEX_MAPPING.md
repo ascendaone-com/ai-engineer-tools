@@ -24,6 +24,7 @@ Codex rides the canonical `cli_agent` toolType/source (the registry has no codex
 | Stop (turn ≥ 30 min) | `agent_loop_long` | risk |
 | Stop (every turn) | `ai_turn_completed` | neutral |
 | PermissionRequest | *(skipped — no catalog event)* | — |
+| SessionEnd | `recovery_offline_period` (`activity: session_ended`, plus `sessionEndReason` when Codex sends one) | neutral |
 | SubagentStart / SubagentStop | *(skipped — no catalog event)* | — |
 
 ## `autonomyMode` — the permission posture, mirrored
@@ -176,6 +177,7 @@ adapters into one and under-count concurrency.
 | PostCompact | *(silent — the same compaction, seen from the other side)* |
 | Stop | `stop` |
 | PermissionRequest | `awaiting` — stopped at the approval gate; the app clears it on the session's next beat |
+| SessionEnd | `halted` — closing Codex mid-turn runs no `Stop` |
 | SessionStart, SubagentStart/Stop | *(silent)* |
 
 Emission is additive and best-effort: it is abandoned after 50 ms, swallows
