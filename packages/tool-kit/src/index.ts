@@ -47,6 +47,7 @@ export {
   removeHostCredentials,
   writeHostCredentials,
   writeEventLogSetting,
+  writeRepoKeysSetting,
   writeMachineCredentials,
   writeTopLevelCredentials
 } from "./credentials";
@@ -100,11 +101,15 @@ export {
 export type { WorkContextRegistry, WorkContextRegistryEntry } from "./contextRegistry";
 export {
   forgeProjectHash,
+  forgeRepoKey,
+  forgeBranchKey,
   parseForgeFullName,
   readForgeFullName,
   forgeFullNameFromConfig,
   recordForgeProjectAlias
 } from "./forgeProject";
+export { REPO_KEYS_ENV_VAR, deriveForgeKeysForCwd, repoKeysEnabled } from "./forgeKeys";
+export type { ForgeKeys } from "./forgeKeys";
 export { emitLiveSignal, deliverLine, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates, LIVE_BUS_BACKGROUND_TRUST_MS } from "./liveBus";
 export { holdForSaver, heldForSaver, probeSocket, readSaverStatuses, saverContainerDir, saverReplayPath, saverStatusDir, saverSupportDir, SAVER_REPLAY_WINDOW_MS } from "./saverHandoff";
 export type { SaverStatus, SaverStatusReading, SocketState } from "./saverHandoff";

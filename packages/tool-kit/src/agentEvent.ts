@@ -42,6 +42,30 @@ function agentOf(payload: AscendaEventPayload): string {
   return payload.source === "vscode_extension" ? "vscode" : payload.source;
 }
 
+/**
+ * The agent-event vocabulary for what the wire records as a git action or a
+ * work milestone. Only the two that mark progress: a commit or push, and a pull
+ * request opening or merging. Reversions and resets are a reading of the work,
+ * not a fact about it, and stay off.
+ */
+function vcsActionOf(metadata: Record<string, unknown>): "commit" | "push" | "pr_created" | "pr_merged" | undefined {
+  const milestone = stringField(metadata.milestoneKind);
+  if (milestone === "pr_opened") return "pr_created";
+  if (milestone === "pr_merged") return "pr_merged";
+  const git = stringField(metadata.gitAction);
+  return git === "commit" || git === "push" ? git : undefined;
+}
+
+/** Why the agent stopped to wait, in plain words. Absent for a kind we don't know. */
+function waitReasonOf(metadata: Record<string, unknown>): "permission" | "idle" | "other" | undefined {
+  switch (stringField(metadata.interruptionKind)) {
+    case "permission_request": return "permission";
+    case "idle_prompt": return "idle";
+    case undefined: return undefined;
+    default: return "other";
+  }
+}
+
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -54,6 +78,9 @@ export function toAgentEvent(payload: AscendaEventPayload): AgentEventV0 {
   // tool call that never happened.
   const tool = kind.startsWith("tool.") ? stringField(metadata.toolName) : undefined;
   const outcome = stringField(metadata.outcome);
+  const vcsAction = kind === "tool.completed" ? vcsActionOf(metadata) : undefined;
+  const reason = kind === "agent.waiting" ? waitReasonOf(metadata) : undefined;
+  const model = kind === "session.started" ? stringField(metadata.modelId) : undefined;
   return {
     schema: AGENT_EVENT_SCHEMA,
     id: payload.idempotencyKey ?? `${payload.toolInstallationId}:${payload.occurredAt}:${payload.eventType}`,
@@ -69,6 +96,12 @@ export function toAgentEvent(payload: AscendaEventPayload): AgentEventV0 {
     ...(outcome && outcome !== "unknown" ? { outcome } : {}),
     ...(stringField(metadata.durationBucket) ? { durationBucket: metadata.durationBucket as string } : {}),
     ...(stringField(payload.projectHash) ? { projectHash: payload.projectHash as string } : {}),
+    ...(stringField(metadata.repoKey) ? { repoKey: metadata.repoKey as string } : {}),
+    ...(stringField(metadata.branchKey) ? { branchKey: metadata.branchKey as string } : {}),
+    ...(stringField(metadata.promptId) ? { promptId: metadata.promptId as string } : {}),
+    ...(vcsAction ? { vcsAction } : {}),
+    ...(reason ? { reason } : {}),
+    ...(model ? { model } : {}),
     ...(stringField(metadata.collectorVersion) ? { collectorVersion: metadata.collectorVersion as string } : {}),
     sourceType: payload.eventType
   };

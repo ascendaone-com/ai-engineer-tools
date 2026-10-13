@@ -87,7 +87,7 @@ const HOOK_MARKER = "ascenda-claude-hook";
  * It omits `context` deliberately: compaction and pressure events are sent,
  * but no occupancy figure rides them, and the context line would claim one.
  */
-export const SENDS: readonly DisclosureFamily[] = ["model", "posture", "git", "edits", "waiting", "subagents"];
+export const SENDS: readonly DisclosureFamily[] = ["model", "posture", "git", "edits", "waiting", "subagents", "forge", "turns"];
 
 type Scope = "project" | "user";
 

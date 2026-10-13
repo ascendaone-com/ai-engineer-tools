@@ -87,6 +87,12 @@ all, in [examples/local-event-reader](../../examples/local-event-reader/).
 | `outcome` | `success`, `failure` or `cancelled`, when the collector could tell. |
 | `durationBucket` | `0-1m`, `1-5m`, `5-10m`, `10-30m`, `30-60m` or `60m+`. Never an exact time. |
 | `projectHash` | A salted hash of the project. The salt never leaves the machine. |
+| `repoKey` | The repository, as a digest of its GitHub `owner/repo`. See [Matching a session to a pull request](#matching-a-session-to-a-pull-request). |
+| `branchKey` | The branch, as a digest. Set on each event, off the default branch. Same section. |
+| `promptId` | The agent's own id for the prompt a turn answers, when it gives one. Events of one turn share it. |
+| `vcsAction` | On `tool.completed`, when the call was a version-control step: `commit`, `push`, `pr_created` or `pr_merged`. |
+| `reason` | On `agent.waiting`, why the agent stopped: `permission`, `idle` or `other`. |
+| `model` | On `session.started`, the model the agent reported, when it did. |
 | `collectorVersion` | The collector that wrote it. |
 | `sourceType` | The collector's internal name for the event. For debugging only; not part of the contract. |
 
@@ -94,11 +100,44 @@ Kinds: `session.started`, `session.ended`, `prompt.submitted`, `tool.started`,
 `tool.completed`, `tool.failed`, `turn.completed`, `agent.waiting`,
 `context.compacted`, `subagent.started`, `subagent.stopped`, `other`.
 
+Not every agent reports every field either. Today the keys, `promptId`, `vcsAction`, `reason` and `model` come from the Claude Code collector, and the others will follow.
+
 Not every agent reports every kind. Each collector's README lists the hooks it
 registers, and an agent without a hook for something can't report it.
 
 Events never contain prompt text, file contents, file names, command lines or
 command output. That's a rule for v0 and for every version after it.
+
+## Matching a session to a pull request
+
+`projectHash` is salted on each machine, so it can't be matched to anything
+outside it. `repoKey` and `branchKey` can. They're the same digests Ascenda's
+GitHub collector puts on pull request events, so a session and a PR that name
+the same repository and head branch carry the same pair.
+
+- `repoKey` is a 32-bit FNV-1a digest (8 hex characters) of the lowercased
+  `owner/repo`. `branchKey` is a 64-bit one (16 characters) of the lowercased
+  `owner/repo`, a newline, and the branch name as git spells it.
+- A session can move between branches, so `branchKey` is set on each event, not
+  once per session. Match on the key and on the session overlapping the PR's
+  open window, because a branch called `fix` gets reused.
+- On a fork, the checkout's `origin` is the fork. Match against the PR's head
+  repository, not the base.
+- Only github.com remotes get keys. There's no `branchKey` on the repository's
+  default branch, where every session would share one.
+
+**The trade-off.** Neither key is salted. They're digests, not secrets: anyone
+who holds one can check a guess like "branch `feat/x` of `acme/api`", and for a
+public repository those names are public. It's the trade-off the GitHub
+collector's repository digest already makes, with a branch name added. If you
+don't want them on your events, turn them off for this machine:
+
+```bash
+npx @ascenda-one/claude-code-hooks setup --repo-keys off
+```
+
+`ASCENDA_REPO_KEYS=off` does the same for one shell. The names themselves never
+leave the machine. The digests do.
 
 ## Compatibility
 

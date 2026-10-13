@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { describeCollectorVersion } from "./collectorVersion";
-import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeEventLogSetting, writeHostCredentials } from "./credentials";
+import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeEventLogSetting, writeHostCredentials, writeRepoKeysSetting } from "./credentials";
 import { describeEventLog, parseEventLogFlag, resolveEventLog } from "./eventLog";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
 import { createPairingSession, getPairingStatus, readInitiatives } from "./http";
@@ -104,6 +104,8 @@ type SetupOptions = {
   skipPairing: boolean;
   /** `--event-log`'s value: a path or `off`. Absent leaves the saved setting alone. */
   eventLog?: string;
+  /** `--repo-keys`'s value. Absent leaves the saved setting alone. */
+  repoKeys?: boolean;
   action: SetupAction;
 };
 
@@ -152,6 +154,9 @@ Options
   --no-pair                     install without pairing: local features on, nothing sent
   --event-log [path|off]        keep every event in a local JSONL file (default ~/.ascenda/events.jsonl).
                                 On by default when not paired; machine-wide, shared by every agent
+  --repo-keys on|off            on (default): GitHub repositories get a key for the repository and one for the
+                                branch, so a pull request can be matched to a session. They are digests anyone
+                                who guesses the names can reproduce. Machine-wide
   --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
@@ -239,6 +244,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
       ...(identity ? { pairedAt: now } : { localOnly: true, installedAt: now })
     });
     if (options.eventLog !== undefined) writeEventLogSetting(options.eventLog);
+    if (options.repoKeys !== undefined) writeRepoKeysSetting(options.repoKeys);
   }
 
   if (isHomeProject(options)) {
@@ -392,6 +398,12 @@ function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
         const { value, consumed } = parseEventLogFlag(argv, i);
         options.eventLog = value;
         i += consumed;
+        break;
+      }
+      case "--repo-keys": {
+        const value = next().toLowerCase();
+        if (value !== "on" && value !== "off") throw new Error("--repo-keys takes on or off");
+        options.repoKeys = value === "on";
         break;
       }
       case "--no-pair":

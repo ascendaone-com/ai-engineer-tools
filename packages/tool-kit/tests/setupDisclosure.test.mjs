@@ -19,6 +19,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { EVENT_METADATA_DISCLOSURE, METRIC_KEYS } from "@ascenda-one/tool-contract";
 import {
   ALWAYS_SENT,
@@ -42,6 +45,15 @@ const { SETUP: GEMINI } = await import(`${R}ascenda-gemini-hooks/dist/setup.js`)
 const { SETUP: WINDSURF } = await import(`${R}ascenda-windsurf-hooks/dist/setup.js`);
 
 const CWD = process.cwd();
+process.env.ASCENDA_REPO_KEYS = "on";
+
+// A scratch checkout on a feature branch of a GitHub repository, so the repo
+// and branch keys appear whatever remote the real checkout running this test
+// has. The prompt id rides the same fixture.
+const FORGE_CWD = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-disclosure-forge-"));
+fs.mkdirSync(path.join(FORGE_CWD, ".git"), { recursive: true });
+fs.writeFileSync(path.join(FORGE_CWD, ".git", "HEAD"), "ref: refs/heads/feat/disclosure\n");
+fs.writeFileSync(path.join(FORGE_CWD, ".git", "config"), '[remote "origin"]\n\turl = https://github.com/acme/payments.git\n');
 
 /** Never a family: these say which install sent what, not how the work went. */
 const NOT_A_FAMILY = new Set(["transport", "local"]);
@@ -58,22 +70,22 @@ function familyOf(key) {
 
 const ADAPTERS = [
   {
-    spec: { displayName: "Claude Code", sends: ["model", "posture", "git", "edits", "waiting", "subagents"] },
+    spec: { displayName: "Claude Code", sends: ["model", "posture", "git", "edits", "waiting", "subagents", "forge", "turns"] },
     emit: () => [
-      ["SessionStart", { source: "startup", model: "claude-opus-5", permission_mode: "acceptEdits", cwd: CWD }],
-      ["UserPromptSubmit", { prompt: "that is wrong, try again", permission_mode: "default", cwd: CWD }],
-      ["PreToolUse", { tool_name: "Bash", tool_input: { command: "npm test" }, cwd: CWD }],
-      ["PostToolUse", { tool_name: "Bash", tool_input: { command: "git commit -m x" }, tool_response: { exitCode: 0 }, cwd: CWD }],
-      ["PostToolUse", { tool_name: "Bash", tool_input: { command: "gh pr merge 12" }, tool_response: { exitCode: 0 }, cwd: CWD }],
-      ["PostToolUse", { tool_name: "Edit", tool_input: { file_path: "a.ts", old_string: "a", new_string: "b" }, tool_response: { userModified: true }, cwd: CWD }],
-      ["PostToolUse", { tool_name: "Write", tool_input: { file_path: "a.ts", content: "x\ny\n" }, tool_response: {}, cwd: CWD }],
-      ["PostToolUseFailure", { tool_name: "Bash", tool_input: { command: "npm run build" }, cwd: CWD }],
-      ["PreCompact", { trigger: "auto", cwd: CWD }],
-      ["Stop", { cwd: CWD }],
-      ["Notification", { message: "Claude needs your permission to use Bash", cwd: CWD }],
-      ["SessionEnd", { reason: "prompt_input_exit", cwd: CWD }],
-      ["SubagentStart", { agent_id: "agent-abc123", agent_type: "Explore", cwd: CWD }],
-      ["SubagentStop", { agent_id: "agent-abc123", agent_type: "Explore", last_assistant_message: "done", cwd: CWD }]
+      ["SessionStart", { source: "startup", model: "claude-opus-5", permission_mode: "acceptEdits", cwd: FORGE_CWD }],
+      ["UserPromptSubmit", { prompt: "that is wrong, try again", permission_mode: "default", cwd: FORGE_CWD }],
+      ["PreToolUse", { tool_name: "Bash", tool_input: { command: "npm test" }, prompt_id: "4b1f6a52-0c47-49d3-a2c9-ad2f7c7a10aa", cwd: FORGE_CWD }],
+      ["PostToolUse", { tool_name: "Bash", tool_input: { command: "git commit -m x" }, tool_response: { exitCode: 0 }, cwd: FORGE_CWD }],
+      ["PostToolUse", { tool_name: "Bash", tool_input: { command: "gh pr merge 12" }, tool_response: { exitCode: 0 }, cwd: FORGE_CWD }],
+      ["PostToolUse", { tool_name: "Edit", tool_input: { file_path: "a.ts", old_string: "a", new_string: "b" }, tool_response: { userModified: true }, cwd: FORGE_CWD }],
+      ["PostToolUse", { tool_name: "Write", tool_input: { file_path: "a.ts", content: "x\ny\n" }, tool_response: {}, cwd: FORGE_CWD }],
+      ["PostToolUseFailure", { tool_name: "Bash", tool_input: { command: "npm run build" }, cwd: FORGE_CWD }],
+      ["PreCompact", { trigger: "auto", cwd: FORGE_CWD }],
+      ["Stop", { cwd: FORGE_CWD }],
+      ["Notification", { message: "Claude needs your permission to use Bash", cwd: FORGE_CWD }],
+      ["SessionEnd", { reason: "prompt_input_exit", cwd: FORGE_CWD }],
+      ["SubagentStart", { agent_id: "agent-abc123", agent_type: "Explore", cwd: FORGE_CWD }],
+      ["SubagentStop", { agent_id: "agent-abc123", agent_type: "Explore", last_assistant_message: "done", cwd: FORGE_CWD }]
     ].flatMap(([hook, input]) => mapClaudeEvent(hook, input))
   },
   {

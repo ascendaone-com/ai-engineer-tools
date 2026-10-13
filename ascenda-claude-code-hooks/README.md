@@ -74,6 +74,7 @@ npx @ascenda-one/claude-code-hooks uninstall   # removes hooks and the binary
 | `--local [port]` | shorthand for a local [dev server](../ascenda-dev-server/) (default `4477`) |
 | `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
 | `--no-pair` | install the local half only: hooks work, nothing is sent |
+| `--repo-keys on\|off` | on by default: GitHub repositories get a `repoKey` and, off the default branch, a `branchKey`, so a pull request can be matched to a session. Unsalted digests, so anyone who guesses the names can recompute them. Machine-wide |
 | `--event-log [path\|off]` | keep every event in a local JSONL file (default `~/.ascenda/events.jsonl`). On by default without a pairing; `off` stops it |
 | `--scope user\|project` | register in `~/.claude/settings.json` (default, every project) or in this project's `.claude/settings.local.json` |
 | `--project-dir <path>` | project root for `--scope project` (default cwd) |
@@ -233,6 +234,7 @@ Optional environment:
 | `ASCENDA_EVENT_WRITE_TOKEN` | Only if you have no prior pairing to reuse — normally the token file supplies this |
 | `ASCENDA_EVENT_WRITE_TOKEN_FILE` | Override token file path (default `~/.ascenda/tokens/<toolInstallationId>`) |
 | `ASCENDA_SESSION_ID` | Stable session id across hooks |
+| `ASCENDA_REPO_KEYS` | `off` leaves the repository and branch keys off every event. Wins over `setup --repo-keys` |
 | `ASCENDA_EVENT_LOG_FILE` | Local JSONL event log path, or `off`. Wins over `setup --event-log`. Without either, an unpaired install writes `~/.ascenda/events.jsonl` and a paired one writes nothing |
 | `ASCENDA_WORKSPACE_HASH` | Override only. By default the hook derives this from the payload's own `cwd`: a machine-salted hash of the checkout folder's basename (never the path itself) |
 | `ASCENDA_PROJECT_HASH` | Override only. Defaults to the salted hash of the canonical repository's basename — a git worktree folds into the repo it was created from |
@@ -494,8 +496,8 @@ then discarded; it never leaves the hook process, and neither does anything you
 answer. `tests/interruptionContentGuard.test.mjs` fails the build if that
 changes.
 
-Repository and branch identity travel only as machine-salted digests, derived
-in the hook process and never as text: `workspaceHash` and `projectHash` from
+Repository and branch identity travel only as digests, derived in the hook
+process and never as text. Most are machine-salted: `workspaceHash` and `projectHash` from
 the checkout's and repository's folder names, and `metadata.branchHash` from
 the branch the checkout is on. The salt is random per machine, stored at
 `~/.ascenda/salt`, and never transmitted — without it, a digest of a name from
@@ -504,6 +506,16 @@ exactly that way, so the branch digest is not a security boundary; it is what
 lets work be grouped by branch on the other side without the name itself
 leaving the machine. On a detached HEAD, outside a checkout, or with no
 readable salt the key is omitted entirely rather than sent blank.
+
+Two more digests are not salted, on purpose. `metadata.repoKey` and
+`metadata.branchKey` use the recipe Ascenda's GitHub collector uses, which runs
+where no salt exists, so a session and a pull request on the same repository
+and branch carry the same pair. They go on events for github.com remotes only,
+and `branchKey` is left off the default branch. Because they're unsalted,
+anyone who guesses a repository or branch name can confirm it, and for a public
+repository those names are public. Turn them off with `setup --repo-keys off`
+or `ASCENDA_REPO_KEYS=off`. `metadata.promptId` is Claude Code's own id for the
+prompt a turn answers, and says nothing about its text.
 
 Correction detection uses local pattern matching on prompt text in the hook process only — classified metadata (`reason: repeated_reprompting`) is sent; raw prompt text is not.
 
