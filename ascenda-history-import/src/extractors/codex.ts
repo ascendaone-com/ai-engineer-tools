@@ -316,10 +316,14 @@ interface TokenTrack {
   own: TokenTotals;
   replayed: TokenTotals | null;
   settled: boolean;
+  /** Whether a `token_count` of this thread's own carried a running total.
+   * Rollouts written before those events existed have none, and a replayed
+   * parent figure doesn't count: the thread itself was not measured. */
+  seen: boolean;
 }
 
 function newTokenTrack(): TokenTrack {
-  return { own: { ...NO_TOKENS }, replayed: null, settled: false };
+  return { own: { ...NO_TOKENS }, replayed: null, settled: false, seen: false };
 }
 
 function ownTokensOf(track: TokenTrack): TokenTotals {
@@ -702,6 +706,7 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
                 track.replayed = null;
               }
               track.settled = true;
+              track.seen = true;
               track.own = maxTokens(track.own, totals);
             }
             if (sub) break;
@@ -1024,9 +1029,6 @@ export async function* extractCodex(
       assistantTurns: fold.assistantTurns,
       toolCallCount: fold.toolCallCount,
       toolResultCount: fold.toolResults,
-      inputTokens: own.input + subagent.input,
-      outputTokens: own.output + subagent.output,
-      cacheReadTokens: own.cached + subagent.cached,
       durationBucket: durationBucketOf(fold),
       afterHoursPrompts: fold.afterHoursPrompts,
       unknownLines: fold.unknownLines,
@@ -1047,6 +1049,18 @@ export async function* extractCodex(
       activeSplitUndatedLines: fold.undatedTimelineLines,
       activeSplitUnposturedInstants: split.unposturedInstants
     };
+    // Token keys only where some thread of the session reported a total.
+    // Without one the figures are unmeasured, and shipping 0 would read as a
+    // session that spent nothing. The flag says why the keys are missing, and
+    // isn't set when a subagent thread did report tokens.
+    const subagentSeen = [...fold.subagentThreads.values()].some((track) => track.seen);
+    if (fold.tokens.seen || subagentSeen) {
+      sessionMetrics.inputTokens = own.input + subagent.input;
+      sessionMetrics.outputTokens = own.output + subagent.output;
+      sessionMetrics.cacheReadTokens = own.cached + subagent.cached;
+    } else {
+      sessionMetrics.tokensNotCollected = true;
+    }
     // The subagent breakdown only on a session that had one, so a session
     // that didn't carries no row of zeros. `subagentTokensTotal` is input
     // plus output: Codex's input figure already includes the cached part.
@@ -1054,7 +1068,7 @@ export async function* extractCodex(
       sessionMetrics.subagentTranscripts = fold.subagentThreads.size;
       sessionMetrics.subagentPrompts = fold.subagentPrompts;
       sessionMetrics.subagentAssistantTurns = fold.subagentAssistantTurns;
-      sessionMetrics.subagentTokensTotal = subagent.input + subagent.output;
+      if (subagentSeen) sessionMetrics.subagentTokensTotal = subagent.input + subagent.output;
       sessionMetrics.subagentToolCallCount = fold.subagentToolCallCount;
     }
     // The ratio only where the store named its own denominator. Claude Code
