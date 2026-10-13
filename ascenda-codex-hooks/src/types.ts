@@ -6,7 +6,7 @@ export type CodexHookEventName =
   | "SessionStart" | "UserPromptSubmit"
   | "PreToolUse" | "PermissionRequest" | "PostToolUse"
   | "PreCompact" | "PostCompact"
-  | "SubagentStart" | "SubagentStop" | "Stop";
+  | "SubagentStart" | "SubagentStop" | "Stop" | "SessionEnd";
 
 export type CodexHookInput = Record<string, unknown>;
 
