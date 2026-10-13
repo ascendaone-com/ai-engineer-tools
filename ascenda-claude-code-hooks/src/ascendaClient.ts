@@ -1,4 +1,4 @@
-import { AscendaEventSender } from "@ascenda-one/tool-kit";
+import { AscendaEventSender, runOutboxFlush } from "@ascenda-one/tool-kit";
 import { IngestResult, MappedAscendaEvent } from "./types.js";
 import { AscendaHookConfig } from "./config.js";
 
@@ -35,6 +35,15 @@ export class AscendaClient {
   /** Outbox only, no network. See {@link AscendaEventSender.queue}. */
   queue(mapped: MappedAscendaEvent): boolean {
     return this.sender.queue(mapped);
+  }
+
+  outboxFilePath(): string {
+    return this.sender.outboxFilePath();
+  }
+
+  /** Drains the outbox until it's empty or the door refuses. What the background flusher runs. */
+  async flushOutbox(): Promise<void> {
+    await runOutboxFlush(this.sender);
   }
 
   async renewEventToken(): Promise<boolean> {

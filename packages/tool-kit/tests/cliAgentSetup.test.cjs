@@ -34,7 +34,7 @@ const nested = {
   settings: {
     settingsPath: (scope, dir) => path.join(dir, "settings.json"),
     entry: (command) => ({ hooks: [{ type: "command", command, timeout: 5 }] }),
-    commandOf: (entry) => entry?.hooks?.find((h) => typeof h?.command === "string")?.command
+    grouped: true
   }
 };
 
@@ -578,5 +578,80 @@ test("--no-pair says where pairing would send data: a server, not a local accoun
     assert.match(out, /signed in to when you confirm the code/);
     assert.match(out, /Until you pair, nothing leaves this machine\./);
     assert.doesNotMatch(out, /this Mac|your Ascenda account/);
+  });
+});
+
+// A group with no matcher is one another tool can append its own command to.
+// Setup and uninstall take out our command and leave theirs where it is.
+const FOREIGN = { type: "command", command: "/usr/local/bin/other-tool-hook" };
+
+test("in a grouped format, a group we share with another tool keeps their command through install, re-install and uninstall", async () => {
+  await sandbox(async ({ project }) => {
+    const file = path.join(project, "settings.json");
+    const binary = "/x/ascenda-nested-hook";
+    writeHookSettings(file, binary, nested, false);
+    const shared = read(file);
+    shared.hooks.start[0].hooks.push(FOREIGN);
+    fs.writeFileSync(file, JSON.stringify(shared, null, 2) + "\n");
+
+    // Current already: nothing moves, and the foreign command stays put.
+    assert.equal(writeHookSettings(file, binary, nested, false), false, "a current install reads as current");
+    assert.equal(read(file).hooks.start.length, 1);
+    assert.deepEqual(read(file).hooks.start[0].hooks[1], FOREIGN);
+
+    // A moved binary replaces ours inside the same group.
+    assert.equal(writeHookSettings(file, "/elsewhere/ascenda-nested-hook", nested, false), true);
+    const moved = read(file).hooks.start;
+    assert.equal(moved.length, 1);
+    assert.match(moved[0].hooks[0].command, /\/elsewhere\//);
+    assert.deepEqual(moved[0].hooks[1], FOREIGN);
+    assert.equal(registeredHookSets(read(file), nested).size, 2, "both events still count as ours");
+
+    assert.equal(await runCliAgentSetup(["uninstall", "--scope", "project", "--project-dir", project], nested), 0);
+    const left = read(file).hooks;
+    assert.deepEqual(left.start, [{ hooks: [FOREIGN] }], "their command survives, alone in its group");
+    assert.equal(left.stop, undefined, "a group that held only ours is gone");
+  });
+});
+
+test("ours is never put into a group with a matcher; it goes in a group of its own", () => {
+  const file = tempFile("settings.json", JSON.stringify({
+    hooks: { start: [{ matcher: "shell", hooks: [{ type: "command", command: '"/x/ascenda-nested-hook"' }, FOREIGN] }] }
+  }));
+  writeHookSettings(file, "/x/ascenda-nested-hook", nested, false);
+  const groups = read(file).hooks.start;
+  assert.deepEqual(groups[0], { matcher: "shell", hooks: [FOREIGN] });
+  assert.equal(groups.length, 2);
+  assert.equal(groups[1].matcher, undefined);
+  assert.match(groups[1].hooks[0].command, /ascenda-nested-hook/);
+});
+
+test("a stale command is found anywhere in a group, not only first", () => {
+  const settings = { hooks: { start: [{ hooks: [FOREIGN, { type: "command", command: "/old/.ascenda/hook.sh" }] }] } };
+  assert.deepEqual(findStaleHookCommands(settings, "/x/ascenda-nested-hook", nested), ["/old/.ascenda/hook.sh"]);
+});
+
+test("a symlinked settings file stays a symlink, and the file it points at is updated", { skip: process.platform === "win32" }, () => {
+  const dotfiles = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-dotfiles-"));
+  const real = path.join(dotfiles, "hooks.json");
+  fs.writeFileSync(real, JSON.stringify({ version: 1 }));
+  const link = tempFile("hooks.json");
+  fs.symlinkSync(real, link);
+
+  assert.equal(writeHookSettings(link, BINARY, flat, false), true);
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), "the link is still a link");
+  assert.equal(read(real).hooks.stop.length, 1, "the target carries our hooks");
+  assert.equal(fs.readFileSync(`${link}.ascenda-backup`, "utf8"), JSON.stringify({ version: 1 }));
+});
+
+test("the first backup is kept, so install then uninstall leaves the original beside the file", async () => {
+  await sandbox(async ({ project }) => {
+    const file = path.join(project, "hooks.json");
+    const original = JSON.stringify({ version: 1, hooks: { start: [{ command: "/usr/local/bin/my-own-guard" }] } });
+    fs.writeFileSync(file, original);
+    await runCliAgentSetup(["setup", "--no-pair", "--scope", "project", "--project-dir", project], flat);
+    writeHookSettings(file, "/elsewhere/ascenda-flat-hook", flat, false);
+    assert.equal(await runCliAgentSetup(["uninstall", "--scope", "project", "--project-dir", project], flat), 0);
+    assert.equal(fs.readFileSync(`${file}.ascenda-backup`, "utf8"), original);
   });
 });

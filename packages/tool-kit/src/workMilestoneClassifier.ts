@@ -56,3 +56,24 @@ export function classifyWorkMilestone(command: string | undefined | null): WorkM
 export function invitesDebrief(kind: WorkMilestoneKind | undefined): boolean {
   return kind === "pr_merged" || kind === "issue_closed";
 }
+
+/**
+ * The same milestones, read off the name of an MCP tool instead of a command.
+ *
+ * A pull request opened through a forge's MCP server never passes through a
+ * shell, so `classifyWorkMilestone` cannot see it. The tool name is the whole
+ * evidence: `mcp__<server>__<tool>`, matched on the tool part alone and with
+ * case and separators ignored, so `create_pull_request` and `createPullRequest`
+ * agree and no particular server is assumed. Matches are exact. A name that
+ * merely contains one (`create_pull_request_review`) is a different action.
+ */
+export function classifyMcpWorkMilestone(toolName: string | undefined | null): WorkMilestoneKind | undefined {
+  if (!toolName) return undefined;
+  const parts = toolName.toLowerCase().split("__");
+  if (parts[0] !== "mcp" || parts.length < 3) return undefined;
+  const tool = parts[parts.length - 1].replace(/[^a-z0-9]/g, "");
+  if (/^(merge|accept)(pullrequest|mergerequest)$/.test(tool)) return "pr_merged";
+  if (/^closeissue$/.test(tool)) return "issue_closed";
+  if (/^(create|open)(pullrequest|mergerequest)$/.test(tool)) return "pr_opened";
+  return undefined;
+}

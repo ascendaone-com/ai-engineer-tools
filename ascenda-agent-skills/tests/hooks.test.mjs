@@ -67,3 +67,11 @@ test("every plugin hook names the hook set `setup` registers", () => {
     assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set ${set[1]}`);
   }
 });
+
+test("the README counts the lifecycle events the plugin registers", () => {
+  const words = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen"];
+  const readme = readFileSync(here("../README.md"), "utf8");
+  const claimed = readme.match(/into all (\w+) lifecycle events/);
+  assert.ok(claimed, "the README no longer says how many lifecycle events hooks.json wires");
+  assert.equal(claimed[1], words[Object.keys(hooks).length]);
+});

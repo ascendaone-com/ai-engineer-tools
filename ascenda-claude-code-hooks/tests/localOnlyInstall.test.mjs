@@ -402,3 +402,34 @@ test("uninstall clears an unpaired install and leaves other tools' pairings alon
   assert.equal(left.tools.codex.toolInstallationId, "cli_agent:xyz", "another agent's pairing survives");
   m.cleanup();
 });
+
+test("setup, status and uninstall use CLAUDE_CONFIG_DIR, and uninstall keeps another tool's hook in a shared group", () => {
+  const m = machine("configdir");
+  const configDir = path.join(m.root, "claude-config");
+  const env = { CLAUDE_CONFIG_DIR: configDir };
+  const settingsFile = path.join(configDir, "settings.json");
+  const original = JSON.stringify({ model: "opus" });
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(settingsFile, original);
+
+  const setup = run(m, ["setup", "--no-pair", "--scope", "user", "--project-dir", m.project], { env });
+  assert.equal(setup.status, 0, setup.stderr);
+  assert.equal(registeredEvents(settingsFile).length, 15);
+  assert.equal(fs.existsSync(m.userSettings()), false, "nothing lands in ~/.claude");
+
+  const status = run(m, ["status", "--scope", "user"], { env });
+  assert.match(status.stdout, /hooks\s+15\/15 registered/);
+
+  const shared = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+  const foreign = { type: "command", command: "/usr/local/bin/other-tool-hook" };
+  shared.hooks.Stop[0].hooks.push(foreign);
+  fs.writeFileSync(settingsFile, JSON.stringify(shared, null, 2));
+
+  const uninstall = run(m, ["uninstall", "--scope", "user"], { env });
+  assert.equal(uninstall.status, 0, uninstall.stderr);
+  const left = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+  assert.deepEqual(left.hooks, { Stop: [{ hooks: [foreign] }] }, "only our hooks are gone");
+  assert.equal(left.model, "opus");
+  assert.equal(fs.readFileSync(`${settingsFile}.ascenda-backup`, "utf8"), original, "the backup is the file before setup touched it");
+  m.cleanup();
+});
