@@ -4,7 +4,8 @@ import { isLocalOnlyHostInstall, readHostCredentials } from "./credentials";
 import { recordForgeProjectAlias } from "./forgeProject";
 import { appendEventLog, resolveEventLogPath } from "./eventLog";
 import { AscendaEventSender, MappedEvent, buildEventPayload } from "./eventSender";
-import { recordSendOutcome, unresolvedStateFilePath, unresolvedToolInstallationId } from "./stateStore";
+import { readCollectorState, recordSendOutcome, unresolvedStateFilePath, unresolvedToolInstallationId } from "./stateStore";
+import { hookDeliveryInline, runOutboxFlush, startBackgroundFlush } from "./backgroundDelivery";
 import { defaultTokenFilePath, listPersistedToolInstallationIds, persistEventWriteToken, readTokenFile } from "./tokenStore";
 import { deriveWorkContext } from "./workContext";
 
@@ -153,6 +154,26 @@ export function resolveContextHashes(cwd?: string | null): { workspaceHash: stri
  * {@link resolveCliAgentInstallationId}.
  */
 export function loadCliAgentConfig(toolType: string, sessionIdFromHook?: string, cwd?: string | null, identity: CliAgentIdentity = {}): CliAgentConfig {
+  const pairing = loadCliAgentPairing(toolType, identity);
+  const contextHashes = resolveContextHashes(cwd);
+
+  return {
+    ...pairing,
+    // An empty ASCENDA_SESSION_ID is "unset", not "override with nothing":
+    // read raw, `ASCENDA_SESSION_ID=""` beat a real hook session and shipped
+    // an empty string, grouping unrelated rows under a value naming no session.
+    sessionId: process.env.ASCENDA_SESSION_ID?.trim() || sessionIdFromHook || null,
+    workspaceHash: contextHashes.workspaceHash,
+    projectHash: contextHashes.projectHash
+  };
+}
+
+/**
+ * Where to send and with what, and nothing about the work: all an outbox
+ * flusher needs, since every queued payload already carries its own session
+ * and context. Kept apart so a flusher doesn't repeat the hook's git lookups.
+ */
+function loadCliAgentPairing(toolType: string, identity: CliAgentIdentity): Pick<CliAgentConfig, "apiBaseUrl" | "toolInstallationId" | "eventWriteToken" | "tokenFilePath" | "timeoutMs"> {
   const credentials = identity.host ? readHostCredentials(identity.host) : undefined;
   const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? credentials?.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
   const { toolInstallationId } = resolveCliAgentInstallationId(toolType, identity);
@@ -165,19 +186,11 @@ export function loadCliAgentConfig(toolType: string, sessionIdFromHook?: string,
   // Seed token file so tool-scoped renew can persist rotations unattended.
   if (!fileToken) persistEventWriteToken(tokenFilePath, eventWriteToken);
 
-  const contextHashes = resolveContextHashes(cwd);
-
   return {
     apiBaseUrl,
     toolInstallationId,
     eventWriteToken,
     tokenFilePath,
-    // An empty ASCENDA_SESSION_ID is "unset", not "override with nothing":
-    // read raw, `ASCENDA_SESSION_ID=""` beat a real hook session and shipped
-    // an empty string, grouping unrelated rows under a value naming no session.
-    sessionId: process.env.ASCENDA_SESSION_ID?.trim() || sessionIdFromHook || null,
-    workspaceHash: contextHashes.workspaceHash,
-    projectHash: contextHashes.projectHash,
     // Agents await command hooks; fail fast rather than stall the user's turn.
     timeoutMs: parsePositiveInt(process.env.ASCENDA_HTTP_TIMEOUT_MS) ?? 3000
   };
@@ -245,20 +258,58 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
     timeoutMs: config.timeoutMs
   });
 
-  for (const event of events) {
-    const result = await sender.send(event);
-    if (result === "accepted") continue;
-    if (result === "consent_missing") {
-      notice("Ascenda telemetry paused: renew IDE telemetry consent in the Ascenda app.");
-    } else if (result === "auth_failed") {
-      notice("Ascenda telemetry paused: connection revoked or expired. Re-pair via an Ascenda IDE extension or pairing-sim.");
-    } else if (result === "transport_error") {
-      notice("Ascenda telemetry paused: the ingest endpoint could not be reached; the event is kept in the outbox. Your work is unaffected.");
-    } else {
-      notice(`Ascenda telemetry rejected: ${result}`);
+  if (hookDeliveryInline()) {
+    for (const event of events) {
+      const result = await sender.send(event);
+      if (result === "accepted") continue;
+      const message = noticeFor(result);
+      if (message) notice(message);
+      return;
     }
     return;
   }
+
+  // Into the outbox and back to the agent; a detached flusher sends it. See
+  // backgroundDelivery.ts. The notice comes from the journal the last flush
+  // wrote, so an outage is reported one hook later than an inline send would.
+  for (const event of events) sender.queue(event);
+  startBackgroundFlush({ outboxFilePath: sender.outboxFilePath() });
+  const last = readCollectorState(sender.stateFilePath())?.lastOutcome;
+  const message = last ? noticeFor(last) : undefined;
+  if (message) notice(message);
+}
+
+/** The line a user sees for a send that isn't getting through, or none for one that is. */
+function noticeFor(result: string): string | undefined {
+  if (result === "accepted" || result === "duplicate") return undefined;
+  if (result === "consent_missing") return "Ascenda telemetry paused: renew IDE telemetry consent in the Ascenda app.";
+  if (result === "auth_failed") return "Ascenda telemetry paused: connection revoked or expired. Re-pair via an Ascenda IDE extension or pairing-sim.";
+  if (result === "transport_error") return "Ascenda telemetry paused: the ingest endpoint could not be reached; the event is kept in the outbox. Your work is unaffected.";
+  if (result === "outbox_discarded") return undefined;
+  return `Ascenda telemetry rejected: ${result}`;
+}
+
+/**
+ * What a hook binary runs when started with `OUTBOX_FLUSH_COMMAND`: load the
+ * same pairing the hook used and drain its outbox. Silent either way. An
+ * install with no pairing has no outbox to drain.
+ */
+export async function flushHookOutbox(options: Pick<HookDeliveryOptions, "toolType" | "source" | "host" | "setupCommand">): Promise<void> {
+  let config: ReturnType<typeof loadCliAgentPairing>;
+  try {
+    config = loadCliAgentPairing(options.toolType, options);
+  } catch {
+    return;
+  }
+  const sender = new AscendaEventSender({
+    apiBaseUrl: config.apiBaseUrl,
+    toolInstallationId: config.toolInstallationId,
+    source: options.source,
+    eventWriteToken: config.eventWriteToken,
+    tokenFilePath: config.tokenFilePath,
+    timeoutMs: config.timeoutMs
+  });
+  await runOutboxFlush(sender);
 }
 
 /**

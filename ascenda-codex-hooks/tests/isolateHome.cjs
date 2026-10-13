@@ -15,3 +15,7 @@ process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-home-"));
 // Cleared so a run on a machine that sets it still writes under the
 // throwaway HOME; tests that need it set it.
 delete process.env.CODEX_HOME;
+
+// Hooks deliver from a detached flusher by default. Tests that read what one
+// hook process sent before it exited run the inline path.
+process.env.ASCENDA_HOOK_DELIVERY = "inline";
