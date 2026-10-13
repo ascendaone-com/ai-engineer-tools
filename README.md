@@ -1,12 +1,14 @@
 # ai-engineer-tools
 
-Open-source collectors that record what your coding agents do, on your own
-machine. There are hooks for Claude Code, Codex, Cursor, Gemini CLI and
-Windsurf, and an editor extension for VS Code and Cursor. Installed without
-an account, the hooks write every event to a local file in an open format.
-They record metadata only, never source code, prompts or file names.
-What the events do and don't tell you is set out in
-[What this measures](#what-this-measures).
+**Building internal observability for AI coding agents? Start here.**
+
+Open-source collectors for Claude Code, Codex, Cursor, Gemini CLI and
+Windsurf, plus an editor extension for VS Code and Cursor. They capture what
+your agents do as structured events, without prompts, responses or source
+code. Run them locally, send the events to your own tools, or fork the project
+and build your own engineering analytics. Skip building and maintaining the
+collection layer, and spend the time on what you measure. No Ascenda account
+needed.
 
 ```text
 $ node examples/local-event-reader/read-events.mjs --follow
@@ -31,36 +33,66 @@ A Claude Code session and a Codex session side by side, read by
 hook payloads were replayed through the real collectors, so you can run the
 same thing. Install any agent's hooks with `--no-pair` and you get this file.
 
-## Built with these collectors
+## Why these collectors
 
-We build three things on the same collectors. You don't need any of them to
-use the collectors or to build on the events.
+Every coding agent reports its work differently. Different hooks, different
+event formats, different ideas of what a session is, and each changes every
+few weeks. Keeping a collection layer working across all of them is a project
+of its own, and collecting conversations brings security and governance
+problems you don't want.
 
-**Waterline.** A free macOS screen saver that turns Claude Code, Codex and
-Cursor activity into a water level. It runs on your Mac, with no account.
+- **Activity, not conversations.** Structured events. Never prompt or response
+  text, file contents or command output.
+- **One format across agents.** Every agent's events map to the same small
+  schema, [`agent-event/v0`](./packages/agent-events/).
+- **Local first.** Installed without pairing, the hooks write events to a file
+  on the machine. Nothing leaves it.
+- **Yours to build on.** Feed your own dashboards, internal tools or research.
+  [Collecting from a team](./docs/TEAM_COLLECTION.md) gets every engineer's
+  events into one place.
+- **Open source.** Apache-2.0. Fork it, extend it, and send improvements back.
+
+What these events do and don't tell you is set out in
+[What this measures](#what-this-measures).
+
+## Three ways to use it
+
+| You want to | Start with |
+| --- | --- |
+| Build your own analytics across the team | The collectors, then [Collecting from a team](./docs/TEAM_COLLECTION.md) |
+| See how you work with your agents | [Ascenda Flow](https://www.ascendaflow.com/?source=github), free for individual engineers |
+| Compare your team with other AI-native teams | The [Founding Benchmark](https://www.ascendaflow.com/benchmark?source=github) |
+
+Counts tell you what happened. Whether a busy week was a good one, whether a
+change helped, and how you compare with other teams takes each person's own
+read of their days, and other teams to compare with. That's what Flow and the
+benchmark add.
+
+**Waterline** is the quickest way to see the collectors working: a free macOS
+screen saver that turns Claude Code, Codex and Cursor activity into a water
+level. It runs on your Mac, with no account.
 [See Waterline](https://www.ascendaflow.com/waterline?source=github)
 
 <img src="https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/waterline-paired.gif" width="640" alt="The Waterline screen saver: a clock over dark water whose level moves with agent activity">
 
 <sub>Waterline with Ascenda Flow paired, at double speed. Flow gives the water its colour.</sub>
 
-**Ascenda Flow.** A macOS app that shows how you work with your agents:
-how many you run at once, when your best work happens, and what gets in the
-way. It starts from the history Claude Code, Cursor and Codex already keep on
-your Mac. Free for individual engineers, with invitations going out by email.
+**Ascenda Flow** is a macOS app that shows how you work with your agents: how
+many you run at once, when your best work happens, and what gets in the way.
+It starts from the history Claude Code, Cursor and Codex already keep on your
+Mac. Free for individual engineers, with invitations going out by email.
 [Get early access](https://www.ascendaflow.com/?source=github)
 
 <img src="https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/flow-hud.gif" width="207" alt="The Flow HUD: a colour field labelled Activated, Clear, Strained and Drained, with a frame that fills as agents work">
 
 <sub>Flow's HUD while agents work, about 8× speed.</sub>
 
-**Founding Benchmark.** A study of how small AI-native teams work with
-agents: concurrency, who carries the review load, steering and rework. We're
-inviting 200 teams of roughly 2 to 15 engineers, selected in waves of 20.
-Selected teams get early access to Flow, and a comparison with similar teams
-once the cohort has enough of them. It's free, and each engineer decides
-whether to take part.
-[Apply with your team](https://www.ascendaflow.com/benchmark?source=github)
+**The Founding Benchmark** studies how small AI-native teams work with agents:
+concurrency, who carries the review load, steering and rework. We're inviting
+200 teams of roughly 2 to 15 engineers, selected in waves of 20. Selected
+teams get early access to Flow, and a comparison with similar teams once the
+cohort has enough of them. It's free, and each engineer decides whether to
+take part. [Apply with your team](https://www.ascendaflow.com/benchmark?source=github)
 
 ## Install
 
@@ -213,18 +245,27 @@ package's README under **Privacy defaults**, including where it is enforced
 by schema rather than convention: the semantic signal tool rejects free text
 outright.
 
-## Build your own
+## Building something with these collectors?
+
+We'd like to hear what you're measuring. Tell us in an
+[issue](https://github.com/ascendaone-com/ai-engineer-tools/issues/new/choose)
+if you're building internal analytics on these events, extending the
+collectors, or working out how your team uses agents.
 
 - **Read the events.** [packages/agent-events](./packages/agent-events/) has
-  the schema, the types and a reader, and
+  the schema, the types and a reader.
   [examples/local-event-reader](./examples/local-event-reader/) is a working
-  starting point.
+  starting point, and [Collecting from a team](./docs/TEAM_COLLECTION.md)
+  covers getting everyone's events into one place.
 - **Add an agent.** Each collector is a thin adapter over a shared runtime.
   [CONTRIBUTING.md](./CONTRIBUTING.md) walks through adding one, and how to test
   it with no backend.
-- **Report what breaks.** Agents change their hooks often. The
-  [issue forms](https://github.com/ascendaone-com/ai-engineer-tools/issues/new/choose)
-  take a compatibility report or a proposal for a new integration.
+- **Report what breaks.** Agents change their hooks often. The issue forms take
+  a compatibility report or a proposal for a new integration.
+
+If you'd rather compare notes with other teams, the
+[Founding Benchmark](https://www.ascendaflow.com/benchmark?source=github) is
+bringing 200 AI-native teams together to do that.
 
 Forks and commercial products built on these collectors are welcome under
 [Apache-2.0](./LICENSE).
