@@ -15,3 +15,8 @@ process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-home-"));
 // and whether the sender may rotate a token. Cleared so a suite run inside one
 // sees the same defaults as a run on a laptop; tests that need it set it.
 delete process.env.CLAUDE_CODE_REMOTE;
+
+// Claude Code reads its user settings from here when it is set, and so does
+// setup. Cleared so a run inside a session that sets it still writes under
+// the throwaway HOME; tests that need it set it.
+delete process.env.CLAUDE_CONFIG_DIR;

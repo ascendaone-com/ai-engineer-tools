@@ -10,3 +10,8 @@ const os = require("node:os");
 const path = require("node:path");
 
 process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-home-"));
+
+// Codex reads its user files from here when it is set, and so does setup.
+// Cleared so a run on a machine that sets it still writes under the
+// throwaway HOME; tests that need it set it.
+delete process.env.CODEX_HOME;

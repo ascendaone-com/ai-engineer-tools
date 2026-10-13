@@ -9,6 +9,7 @@ import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstal
 import { createPairingSession, getPairingStatus, readInitiatives } from "./http";
 import { describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand } from "./hookSet";
 import { initiativesStatusLines } from "./initiatives";
+import { replaceSettingsFile } from "./settingsFile";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
 import { describeAge, hookRunnerCommand, hookRunnerPaths, installHookRunner, readLastHook, removeHookRunner, resolveHookNode, tidyHomePath } from "./hookRunner";
@@ -46,9 +47,22 @@ export type HookSettingsFormat = {
   scaffold?: Record<string, unknown>;
   /** The element registered under `hooks[event]` for our command. */
   entry: (command: string, event: string) => Record<string, unknown>;
-  /** The command string inside an element of `hooks[event]`, whatever its shape. */
-  commandOf: (entry: unknown) => string | undefined;
-};
+} & (
+  | {
+      /**
+       * Each element of `hooks[event]` is a group, `{ matcher?, hooks: [{ type,
+       * command }] }` (Codex, Gemini). Another tool can add its own command to
+       * a group we wrote, so ours are found and taken out one command at a
+       * time, and a group is dropped only once nothing is left in it.
+       */
+      grouped: true;
+    }
+  | {
+      grouped?: false;
+      /** The command string inside a flat element of `hooks[event]`. */
+      commandOf: (entry: unknown) => string | undefined;
+    }
+);
 
 export type CliAgentSetupSpec = {
   /** The `metadata.host` value and credentials key, e.g. `cursor`. */
@@ -611,8 +625,7 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
   const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
 
   for (const event of spec.hookEvents) {
-    const kept = (hooks[event] ?? []).filter((entry) => !isOurs(entry, spec));
-    hooks[event] = [...kept, spec.settings.entry(command, event)];
+    hooks[event] = placeOurEntry(hooks[event] ?? [], spec.settings.entry(command, event), spec);
   }
 
   const updated: HookSettings = { ...settings, hooks };
@@ -624,11 +637,9 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
     return true;
   }
 
-  // Back up before touching a pre-existing file: hook registration is the
+  // Backed up before the first change: hook registration is the
   // highest-blast-radius thing this command does.
-  if (exists) fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
-  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
-  fs.writeFileSync(settingsFile, serialised, "utf8");
+  replaceSettingsFile(settingsFile, serialised);
   return true;
 }
 
@@ -650,17 +661,98 @@ export function registeredHookSets(settings: HookSettings, spec: CliAgentSetupSp
   const sets = new Map<string, number>();
   for (const [event, entries] of Object.entries(settings.hooks ?? {})) {
     for (const entry of entries ?? []) {
-      if (!isOurs(entry, spec)) continue;
-      const set = hookSetOfCommand(spec.settings.commandOf(entry) as string);
-      sets.set(event, Math.min(set, sets.get(event) ?? set));
+      for (const command of commandsOf(entry, spec)) {
+        if (!isOurCommand(command, spec)) continue;
+        const set = hookSetOfCommand(command);
+        sets.set(event, Math.min(set, sets.get(event) ?? set));
+      }
     }
   }
   return sets;
 }
 
-function isOurs(entry: unknown, spec: CliAgentSetupSpec): boolean {
+/** Every command an element of `hooks[event]` runs: one for a flat entry, any number for a group. */
+function commandsOf(entry: unknown, spec: CliAgentSetupSpec): string[] {
+  if (spec.settings.grouped) {
+    return innerHooks(entry)
+      .map(commandOfHook)
+      .filter((command): command is string => typeof command === "string");
+  }
   const command = spec.settings.commandOf(entry);
-  return typeof command === "string" && command.includes(spec.binaryName);
+  return typeof command === "string" ? [command] : [];
+}
+
+function innerHooks(entry: unknown): unknown[] {
+  const hooks = entry && typeof entry === "object" ? (entry as { hooks?: unknown }).hooks : undefined;
+  return Array.isArray(hooks) ? hooks : [];
+}
+
+function commandOfHook(hook: unknown): unknown {
+  return hook && typeof hook === "object" ? (hook as { command?: unknown }).command : undefined;
+}
+
+function isOurCommand(command: string, spec: CliAgentSetupSpec): boolean {
+  return command.includes(spec.binaryName);
+}
+
+/** True when any command in the element is ours. */
+function isOurs(entry: unknown, spec: CliAgentSetupSpec): boolean {
+  return commandsOf(entry, spec).some((command) => isOurCommand(command, spec));
+}
+
+function isOurInnerHook(hook: unknown, spec: CliAgentSetupSpec): boolean {
+  const command = commandOfHook(hook);
+  return typeof command === "string" && isOurCommand(command, spec);
+}
+
+/**
+ * `hooks[event]` with our commands taken out and everyone else's left where
+ * they were. A group is dropped only when ours were all it held.
+ */
+function withoutOurEntries(entries: unknown[], spec: CliAgentSetupSpec): unknown[] {
+  if (!spec.settings.grouped) return entries.filter((entry) => !isOurs(entry, spec));
+  const kept: unknown[] = [];
+  for (const entry of entries) {
+    if (!isOurs(entry, spec)) {
+      kept.push(entry);
+      continue;
+    }
+    const others = innerHooks(entry).filter((hook) => !isOurInnerHook(hook, spec));
+    if (others.length) kept.push({ ...(entry as Record<string, unknown>), hooks: others });
+  }
+  return kept;
+}
+
+/**
+ * `hooks[event]` with exactly one registration of ours, `wanted`. In a
+ * grouped format, when the first group carrying ours has no matcher, our
+ * command is replaced where it stands: a group another tool has added to
+ * stays one group, and an install that is current reads as current.
+ * Otherwise ours are taken out and `wanted` goes on the end.
+ */
+function placeOurEntry(entries: unknown[], wanted: Record<string, unknown>, spec: CliAgentSetupSpec): unknown[] {
+  if (!spec.settings.grouped) return [...withoutOurEntries(entries, spec), wanted];
+  const replacements = innerHooks(wanted);
+  let placed = false;
+  const result: unknown[] = [];
+  for (const entry of entries) {
+    if (!isOurs(entry, spec)) {
+      result.push(entry);
+      continue;
+    }
+    const matcher = (entry as { matcher?: unknown }).matcher;
+    const matchesAll = matcher === undefined || matcher === "";
+    const next: unknown[] = [];
+    for (const hook of innerHooks(entry)) {
+      if (!isOurInnerHook(hook, spec)) next.push(hook);
+      else if (!placed && matchesAll) {
+        next.push(...replacements);
+        placed = true;
+      }
+    }
+    if (next.length) result.push({ ...(entry as Record<string, unknown>), hooks: next });
+  }
+  return placed ? result : [...result, wanted];
 }
 
 /**
@@ -674,10 +766,10 @@ export function findStaleHookCommands(settings: HookSettings, binary: string, sp
   const stale = new Set<string>();
   for (const entries of Object.values(settings.hooks ?? {})) {
     for (const entry of entries ?? []) {
-      const command = spec.settings.commandOf(entry);
-      if (typeof command !== "string") continue;
-      if (!/ascenda/i.test(command) || command.includes(binary)) continue;
-      stale.add(command);
+      for (const command of commandsOf(entry, spec)) {
+        if (!/ascenda/i.test(command) || command.includes(binary)) continue;
+        stale.add(command);
+      }
     }
   }
   return [...stale];
@@ -869,14 +961,13 @@ function removeOurHookEntries(settingsFile: string, spec: CliAgentSetupSpec): bo
     const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as HookSettings;
     const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
     for (const event of Object.keys(hooks)) {
-      const kept = hooks[event].filter((entry) => !isOurs(entry, spec));
+      const kept = withoutOurEntries(hooks[event], spec);
       if (kept.length) hooks[event] = kept;
       else delete hooks[event];
     }
     const updated: HookSettings = { ...settings, hooks };
     if (!Object.keys(hooks).length) delete updated.hooks;
-    fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
-    fs.writeFileSync(settingsFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+    replaceSettingsFile(settingsFile, `${JSON.stringify(updated, null, 2)}\n`);
     return true;
   } catch {
     return false;

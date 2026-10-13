@@ -34,7 +34,15 @@ export const HOOK_EVENTS = [
  */
 const HOOK_TIMEOUT_SECONDS = 10;
 
-type CodexHookGroup = { hooks?: Array<{ type?: string; command?: unknown }> };
+/**
+ * Where Codex keeps its user-level files: `$CODEX_HOME` when it is set, as
+ * Codex itself reads it, otherwise `~/.codex`. A project's own `.codex`
+ * folder is not affected by it.
+ */
+export function codexHome(): string {
+  const configured = process.env.CODEX_HOME?.trim();
+  return configured ? path.resolve(configured) : path.join(os.homedir(), ".codex");
+}
 
 export const SETUP: CliAgentSetupSpec = {
   host: CODEX_HOST,
@@ -49,15 +57,11 @@ export const SETUP: CliAgentSetupSpec = {
   sends: ["posture", "waiting"],
   settings: {
     settingsPath: (scope, projectDir) =>
-      scope === "user" ? path.join(os.homedir(), ".codex", "hooks.json") : path.join(projectDir, ".codex", "hooks.json"),
+      scope === "user" ? path.join(codexHome(), "hooks.json") : path.join(projectDir, ".codex", "hooks.json"),
     // Codex nests as Gemini does — each event maps to an array of
     // { hooks: [{ type, command }] } — but reads the event from argv rather
     // than stdin, so unlike Gemini the name has to be on the command line.
     entry: (command, event) => ({ hooks: [{ type: "command", command: `${command} ${event}`, timeout: HOOK_TIMEOUT_SECONDS }] }),
-    commandOf: (entry) => {
-      const group = entry as CodexHookGroup | undefined;
-      const command = group?.hooks?.find((hook) => typeof hook?.command === "string")?.command;
-      return typeof command === "string" ? command : undefined;
-    }
+    grouped: true
   }
 };
