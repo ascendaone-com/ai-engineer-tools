@@ -511,9 +511,10 @@ export interface HandoffFile {
  * Codex's handoff session. Close to Claude Code's — both are agent
  * transcripts with prompts, tool calls, tokens and compaction — but a
  * distinct shape rather than a reuse, for the reason the Cursor shape gives
- * below: Codex has no subagent transcripts folded into a session and no
- * `userModified` marker, and a field that can never be collected should be
- * absent from the shape, not present as a permanent null.
+ * below: Codex has no `userModified` marker, and a field that can never be
+ * collected should be absent from the shape, not present as a permanent
+ * null. Subagent threads do fold into a Codex session; their breakdown rides
+ * on the event's metrics and isn't part of this shape yet.
  */
 export interface CodexHandoffSession {
   /** Per-local-day slices, oldest first; see {@link HandoffSession.days}. */
