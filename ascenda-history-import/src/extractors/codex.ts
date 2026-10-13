@@ -804,7 +804,16 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
  * installed and costs this package no dependency. With neither, the file
  * can't be read and is counted in `unreadableRolloutFiles` like any other
  * rollout this run couldn't open, so the window says it's short.
+ *
+ * `ZstdDecoder` pins the choice. `auto` is the order above; `node` and `cli`
+ * use only that decoder; `none` reads no `.zst` at all. The extractor takes
+ * it as an option, and `ASCENDA_ZSTD_DECODER` sets it for a whole run, which
+ * is how the tests reach the CLI path on a Node that has the built-in, and
+ * how someone can rule a decoder out when chasing a bad read.
  */
+export type ZstdDecoder = "auto" | "node" | "cli" | "none";
+const ZSTD_DECODERS: readonly ZstdDecoder[] = ["auto", "node", "cli", "none"];
+
 type ZstdDecompress = (buffer: Buffer, callback: (error: Error | null, result: Buffer) => void) => void;
 const nodeZstdDecompress = (zlib as unknown as { zstdDecompress?: ZstdDecompress }).zstdDecompress;
 
@@ -812,14 +821,23 @@ const nodeZstdDecompress = (zlib as unknown as { zstdDecompress?: ZstdDecompress
  * to a few megabytes; this is far past any of them. */
 const ZSTD_MAX_BYTES = 1024 * 1024 * 1024;
 
-async function decompressZstd(filePath: string): Promise<string> {
-  if (typeof nodeZstdDecompress === "function") {
+/** The decoder an option or `ASCENDA_ZSTD_DECODER` names. An unrecognised
+ * value falls back to `auto` rather than failing the whole store. */
+export function zstdDecoderOf(choice: string | undefined): ZstdDecoder {
+  const value = choice?.trim().toLowerCase();
+  return ZSTD_DECODERS.find((d) => d === value) ?? "auto";
+}
+
+async function decompressZstd(filePath: string, decoder: ZstdDecoder): Promise<string> {
+  if (decoder === "none") throw new Error("zstd decoding is turned off");
+  if ((decoder === "auto" || decoder === "node") && typeof nodeZstdDecompress === "function") {
     const compressed = await fs.readFile(filePath);
     const out = await new Promise<Buffer>((resolve, reject) =>
       nodeZstdDecompress(compressed, (error, result) => (error ? reject(error) : resolve(result)))
     );
     return out.toString("utf8");
   }
+  if (decoder === "node") throw new Error("this Node has no built-in zstd");
   const { stdout } = await execFileAsync("zstd", ["-dcq", "--", filePath], {
     encoding: "buffer",
     maxBuffer: ZSTD_MAX_BYTES
@@ -832,9 +850,15 @@ async function decompressZstd(filePath: string): Promise<string> {
  * file that fails partway leaves nothing half-counted in a session other
  * rollouts also feed.
  */
-async function readRolloutText(filePath: string): Promise<string> {
-  if (filePath.endsWith(".zst")) return decompressZstd(filePath);
+async function readRolloutText(filePath: string, decoder: ZstdDecoder): Promise<string> {
+  if (filePath.endsWith(".zst")) return decompressZstd(filePath, decoder);
   return fs.readFile(filePath, "utf8");
+}
+
+export interface ExtractCodexOptions {
+  /** How `.jsonl.zst` rollouts are decoded. Defaults to
+   * `ASCENDA_ZSTD_DECODER`, then `auto`. */
+  zstdDecoder?: ZstdDecoder;
 }
 
 /** Every `.jsonl` and `.jsonl.zst` under `root`, recursively. */
@@ -892,8 +916,10 @@ export const CODEX_SNAPSHOT_DIRS = ["sessions", "archived_sessions"] as const;
 
 export async function* extractCodex(
   snapshotDir: string,
-  extractionId: string
+  extractionId: string,
+  options: ExtractCodexOptions = {}
 ): AsyncIterable<NormalizedHistoricalEvent> {
+  const zstdDecoder = options.zstdDecoder ?? zstdDecoderOf(process.env.ASCENDA_ZSTD_DECODER);
   const found: string[] = [];
   for (const dir of CODEX_SNAPSHOT_DIRS) {
     for (const file of await walkRolloutFiles(path.join(snapshotDir, dir))) found.push(file);
@@ -913,7 +939,7 @@ export async function* extractCodex(
   for (const file of files) {
     let text: string;
     try {
-      text = await readRolloutText(file);
+      text = await readRolloutText(file, zstdDecoder);
     } catch {
       // A rollout that cannot be opened, read or decompressed is a hole in
       // the window, and the epoch marker is the only place that can say so.

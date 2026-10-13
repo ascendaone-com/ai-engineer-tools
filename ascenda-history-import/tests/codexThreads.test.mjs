@@ -18,16 +18,20 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
+import { execFile, execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   extractCodex,
   rolloutIdentityOf,
   rolloutReadingOrder,
   sessionIdFromRolloutName,
-  sessionKeyOf
+  sessionKeyOf,
+  zstdDecoderOf
 } from "../dist/extractors/codex.js";
 import { scanCodex } from "../dist/scan.js";
 import { resolveStorePaths } from "../dist/stores.js";
 
+const CLI = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const PARENT = "11111111-1111-4111-8111-111111111111";
 const FORK = "22222222-2222-4222-8222-222222222222";
 const CHILD = "33333333-3333-4333-8333-333333333333";
@@ -392,6 +396,92 @@ test("a .jsonl.zst that can't be decoded is counted unreadable, not dropped in s
   assert.equal(sessions(events).length, 1);
   assert.equal(events.find((e) => e.eventKind === "extraction_epoch").metrics.unreadableRolloutFiles, 1);
 });
+
+/** Whether the `zstd` CLI is on PATH, and the reason to give when it isn't. */
+function zstdCliMissing() {
+  try {
+    execFileSync("zstd", ["--version"], { stdio: "ignore" });
+    return false;
+  } catch {
+    return "the zstd CLI isn't installed on this machine, so its decode path can't be exercised";
+  }
+}
+
+/** A `.zst` of the parent rollout, made by whichever compressor exists. */
+function compressParent() {
+  const plain = Buffer.from(parentLines.join("\n") + "\n");
+  if (typeof zlib.zstdCompressSync === "function") return zlib.zstdCompressSync(plain);
+  return execFileSync("zstd", ["-cq"], { input: plain });
+}
+
+test("the zstd decoder choice reads an option value and falls back to auto", () => {
+  assert.equal(zstdDecoderOf(undefined), "auto");
+  assert.equal(zstdDecoderOf(" CLI "), "cli");
+  assert.equal(zstdDecoderOf("none"), "none");
+  assert.equal(zstdDecoderOf("brotli"), "auto");
+});
+
+test("the zstd CLI decodes a .jsonl.zst when it's the decoder chosen", { skip: zstdCliMissing() }, async () => {
+  const { root } = await snapshotWith({
+    [`rollout-2026-08-03T09-00-00-${PARENT}.jsonl.zst`]: compressParent()
+  });
+  const events = await collect(extractCodex(root, "x1", { zstdDecoder: "cli" }));
+  const [s] = sessions(events);
+  assert.equal(s.sessionRef, PARENT);
+  assert.equal(s.metrics.promptCount, 2);
+  assert.equal(s.metrics.inputTokens, 1000);
+  assert.equal(events.find((e) => e.eventKind === "extraction_epoch").metrics.unreadableRolloutFiles, 0);
+});
+
+test(
+  "with no decoder, a .jsonl.zst counts as unreadable and the plain rollouts still read",
+  { skip: typeof zlib.zstdCompressSync !== "function" && zstdCliMissing() },
+  async () => {
+    const { root } = await snapshotWith({
+      [`rollout-2026-08-03T09-00-00-${PARENT}.jsonl.zst`]: compressParent(),
+      [`rollout-2026-08-03T10-00-00-${FORK}.jsonl`]: [meta("2026-08-03T10:00:00.000Z", FORK)].join("\n") + "\n"
+    });
+    const events = await collect(extractCodex(root, "x1", { zstdDecoder: "none" }));
+    assert.deepEqual(sessions(events).map((s) => s.sessionRef), [FORK]);
+    assert.equal(events.find((e) => e.eventKind === "extraction_epoch").metrics.unreadableRolloutFiles, 1);
+  }
+);
+
+test(
+  "with no decoder, the import's read-failure warning names the Codex store",
+  { skip: typeof zlib.zstdCompressSync !== "function" && zstdCliMissing() },
+  async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "codex-zst-cli-"));
+    try {
+      const dir = path.join(home, ".codex", "sessions", "2026", "08", "03");
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, `rollout-2026-08-03T09-00-00-${PARENT}.jsonl.zst`), compressParent());
+      await fs.writeFile(
+        path.join(dir, `rollout-2026-08-03T10-00-00-${FORK}.jsonl`),
+        [meta("2026-08-03T10:00:00.000Z", FORK), prompt("2026-08-03T10:00:05.000Z")].join("\n") + "\n"
+      );
+      const { stdout } = await new Promise((resolve) =>
+        execFile(
+          process.execPath,
+          [CLI, "import"],
+          {
+            env: { ...process.env, HOME: home, ASCENDA_ZSTD_DECODER: "none" },
+            maxBuffer: 32 * 1024 * 1024
+          },
+          (error, out, err) => resolve({ code: error?.code ?? 0, stdout: out, stderr: err })
+        )
+      );
+      assert.match(stdout, /codex extracted/);
+      assert.match(
+        stdout,
+        /⚠ 1 file\(s\)\/record\(s\) this store could not read — the window is short by an unknown amount/,
+        `the undecodable rollout must raise the warning, got:\n${stdout}`
+      );
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  }
+);
 
 test("scan counts compressed rollouts beside plain ones", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "codex-home-"));

@@ -15,3 +15,4 @@ process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-home-"));
 // otherwise run the suite against their own stores.
 delete process.env.CLAUDE_CONFIG_DIR;
 delete process.env.CODEX_HOME;
+delete process.env.ASCENDA_ZSTD_DECODER;
