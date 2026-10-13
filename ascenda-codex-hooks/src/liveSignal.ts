@@ -53,6 +53,10 @@ export function liveSignalFor(hookName: CodexHookEventName, input: CodexHookInpu
     case "PreCompact": return { event: "compaction" };
     case "Stop": return { event: "stop" };
     case "PermissionRequest": return { event: "awaiting" };
+    // Closing Codex mid-turn runs no `Stop`, so without this the session held
+    // its level until it went stale. A `halted` never creates a session and is
+    // ignored for one that already stopped.
+    case "SessionEnd": return { event: "halted" };
     default: return undefined;
   }
 }

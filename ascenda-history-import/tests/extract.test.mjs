@@ -533,11 +533,27 @@ async function makeSubagentStore() {
       },
       PARENT_SESSION
     ),
+    // One message written over two lines, the first with a partial
+    // `output_tokens`: one turn and the last line's figures, not two.
+    sidechainLine(
+      {
+        type: "assistant",
+        timestamp: "2026-07-22T00:00:09.500Z",
+        message: {
+          id: "msg_sub",
+          role: "assistant",
+          model: "claude-haiku-4-5",
+          usage: { input_tokens: 1, output_tokens: 0, cache_read_input_tokens: 0 }
+        }
+      },
+      PARENT_SESSION
+    ),
     sidechainLine(
       {
         type: "assistant",
         timestamp: "2026-07-22T00:00:10.000Z",
         message: {
+          id: "msg_sub",
           role: "assistant",
           model: "claude-haiku-4-5",
           usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0 }

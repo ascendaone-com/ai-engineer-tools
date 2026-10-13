@@ -130,6 +130,30 @@ which the person did not spend typing. Rendering it as attention is a
 fabrication the name invites and the data does not support; the honest gloss is
 "the agent was working".
 
+### Claude Code reports its own active time
+
+Claude Code can export a metric of its own, `claude_code.active_time.total`,
+in seconds, with a `type` of `user` or `cli`. Its docs describe `user` as
+keyboard time, typing and reading responses, and `cli` as the time spent running
+tools and generating a reply. If you collect that metric, don't expect it to
+match this one.
+
+The two are measured differently, so they answer different questions:
+
+| | Claude Code's metric | `handsOnMinutes` / `agentSupervisingMinutes` |
+|---|---|---|
+| Source | Counted live, as the session runs | Inferred afterwards from the transcript's timestamps |
+| `user` / hands-on | Includes reading while the agent works | Only the stretch that ends at a prompt you typed |
+| `cli` / supervising | Tool execution and reply generation | Every other active interval, gap-split at five minutes |
+| Idle time | Left out by Claude Code's own rules | Left out by the gap rule |
+
+The biggest difference is reading. If you watch the agent work, Claude Code
+counts that as `user` time. A transcript has no line for it, so we count it as
+agent-supervising. Neither reading is wrong. They're different measurements.
+
+Our figures are never exported under that metric name, and nothing here
+converts one into the other. Put them side by side, labelled, if you need both.
+
 ### Runs you cut short
 
 Claude Code sessions also count the times you stopped the agent mid-turn.
