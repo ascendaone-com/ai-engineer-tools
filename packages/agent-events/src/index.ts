@@ -30,6 +30,9 @@ export const AGENT_EVENT_KINDS = [
   "context.compacted",
   "subagent.started",
   "subagent.stopped",
+  "pull_request.opened",
+  "pull_request.closed",
+  "pull_request.merged",
   "other"
 ] as const;
 
@@ -97,6 +100,19 @@ export type AgentEventV0 = {
    * on the repository's default branch and wherever `repoKey` is absent.
    */
   branchKey?: string;
+  /**
+   * On a pull request event from a fork: the key of the fork that holds the
+   * head branch. A clone of the fork has the fork as its `origin`, so match a
+   * session's `repoKey` against this when it's set and against `repoKey` when
+   * it isn't.
+   */
+  headRepoKey?: string;
+  /** On `pull_request.*`: when GitHub says the pull request was created. ISO 8601. */
+  prCreatedAt?: string;
+  /** On `pull_request.closed` and `.merged`: when it was closed. ISO 8601. */
+  prClosedAt?: string;
+  /** On `pull_request.merged`: when it was merged. ISO 8601. */
+  prMergedAt?: string;
   /**
    * The agent's own opaque id for the prompt a turn answers, where it gives
    * one. Events of one turn share it. Never derived from the prompt's text.

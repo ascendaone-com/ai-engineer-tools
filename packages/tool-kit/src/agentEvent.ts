@@ -32,7 +32,10 @@ const KIND_BY_TYPE: Partial<Record<AscendaTelemetryEventType, AgentEventKind>> =
   context_compression_manual: "context.compacted",
   context_compression_auto: "context.compacted",
   subagent_started: "subagent.started",
-  subagent_stopped: "subagent.stopped"
+  subagent_stopped: "subagent.stopped",
+  pull_request_opened: "pull_request.opened",
+  pull_request_closed: "pull_request.closed",
+  pull_request_merged: "pull_request.merged"
 };
 
 /** The source names agents by tool type; `metadata.host` names the agent. VS Code has no host. */
@@ -98,6 +101,10 @@ export function toAgentEvent(payload: AscendaEventPayload): AgentEventV0 {
     ...(stringField(payload.projectHash) ? { projectHash: payload.projectHash as string } : {}),
     ...(stringField(metadata.repoKey) ? { repoKey: metadata.repoKey as string } : {}),
     ...(stringField(metadata.branchKey) ? { branchKey: metadata.branchKey as string } : {}),
+    ...(stringField(metadata.headRepoKey) ? { headRepoKey: metadata.headRepoKey as string } : {}),
+    ...(stringField(metadata.prCreatedAt) ? { prCreatedAt: metadata.prCreatedAt as string } : {}),
+    ...(stringField(metadata.prClosedAt) ? { prClosedAt: metadata.prClosedAt as string } : {}),
+    ...(stringField(metadata.prMergedAt) ? { prMergedAt: metadata.prMergedAt as string } : {}),
     ...(stringField(metadata.promptId) ? { promptId: metadata.promptId as string } : {}),
     ...(vcsAction ? { vcsAction } : {}),
     ...(reason ? { reason } : {}),

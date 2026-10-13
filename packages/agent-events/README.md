@@ -90,6 +90,8 @@ all, in [examples/local-event-reader](../../examples/local-event-reader/).
 | `repoKey` | The repository, as a digest of its GitHub `owner/repo`. See [Matching a session to a pull request](#matching-a-session-to-a-pull-request). |
 | `branchKey` | The branch, as a digest. Set on each event, off the default branch. Same section. |
 | `promptId` | The agent's own id for the prompt a turn answers, when it gives one. Events of one turn share it. |
+| `headRepoKey` | On a pull request from a fork: the fork's key. See below. |
+| `prCreatedAt`, `prClosedAt`, `prMergedAt` | On `pull_request.*`: when GitHub says it was created, closed and merged. |
 | `vcsAction` | On `tool.completed`, when the call was a version-control step: `commit`, `push`, `pr_created` or `pr_merged`. |
 | `reason` | On `agent.waiting`, why the agent stopped: `permission`, `idle` or `other`. |
 | `model` | On `session.started`, the model the agent reported, when it did. |
@@ -98,7 +100,9 @@ all, in [examples/local-event-reader](../../examples/local-event-reader/).
 
 Kinds: `session.started`, `session.ended`, `prompt.submitted`, `tool.started`,
 `tool.completed`, `tool.failed`, `turn.completed`, `agent.waiting`,
-`context.compacted`, `subagent.started`, `subagent.stopped`, `other`.
+`context.compacted`, `subagent.started`, `subagent.stopped`, `other`, and from
+the GitHub collector `pull_request.opened`, `pull_request.closed` and
+`pull_request.merged`.
 
 Not every agent reports every field either. Today the keys, `promptId`, `vcsAction`, `reason` and `model` come from the Claude Code collector, and the others will follow.
 
@@ -121,8 +125,9 @@ the same repository and head branch carry the same pair.
 - A session can move between branches, so `branchKey` is set on each event, not
   once per session. Match on the key and on the session overlapping the PR's
   open window, because a branch called `fix` gets reused.
-- On a fork, the checkout's `origin` is the fork. Match against the PR's head
-  repository, not the base.
+- On a fork, the checkout's `origin` is the fork. A pull request from a fork
+  carries `headRepoKey`: match the session's `repoKey` against it, and against
+  the PR's `repoKey` when there's none.
 - Only github.com remotes get keys. There's no `branchKey` on the repository's
   default branch, where every session would share one.
 

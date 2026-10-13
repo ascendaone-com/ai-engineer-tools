@@ -10,6 +10,8 @@ pull-request activity, collected from a code forge.
 | `review_requested_of_me` | someone asked **you** to review | supervision |
 | `review_given` | **you** submitted a review | supervision |
 | `pull_request_opened` | **you** opened a pull request | creation |
+| `pull_request_closed` | a pull request **you** opened was closed without merging | neutral |
+| `pull_request_merged` | a pull request **you** opened was merged, by anyone | neutral |
 
 The two review events are the report's *verification overload* concern — the
 checking burden that concentrates on senior engineers as a team adopts AI.
@@ -30,11 +32,37 @@ minimum cohort size.
 
 ### What never travels
 
-No repository name, PR title, branch, PR number, review body, or any other
+No repository name, PR title, branch name, PR number, review body, or any other
 person's login. The repository is reduced to an 8-character hash so that "is it
-always the same repository" stays answerable without naming it. There is no
-field on the emitted metadata that a title or a body could be placed in, and a
-test asserts each of those strings is absent from what gets sent.
+always the same repository" stays answerable without naming it, and the head
+branch to a 16-character one (see below). There is no field on the emitted
+metadata that a title or a body could be placed in, and a test asserts each of
+those strings is absent from what gets sent.
+
+### Matching a pull request to a coding session
+
+Your pull request events carry `repoKey` (the repository) and `branchKey` (the
+head branch), plus `prCreatedAt`, and `prClosedAt` and `prMergedAt` once it's
+done. The Claude Code collector puts the same two keys on each event of a
+session, so a session and a pull request on the same repository and branch
+carry the same pair. Match on the keys and on the session overlapping the PR's
+open window: a branch called `fix` gets reused.
+
+- A pull request from a fork also carries `headRepoKey`. A clone of the fork has
+  the fork as its `origin`, so match its sessions against `headRepoKey`, and
+  against `repoKey` when there isn't one.
+- There's no `branchKey` when the head branch is its repository's default
+  branch. The hooks leave it off there too, so those match on `repoKey` and the
+  window alone.
+- One session can span several branches. Each of its events carries the branch
+  it was on, so a session can match more than one pull request.
+
+**The trade-off.** Neither key is salted, because this step runs in CI where no
+salt exists. Anyone holding one can check a guess at a repository or branch
+name, and for a public repository those names are public. The repository
+digest already made that trade; the branch digest adds a name to it. If a
+team doesn't want it, leave `closed` out of the workflow's `types`, and the
+opened events are the only ones that carry a branch key.
 
 ### Withdrawal is not derivable, deliberately
 
@@ -62,7 +90,7 @@ repository secrets with that person's suffix, along with their GitHub login.
 name: ascenda-collaboration
 on:
   pull_request:
-    types: [opened, review_requested]
+    types: [opened, closed, review_requested]
   pull_request_review:
     types: [submitted]
 

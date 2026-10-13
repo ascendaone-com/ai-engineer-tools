@@ -52,3 +52,16 @@ test("a session start carries the model slug", () => {
   assert.equal("model" in toAgentEvent(wire("ai_prompt_submitted", { modelId: "claude-opus-5-5" })), false);
   assert.equal("model" in toAgentEvent(wire("create_focus_session", {})), false);
 });
+
+test("pull request events from the GitHub collector get their own kinds and carry their times", () => {
+  const forge = (eventType, metadata) => toAgentEvent({ source: "code_forge", eventType, occurredAt: "2026-10-14T01:02:03.000Z", idempotencyKey: `k-${eventType}`, metadata: { host: "github", ...metadata } });
+  assert.equal(forge("pull_request_opened", {}).kind, "pull_request.opened");
+  assert.equal(forge("pull_request_closed", {}).kind, "pull_request.closed");
+  const merged = forge("pull_request_merged", { repoKey: "a1b2c3d4", headRepoKey: "0a0b0c0d", branchKey: "a1b2c3d4e5f60718", prCreatedAt: "2026-10-10T01:00:00.000Z", prClosedAt: "2026-10-12T05:30:00.000Z", prMergedAt: "2026-10-12T05:30:00.000Z" });
+  assert.equal(merged.kind, "pull_request.merged");
+  assert.equal(merged.agent, "github");
+  assert.deepEqual(
+    [merged.repoKey, merged.headRepoKey, merged.branchKey, merged.prCreatedAt, merged.prClosedAt, merged.prMergedAt],
+    ["a1b2c3d4", "0a0b0c0d", "a1b2c3d4e5f60718", "2026-10-10T01:00:00.000Z", "2026-10-12T05:30:00.000Z", "2026-10-12T05:30:00.000Z"]
+  );
+});

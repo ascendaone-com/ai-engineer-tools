@@ -24,7 +24,7 @@ name: ascenda-collaboration
 
 on:
   pull_request:
-    types: [opened, review_requested]
+    types: [opened, closed, review_requested]
   pull_request_review:
     types: [submitted]
 

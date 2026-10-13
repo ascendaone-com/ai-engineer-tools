@@ -156,12 +156,16 @@ test("without a viewer identity nothing is ever emitted", () => {
   assert.deepEqual(mapForgeEvent("pull_request", prPayload("opened"), ""), []);
 });
 
-test("closed, merged and reopened produce nothing", () => {
+test("reopened, synchronize and labeled produce nothing, and closing is only ever my own PR's", () => {
   // Deliberately narrow. A merge is someone else's decision as often as it is
-  // yours, and none of these is the checking load this family is about.
-  for (const action of ["closed", "reopened", "synchronize", "labeled"]) {
+  // yours, so the merger is never read. What is recorded is that a pull request
+  // of mine ended, and only when I opened it. Someone else's closing nothing.
+  for (const action of ["reopened", "synchronize", "labeled"]) {
     assert.deepEqual(mapForgeEvent("pull_request", prPayload(action), ME), [], action);
   }
+  const theirs = prPayload("closed");
+  theirs.pull_request.user.login = "someone-else";
+  assert.deepEqual(mapForgeEvent("pull_request", theirs, ME), []);
 });
 
 test("withdrawal is not derivable — absence emits nothing", () => {
@@ -225,4 +229,90 @@ test("the emitted projectHash is byte-identical to what this step shipped before
 test("the digest for the default fixture is pinned to a literal", () => {
   const events = mapForgeEvent("pull_request", prPayload("opened"), ME);
   assert.equal(events[0].metadata.projectHash, "918128f5");
+});
+
+// ── matching a pull request to a session ───────────────────────────────────
+
+import { forgeBranchKey, forgeRepoKey } from "@ascenda-one/tool-kit";
+
+function ownPr(action, over = {}) {
+  return {
+    action,
+    repository: repo,
+    pull_request: {
+      user: { login: ME },
+      number: 42,
+      title: "Fix the auth path",
+      merged: false,
+      created_at: "2026-10-10T01:00:00Z",
+      closed_at: "2026-10-12T05:30:00Z",
+      merged_at: null,
+      head: { ref: "feat/auth", repo: { full_name: "acme/payments-service", default_branch: "main" } },
+      base: { ref: "main", repo: { full_name: "acme/payments-service" } },
+      ...over
+    }
+  };
+}
+
+test("an opened PR carries the keys a session on its branch carries", () => {
+  const [event] = mapForgeEvent("pull_request", ownPr("opened"), ME);
+  assert.equal(event.metadata.repoKey, forgeRepoKey("acme/payments-service"));
+  assert.equal(event.metadata.branchKey, forgeBranchKey("acme/payments-service", "feat/auth"));
+  assert.equal("headRepoKey" in event.metadata, false, "the head is the base repository");
+});
+
+test("a merged PR of mine is recorded with its times, whoever merged it", () => {
+  const [event] = mapForgeEvent("pull_request", ownPr("closed", { merged: true, merged_at: "2026-10-12T05:30:00Z", merged_by: { login: "a-colleague" } }), ME);
+  assert.equal(event.eventType, "pull_request_merged");
+  assert.equal(event.metadata.prCreatedAt, "2026-10-10T01:00:00.000Z");
+  assert.equal(event.metadata.prClosedAt, "2026-10-12T05:30:00.000Z");
+  assert.equal(event.metadata.prMergedAt, "2026-10-12T05:30:00.000Z");
+  assert.doesNotMatch(JSON.stringify(event), /a-colleague/);
+});
+
+test("a PR of mine closed without merging says so and has no merge time", () => {
+  const [event] = mapForgeEvent("pull_request", ownPr("closed"), ME);
+  assert.equal(event.eventType, "pull_request_closed");
+  assert.equal("prMergedAt" in event.metadata, false);
+  assert.equal(event.metadata.prClosedAt, "2026-10-12T05:30:00.000Z");
+});
+
+test("someone else's PR closing or merging produces nothing", () => {
+  const theirs = ownPr("closed", { merged: true, user: { login: "someone-else" } });
+  assert.deepEqual(mapForgeEvent("pull_request", theirs, ME), []);
+});
+
+test("a PR from a fork is keyed by the fork and names it", () => {
+  const fork = { full_name: "octocat/payments-service", default_branch: "main" };
+  const [event] = mapForgeEvent("pull_request", ownPr("opened", { head: { ref: "feat/auth", repo: fork } }), ME);
+  assert.equal(event.metadata.repoKey, forgeRepoKey("acme/payments-service"));
+  assert.equal(event.metadata.headRepoKey, forgeRepoKey("octocat/payments-service"));
+  assert.equal(event.metadata.branchKey, forgeBranchKey("octocat/payments-service", "feat/auth"));
+});
+
+test("a deleted fork falls back to the base repository for the branch key", () => {
+  const [event] = mapForgeEvent("pull_request", ownPr("opened", { head: { ref: "feat/auth", repo: null } }), ME);
+  assert.equal(event.metadata.branchKey, forgeBranchKey("acme/payments-service", "feat/auth"));
+  assert.equal("headRepoKey" in event.metadata, false);
+});
+
+test("no branch key from the head repository's default branch", () => {
+  const [event] = mapForgeEvent("pull_request", ownPr("opened", { head: { ref: "main", repo: { full_name: "octocat/payments-service", default_branch: "main" } } }), ME);
+  assert.equal("branchKey" in event.metadata, false);
+  assert.equal(event.metadata.repoKey, forgeRepoKey("acme/payments-service"));
+});
+
+test("a time GitHub didn't send, or sent badly, is left off", () => {
+  const [event] = mapForgeEvent("pull_request", ownPr("closed", { created_at: "yesterday", closed_at: undefined }), ME);
+  assert.equal("prCreatedAt" in event.metadata, false);
+  assert.equal("prClosedAt" in event.metadata, false);
+});
+
+test("neither the branch name nor the number nor the title is on what's sent", () => {
+  for (const action of ["opened", "closed"]) {
+    const sent = JSON.stringify(mapForgeEvent("pull_request", ownPr(action, { merged: true, merged_at: "2026-10-12T05:30:00Z" }), ME));
+    for (const secret of ["feat/auth", "payments-service", "Fix the auth path", "42"]) {
+      assert.equal(sent.includes(secret), false, `${secret} leaked in ${action}`);
+    }
+  }
 });
