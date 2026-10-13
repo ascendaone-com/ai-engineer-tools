@@ -268,6 +268,26 @@ test("cache writes, their 5m/1h split and advisor calls reach the totals once pe
   }
 });
 
+test("cache writes follow the per-message key: one request counted once, a reused id with another request counted again", async () => {
+  const usage = { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 10 };
+  const root = await claudeStore({
+    [`${S1}.jsonl`]: [
+      typed(S1, "u1", "2026-07-20T10:00:00.000Z"),
+      reply(S1, "a1", "2026-07-20T10:00:05.000Z", { id: "placeholder", usage }, { requestId: "req-1" }),
+      reply(S1, "a2", "2026-07-20T10:00:06.000Z", { id: "placeholder", usage }, { requestId: "req-1" }),
+      reply(S1, "a3", "2026-07-20T10:00:07.000Z", { id: "placeholder", usage }, { requestId: "req-2" })
+    ]
+  });
+  try {
+    const events = await collect(extractClaudeCode(root, "x1"));
+    const session = events.find((e) => e.eventKind === "create_focus_session");
+    assert.equal(session.metrics.cacheCreationTokens, 20);
+    assert.equal(session.metrics.assistantTurns, 2);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("subagent cache writes count toward the subagent token total", async () => {
   const root = await claudeStore({
     [`${S1}.jsonl`]: [typed(S1, "u1", "2026-07-20T10:00:00.000Z")],
