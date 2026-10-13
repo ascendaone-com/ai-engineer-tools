@@ -249,3 +249,37 @@ test("autonomyMode: no retired ladder rung reaches the wire from any payload", (
     }
   }
 });
+
+test("PostToolUse: a shell commit and PR merge carry gitAction and milestoneKind", () => {
+  const commit = mapCodexEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "git -C app commit -m x" }, tool_response: { exit_code: 0 } });
+  assert.equal(commit[0].metadata.gitAction, "commit");
+  const merge = mapCodexEvent("PostToolUse", { tool_name: "local_shell", tool_input: { command: "gh pr merge 12" }, tool_response: { exit_code: 0 } });
+  assert.equal(merge[0].metadata.milestoneKind, "pr_merged");
+  const revert = mapCodexEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "git revert abc" }, tool_response: { exit_code: 0 } });
+  assert.equal(revert[0].metadata.activity, "rework_reversion");
+});
+
+test("PostToolUse: a failed commit carries no gitAction", () => {
+  const events = mapCodexEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "git commit -m x" }, tool_response: { exit_code: 1 } });
+  assert.equal(events[0].eventType, "ai_tool_call_failed");
+  assert.equal(events[0].metadata.gitAction, undefined);
+});
+
+test("PostToolUse: exec_command and shell_command are shell tools, in any command shape", () => {
+  const exec = mapCodexEvent("PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "git push origin main" }, tool_response: {} });
+  assert.equal(exec[0].metadata.gitAction, "push");
+  const shellCommand = mapCodexEvent("PostToolUse", { tool_name: "shell_command", tool_input: { command: "git commit -m x" }, tool_response: {} });
+  assert.equal(shellCommand[0].metadata.gitAction, "commit");
+  const argv = mapCodexEvent("PostToolUse", { tool_name: "shell", tool_input: { command: ["bash", "-lc", "git commit -m x"] }, tool_response: {} });
+  assert.equal(argv[0].metadata.gitAction, "commit");
+  const verify = mapCodexEvent("PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "npm test" }, tool_response: { exit_code: 1 } });
+  assert.equal(verify[0].eventType, "compile_error");
+});
+
+test("PostToolUse: a functions. prefix (Codex Desktop) is stripped", () => {
+  const edit = mapCodexEvent("PostToolUse", { tool_name: "functions.apply_patch", tool_response: {} });
+  assert.equal(edit[0].eventType, "ai_file_edit");
+  assert.equal(edit[0].metadata.toolName, "apply_patch");
+  const shell = mapCodexEvent("PostToolUse", { tool_name: "functions.exec_command", tool_input: { cmd: "git commit -m x" }, tool_response: {} });
+  assert.equal(shell[0].metadata.gitAction, "commit");
+});

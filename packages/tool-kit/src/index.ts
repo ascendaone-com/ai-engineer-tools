@@ -1,6 +1,7 @@
 export { classifyCommand, isVerificationCommand } from "./commandClassifier";
 export { classifyGitAction, isReworkGitAction } from "./gitActionClassifier";
-export { classifyWorkMilestone, invitesDebrief } from "./workMilestoneClassifier";
+export { classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief } from "./workMilestoneClassifier";
+export { shellCommandFacts } from "./shellFacts";
 export { autonomyBand } from "./autonomyBand";
 export type { AutonomyBand } from "./autonomyBand";
 export { classifyModelClass } from "./modelClassifier";

@@ -77,3 +77,10 @@ test("transcript and worktree hooks map to nothing", () => {
   assert.deepEqual(mapWindsurfEvent("post_cascade_response_with_transcript", { tool_info: { transcript_path: "/t.jsonl" } }, 45 * 60000), []);
   assert.deepEqual(mapWindsurfEvent("post_setup_worktree", { tool_info: { worktree_path: "/w" } }), []);
 });
+
+test("post_run_command: a commit and an issue close carry gitAction and milestoneKind", () => {
+  const commit = mapWindsurfEvent("post_run_command", { tool_info: { command_line: "git commit -m x" } });
+  assert.equal(commit[0].metadata.gitAction, "commit");
+  const close = mapWindsurfEvent("post_run_command", { tool_info: { command_line: "gh issue close 9" } });
+  assert.equal(close[0].metadata.milestoneKind, "issue_closed");
+});

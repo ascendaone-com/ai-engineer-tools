@@ -96,3 +96,10 @@ test("hooks without catalog counterparts map to nothing", () => {
     assert.deepEqual(mapCursorEvent(hook, {}), []);
   }
 });
+
+test("postToolUse: a shell commit and PR merge carry gitAction and milestoneKind", () => {
+  const commit = mapCursorEvent("postToolUse", { tool_name: "Shell", tool_input: { command: "git commit -m x" } });
+  assert.equal(commit[0].metadata.gitAction, "commit");
+  const merge = mapCursorEvent("postToolUse", { tool_name: "Shell", tool_input: { command: "gh pr merge 3" } });
+  assert.equal(merge[0].metadata.milestoneKind, "pr_merged");
+});

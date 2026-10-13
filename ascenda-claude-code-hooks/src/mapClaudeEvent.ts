@@ -1,4 +1,4 @@
-import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd } from "@ascenda-one/tool-kit";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason, SubagentClass } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent, claudeRuntime } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
@@ -92,7 +92,7 @@ export function isNewSessionStart(input: ClaudeHookInput): boolean {
 export function milestoneInviting(input: ClaudeHookInput): boolean {
   if (outcomeForHook("PostToolUse", input) !== "success") return false;
   const command = getString(input, ["command"]) ?? getNestedString(input, [["tool_input", "command"], ["input", "command"], ["parameters", "command"]]);
-  return invitesDebrief(classifyWorkMilestone(command));
+  return invitesDebrief(classifyWorkMilestone(command) ?? classifyMcpWorkMilestone(getToolName(input)));
 }
 
 function mapSessionStart(input: ClaudeHookInput): MappedAscendaEvent[] {
@@ -272,21 +272,32 @@ function mapNotification(input: ClaudeHookInput): MappedAscendaEvent[] {
     // Low, always. Being asked is overhead to be counted, not a failure to be
     // flagged, and a severity that climbed would make this the input to a score.
     severity: "low",
-    metadata: { interruptionKind: notificationKind(getString(input, ["message"])) }
+    metadata: { interruptionKind: notificationKind(getString(input, ["message"]), getString(input, ["notification_type", "notificationType"])) }
   }];
 }
 
 /**
- * One of three constant labels, chosen by matching the notification's own
- * wording. Returns a label, never any part of the input.
+ * One of three constant labels. Returns a label, never any part of the input.
  *
- * Matching on wording is admittedly brittle — Claude Code can reword these at
- * any release, and a reworded permission prompt silently becomes `other`.
- * That failure is visible (the `other` share moves) rather than silent (a
- * permission prompt counted as an idle one), which is the right way round for
- * a measurement whose whole purpose is to establish a distribution.
+ * The typed `notification_type` leads: `permission_prompt` and
+ * `elicitation_dialog` both mean the agent is waiting on the person, so both
+ * are `permission_request`, and `idle_prompt` is `idle_prompt`. Any other
+ * typed value is `other`, without a second guess from the wording, so this
+ * agrees with the live path (`notificationLiveEvent`) on every payload.
+ *
+ * Builds that send no type fall back to matching the wording. That is
+ * brittle, since Claude Code can reword these at any release, and a reworded
+ * permission prompt silently becomes `other`. The failure is visible (the
+ * `other` share moves) rather than silent (a permission prompt counted as an
+ * idle one), which is the right way round for a measurement whose purpose is
+ * to establish a distribution.
  */
-export function notificationKind(message: string | undefined): "permission_request" | "idle_prompt" | "other" {
+export function notificationKind(message: string | undefined, notificationType?: string): "permission_request" | "idle_prompt" | "other" {
+  if (notificationType !== undefined) {
+    if (notificationType === "permission_prompt" || notificationType === "elicitation_dialog") return "permission_request";
+    if (notificationType === "idle_prompt") return "idle_prompt";
+    return "other";
+  }
   const text = message?.toLowerCase() ?? "";
   if (text.includes("permission")) return "permission_request";
   if (text.includes("waiting for your input")) return "idle_prompt";
@@ -314,7 +325,7 @@ function mapPostToolUse(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
   const gitAction = outcome === "success" ? classifyGitAction(command) : undefined;
   // A failed `gh pr merge` did not complete anything, so — like gitAction — a
   // milestone is only read off a command that actually succeeded.
-  const milestoneKind = outcome === "success" ? classifyWorkMilestone(command) : undefined;
+  const milestoneKind = outcome === "success" ? (classifyWorkMilestone(command) ?? classifyMcpWorkMilestone(toolName)) : undefined;
   // Unlike gitAction/milestoneKind, the posture is NOT gated on success. A
   // call that failed or was interrupted still happened under a supervision
   // posture, and an interrupt is in fact the most interesting posture datum
@@ -554,6 +565,12 @@ export function getToolName(input: ClaudeHookInput): string | undefined {
  * degrades to "not collected" rather than a wrong count.
  */
 function computeLinesChanged(toolName: string | undefined, input: ClaudeHookInput): number | undefined {
+  // The result's own diff is the better evidence: it counts what actually
+  // changed, which the input cannot say for an overwriting Write or a
+  // `replace_all` Edit. It is the same count the history importer makes.
+  const patched = linesFromStructuredPatch(getNested(input, ["tool_response", "structuredPatch"]));
+  if (patched !== undefined) return patched;
+
   const toolInput = getNested(input, ["tool_input"]) ?? getNested(input, ["input"]) ?? getNested(input, ["parameters"]);
   if (!toolInput || typeof toolInput !== "object") return undefined;
   const record = toolInput as Record<string, unknown>;
@@ -584,9 +601,32 @@ function computeLinesChanged(toolName: string | undefined, input: ClaudeHookInpu
       }
       return sawOne ? total : undefined;
     }
+    case "notebookedit": {
+      if (record["edit_mode"] === "delete") return undefined;
+      const source = record["new_source"];
+      return typeof source === "string" ? countLines(source) : undefined;
+    }
     default:
       return undefined;
   }
+}
+
+/**
+ * Added plus removed lines across a `structuredPatch`'s hunks, or undefined
+ * when there is no patch to read. An empty patch is also undefined: a newly
+ * created file reports one, and the input estimate is right for that case.
+ */
+function linesFromStructuredPatch(patch: unknown): number | undefined {
+  if (!Array.isArray(patch) || patch.length === 0) return undefined;
+  let count = 0;
+  for (const hunk of patch) {
+    const lines = hunk && typeof hunk === "object" ? (hunk as Record<string, unknown>)["lines"] : undefined;
+    if (!Array.isArray(lines)) continue;
+    for (const line of lines) {
+      if (typeof line === "string" && (line.startsWith("+") || line.startsWith("-"))) count += 1;
+    }
+  }
+  return count;
 }
 
 function countLines(text: string): number {
@@ -595,7 +635,7 @@ function countLines(text: string): number {
 
 function isWriteTool(toolName: string | undefined): boolean {
   const value = toolName?.toLowerCase();
-  return value === "write" || value === "edit" || value === "multiedit";
+  return value === "write" || value === "edit" || value === "multiedit" || value === "notebookedit";
 }
 
 function sanitiseToolName(toolName: string | undefined): string {

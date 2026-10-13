@@ -1,6 +1,7 @@
 import {
   bucketDurationMs,
   classifyCommand,
+  shellCommandFacts,
   getNested,
   getNestedString,
   isVerificationCommand,
@@ -50,11 +51,15 @@ function mapUserPrompt(input: WindsurfHookInput): MappedWindsurfEvent[] {
 }
 
 function mapPostRunCommand(input: WindsurfHookInput): MappedWindsurfEvent[] {
-  const commandClass = classifyCommand(getCommand(input));
+  const command = getCommand(input);
+  const commandClass = classifyCommand(command);
   if (isVerificationCommand(commandClass)) {
     return [{ eventType: "editor_verification_activity", severity: "low", metadata: withHost({ toolName: "run_command", commandClass, outcome: "unknown", activity: "ai_test_or_build_run" }) }];
   }
-  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: "run_command", commandClass, outcome: "unknown" }) }];
+  // Cascade reports no status, so the outcome is unknown here. The backend
+  // counts a commit boundary only when the outcome is success, so these keys
+  // are on the row for when it is and add no boundary until then.
+  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: "run_command", commandClass, outcome: "unknown", ...shellCommandFacts(command) }) }];
 }
 
 /** The only Cascade hook carrying a result, so the only one that can report failure. */

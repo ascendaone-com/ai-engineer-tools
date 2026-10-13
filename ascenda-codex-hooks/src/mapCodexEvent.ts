@@ -7,7 +7,8 @@ import {
   getString,
   inferOutcome,
   isVerificationCommand,
-  looksLikeCorrection
+  looksLikeCorrection,
+  shellCommandFacts
 } from "@ascenda-one/tool-kit";
 import type { AutonomyMode } from "@ascenda-one/tool-contract";
 import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from "./types.js";
@@ -95,10 +96,10 @@ function mapPostToolUse(input: CodexHookInput): MappedCodexEvent[] {
   const toolName = getToolName(input);
   const safeToolName = sanitiseToolName(toolName);
   const outcome = inferOutcome(input);
-  const command = getString(input, ["command"]) ?? getNestedString(input, [["tool_input", "command"], ["input", "command"]]);
+  const command = getCommand(input);
   const commandClass = classifyCommand(command);
   const lowered = toolName?.toLowerCase();
-  const isShell = lowered === "bash" || lowered === "shell" || lowered === "local_shell";
+  const isShell = lowered === "bash" || lowered === "shell" || lowered === "local_shell" || lowered === "exec_command" || lowered === "shell_command";
   // Deliberately not gated on outcome. A call that failed still happened under
   // a permission posture, and a failure under `bypass_permissions` is a
   // different fact from the same failure under `default` — gating would erase it.
@@ -120,7 +121,9 @@ function mapPostToolUse(input: CodexHookInput): MappedCodexEvent[] {
     return [{ eventType: "editor_verification_activity", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, activity: "ai_test_or_build_run", ...autonomy }) }];
   }
 
-  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, ...autonomy }) }];
+  // Failures returned above, so a shell command reaching here did not fail.
+  const facts = isShell ? shellCommandFacts(command) : {};
+  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, ...facts, ...autonomy }) }];
 }
 
 function mapPreCompact(input: CodexHookInput): MappedCodexEvent[] {
@@ -240,8 +243,39 @@ const AUTONOMY_BY_PERMISSION_MODE: Record<string, AutonomyMode> = {
   bypasspermissions: "bypass_permissions"
 };
 
+/**
+ * Codex Desktop namespaces its tools (`functions.apply_patch`); the CLI does
+ * not. The prefix is dropped so one spelling reaches every comparison and the
+ * name that goes on the wire.
+ */
 function getToolName(input: CodexHookInput): string | undefined {
-  return getString(input, ["tool_name", "toolName", "name"]);
+  return getString(input, ["tool_name", "toolName", "name"])?.replace(/^functions\./i, "");
+}
+
+/**
+ * The shell command, wherever this tool keeps it. `exec_command` names it
+ * `cmd`, `shell_command` and `bash` use `command`, and `shell` sends argv, in
+ * which case a `bash -lc "<script>"` wrapper is unwrapped to the script. Read
+ * only to classify, never kept.
+ */
+function getCommand(input: CodexHookInput): string | undefined {
+  const direct = getString(input, ["command"]);
+  if (direct !== undefined) return unwrapShell(direct);
+  const toolInput = getNested(input, ["tool_input"]) ?? getNested(input, ["input"]);
+  if (!toolInput || typeof toolInput !== "object") return undefined;
+  const raw = (toolInput as Record<string, unknown>)["command"] ?? (toolInput as Record<string, unknown>)["cmd"];
+  if (typeof raw === "string") return unwrapShell(raw);
+  if (Array.isArray(raw) && raw.every((word) => typeof word === "string")) {
+    const argv = raw as string[];
+    const script = argv.length >= 3 && /^-[a-z]*c$/i.test(argv[1]) ? argv[argv.length - 1] : argv.join(" ");
+    return unwrapShell(script);
+  }
+  return undefined;
+}
+
+function unwrapShell(command: string): string {
+  const wrapped = /^\s*(?:\S*\/)?(?:ba|z|da)?sh\s+-[a-z]*c\s+(["'])([\s\S]*)\1\s*$/i.exec(command);
+  return wrapped ? wrapped[2] : command;
 }
 
 function sanitiseToolName(toolName: string | undefined): string {

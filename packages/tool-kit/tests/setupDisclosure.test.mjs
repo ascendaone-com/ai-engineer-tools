@@ -83,6 +83,7 @@ const ADAPTERS = [
       ["UserPromptSubmit", { prompt: "try again", cwd: CWD }],
       ["PreToolUse", { tool_name: "shell", tool_input: { command: "npm test" }, cwd: CWD }],
       ["PostToolUse", { tool_name: "shell", tool_input: { command: "npm test" }, tool_response: { exit_code: 0 }, cwd: CWD }],
+      ["PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "git commit -m x" }, tool_response: { exit_code: 0 }, cwd: CWD }],
       ["PostToolUse", { tool_name: "apply_patch", tool_response: { exit_code: 0 }, cwd: CWD }],
       ["PermissionRequest", { cwd: CWD }],
       ["Stop", { cwd: CWD }, 120000]
@@ -95,6 +96,7 @@ const ADAPTERS = [
       ["beforeSubmitPrompt", { prompt: "that is wrong" }],
       ["preToolUse", { tool_name: "Shell", tool_input: { command: "npm test" } }],
       ["postToolUse", { tool_name: "Shell", tool_input: { command: "npm test" }, tool_output: '{"exitCode":0}', duration: 42000 }],
+      ["postToolUse", { tool_name: "Shell", tool_input: { command: "git commit -m x" }, tool_output: '{"exitCode":0}', duration: 1000 }],
       ["postToolUseFailure", { tool_name: "Shell", tool_input: { command: "npm run build" } }],
       ["preCompact", { trigger: "auto", context_usage_percent: 85 }],
       ["stop", { status: "completed" }, 120000]
@@ -107,6 +109,7 @@ const ADAPTERS = [
       ["BeforeAgent", { prompt: "that is wrong, try again" }],
       ["BeforeTool", { tool_name: "run_shell_command", tool_input: { command: "pytest -q" } }],
       ["AfterTool", { tool_name: "run_shell_command", tool_input: { command: "pytest -q" }, tool_response: { exitCode: 0 } }],
+      ["AfterTool", { tool_name: "run_shell_command", tool_input: { command: "git commit -m x" }, tool_response: { exitCode: 0 } }],
       ["AfterTool", { tool_name: "write_file", tool_response: { exitCode: 0 } }],
       ["PreCompress", {}],
       ["AfterAgent", { prompt: "x" }, 120000]
@@ -120,6 +123,7 @@ const ADAPTERS = [
       ["post_write_code", { tool_info: { file_path: "/p/a.ts" } }],
       ["pre_run_command", { tool_info: { command_line: "npm test", cwd: "/p" } }],
       ["post_run_command", { tool_info: { command_line: "npm test", cwd: "/p" } }],
+      ["post_run_command", { tool_info: { command_line: "git commit -m x", cwd: "/p" } }],
       ["post_cascade_response", {}, 120000]
     ].flatMap(([hook, input, turnMs]) => mapWindsurfEvent(hook, { agent_action_name: hook, ...input }, turnMs))
   }
