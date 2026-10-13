@@ -64,6 +64,25 @@ export type HookSettingsFormat = {
     }
 );
 
+/** Where one of our handlers sits in an agent's hooks file: `hooks[event][group].hooks[handler]`. */
+export type HookPosition = { event: string; group: number; handler: number };
+
+/**
+ * What an agent that gates hooks behind an approval says about ours. A hook
+ * that is registered but not approved never runs and never reports that it
+ * didn't, so `status` and `doctor` have to read the approvals themselves.
+ */
+export type HookTrustReport = {
+  /** The file the approvals live in, as a person should read it. */
+  approvalsFile: string;
+  /** Registered handlers with no approval recorded. */
+  untrusted: HookPosition[];
+  /** Approvals on record for this hooks file that no longer match one of our handlers, or may predate a change. */
+  stale: string[];
+  /** The approvals file could not be read. */
+  unreadable?: boolean;
+};
+
 export type CliAgentSetupSpec = {
   /** The `metadata.host` value and credentials key, e.g. `cursor`. */
   host: string;
@@ -101,6 +120,16 @@ export type CliAgentSetupSpec = {
    */
   sends: readonly DisclosureFamily[];
   settings: HookSettingsFormat;
+  /**
+   * For an agent that skips hooks it has not been told to trust (Codex).
+   * Given the hooks file and where our handlers sit in it; absent for agents
+   * that run what is registered.
+   */
+  trust?: {
+    check: (settingsFile: string, ours: HookPosition[]) => HookTrustReport;
+    /** What to do about an untrusted or stale hook, e.g. `Open /hooks in Codex and approve the Ascenda hooks.` */
+    fix: string;
+  };
 };
 
 export type SetupScope = "project" | "user";
@@ -590,7 +619,13 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
  * runs, so hooks must not point at it.
  */
 function installBinary(spec: CliAgentSetupSpec, dryRun: boolean): string {
-  return installHookRunner({ binaryName: spec.binaryName, setupCommand: `npx ${spec.packageName} setup`, dryRun });
+  return installHookRunner({
+    binaryName: spec.binaryName,
+    setupCommand: `npx ${spec.packageName} setup`,
+    dryRun,
+    onKeptNewer: (installed, incoming) =>
+      console.log(`  Kept the installed hook bundle (${installed}) rather than replace it with this older ${incoming}. Run setup from the newer version to change it.`)
+  });
 }
 
 // -------------------------------------------------------------- settings ---
@@ -669,6 +704,44 @@ export function registeredHookSets(settings: HookSettings, spec: CliAgentSetupSp
     }
   }
   return sets;
+}
+
+/** Every handler of ours in the file, by position. Entries without a `hooks` array (Cursor's flat shape) count as group `n`, handler 0. */
+export function ourHookPositions(settings: HookSettings, spec: CliAgentSetupSpec): HookPosition[] {
+  const found: HookPosition[] = [];
+  for (const [event, groups] of Object.entries(settings.hooks ?? {})) {
+    (groups ?? []).forEach((group, groupIndex) => {
+      const handlers = (group as { hooks?: unknown[] } | undefined)?.hooks;
+      if (Array.isArray(handlers)) {
+        handlers.forEach((handler, handlerIndex) => {
+          if (isOurs({ hooks: [handler] }, spec)) found.push({ event, group: groupIndex, handler: handlerIndex });
+        });
+      } else if (isOurs(group, spec)) {
+        found.push({ event, group: groupIndex, handler: 0 });
+      }
+    });
+  }
+  return found;
+}
+
+/** Status and doctor lines for hooks the agent will skip until they are approved. Empty when all is well. */
+export function trustProblemLines(spec: CliAgentSetupSpec, settingsFile: string, settings: HookSettings, indent: string): string[] {
+  if (!spec.trust) return [];
+  const ours = ourHookPositions(settings, spec);
+  if (ours.length === 0) return [];
+  const report = spec.trust.check(settingsFile, ours);
+  const where = tidyHomePath(report.approvalsFile, os.homedir());
+  const lines: string[] = [];
+  if (report.unreadable) {
+    lines.push(`${spec.displayName}'s approvals in ${where} could not be read, so whether these hooks are trusted is unknown.`);
+  }
+  if (report.untrusted.length) {
+    const names = [...new Set(report.untrusted.map((position) => position.event))].join(", ");
+    lines.push(`${report.untrusted.length} of ${ours.length} hooks are not approved in ${where} (${names}). ${spec.displayName} skips them without a message, so nothing is sent for those events.`);
+  }
+  for (const entry of report.stale) lines.push(entry);
+  if (lines.length) lines.push(spec.trust.fix);
+  return lines.map((line) => `${indent}${line}`);
 }
 
 /** Every command an element of `hooks[event]` runs: one for a flat entry, any number for a group. */
@@ -833,6 +906,14 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
       : `hook set       ${spec.hookSet} (current)`);
   }
 
+  const trustLines = trustProblemLines(spec, settingsFile, settings, "");
+  if (trustLines.length) {
+    console.log(`not trusted    ${trustLines[0]}`);
+    for (const line of trustLines.slice(1)) console.log(`               ${line}`);
+  } else if (spec.trust && registered > 0) {
+    console.log("trust          every registered hook is approved");
+  }
+
   if (stale.length) {
     console.log(`stale hooks    ${stale.length} not pointing at the installed binary — each one fails silently per event:`);
     for (const command of stale) console.log(`               ${command}`);
@@ -863,7 +944,7 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   // User hooks apply in every project, so hooks found there answer a
   // project-scope check. The reverse does not hold.
   const wired = registered === spec.hookEvents.length || (options.scope === "project" && elsewhere === spec.hookEvents.length);
-  const healthy = paired && wired && fs.existsSync(binary) && !stale.length && !node?.problem;
+  const healthy = paired && wired && fs.existsSync(binary) && !stale.length && !node?.problem && trustLines.length === 0;
   return healthy ? 0 : 1;
 }
 
@@ -915,11 +996,35 @@ async function runDoctor(options: SetupOptions, spec: CliAgentSetupSpec): Promis
   } catch (error) {
     lines.push(`  Live signal           (could not be checked: ${error instanceof Error ? error.message : String(error)})`);
   }
+  if (spec.trust) {
+    const found = trustDoctorLines(spec, options.projectDir, ui);
+    if (found.length) lines.push("", ...found);
+  }
   lines.push("", ...accountLines(ui, spec));
   const localOnly = isLocalOnlyHostInstall(spec.host, (id) => readTokenFile(defaultTokenFilePath(id)) !== undefined);
   lines.push("", `  ${ui.bold("Local events")}  ${describeEventLog(resolveEventLog({ localOnly }), `npx ${spec.packageName} setup`)}`);
   console.log(lines.join("\n"));
   return 0;
+}
+
+/** `doctor`'s approvals section, for each scope's hooks file that holds some of our hooks. */
+function trustDoctorLines(spec: CliAgentSetupSpec, projectDir: string, ui: TerminalStyle): string[] {
+  const userFile = spec.settings.settingsPath("user", projectDir);
+  const projectFile = spec.settings.settingsPath("project", projectDir);
+  const files = userFile === projectFile ? [userFile] : [userFile, projectFile];
+  const out: string[] = [];
+  for (const file of files) {
+    const settings = readSettings(file);
+    if (ourHookPositions(settings, spec).length === 0) continue;
+    const problems = trustProblemLines(spec, file, settings, "");
+    if (problems.length === 0) {
+      out.push(`  ${ui.mark("ok")} ${"Hook approvals".padEnd(20)} every hook in ${tidyHomePath(file, os.homedir())} is approved`);
+      continue;
+    }
+    out.push(`  ${ui.mark("bad")} ${"Hook approvals".padEnd(20)} ${ui.red(problems[0])}`);
+    for (const line of problems.slice(1)) out.push(`${" ".repeat(25)}${line}`);
+  }
+  return out;
 }
 
 function accountLines(ui: TerminalStyle, spec: CliAgentSetupSpec): string[] {

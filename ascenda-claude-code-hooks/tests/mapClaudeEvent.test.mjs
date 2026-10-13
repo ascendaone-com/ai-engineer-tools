@@ -157,6 +157,21 @@ test("UserPromptSubmit: correction prompt adds supervision event, no raw text", 
   assert.ok(!serialized.includes("still wrong"), "prompt text must never leave the mapper");
 });
 
+test("UserPromptSubmit: a task notification is not a prompt", () => {
+  // Claude Code fires UserPromptSubmit when a background subagent finishes,
+  // with its report wrapped like this. Ids and text replaced.
+  const notification =
+    "<task-notification>\n<task-id>a1b2c3</task-id>\n<tool-use-id>toolu_01</tool-use-id>\n" +
+    "<status>completed</status>\n<summary>Agent \"count lines\" completed</summary>\n" +
+    "<result>no, that's still wrong - try again</result>\n</task-notification>";
+  assert.deepEqual(mapClaudeEvent("UserPromptSubmit", { prompt: notification }), []);
+  assert.deepEqual(mapClaudeEvent("UserPromptSubmit", { prompt: `\n${notification}` }), []);
+  // A person who types the tag partway through a prompt still typed a prompt.
+  const typed = mapClaudeEvent("UserPromptSubmit", { prompt: "why did <task-notification> fire?" });
+  assert.equal(typed.length, 1);
+  assert.equal(typed[0].eventType, "ai_prompt_submitted");
+});
+
 test("PreToolUse: tool call started with sanitised tool name", () => {
   const events = mapClaudeEvent("PreToolUse", { tool_name: "We!rd Name@@" });
   assert.equal(events[0].eventType, "ai_tool_call_started");

@@ -90,8 +90,13 @@ authorize them. Changes to a hook definition require review again. See the
 [Codex hook trust reference](https://learn.chatgpt.com/docs/hooks).
 
 The setup command registers hooks but does not write Codex trust hashes or
-bypass review. A successful `status` checks installation, not runtime trust
-or accepted delivery.
+bypass review. `status` and `doctor` read the approvals Codex keeps in
+`config.toml` (the `[hooks.state."…"]` tables) and name any hook that has none,
+and exit non-zero for it, since Codex skips that hook without a message. They
+can't compare an approved command with the current one, so after an upgrade
+that changes a command they suggest re-approving when the hooks file is newer
+than the last approval. A successful `status` still doesn't prove accepted
+delivery.
 
 ### On a Dev backend with no phone
 
@@ -166,7 +171,12 @@ Codex's PATH, use the absolute path to the binary.
 
 ## Supported Codex hook events
 
-`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `Stop`, `PermissionRequest`. (`SubagentStart` and `SubagentStop` have no catalog counterpart and are skipped.)
+`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `Stop`, `PermissionRequest`, `SessionEnd`. (`SubagentStart` and `SubagentStop` have no catalog counterpart and are skipped.)
+
+`SessionEnd` needs Codex 0.146 or newer; an older Codex ignores the entry. Codex
+gives it at most 3 seconds because the process is exiting, so it is registered
+with a 3 second timeout and sends with a shorter limit than the other hooks. A
+send that doesn't finish stays in the outbox for the next hook to deliver.
 
 `PermissionRequest` records that the agent stopped at an approval gate, and
 nothing about what it was asking to do — one field, `interruptionKind:
