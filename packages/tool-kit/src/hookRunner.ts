@@ -265,7 +265,11 @@ export function hookRunnerCommand(launcher: string, platform: NodeJS.Platform = 
   return platform === "win32" ? `"${process.execPath}" "${launcher}"` : `"${launcher}"`;
 }
 
-function writeAtomically(target: string, contents: string | Buffer, mode: number): void {
+/**
+ * Writes beside the target and renames over it, so a reader never sees half
+ * a file and a crash mid-write leaves the old one in place.
+ */
+export function writeAtomically(target: string, contents: string | Buffer, mode: number): void {
   const tmp = `${target}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, contents, { mode });
   fs.chmodSync(tmp, mode);
