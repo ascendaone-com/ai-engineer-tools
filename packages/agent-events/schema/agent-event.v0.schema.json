@@ -33,6 +33,9 @@
         "context.compacted",
         "subagent.started",
         "subagent.stopped",
+        "pull_request.opened",
+        "pull_request.closed",
+        "pull_request.merged",
         "other"
       ]
     },
@@ -44,6 +47,10 @@
     "projectHash": { "type": "string", "description": "Salted hash of the project. The salt stays on the machine." },
     "repoKey": { "type": "string", "pattern": "^[0-9a-f]{8}$", "description": "The repository: a 32-bit digest of the lowercased owner/repo of a github.com remote. The same value a code-forge collector sends on pull request events. Not salted, so anyone who guesses the name can recompute it." },
     "branchKey": { "type": "string", "pattern": "^[0-9a-f]{16}$", "description": "The branch: a 64-bit digest of the lowercased owner/repo, a newline and the branch name. Set per event. Not salted. Absent on the default branch." },
+    "headRepoKey": { "type": "string", "pattern": "^[0-9a-f]{8}$", "description": "On a pull request event from a fork: the key of the fork that holds the head branch. Match a session's repoKey against this when it is set, and against repoKey when it isn't." },
+    "prCreatedAt": { "type": "string", "format": "date-time", "description": "On pull_request.* events: when GitHub says the pull request was created." },
+    "prClosedAt": { "type": "string", "format": "date-time", "description": "On pull_request.closed and pull_request.merged: when it was closed." },
+    "prMergedAt": { "type": "string", "format": "date-time", "description": "On pull_request.merged: when it was merged." },
     "promptId": { "type": "string", "description": "The agent's own opaque id for the prompt a turn answers, where it gives one. For an agent that gives none the collector mints a random id at the start of each turn. Never derived from the prompt's text." },
     "vcsAction": { "type": "string", "description": "On tool.completed, when it was a version-control step: commit, push, pr_created or pr_merged. Read a value you don't know as absent." },
     "reason": { "type": "string", "description": "On agent.waiting, why the agent stopped: permission, idle, input (the agent asked a question) or other. Read a value you don't know as other." },

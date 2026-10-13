@@ -337,7 +337,9 @@ export type AscendaTelemetryEventType =
   | "scope_change_declared"
   | "review_requested_of_me"
   | "review_given"
-  | "pull_request_opened";
+  | "pull_request_opened"
+  | "pull_request_closed"
+  | "pull_request_merged";
 
 /**
  * The semantic subset of {@link AscendaTelemetryEventType} — agent-observed
@@ -376,7 +378,9 @@ export const SEMANTIC_WORK_SIGNAL_EVENT_TYPES: readonly AscendaTelemetryEventTyp
 export const COLLABORATION_EVENT_TYPES: readonly AscendaTelemetryEventType[] = [
   "review_requested_of_me",
   "review_given",
-  "pull_request_opened"
+  "pull_request_opened",
+  "pull_request_closed",
+  "pull_request_merged"
 ];
 
 export type AscendaSeverity = "low" | "medium" | "high" | "critical";
@@ -686,6 +690,10 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   milestoneKind: "git",
   branchHash: "repo",
   repoKey: "forge",
+  headRepoKey: "forge",
+  prCreatedAt: "git",
+  prClosedAt: "git",
+  prMergedAt: "git",
   branchKey: "forge",
   promptId: "turns",
   autonomyMode: "posture",
@@ -790,6 +798,25 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * "no key", never a default.
    */
   repoKey?: string;
+
+  /**
+   * On a pull request event from a fork: the key of the fork that holds the
+   * head branch. A clone of the fork has the fork as `origin`, so its sessions
+   * carry the fork's `repoKey`. Match a session against this when it is set
+   * and against `repoKey` when it isn't. Omitted when the head repository is
+   * the base repository, and when GitHub no longer has the fork.
+   */
+  headRepoKey?: string;
+
+  /**
+   * On a pull request event: when GitHub says the pull request was created,
+   * closed and merged, as ISO 8601. A session joins the pull request when it
+   * overlaps this window on the same branch. `prClosedAt` is set on closed
+   * and merged events, `prMergedAt` on merged only.
+   */
+  prCreatedAt?: string;
+  prClosedAt?: string;
+  prMergedAt?: string;
 
   /**
    * The branch, as a 64-bit digest of `owner/repo` and the branch name, the
@@ -1064,6 +1091,10 @@ export const EVENT_METADATA_FIELDS = [
   "milestoneKind",
   "branchHash",
   "repoKey",
+  "headRepoKey",
+  "prCreatedAt",
+  "prClosedAt",
+  "prMergedAt",
   "branchKey",
   "promptId",
   "autonomyMode",
@@ -1262,6 +1293,10 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   review_requested_of_me: "supervision",
   review_given: "supervision",
   pull_request_opened: "creation",
+  // Where a pull request of yours ended up. A boundary like a turn ending, not
+  // work in itself, so neutral: it must not weigh on any workload leg.
+  pull_request_closed: "neutral",
+  pull_request_merged: "neutral",
   context_pressure_high: "risk",
   agent_loop_long: "risk",
   after_hours_ai_session: "risk",
