@@ -115,6 +115,55 @@ registers, and an agent without a hook for something can't report it.
 Events never contain prompt text, file contents, file names, command lines or
 command output. That's a rule for v0 and for every version after it.
 
+## Mapping to OpenTelemetry
+
+If your telemetry already lives in an OpenTelemetry backend, the events can go
+there as log records.
+[examples/otlp-forwarder](../../examples/otlp-forwarder/) does it, and uses
+these names. Where the semantic conventions have a name for the thing, it uses
+that. Otherwise the attribute sits under `ascenda.`.
+
+| Event field | OpenTelemetry | OpenInference |
+| --- | --- | --- |
+| `time` | the record's `timeUnixNano` | |
+| `kind` | the record's `eventName` field, and the body | |
+| `sessionId` | `session.id` | `session.id` |
+| `agent` | `gen_ai.agent.name` | |
+| `tool` | `gen_ai.tool.name` | `tool.name` |
+| `model` | `gen_ai.request.model` | `llm.model_name` |
+| `repoKey` | `ascenda.vcs.repo_key` | |
+| `branchKey` | `ascenda.vcs.branch_key` | |
+| `headRepoKey` | `ascenda.vcs.head_repo_key` | |
+| `prCreatedAt`, `prClosedAt`, `prMergedAt` | `ascenda.pr.created_at`, `.closed_at`, `.merged_at` | |
+| `promptId` | `ascenda.prompt.id` | |
+| `vcsAction` | `ascenda.vcs.action` | |
+| `reason` | `ascenda.wait.reason` | |
+| `permissionMode` | `ascenda.permission_mode` | |
+| `outcome`, `durationBucket`, `subagentId`, `projectHash`, `id`, `collectorVersion`, `utcOffsetMinutes` | `ascenda.*`, same name in snake case | |
+
+Team and department aren't event fields. They belong to the machine, so they go
+on the resource: set `OTEL_RESOURCE_ATTRIBUTES=team.id=platform,department=eng`
+where the forwarder runs. Those two names are a convention to agree on, not
+part of the semantic conventions.
+
+**No OpenTelemetry equivalent:** `repoKey`, `branchKey`, `headRepoKey`, the
+`pr*At` times, `promptId`, `vcsAction`, `reason`, `permissionMode`, `outcome`,
+`durationBucket`, `subagentId`, `projectHash`, `id` and `collectorVersion`. The standard `vcs.*`
+names carry a repository URL or a branch name, and a key is a digest of one.
+Putting a digest where a name belongs would make the attribute lie, so the keys
+stay under `ascenda.`. `gen_ai.prompt.name` names a prompt template, not one
+turn, so it doesn't fit `promptId` either. `gen_ai.agent.name` has moved from
+the main registry to the GenAI conventions, where it's still defined.
+
+`permission.requested` and `permission.denied` map like every other kind: the
+kind is the record's `eventName`, with `tool` and `ascenda.permission_mode`
+beside it. The forwarder adds no time, wait or interruption to them, and
+`permission.denied` is the only one it gives a higher severity (warn).
+
+OpenInference describes LLM and tool spans, not an agent's session log, so most
+fields have no counterpart there. The OpenInference column shows where one
+exists.
+
 ## Matching a session to a pull request
 
 `projectHash` is salted on each machine, so it can't be matched to anything
@@ -134,18 +183,40 @@ the same repository and head branch carry the same pair.
 - Only github.com remotes get keys. There's no `branchKey` on the repository's
   default branch, where every session would share one.
 
+**Joining on the time window.** The keys narrow the candidates and the clock
+picks the one. Take a `pull_request.*` event from the GitHub collector:
+
+1. Find the events with its `branchKey`, and whose `repoKey` equals the
+   event's `headRepoKey` when it has one (a fork) and its `repoKey` when it
+   doesn't.
+2. Keep the sessions (`sessionId`) with at least one such event between
+   `prCreatedAt` and `prMergedAt`, or `prClosedAt` if it wasn't merged. A
+   session that started before the branch existed still counts, because
+   `branchKey` is per event. For a PR that's still open, the window runs to
+   now.
+3. The session's `commit`, `push` and `pr_created` values of `vcsAction` mark
+   the steps that moved the PR. `pr_merged` says an agent ran the merge.
+
+A session that never left the default branch has no `branchKey`, and nor does
+a PR from a default branch, so that work can't be matched this way. It still
+groups by `repoKey`. Without the window, a reused branch name matches every PR
+that ever used it. The same steps, written for a team, are in
+[Joining a session to its pull request](../../docs/TEAM_COLLECTION.md#joining-a-session-to-its-pull-request).
+
 **The trade-off.** Neither key is salted. They're digests, not secrets: anyone
 who holds one can check a guess like "branch `feat/x` of `acme/api`", and for a
-public repository those names are public. It's the trade-off the GitHub
-collector's repository digest already makes, with a branch name added. If you
-don't want them on your events, turn them off for this machine:
+public repository those names are public. The inputs are short and guessable,
+so a dictionary of likely names would find most of them. It's the trade-off the
+GitHub collector's repository digest already makes, with a branch name added.
+If you don't want them on your events, turn them off for this machine:
 
 ```bash
 npx @ascenda-one/claude-code-hooks setup --no-repo-keys
 ```
 
 Every hook CLI takes the same flag, and `setup --repo-keys` turns them back on.
-`ASCENDA_REPO_KEYS=off` does the same for one shell. The names themselves never
+`ASCENDA_REPO_KEYS=off` does the same for one shell. The GitHub collector takes
+`--no-repo-keys` or the same variable in its workflow step. The names themselves never
 leave the machine. The digests do.
 
 ## Compatibility
