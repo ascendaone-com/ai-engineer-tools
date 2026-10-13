@@ -15,6 +15,16 @@ export {
 } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection, mintIdempotencyKey } from "./payload";
 export { COLLECTOR_VERSION, UNRELEASED_COLLECTOR_VERSION, describeCollectorVersion } from "./collectorVersion";
+export {
+  FLUSH_LOCK_FRESH_MS,
+  HOOK_DELIVERY_ENV_VAR,
+  OUTBOX_FLUSH_COMMAND,
+  flushLockPath,
+  hookDeliveryInline,
+  runOutboxFlush,
+  startBackgroundFlush
+} from "./backgroundDelivery";
+export type { BackgroundFlushOptions } from "./backgroundDelivery";
 export { AscendaEventSender, AscendaSemanticEventError, TOKEN_RENEW_LEAD_MS, buildEventBody, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
 export { toAgentEvent } from "./agentEvent";
@@ -24,6 +34,7 @@ export {
   DEFAULT_API_BASE_URL,
   MissingInstallationIdError,
   deliverHookEvents,
+  flushHookOutbox,
   loadCliAgentConfig,
   resolveCliAgentInstallationId,
   resolveContextHashes
