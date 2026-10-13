@@ -130,6 +130,8 @@ that. Otherwise the attribute sits under `ascenda.`.
 | `model` | `gen_ai.request.model` | `llm.model_name` |
 | `repoKey` | `vcs.repository.id` | |
 | `branchKey` | `ascenda.vcs.branch_key` | |
+| `headRepoKey` | `ascenda.vcs.head_repo_key` | |
+| `prCreatedAt`, `prClosedAt`, `prMergedAt` | `ascenda.pr.created_at`, `.closed_at`, `.merged_at` | |
 | `promptId` | `ascenda.prompt.id` | |
 | `vcsAction` | `ascenda.vcs.action` | |
 | `reason` | `ascenda.wait.reason` | |
@@ -140,12 +142,15 @@ on the resource: set `OTEL_RESOURCE_ATTRIBUTES=team.id=platform,department=eng`
 where the forwarder runs. Those two names are a convention to agree on, not
 part of the semantic conventions.
 
-**No OpenTelemetry equivalent:** `branchKey`, `promptId`, `vcsAction`,
+**No OpenTelemetry equivalent:** `branchKey`, `headRepoKey`, the `pr*At` times, `promptId`, `vcsAction`,
 `reason`, `outcome`, `durationBucket`, `subagentId`, `projectHash`, `id` and
 `collectorVersion`. The standard `vcs.*` names carry a repository URL or a
 branch name, and the key is a digest of one, so `repoKey` goes in
 `vcs.repository.id` as an opaque id and `branchKey` stays under `ascenda.`.
 Putting a digest where a name belongs would make the attribute lie.
+
+Permission events and `permissionMode` are planned and aren't in the format
+yet, so they aren't mapped here.
 OpenInference describes LLM and tool spans, not an agent's session log, so most
 fields have no counterpart there. The OpenInference column shows where one
 exists.
@@ -170,15 +175,16 @@ the same repository and head branch carry the same pair.
   default branch, where every session would share one.
 
 **Joining on the time window.** The keys narrow the candidates and the clock
-picks the one. For a pull request with a head repository, a head branch, an
-open time and a close or merge time:
+picks the one. Take a `pull_request.*` event from the GitHub collector:
 
-1. Take the events whose `repoKey` equals the digest of the head
-   `owner/repo` and whose `branchKey` equals the digest of that repo, a
-   newline and the head branch.
-2. Keep the sessions (`sessionId`) with at least one such event between the
-   PR's first commit time and its close or merge time. A session that started
-   before the branch existed still counts, because `branchKey` is per event.
+1. Find the events with its `branchKey`, and whose `repoKey` equals the
+   event's `headRepoKey` when it has one (a fork) and its `repoKey` when it
+   doesn't.
+2. Keep the sessions (`sessionId`) with at least one such event between
+   `prCreatedAt` and `prMergedAt`, or `prClosedAt` if it wasn't merged. A
+   session that started before the branch existed still counts, because
+   `branchKey` is per event. For a PR that's still open, the window runs to
+   now.
 3. The session's `commit`, `push` and `pr_created` values of `vcsAction` mark
    the steps that moved the PR. `pr_merged` says an agent ran the merge.
 

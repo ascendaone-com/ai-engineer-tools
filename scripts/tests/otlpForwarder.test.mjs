@@ -12,7 +12,7 @@ import { logsUrl, parseKeyValues } from "../../examples/otlp-forwarder/forward-o
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "examples", "otlp-forwarder", "forward-otlp.mjs");
 
 const EVENTS = [
-  { schema: "agent-event/v0", id: "e1", time: "2026-10-14T01:02:03.456Z", agent: "claude_code", kind: "session.started", sessionId: "s1", model: "m-1", repoKey: "aabbccdd", branchKey: "0011223344556677" },
+  { schema: "agent-event/v0", id: "e1", time: "2026-10-14T01:02:03.456Z", agent: "claude_code", kind: "session.started", sessionId: "s1", model: "m-1", repoKey: "aabbccdd", branchKey: "0011223344556677", headRepoKey: "ddccbbaa", prMergedAt: "2026-10-14T02:00:00Z" },
   { schema: "agent-event/v0", id: "e2", time: "2026-10-14T01:02:04.000Z", agent: "claude_code", kind: "tool.failed", sessionId: "s1", tool: "Bash", outcome: "failure", promptId: "p1", utcOffsetMinutes: 600 }
 ];
 
@@ -71,6 +71,8 @@ test("sends the log as OTLP logs and picks up where it stopped", async () => {
     assert.deepEqual(attr(records[0], "gen_ai.request.model"), { stringValue: "m-1" });
     assert.deepEqual(attr(records[0], "vcs.repository.id"), { stringValue: "aabbccdd" });
     assert.deepEqual(attr(records[0], "ascenda.vcs.branch_key"), { stringValue: "0011223344556677" });
+    assert.deepEqual(attr(records[0], "ascenda.vcs.head_repo_key"), { stringValue: "ddccbbaa" });
+    assert.deepEqual(attr(records[0], "ascenda.pr.merged_at"), { stringValue: "2026-10-14T02:00:00Z" });
     assert.deepEqual(attr(records[1], "gen_ai.tool.name"), { stringValue: "Bash" });
     assert.deepEqual(attr(records[1], "ascenda.prompt.id"), { stringValue: "p1" });
     assert.deepEqual(attr(records[1], "ascenda.utc_offset_minutes"), { intValue: "600" });
