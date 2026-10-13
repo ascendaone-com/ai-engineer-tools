@@ -33,26 +33,28 @@ export function classifyGitAction(command: string | undefined | null): GitAction
   // their verb, so one segment's `--hard` cannot upgrade another's reset.
   const heads = commandHeads(value);
 
+  const commands = heads.map(parseGitCommand).filter((c): c is GitCommand => c !== undefined);
+
   // Order matters. `git commit --amend` is a rewrite of work already
   // committed, not a fresh boundary, so amend is tested before commit — the
   // reverse order would count every amend as new progress.
-  if (heads.some((h) => /^git\s+commit\b/.test(h) && /\s--amend\b/.test(h))) return "amend";
+  if (commands.some((c) => c.verb === "commit" && c.args.includes("--amend"))) return "amend";
 
   // `git revert` names an undo explicitly.
-  if (heads.some((h) => /^git\s+revert\b/.test(h))) return "revert";
+  if (commands.some((c) => c.verb === "revert")) return "revert";
 
   // Only `--hard` discards work. A soft or mixed reset moves a pointer and
   // leaves the tree alone, which is bookkeeping rather than rework.
-  if (heads.some((h) => /^git\s+reset\b/.test(h) && /\s--hard\b/.test(h))) return "reset_hard";
+  if (commands.some((c) => c.verb === "reset" && c.args.includes("--hard"))) return "reset_hard";
 
-  // `git restore <path>` and the older `git checkout -- <path>` both throw
-  // away uncommitted changes. `git restore --staged` only unstages, so it is
-  // excluded: nothing is lost.
-  if (heads.some((h) => /^git\s+restore\b/.test(h) && !/\s--staged\b/.test(h))) return "restore";
-  if (heads.some((h) => /^git\s+checkout\b.*\s--\s/.test(h))) return "restore";
+  // Every way of throwing away uncommitted changes is `restore`: `git restore
+  // <path>`, `git checkout -- <path>` and its shorter spellings, `git clean -f`
+  // (untracked files go too) and `git switch --discard-changes`. `git restore
+  // --staged` only unstages, so it is excluded: nothing is lost.
+  if (commands.some(discardsWork)) return "restore";
 
-  if (heads.some((h) => /^git\s+push\b/.test(h))) return "push";
-  if (heads.some((h) => /^git\s+commit\b/.test(h))) return "commit";
+  if (commands.some((c) => c.verb === "push")) return "push";
+  if (commands.some((c) => c.verb === "commit")) return "commit";
 
   // Everything else — status, log, diff, add, fetch — is not a boundary and
   // not rework. Undefined rather than "other": the field is absent when there
@@ -63,4 +65,63 @@ export function classifyGitAction(command: string | undefined | null): GitAction
 /** Whether an action undid work that already existed. */
 export function isReworkGitAction(action: GitAction | undefined): boolean {
   return action === "revert" || action === "reset_hard" || action === "restore";
+}
+
+type GitCommand = { verb: string; args: string[] };
+
+/** Global options that take their value as the next word (`-C dir`, `-c k=v`). */
+const GLOBAL_OPTIONS_WITH_VALUE = new Set(["-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--exec-path"]);
+
+/**
+ * Split a command head into git's verb and the words after it, skipping the
+ * global options that sit between `git` and the verb. The head arrives
+ * lowercased, so `-C` and `-c` are indistinguishable here, which is fine:
+ * both take a value.
+ */
+function parseGitCommand(head: string): GitCommand | undefined {
+  const words = head.split(/\s+/);
+  if (words[0] !== "git") return undefined;
+  let i = 1;
+  while (i < words.length && words[i].startsWith("-")) {
+    i += GLOBAL_OPTIONS_WITH_VALUE.has(words[i]) ? 2 : 1;
+  }
+  if (i >= words.length) return undefined;
+  return { verb: words[i], args: words.slice(i + 1) };
+}
+
+function discardsWork({ verb, args }: GitCommand): boolean {
+  switch (verb) {
+    case "restore":
+      return !args.includes("--staged");
+    case "switch":
+      return args.includes("--discard-changes") || args.includes("--force") || args.includes("-f");
+    case "clean": {
+      // `-n` only lists what would go. Short flags combine (`-fd`, `-nfdx`).
+      const flags = args.filter((a) => /^-[a-z]+$/.test(a)).join("");
+      const dryRun = args.includes("--dry-run") || flags.includes("n");
+      return !dryRun && (args.includes("--force") || flags.includes("f"));
+    }
+    case "checkout":
+      return checkoutDiscards(args);
+    default:
+      return false;
+  }
+}
+
+/**
+ * `git checkout` switches branches and restores files, and which one a given
+ * command does depends on whether its words are refs or paths. After `--`
+ * they are paths by definition. Without it, two or more words means a
+ * tree-ish plus paths, and a lone word counts as a path only when it is
+ * plainly one: `.`, a relative prefix, a trailing slash, a glob, or a name
+ * ending in a lettered extension. `git checkout release-1.2` stays a switch.
+ */
+function checkoutDiscards(args: string[]): boolean {
+  if (args.includes("--")) return true;
+  // Creating or detaching to a new place never discards the working tree.
+  if (args.some((a) => ["-b", "--orphan", "--detach", "-d", "-t", "--track", "-B"].includes(a))) return false;
+  const words = args.filter((a) => !a.startsWith("-"));
+  if (words.length >= 2) return true;
+  if (words.length === 1) return /^\.{1,2}(\/|$)|\/$|[*?]|\.[a-z][a-z0-9]*$/.test(words[0]);
+  return false;
 }

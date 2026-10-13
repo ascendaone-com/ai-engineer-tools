@@ -56,6 +56,41 @@ export function forgeProjectHash(value: string): string {
 }
 
 /**
+ * The key a pull request and a session share for a repository: the frozen
+ * 32-bit digest above, taken of the lowercased `owner/repo`.
+ *
+ * Lowercased because GitHub treats names case-insensitively while a remote URL
+ * keeps whatever case was typed at clone time, so the two sides of a join
+ * could otherwise disagree about one repository. For a repository whose name
+ * is already lowercase this is exactly `forgeProjectHash`.
+ */
+export function forgeRepoKey(fullName: string): string {
+  return forgeProjectHash(fullName.toLowerCase());
+}
+
+/**
+ * The key a pull request and a session share for one branch of a repository:
+ * FNV-1a, 64-bit, lowercase hex, 16 characters, of `owner/repo` (lowercased),
+ * a newline, and the branch name as git spells it.
+ *
+ * Wider than the repository key because there are far more branches than
+ * repositories, and a 32-bit digest starts to collide inside a team's branch
+ * list. Same caveat as the rest of this file: not a security boundary. A
+ * branch name is low-entropy and, for a public repository, public, so anyone
+ * holding the digest can confirm a guess. Unsalted on purpose; a CI step has
+ * no salt to share.
+ */
+export function forgeBranchKey(fullName: string, branch: string): string {
+  const input = `${fullName.toLowerCase()}\n${branch}`;
+  let h = 0xcbf29ce484222325n;
+  for (const byte of Buffer.from(input, "utf8")) {
+    h ^= BigInt(byte);
+    h = BigInt.asUintN(64, h * 0x100000001b3n);
+  }
+  return h.toString(16).padStart(16, "0");
+}
+
+/**
  * `owner/repo` from a git remote URL, or null when the remote is not a
  * github.com remote.
  *

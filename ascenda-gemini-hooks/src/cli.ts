@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, stampLastHook, livePidFields, readHookSet, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, stampLastHook, livePidFields, readHookSet, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapGeminiEvent } from "./mapGeminiEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -16,6 +16,12 @@ import { ASCENDA_TOOL_TYPE, GEMINI_HOST, GeminiHookEventName, GeminiHookInput } 
  * on a pipe nothing will ever write to.
  */
 async function main(): Promise<void> {
+  // A detached flusher started by an earlier hook, not a hook: no stdin, no
+  // agent waiting. See backgroundDelivery.ts in tool-kit.
+  if (process.argv[2] === OUTBOX_FLUSH_COMMAND) {
+    await flushHookOutbox({ toolType: ASCENDA_TOOL_TYPE, host: GEMINI_HOST, source: "cli_agent" });
+    return;
+  }
   if (isCliAgentManagementCommand(process.argv[2])) {
     managementExitCode = await runCliAgentSetup(process.argv.slice(2), SETUP);
     return;

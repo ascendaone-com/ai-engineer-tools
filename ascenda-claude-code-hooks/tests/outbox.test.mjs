@@ -315,3 +315,110 @@ test("SessionEnd against a healthy server: the next hook delivers the end, once"
   });
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// ── Background delivery (the default outside these tests) ──────────────────
+// The hook queues and returns; a detached flusher, this same binary run with
+// `__flush-outbox`, sends. isolateHome.cjs sets inline for the suite, so each
+// of these clears it.
+
+const BACKGROUND = { ASCENDA_HOOK_DELIVERY: "" };
+
+async function waitFor(check, { timeout = 10_000, interval = 50 } = {}) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    if (check()) return true;
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+  return check();
+}
+
+const acceptEveryItem = (body) => ({ status: 200, body: JSON.stringify({ results: body.events.map((_, index) => ({ index, status: "accepted" })) }) });
+
+test("background: the hook returns without touching the network, and the flusher delivers the event", async () => {
+  const { dir, state, outbox, token } = scratch();
+  await withServer({ batch: acceptEveryItem }, async (apiBaseUrl, received) => {
+    const result = await run(["PostToolUse"], {
+      input: EDIT_PAYLOAD,
+      env: { ...BACKGROUND, ASCENDA_API_BASE_URL: apiBaseUrl, ASCENDA_STATE_FILE: state, ASCENDA_OUTBOX_FILE: outbox, ASCENDA_EVENT_WRITE_TOKEN_FILE: token }
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(received.single.length, 0, "the live door is never used");
+
+    assert.ok(await waitFor(() => received.batch.length > 0 && readOutbox(outbox).length === 0), "the flusher sent it and the outbox emptied");
+    const [event] = received.batch.flatMap((batch) => batch.events);
+    assert.equal(event.eventType, "ai_file_edit");
+    assert.equal(event.sessionId, "s1");
+    assert.ok(await waitFor(() => !fs.existsSync(`${outbox}.flushing`)), "the flusher released its lock");
+    assert.equal(JSON.parse(fs.readFileSync(state, "utf8")).lastOutcome, "accepted");
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("background: against a hung server the hook still returns at once, and the event waits on disk", async () => {
+  const { dir, state, outbox, token } = scratch();
+  await withHungServer(async (apiBaseUrl) => {
+    const started = Date.now();
+    const result = await run(["PreToolUse"], {
+      input: { session_id: "s1", tool_name: "Read", tool_input: { file_path: "/tmp/x" } },
+      env: { ...BACKGROUND, ASCENDA_API_BASE_URL: apiBaseUrl, ASCENDA_STATE_FILE: state, ASCENDA_OUTBOX_FILE: outbox, ASCENDA_EVENT_WRITE_TOKEN_FILE: token },
+      timeout: 5_000
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(elapsed < 1_500, `the hook took ${elapsed}ms; inline it waits out the whole HTTP timeout`);
+    const queued = [...readOutbox(outbox), ...fs.readdirSync(dir).filter((n) => n.includes(".draining")).flatMap((n) => readOutbox(path.join(dir, n)))];
+    assert.equal(queued.length, 1, "on disk, in the outbox or in the flusher's claim");
+    assert.equal(queued[0].payload.eventType, "ai_tool_call_started");
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("background: a refusing door is journaled by the flusher, so doctor and the notice still see the outage", async () => {
+  const { dir, state, outbox, token } = scratch();
+  await withServer({ batch: () => ({ status: 503, body: "restarting" }) }, async (apiBaseUrl) => {
+    await run(["PostToolUse"], {
+      input: EDIT_PAYLOAD,
+      env: { ...BACKGROUND, ASCENDA_API_BASE_URL: apiBaseUrl, ASCENDA_STATE_FILE: state, ASCENDA_OUTBOX_FILE: outbox, ASCENDA_EVENT_WRITE_TOKEN_FILE: token }
+    });
+    assert.ok(await waitFor(() => fs.existsSync(state) && !fs.existsSync(`${outbox}.flushing`)), "the flusher ran and finished");
+    const journal = JSON.parse(fs.readFileSync(state, "utf8"));
+    assert.equal(journal.lastOutcome, "transport_error");
+    assert.match(journal.detail, /kept in outbox/);
+    assert.equal(readOutbox(outbox).length, 1, "kept for the next flush");
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("background: hooks fired together each land once", async () => {
+  const { dir, state, outbox, token } = scratch();
+  await withServer({ batch: acceptEveryItem }, async (apiBaseUrl, received) => {
+    const env = { ...BACKGROUND, ASCENDA_API_BASE_URL: apiBaseUrl, ASCENDA_STATE_FILE: state, ASCENDA_OUTBOX_FILE: outbox, ASCENDA_EVENT_WRITE_TOKEN_FILE: token };
+    await Promise.all([
+      run(["PreToolUse"], { input: { session_id: "s1", tool_name: "Read" }, env }),
+      run(["PostToolUse"], { input: EDIT_PAYLOAD, env }),
+      run(["Stop"], { input: { session_id: "s1", hook_event_name: "Stop" }, env })
+    ]);
+    const sent = () => received.batch.flatMap((batch) => batch.events);
+    assert.ok(await waitFor(() => readOutbox(outbox).length === 0 && !fs.existsSync(`${outbox}.flushing`) && sent().length >= 3));
+    const keys = sent().map((event) => event.idempotencyKey);
+    assert.equal(new Set(keys).size, keys.length, "no event was sent twice");
+    assert.ok(sent().some((event) => event.eventType === "ai_file_edit"));
+    assert.ok(sent().some((event) => event.eventType === "ai_tool_call_started"));
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("background: with the drain held, the hook sends its own events inline, so nothing stops arriving", async () => {
+  const { dir, state, outbox, token } = scratch();
+  await withServer({ single: () => ({ status: 200, body: JSON.stringify({ status: "accepted" }) }) }, async (apiBaseUrl, received) => {
+    const result = await run(["PostToolUse"], {
+      input: EDIT_PAYLOAD,
+      env: { ...BACKGROUND, ASCENDA_OUTBOX_DRAIN: "0", ASCENDA_API_BASE_URL: apiBaseUrl, ASCENDA_STATE_FILE: state, ASCENDA_OUTBOX_FILE: outbox, ASCENDA_EVENT_WRITE_TOKEN_FILE: token }
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(received.single.length, 1, "sent by the hook before it exited");
+    assert.equal(fs.existsSync(`${outbox}.flushing`), false, "no background sender was started");
+    assert.equal(readOutbox(outbox).length, 0);
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});

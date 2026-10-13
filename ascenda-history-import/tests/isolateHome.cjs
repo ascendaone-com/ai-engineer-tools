@@ -10,3 +10,9 @@ const os = require("node:os");
 const path = require("node:path");
 
 process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-home-"));
+
+// The store paths answer to these too, so a developer who sets either would
+// otherwise run the suite against their own stores.
+delete process.env.CLAUDE_CONFIG_DIR;
+delete process.env.CODEX_HOME;
+delete process.env.ASCENDA_ZSTD_DECODER;
