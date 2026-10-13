@@ -232,8 +232,22 @@ export function readSubagentId(input: ClaudeHookInput): string | undefined {
   return /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : undefined;
 }
 
+/**
+ * When a background subagent or task finishes, Claude Code reports it to the
+ * session as a new prompt wrapped in `<task-notification>`, and it fires
+ * `UserPromptSubmit` like one. Nobody typed it, so it's not a prompt and it
+ * can't be a correction. The history importer declines the same lines (by
+ * their transcript `origin`, which the hook payload doesn't carry), so live
+ * and imported prompt counts agree. The live gauge still gets its beat from
+ * `liveEventFor`: the agent does start working again.
+ */
+export function isTaskNotificationPrompt(prompt: string | undefined): boolean {
+  return prompt !== undefined && prompt.trimStart().startsWith("<task-notification>");
+}
+
 function mapUserPromptSubmit(input: ClaudeHookInput): MappedAscendaEvent[] {
   const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]]);
+  if (isTaskNotificationPrompt(prompt)) return [];
   const autonomy = autonomyModeMetadata(input);
   const events: MappedAscendaEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: { promptClass: "unknown", ...autonomy } }];
   if (looksLikeCorrection(prompt)) {

@@ -97,8 +97,9 @@ has the full rules. The ones that bite contributors:
   smallest payload that shows the case.
 - **No names from private codebases.** Describe a thing by what it does.
 - **Comments say what a maintainer needs:** what the code does, the invariant
-  it keeps, and what breaks if it changes. Leave out measurements taken from a
-  real machine.
+  it keeps, and what breaks if it changes. A count you measured backs a rule
+  up, so keep it, and say what it was measured on. Leave out the content
+  behind it: prompt text, paths and names.
 
 Before you push:
 

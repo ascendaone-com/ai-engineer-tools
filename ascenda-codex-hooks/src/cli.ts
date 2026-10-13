@@ -39,6 +39,11 @@ async function main(): Promise<void> {
   if (hookName === "UserPromptSubmit") recordTurnStart(CODEX_HOST, sessionId);
   if (hookName === "Stop") turnDurationMs = consumeTurnDurationMs(CODEX_HOST, sessionId);
 
+  // Codex gives SessionEnd at most 3 s and is exiting while it runs. The
+  // sender's own 3 s default would use all of it, so the send gets half; a send
+  // that times out stays in the outbox for the next hook to deliver.
+  if (hookName === "SessionEnd") process.env.ASCENDA_HTTP_TIMEOUT_MS ??= "1500";
+
   // The local live bus, before the cloud send. See `emitLive` below.
   await emitLive(hookName, input, sessionId);
 
