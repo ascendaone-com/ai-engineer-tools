@@ -24,7 +24,7 @@ Identity: Codex rides the canonical `cli_agent` toolType/source (the backend reg
 
 ## Hook safety contract
 
-Codex **awaits** command hooks and treats **exit code 2 as blocking** the user's action. This adapter therefore always exits `0` and caps every HTTP call at 3 s (`ASCENDA_HTTP_TIMEOUT_MS` to change): telemetry failures surface as a one-line `systemMessage` or stderr note and never stall or block the engineer.
+Codex **awaits** command hooks and treats **exit code 2 as blocking** the user's action. This adapter therefore always exits `0`, and it doesn't send from the hook. Each hook writes its events to a local outbox, starts a background sender and returns, so the network never holds up Codex. The sender caps each HTTP call at 3 s (`ASCENDA_HTTP_TIMEOUT_MS` to change). Telemetry failures surface as a one-line `systemMessage` or stderr note. `ASCENDA_HOOK_DELIVERY=inline` sends from the hook itself, as earlier versions did.
 
 ## Install
 
