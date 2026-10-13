@@ -243,8 +243,9 @@ Code also writes `user` lines on your behalf, and none of these count:
   (`isCompactSummary`);
 - a line that's empty once its wrapper elements are stripped: `system-reminder`,
   `command-name`, `command-message`, `command-args`, `local-command-stdout`,
-  `local-command-stderr`, `local-command-caveat`. That's what a slash command
-  and its output look like. A prompt with typed text beside a wrapper still
+  `local-command-stderr`, `local-command-caveat`, `bash-input`, `bash-stdout`,
+  `bash-stderr`. That's what a slash command and its output look like, and
+  what a `!` shell command does: the agent never runs for it. A prompt with typed text beside a wrapper still
   counts, and so does one that merely starts with a tag's name;
 - the interrupt marker, `[Request interrupted by user]` and its `for tool use`
   variant.
