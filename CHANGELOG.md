@@ -10,6 +10,102 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.36
+
+Re-run `setup` for each agent after upgrading. It adds the new Claude Code
+permission hooks and Codex `SessionEnd`.
+
+### Hooks return before the network does
+
+- **A hook queues its events and gets out of the way.** Every collector now
+  writes to its outbox, starts a background sender and returns, so your agent
+  waits for Node to start, not for a round trip. On a network that hangs, a
+  hook returns in a fraction of a second. Until now it held the agent for its
+  whole timeout.
+- `doctor` says which delivery mode is in use. `ASCENDA_HOOK_DELIVERY=inline`
+  sends before returning, as before, and a hosted Claude Code session always
+  does.
+
+### Setup that leaves other tools alone
+
+- **Your other hooks stay put.** When another tool has added its own command
+  to a hook group Ascenda wrote, `setup` and `uninstall` take out Ascenda's
+  entry and keep the rest. They used to remove the whole group.
+- **Moved config folders work.** With `CLAUDE_CONFIG_DIR` or `CODEX_HOME` set,
+  `setup`, `status` and `uninstall` use that folder, and the history importer
+  reads from it. `CLAUDE_CONFIG_DIR` can list several folders, comma-separated.
+- Settings files are written atomically. A symlinked `settings.json` stays a
+  symlink, and `.ascenda-backup` keeps the file as it was before your first
+  install.
+
+### Codex
+
+- **`status` and `doctor` name hooks Codex hasn't approved.** Codex skips an
+  unapproved hook without a word, and a changed command needs approving again.
+  Each one is listed, with the fix.
+- `SessionEnd` is registered with a 3 second timeout, the most Codex allows
+  for it.
+- An older `setup` won't replace a newer hook runner.
+
+### Commits and pull requests from every agent
+
+- **Codex, Gemini CLI and Cursor report git work too.** Commits, pushes,
+  reverts and pull requests opened now come from all three, as they already
+  did from Claude Code. Only a call that succeeded counts. Windsurf doesn't
+  say whether a command worked, so it reports none.
+- `git -C <dir> commit`, `git -c key=value` and `--no-pager` are recognised.
+  So is a pull request opened through an MCP tool.
+- Codex's `exec_command` and `shell_command` count as shell calls, and the
+  `functions.` prefix Codex Desktop adds is understood.
+- Claude Code `NotebookEdit` counts as an edit. Lines changed come from the
+  edit's own patch when Claude Code sends one, so the live count and the
+  imported count agree.
+
+### Prompts are things you typed
+
+- A `!` shell command in Claude Code isn't a prompt, live or imported.
+- Neither is a background task's report, which Claude Code hands back to the
+  session as if it were one.
+- Imported sessions driven by the Agent SDK keep those lines out of the
+  typed-prompt count.
+
+### History import counts each thing once
+
+- **Claude Code tokens count once per API response.** Claude Code writes one
+  line per content block and repeats the response's usage on every one, so
+  token totals came out at about twice the real figure, or more. Resumed and
+  copied sessions don't count their parent's work again, tool calls included,
+  and a copied subagent's minutes stay with the session that ran it.
+- **Codex threads fold properly.** A fork keeps its own id and skips the
+  history it replays from its parent. A subagent thread joins the session that
+  started it. A long thread split over several files is one session.
+  Compressed `.jsonl.zst` rollouts are read.
+- **Cursor and VS Code.** A Cursor session starts at its first message, and
+  tokens Cursor didn't record are marked as not collected. VS Code chats with
+  no folder open are read, and so are Code - Insiders and VSCodium.
+- Claude Code cache writes and advisor-model tokens are counted. Older flat
+  `agent-*.jsonl` subagent files join their parent session.
+
+### More in `agent-event/v0`
+
+Every addition is optional. Nothing is renamed or removed.
+
+- **Match a session to its pull request.** `repoKey` and `branchKey` are on
+  events from every agent, and the GitHub collector now sends
+  `pull_request.closed` and `pull_request.merged` with the pull request's
+  times. `docs/TEAM_COLLECTION.md` shows the join.
+- **The keys are unsalted.** Anyone holding your events can check a guess at a
+  repository or branch name. They're set only for github.com, never on a
+  default branch, and `setup --no-repo-keys` or `ASCENDA_REPO_KEYS=off` turns
+  them off.
+- **Permission prompts.** Claude Code reports `permission.requested`, and
+  `permission.denied` in auto mode. No hook reports your answer, so there's no
+  event for it.
+- Also new: `vcsAction`, `promptId`, `model` on `session.started`,
+  `permissionMode`, and a `reason` on `agent.waiting`.
+- `examples/otlp-forwarder` sends the local event log to an OpenTelemetry
+  collector. The package README maps each field to its OpenTelemetry name.
+
 ## v0.1.35
 
 ### Your agents' events, on your own machine
