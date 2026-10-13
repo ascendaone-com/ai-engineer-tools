@@ -869,7 +869,7 @@ test("PostToolUse: NotebookEdit counts as an edit with a line bucket", () => {
 test("Notification: the typed field decides, wording is the fallback", () => {
   const kind = (input) => mapClaudeEvent("Notification", input)[0].metadata.interruptionKind;
   assert.equal(kind({ notification_type: "permission_prompt", message: "hello" }), "permission_request");
-  assert.equal(kind({ notification_type: "elicitation_dialog", message: "hello" }), "permission_request");
+  assert.equal(kind({ notification_type: "elicitation_dialog", message: "hello" }), "input_request");
   assert.equal(kind({ notification_type: "idle_prompt", message: "needs your permission" }), "idle_prompt");
   assert.equal(kind({ notification_type: "auth_success", message: "permission granted" }), "other");
   assert.equal(kind({ message: "Claude needs your permission to use Bash" }), "permission_request");

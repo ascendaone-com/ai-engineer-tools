@@ -29,7 +29,7 @@ export const SETUP: CliAgentSetupSpec = {
   // happened, never how much of it changed, and its command hook reports no
   // status, so no git action is sent: one is only sent for a call that
   // succeeded.
-  sends: [],
+  sends: ["turns", "forge"],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".codeium", "windsurf", "hooks.json") : path.join(projectDir, ".windsurf", "hooks.json"),

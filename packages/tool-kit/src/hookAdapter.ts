@@ -3,6 +3,7 @@ import { recordWorkContext } from "./contextRegistry";
 import { isLocalOnlyHostInstall, readHostCredentials } from "./credentials";
 import { recordForgeProjectAlias } from "./forgeProject";
 import { appendEventLog, resolveEventLogPath } from "./eventLog";
+import { deriveForgeKeysForCwd } from "./forgeKeys";
 import { AscendaEventSender, MappedEvent, buildEventPayload } from "./eventSender";
 import { readCollectorState, recordSendOutcome, unresolvedStateFilePath, unresolvedToolInstallationId } from "./stateStore";
 import { hookDeliveryInline, runOutboxFlush, startBackgroundFlush } from "./backgroundDelivery";
@@ -204,7 +205,31 @@ export type HookDeliveryOptions = CliAgentIdentity & {
   cwd?: string | null;
   /** Surfaced to the user by agents that render hook stdout; defaults to stderr. */
   onNotice?: (message: string) => void;
+  /**
+   * The prompt id the collector minted for the turn in progress, for agents
+   * that give none. Stamped on every event that doesn't already carry one.
+   */
+  promptId?: string;
+  /**
+   * Stamp `repoKey` and `branchKey` from {@link cwd} (or the process's own
+   * directory). For adapters whose mapper doesn't derive them itself. The
+   * machine's switch and the limits in forgeKeys.ts apply.
+   */
+  forgeKeys?: boolean;
 };
+
+/** The events with the repository and branch keys for `cwd` set on each, unless an event has its own. */
+export function withForgeKeys<T extends { metadata?: Record<string, unknown> }>(events: T[], cwd: string | null | undefined): T[] {
+  const keys = deriveForgeKeysForCwd(cwd ?? process.cwd());
+  if (!keys.repoKey) return events;
+  return events.map((event) => ({ ...event, metadata: { ...keys, ...event.metadata } }));
+}
+
+/** The events with `promptId` set on each, unless an event brought its own. */
+export function withPromptId<T extends { metadata?: Record<string, unknown> }>(events: T[], promptId: string | undefined): T[] {
+  if (!promptId) return events;
+  return events.map((event) => ({ ...event, metadata: { promptId, ...event.metadata } }));
+}
 
 /**
  * Send mapped events, or, when the install is not paired, record what would
@@ -218,6 +243,8 @@ export type HookDeliveryOptions = CliAgentIdentity & {
  */
 export async function deliverHookEvents(events: MappedEvent[], options: HookDeliveryOptions): Promise<void> {
   if (events.length === 0) return;
+  events = withPromptId(events, options.promptId);
+  if (options.forgeKeys) events = withForgeKeys(events, options.cwd);
   const notice = options.onNotice ?? ((message: string) => console.error(message));
 
   // An install that was asked not to pair has nothing to deliver with, and

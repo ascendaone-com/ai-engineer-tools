@@ -36,6 +36,8 @@ export {
   deliverHookEvents,
   flushHookOutbox,
   loadCliAgentConfig,
+  withForgeKeys,
+  withPromptId,
   resolveCliAgentInstallationId,
   resolveContextHashes
 } from "./hookAdapter";
@@ -66,7 +68,7 @@ export {
   writeTopLevelCredentials
 } from "./credentials";
 export type { HostCredentials, MachineCredentials } from "./credentials";
-export { consumeTurnDurationMs, recordTurnStart } from "./turnState";
+export { consumeTurnDurationMs, readTurnPromptId, recordTurnStart } from "./turnState";
 export {
   EVENT_TOKEN_TTL_MS,
   ascendaHome,

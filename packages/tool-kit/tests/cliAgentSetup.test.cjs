@@ -178,6 +178,22 @@ test("setup --no-pair installs the hooks and never reaches the network", async (
   });
 });
 
+test("--no-repo-keys is saved machine-wide and --repo-keys clears it", async () => {
+  await sandbox(async ({ home, project }) => {
+    const args = (...extra) => ["setup", "--no-pair", "--project-dir", project, "--api-base-url", "http://127.0.0.1:1", ...extra];
+    const savedFile = () => JSON.parse(fs.readFileSync(path.join(home, "credentials.json"), "utf8"));
+
+    assert.equal(await runCliAgentSetup(args("--no-repo-keys"), flat), 0);
+    assert.equal(savedFile().repoKeys, false);
+
+    assert.equal(await runCliAgentSetup(args(), flat), 0, "a run that doesn't mention it keeps it off");
+    assert.equal(savedFile().repoKeys, false);
+
+    assert.equal(await runCliAgentSetup(args("--repo-keys"), flat), 0);
+    assert.equal("repoKeys" in savedFile(), false);
+  });
+});
+
 test("status names the local-only mode, and stops naming it once paired", async () => {
   await sandbox(async ({ home, project, log }) => {
     await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], flat);

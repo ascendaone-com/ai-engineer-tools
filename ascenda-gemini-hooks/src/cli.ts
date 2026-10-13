@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, stampLastHook, livePidFields, readHookSet, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, stampLastHook, livePidFields, readHookSet, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapGeminiEvent } from "./mapGeminiEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -39,8 +39,16 @@ async function main(): Promise<void> {
   let turnDurationMs: number | undefined;
   // That this agent ran a hook at all, for `status` and `doctor`.
   stampLastHook(GEMINI_HOST, hookName);
-  if (hookName === "BeforeAgent") recordTurnStart(GEMINI_HOST, sessionId);
+  // These agents give hooks no id for the prompt a turn answers, so the turn's
+  // first hook mints one and the rest read it back. Read before the turn-end
+  // hook consumes the state.
+  const promptId = hookName === "BeforeAgent"
+    ? recordTurnStart(GEMINI_HOST, sessionId)
+    : readTurnPromptId(GEMINI_HOST, sessionId);
   if (hookName === "AfterAgent") turnDurationMs = consumeTurnDurationMs(GEMINI_HOST, sessionId);
+
+  // Where the work happened, for the repository and branch keys.
+  const workDir = typeof input.cwd === "string" ? input.cwd : undefined;
 
   // The local live bus, before the cloud send. See `emitLive` below.
   await emitLive(hookName, input, sessionId);
@@ -50,7 +58,10 @@ async function main(): Promise<void> {
     host: GEMINI_HOST,
     setupCommand: `npx ${SETUP.packageName} setup`,
     source: "cli_agent",
-    sessionId
+    sessionId,
+    promptId,
+    cwd: workDir,
+    forgeKeys: true
   });
 }
 

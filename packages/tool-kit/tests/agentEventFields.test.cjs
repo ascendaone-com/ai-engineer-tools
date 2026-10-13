@@ -36,6 +36,7 @@ test("a wait says why", () => {
   const reasonOf = (interruptionKind) => toAgentEvent(wire("supervision_interruption", { interruptionKind })).reason;
   assert.equal(reasonOf("permission_request"), "permission");
   assert.equal(reasonOf("idle_prompt"), "idle");
+  assert.equal(reasonOf("input_request"), "input");
   assert.equal(reasonOf("other"), "other");
   assert.equal(reasonOf("something_new"), "other");
   assert.equal("reason" in toAgentEvent(wire("supervision_interruption", {})), false);
@@ -51,4 +52,28 @@ test("a session start carries the model slug", () => {
   assert.equal(toAgentEvent(wire("create_focus_session", { modelId: "claude-opus-5-5", modelClass: "anthropic:opus" })).model, "claude-opus-5-5");
   assert.equal("model" in toAgentEvent(wire("ai_prompt_submitted", { modelId: "claude-opus-5-5" })), false);
   assert.equal("model" in toAgentEvent(wire("create_focus_session", {})), false);
+});
+
+test("permission events are their own kinds and carry the tool, not an outcome", () => {
+  const requested = toAgentEvent(wire("permission_requested", { toolName: "Bash", autonomyMode: "default" }));
+  assert.equal(requested.kind, "permission.requested");
+  assert.equal(requested.tool, "Bash");
+  assert.equal(requested.permissionMode, "default");
+  assert.equal("outcome" in requested, false);
+  const denied = toAgentEvent(wire("permission_denied", { toolName: "Bash", autonomyMode: "auto" }));
+  assert.equal(denied.kind, "permission.denied");
+  assert.equal(denied.permissionMode, "auto");
+});
+
+test("permissionMode rides every event that has a posture, and is absent when the agent gave none", () => {
+  assert.equal(toAgentEvent(wire("ai_tool_call_completed", { autonomyMode: "bypass_permissions" })).permissionMode, "bypass_permissions");
+  assert.equal(toAgentEvent(wire("ai_prompt_submitted", { autonomyMode: "unknown" })).permissionMode, "unknown");
+  assert.equal("permissionMode" in toAgentEvent(wire("ai_tool_call_completed", {})), false);
+});
+
+test("a git action that never reached the wire (a failed call) is no vcsAction", () => {
+  // The collectors only put gitAction and milestoneKind on a call that
+  // succeeded, so a failure arrives without them, and on tool.failed anyway.
+  assert.equal("vcsAction" in toAgentEvent(wire("ai_tool_call_failed", { toolName: "Bash", outcome: "failure" })), false);
+  assert.equal("vcsAction" in toAgentEvent(wire("ai_tool_call_failed", { gitAction: "push", outcome: "failure" })), false);
 });

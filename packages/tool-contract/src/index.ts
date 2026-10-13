@@ -318,6 +318,8 @@ export type AscendaTelemetryEventType =
   | "subagent_started"
   | "subagent_stopped"
   | "supervision_interruption"
+  | "permission_requested"
+  | "permission_denied"
   | "context_pressure_high"
   | "agent_loop_long"
   | "after_hours_ai_session"
@@ -784,7 +786,7 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * forge collector carries the same value for the same repository.
    *
    * Omitted for a remote that isn't on github.com, a checkout with no remote,
-   * and a machine that turned it off (`setup --repo-keys off`). Absence means
+   * and a machine that turned it off (`setup --no-repo-keys`). Absence means
    * "no key", never a default.
    */
   repoKey?: string;
@@ -945,7 +947,8 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
 
   /**
    * Which kind of wait an agent stopped on: `permission_request`,
-   * `idle_prompt` or `other`, and never anything else.
+   * `input_request` (the agent asked the person a question), `idle_prompt` or
+   * `other`, and never anything else.
    *
    * The only payload field `supervision_interruption` carries. It was emitted
    * by the Claude Code and Codex mappers for months and registered in neither
@@ -966,7 +969,7 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * The notification's own wording is read on the machine to choose one of the
    * three labels and is then discarded; it never leaves the hook process.
    */
-  interruptionKind?: "permission_request" | "idle_prompt" | "other";
+  interruptionKind?: "permission_request" | "input_request" | "idle_prompt" | "other";
 
   /**
    * Claude Code's `agent_id` for one subagent, as sent. On
@@ -1290,6 +1293,17 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   // step toward an interruption count becoming a score, a streak, or something
   // that fires on a miss. It must never become any of those.
   supervision_interruption: "supervision",
+
+  // The agent asked to run a tool, and the auto-mode classifier refused one.
+  // Claude Code's `PermissionRequest` and `PermissionDenied` hooks. Neutral,
+  // because the Notification for the same prompt is already counted above as
+  // `supervision_interruption`, and counting both would weigh one prompt
+  // twice. These rows exist for the public event stream: which tool asked, and
+  // under which posture. `permission_requested` fires before the person
+  // answers and no hook reports their answer, so neither event says whether
+  // the request was granted.
+  permission_requested: "neutral",
+  permission_denied: "neutral",
 
   // Semantic (agent-observed) — see SEMANTIC_WORK_SIGNAL_EVENT_TYPES.
   approach_churn_detected: "risk",

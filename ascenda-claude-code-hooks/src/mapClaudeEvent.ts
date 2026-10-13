@@ -66,6 +66,8 @@ function mapEvent(hookName: ClaudeHookEventName, input: ClaudeHookInput): Mapped
     case "SessionEnd": return mapSessionEnd(input);
     case "SubagentStart": return mapSubagent("subagent_started", input);
     case "SubagentStop": return mapSubagent("subagent_stopped", input);
+    case "PermissionRequest": return mapPermission("permission_requested", input);
+    case "PermissionDenied": return mapPermission("permission_denied", input);
     default: return [];
   }
 }
@@ -319,13 +321,36 @@ function mapNotification(input: ClaudeHookInput): MappedAscendaEvent[] {
 }
 
 /**
- * One of three constant labels. Returns a label, never any part of the input.
+ * The permission prompt appearing (`PermissionRequest`), or the auto-mode
+ * classifier refusing a call (`PermissionDenied`, which Claude Code fires in
+ * auto mode only).
  *
- * The typed `notification_type` leads: `permission_prompt` and
- * `elicitation_dialog` both mean the agent is waiting on the person, so both
- * are `permission_request`, and `idle_prompt` is `idle_prompt`. Any other
- * typed value is `other`, without a second guess from the wording, so this
- * agrees with the live path (`notificationLiveEvent`) on every payload.
+ * `PermissionRequest` fires before the person answers, and no hook reports the
+ * answer, so there is deliberately no event for a decision: nothing here says
+ * the request was granted or refused. Each carries the tool's name and the
+ * posture in force and nothing else. `tool_input` is the command or the file
+ * being asked about, and the denial's `reason` is the classifier's own prose;
+ * neither is read, and `interruptionContentGuard.test.mjs` keeps it so.
+ */
+function mapPermission(eventType: "permission_requested" | "permission_denied", input: ClaudeHookInput): MappedAscendaEvent[] {
+  return [{
+    eventType,
+    severity: "low",
+    metadata: { toolName: sanitiseToolName(getToolName(input)), ...autonomyModeMetadata(input) }
+  }];
+}
+
+/**
+ * One of four constant labels. The typed `notification_type` leads when the
+ * payload has one: `permission_prompt` is a permission request,
+ * `elicitation_dialog` is the agent asking the person a question,
+ * `idle_prompt` stays itself and any other type is `other`. Without the field
+ * (an older Claude Code) the notification's own wording picks among the first
+ * three. Returns a label, never any part of the input.
+ *
+ * Any typed value we don't list is `other`, without a second guess from the
+ * wording, so this agrees with the live path (`notificationLiveEvent`) on
+ * every payload.
  *
  * Builds that send no type fall back to matching the wording. That is
  * brittle, since Claude Code can reword these at any release, and a reworded
@@ -334,9 +359,10 @@ function mapNotification(input: ClaudeHookInput): MappedAscendaEvent[] {
  * idle one), which is the right way round for a measurement whose purpose is
  * to establish a distribution.
  */
-export function notificationKind(message: string | undefined, notificationType?: string): "permission_request" | "idle_prompt" | "other" {
+export function notificationKind(message: string | undefined, notificationType?: string): "permission_request" | "input_request" | "idle_prompt" | "other" {
   if (notificationType !== undefined) {
-    if (notificationType === "permission_prompt" || notificationType === "elicitation_dialog") return "permission_request";
+    if (notificationType === "permission_prompt") return "permission_request";
+    if (notificationType === "elicitation_dialog") return "input_request";
     if (notificationType === "idle_prompt") return "idle_prompt";
     return "other";
   }

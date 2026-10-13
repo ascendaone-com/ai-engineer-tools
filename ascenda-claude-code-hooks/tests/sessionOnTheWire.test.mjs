@@ -36,7 +36,9 @@ const PAYLOADS = {
   Notification: { message: "Claude needs your permission to use Bash", notification_type: "permission_prompt" },
   SessionEnd: { reason: "prompt_input_exit" },
   SubagentStart: { agent_id: "agent-a1b2c3", agent_type: "Explore" },
-  SubagentStop: { agent_id: "agent-a1b2c3", agent_type: "Explore", stop_hook_active: false, agent_transcript_path: "/x/subagents/agent-a1b2c3.jsonl", last_assistant_message: "done" }
+  SubagentStop: { agent_id: "agent-a1b2c3", agent_type: "Explore", stop_hook_active: false, agent_transcript_path: "/x/subagents/agent-a1b2c3.jsonl", last_assistant_message: "done" },
+  PermissionRequest: { tool_name: "Bash", tool_input: { command: "npm test" }, permission_mode: "default" },
+  PermissionDenied: { tool_name: "Bash", tool_input: { command: "npm test" }, tool_use_id: "toolu_01", permission_mode: "auto" }
 };
 
 // Hooks that deliberately send nothing to Ascenda.

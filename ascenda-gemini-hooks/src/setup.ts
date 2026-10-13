@@ -43,7 +43,7 @@ export const SETUP: CliAgentSetupSpec = {
   // The git action or milestone a shell command reached, and nothing else
   // beyond the shared set: Gemini's hooks expose no posture, no model and no
   // context figure.
-  sends: ["git"],
+  sends: ["git", "turns", "forge"],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".gemini", "settings.json") : path.join(projectDir, ".gemini", "settings.json"),

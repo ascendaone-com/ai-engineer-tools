@@ -74,7 +74,7 @@ npx @ascenda-one/claude-code-hooks uninstall   # removes hooks and the binary
 | `--local [port]` | shorthand for a local [dev server](../ascenda-dev-server/) (default `4477`) |
 | `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
 | `--no-pair` | install the local half only: hooks work, nothing is sent |
-| `--repo-keys on\|off` | on by default: GitHub repositories get a `repoKey` and, off the default branch, a `branchKey`, so a pull request can be matched to a session. Unsalted digests, so anyone who guesses the names can recompute them. Machine-wide |
+| `--no-repo-keys` | GitHub repositories get a `repoKey` and, off the default branch, a `branchKey`, so a pull request can be matched to a session. They are unsalted digests, so anyone who guesses the names can recompute them. This turns both off, machine-wide. `--repo-keys` turns them back on |
 | `--event-log [path\|off]` | keep every event in a local JSONL file (default `~/.ascenda/events.jsonl`). On by default without a pairing; `off` stops it |
 | `--scope user\|project` | register in `~/.claude/settings.json` (default, every project) or in this project's `.claude/settings.local.json` |
 | `--project-dir <path>` | project root for `--scope project` (default cwd) |
@@ -113,7 +113,7 @@ the hooks this version registers, and prints what it added:
 
 ```text
   hooks        ~/.claude/settings.json (13 events)
-               upgraded: added SubagentStart, SubagentStop; hook set 2 → 3
+               upgraded: added PermissionRequest, PermissionDenied; hook set 3 → 4
 ```
 
 `status` prints the installed hook set and, when it's older, the command to
@@ -239,7 +239,7 @@ Optional environment:
 | `ASCENDA_EVENT_WRITE_TOKEN` | Only if you have no prior pairing to reuse — normally the token file supplies this |
 | `ASCENDA_EVENT_WRITE_TOKEN_FILE` | Override token file path (default `~/.ascenda/tokens/<toolInstallationId>`) |
 | `ASCENDA_SESSION_ID` | Stable session id across hooks |
-| `ASCENDA_REPO_KEYS` | `off` leaves the repository and branch keys off every event. Wins over `setup --repo-keys` |
+| `ASCENDA_REPO_KEYS` | `off` leaves the repository and branch keys off every event. Wins over `setup --no-repo-keys` |
 | `ASCENDA_EVENT_LOG_FILE` | Local JSONL event log path, or `off`. Wins over `setup --event-log`. Without either, an unpaired install writes `~/.ascenda/events.jsonl` and a paired one writes nothing |
 | `ASCENDA_WORKSPACE_HASH` | Override only. By default the hook derives this from the payload's own `cwd`: a machine-salted hash of the checkout folder's basename (never the path itself) |
 | `ASCENDA_PROJECT_HASH` | Override only. Defaults to the salted hash of the canonical repository's basename — a git worktree folds into the repo it was created from |
@@ -300,7 +300,9 @@ for machine-wide coverage:
     "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification", "timeout": 5 }] }],
     "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionEnd", "timeout": 5 }] }],
     "SubagentStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStart", "timeout": 5 }] }],
-    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStop", "timeout": 5 }] }]
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStop", "timeout": 5 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PermissionRequest", "timeout": 5 }] }],
+    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PermissionDenied", "timeout": 5 }] }]
   }
 }
 ```
@@ -472,6 +474,8 @@ Notification
 SessionEnd
 SubagentStart
 SubagentStop
+PermissionRequest
+PermissionDenied
 ```
 
 ## Ascenda event mappings
@@ -494,6 +498,8 @@ Notification       -> supervision_interruption (interruptionKind only, never the
 SessionEnd         -> recovery_offline_period (activity session_ended, sessionEndReason)
 SubagentStart      -> subagent_started (subagentId, subagentClass)
 SubagentStop       -> subagent_stopped (subagentId, subagentClass)
+PermissionRequest  -> permission_requested (toolName, autonomyMode)
+PermissionDenied   -> permission_denied (toolName, autonomyMode), auto mode only
 ```
 
 ## Privacy defaults
@@ -501,11 +507,18 @@ SubagentStop       -> subagent_stopped (subagentId, subagentClass)
 Metadata-only telemetry. Does not send raw prompts, responses, code, file names, repository names, branch names, or terminal output.
 
 When the agent stops and waits for you, `Notification` records only which kind
-of wait it was — `permission_request`, `idle_prompt` or `other`. The
-notification's own wording is read to pick one of those three labels and is
-then discarded; it never leaves the hook process, and neither does anything you
+of wait it was — `permission_request`, `input_request`, `idle_prompt` or
+`other`. Claude Code's `notification_type` picks the label, and the
+notification's own wording does it on a version that doesn't send one. The
+wording is then discarded; it never leaves the hook process, and neither does anything you
 answer. `tests/interruptionContentGuard.test.mjs` fails the build if that
 changes.
+
+`PermissionRequest` and `PermissionDenied` send the tool's name and the
+permission posture, and nothing about what the tool was asked to do. The
+request hook fires before you answer and no hook reports the answer, so a
+request doesn't say whether it was granted. The denied hook only fires in auto
+mode.
 
 Repository and branch identity travel only as digests, derived in the hook
 process and never as text. Most are machine-salted: `workspaceHash` and `projectHash` from
@@ -524,7 +537,7 @@ where no salt exists, so a session and a pull request on the same repository
 and branch carry the same pair. They go on events for github.com remotes only,
 and `branchKey` is left off the default branch. Because they're unsalted,
 anyone who guesses a repository or branch name can confirm it, and for a public
-repository those names are public. Turn them off with `setup --repo-keys off`
+repository those names are public. Turn them off with `setup --no-repo-keys`
 or `ASCENDA_REPO_KEYS=off`. `metadata.promptId` is Claude Code's own id for the
 prompt a turn answers, and says nothing about its text.
 

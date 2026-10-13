@@ -29,6 +29,8 @@ This adapter is the **primary Phase 1 source for `AIInteractionLoad`** and workf
 | SessionEnd (every reason) | `recovery_offline_period` (`activity: session_ended`, `sessionEndReason`) | neutral |
 | SubagentStart | `subagent_started` (`subagentId`, `subagentClass`) | neutral |
 | SubagentStop | `subagent_stopped` (`subagentId`, `subagentClass`) | neutral |
+| PermissionRequest | `permission_requested` (`toolName`, `autonomyMode`) | neutral |
+| PermissionDenied (auto mode only) | `permission_denied` (`toolName`, `autonomyMode`) | neutral |
 
 `SessionEnd` runs while Claude Code exits, so it doesn't send. It writes the
 event to the outbox and returns, and the next hook of the same install delivers
@@ -102,9 +104,10 @@ the events above. Three hook moments end a turn there:
 
 ## The hook set
 
-Every registered command ends `--hook-set 3`, and every live signal repeats
-the number as `hookSet`, a positive integer (P-D64.3). Set 3 is the thirteen
-events `setup` registers today. Set 2 is the eleven before `SubagentStart` and
+Every registered command ends `--hook-set 4`, and every live signal repeats
+the number as `hookSet`, a positive integer (P-D64.3). Set 4 is the fifteen
+events `setup` registers today. Set 3 is the thirteen before `PermissionRequest`
+and `PermissionDenied`. Set 2 is the eleven before `SubagentStart` and
 `SubagentStop`. A command with no flag is set 1: an install from before `StopFailure` and
 `Notification` were registered, which never sends `halted` for an API error
 or `awaiting` for a permission prompt. The app reads a missing `hookSet` from

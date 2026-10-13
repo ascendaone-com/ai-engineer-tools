@@ -102,6 +102,8 @@
     "pull_request_opened",
     "ai_turn_completed",
     "supervision_interruption",
+    "permission_requested",
+    "permission_denied",
     "subagent_started",
     "subagent_stopped"
   ],

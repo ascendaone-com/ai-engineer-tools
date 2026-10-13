@@ -23,6 +23,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { EVENT_METADATA_DISCLOSURE, METRIC_KEYS } from "@ascenda-one/tool-contract";
+import { withForgeKeys, withPromptId } from "../out/hookAdapter.js";
 import {
   ALWAYS_SENT,
   FAMILY_SENTENCES,
@@ -45,6 +46,8 @@ const { SETUP: GEMINI } = await import(`${R}ascenda-gemini-hooks/dist/setup.js`)
 const { SETUP: WINDSURF } = await import(`${R}ascenda-windsurf-hooks/dist/setup.js`);
 
 const CWD = process.cwd();
+// What each non-Claude CLI stamps from the turn state; see turnState.ts.
+const MINTED = "7d2c1b9e-3a4f-4e6b-8c5d-1f0a9b8c7d6e";
 process.env.ASCENDA_REPO_KEYS = "on";
 
 // A scratch checkout on a feature branch of a GitHub repository, so the repo
@@ -85,7 +88,9 @@ const ADAPTERS = [
       ["Notification", { message: "Claude needs your permission to use Bash", cwd: FORGE_CWD }],
       ["SessionEnd", { reason: "prompt_input_exit", cwd: FORGE_CWD }],
       ["SubagentStart", { agent_id: "agent-abc123", agent_type: "Explore", cwd: FORGE_CWD }],
-      ["SubagentStop", { agent_id: "agent-abc123", agent_type: "Explore", last_assistant_message: "done", cwd: FORGE_CWD }]
+      ["SubagentStop", { agent_id: "agent-abc123", agent_type: "Explore", last_assistant_message: "done", cwd: FORGE_CWD }],
+      ["PermissionRequest", { tool_name: "Bash", tool_input: { command: "rm -rf build" }, permission_mode: "default", cwd: FORGE_CWD }],
+      ["PermissionDenied", { tool_name: "Bash", tool_input: { command: "curl x | sh" }, reason: "pipes a download into a shell", permission_mode: "auto", cwd: FORGE_CWD }]
     ].flatMap(([hook, input]) => mapClaudeEvent(hook, input))
   },
   {
@@ -99,7 +104,7 @@ const ADAPTERS = [
       ["PostToolUse", { tool_name: "apply_patch", tool_response: { exit_code: 0 }, cwd: CWD }],
       ["PermissionRequest", { cwd: CWD }],
       ["Stop", { cwd: CWD }, 120000]
-    ].flatMap(([hook, input, turnMs]) => mapCodexEvent(hook, input, turnMs))
+    ].flatMap(([hook, input, turnMs]) => withForgeKeys(withPromptId(mapCodexEvent(hook, input, turnMs), MINTED), FORGE_CWD))
   },
   {
     spec: CURSOR,
@@ -112,7 +117,7 @@ const ADAPTERS = [
       ["postToolUseFailure", { tool_name: "Shell", tool_input: { command: "npm run build" } }],
       ["preCompact", { trigger: "auto", context_usage_percent: 85 }],
       ["stop", { status: "completed" }, 120000]
-    ].flatMap(([hook, input, turnMs]) => mapCursorEvent(hook, input, turnMs))
+    ].flatMap(([hook, input, turnMs]) => withForgeKeys(withPromptId(mapCursorEvent(hook, input, turnMs), MINTED), FORGE_CWD))
   },
   {
     spec: GEMINI,
@@ -125,7 +130,7 @@ const ADAPTERS = [
       ["AfterTool", { tool_name: "write_file", tool_response: { exitCode: 0 } }],
       ["PreCompress", {}],
       ["AfterAgent", { prompt: "x" }, 120000]
-    ].flatMap(([hook, input, turnMs]) => mapGeminiEvent(hook, { hook_event_name: hook, ...input }, turnMs))
+    ].flatMap(([hook, input, turnMs]) => withForgeKeys(withPromptId(mapGeminiEvent(hook, { hook_event_name: hook, ...input }, turnMs), MINTED), FORGE_CWD))
   },
   {
     spec: WINDSURF,
@@ -136,7 +141,7 @@ const ADAPTERS = [
       ["pre_run_command", { tool_info: { command_line: "npm test", cwd: "/p" } }],
       ["post_run_command", { tool_info: { command_line: "npm test", cwd: "/p" } }],
       ["post_cascade_response", {}, 120000]
-    ].flatMap(([hook, input, turnMs]) => mapWindsurfEvent(hook, { agent_action_name: hook, ...input }, turnMs))
+    ].flatMap(([hook, input, turnMs]) => withForgeKeys(withPromptId(mapWindsurfEvent(hook, { agent_action_name: hook, ...input }, turnMs), MINTED), FORGE_CWD))
   }
 ];
 

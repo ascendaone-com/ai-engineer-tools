@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCodexEvent } from "./mapCodexEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -42,8 +42,16 @@ async function main(): Promise<void> {
   let turnDurationMs: number | undefined;
   // That this agent ran a hook at all, for `status` and `doctor`.
   stampLastHook(CODEX_HOST, hookName);
-  if (hookName === "UserPromptSubmit") recordTurnStart(CODEX_HOST, sessionId);
+  // These agents give hooks no id for the prompt a turn answers, so the turn's
+  // first hook mints one and the rest read it back. Read before the turn-end
+  // hook consumes the state.
+  const promptId = hookName === "UserPromptSubmit"
+    ? recordTurnStart(CODEX_HOST, sessionId)
+    : readTurnPromptId(CODEX_HOST, sessionId);
   if (hookName === "Stop") turnDurationMs = consumeTurnDurationMs(CODEX_HOST, sessionId);
+
+  // Where the work happened, for the repository and branch keys.
+  const workDir = typeof input.cwd === "string" ? input.cwd : undefined;
 
   // Codex gives SessionEnd at most 3 s and is exiting while it runs. The
   // sender's own 3 s default would use all of it, so the send gets half; a send
@@ -59,6 +67,9 @@ async function main(): Promise<void> {
     setupCommand: `npx ${SETUP.packageName} setup`,
     source: "cli_agent",
     sessionId,
+    promptId,
+    cwd: workDir,
+    forgeKeys: true,
     onNotice: emitSystemMessage
   });
   // Delivery, including the notices above, is `deliverHookEvents` in tool-kit.

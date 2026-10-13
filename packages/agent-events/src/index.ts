@@ -27,6 +27,8 @@ export const AGENT_EVENT_KINDS = [
   "tool.failed",
   "turn.completed",
   "agent.waiting",
+  "permission.requested",
+  "permission.denied",
   "context.compacted",
   "subagent.started",
   "subagent.stopped",
@@ -41,7 +43,7 @@ export const VCS_ACTIONS = ["commit", "push", "pr_created", "pr_merged"] as cons
 export type VcsAction = (typeof VCS_ACTIONS)[number];
 
 /** Why an `agent.waiting` event happened. */
-export const WAIT_REASONS = ["permission", "idle", "other"] as const;
+export const WAIT_REASONS = ["permission", "idle", "input", "other"] as const;
 
 export type WaitReason = (typeof WAIT_REASONS)[number];
 
@@ -99,13 +101,23 @@ export type AgentEventV0 = {
   branchKey?: string;
   /**
    * The agent's own opaque id for the prompt a turn answers, where it gives
-   * one. Events of one turn share it. Never derived from the prompt's text.
+   * one; an agent that gives none gets a random id the collector mints at the
+   * start of each turn. Events of one turn share it. Never derived from the
+   * prompt's text.
    */
   promptId?: string;
   /** On a `tool.completed` that was a version-control step: one of {@link VCS_ACTIONS}. */
   vcsAction?: VcsAction;
   /** On `agent.waiting`: why the agent stopped, one of {@link WAIT_REASONS}. */
   reason?: WaitReason;
+  /**
+   * The permission posture the agent was working under when this happened, in
+   * the collector's snake_case of the agent's own mode names (`default`,
+   * `accept_edits`, `plan`, `auto`, `dont_ask`, `bypass_permissions`), or
+   * `unknown` for a mode the collector doesn't know. Per event, because the
+   * mode can change mid-session. Absent when the agent gave none.
+   */
+  permissionMode?: string;
   /** On `session.started`: the model slug the agent reported, when it did. */
   model?: string;
   /** Version of the collector that wrote the event. */

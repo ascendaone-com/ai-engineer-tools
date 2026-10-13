@@ -29,6 +29,8 @@ const KIND_BY_TYPE: Partial<Record<AscendaTelemetryEventType, AgentEventKind>> =
   tool_failure: "tool.failed",
   ai_turn_completed: "turn.completed",
   supervision_interruption: "agent.waiting",
+  permission_requested: "permission.requested",
+  permission_denied: "permission.denied",
   context_compression_manual: "context.compacted",
   context_compression_auto: "context.compacted",
   subagent_started: "subagent.started",
@@ -57,9 +59,10 @@ function vcsActionOf(metadata: Record<string, unknown>): "commit" | "push" | "pr
 }
 
 /** Why the agent stopped to wait, in plain words. Absent for a kind we don't know. */
-function waitReasonOf(metadata: Record<string, unknown>): "permission" | "idle" | "other" | undefined {
+function waitReasonOf(metadata: Record<string, unknown>): "permission" | "idle" | "input" | "other" | undefined {
   switch (stringField(metadata.interruptionKind)) {
     case "permission_request": return "permission";
+    case "input_request": return "input";
     case "idle_prompt": return "idle";
     case undefined: return undefined;
     default: return "other";
@@ -76,7 +79,7 @@ export function toAgentEvent(payload: AscendaEventPayload): AgentEventV0 {
   // A tool name only means something on a tool event. Some other events
   // carry one for the backend's sake, and showing it there would read as a
   // tool call that never happened.
-  const tool = kind.startsWith("tool.") ? stringField(metadata.toolName) : undefined;
+  const tool = kind.startsWith("tool.") || kind.startsWith("permission.") ? stringField(metadata.toolName) : undefined;
   const outcome = stringField(metadata.outcome);
   const vcsAction = kind === "tool.completed" ? vcsActionOf(metadata) : undefined;
   const reason = kind === "agent.waiting" ? waitReasonOf(metadata) : undefined;
@@ -98,6 +101,7 @@ export function toAgentEvent(payload: AscendaEventPayload): AgentEventV0 {
     ...(stringField(payload.projectHash) ? { projectHash: payload.projectHash as string } : {}),
     ...(stringField(metadata.repoKey) ? { repoKey: metadata.repoKey as string } : {}),
     ...(stringField(metadata.branchKey) ? { branchKey: metadata.branchKey as string } : {}),
+    ...(stringField(metadata.autonomyMode) ? { permissionMode: metadata.autonomyMode as string } : {}),
     ...(stringField(metadata.promptId) ? { promptId: metadata.promptId as string } : {}),
     ...(vcsAction ? { vcsAction } : {}),
     ...(reason ? { reason } : {}),

@@ -56,7 +56,7 @@ test("setup installs a shell launcher, the bundle beside it, and the Node that r
     // The command names the launcher alone, so no Node path is pinned in the
     // settings file for a version manager to pull out from under it.
     const command = JSON.parse(fs.readFileSync(m.settings, "utf8")).hooks.PreToolUse[0].hooks[0].command;
-    assert.equal(command, `"${m.launcher}" PreToolUse --hook-set 3`);
+    assert.equal(command, `"${m.launcher}" PreToolUse --hook-set 4`);
   } finally {
     m.cleanup();
   }
@@ -156,7 +156,7 @@ test("doctor opens with the local half, which needs no pairing", { skip: process
     const out = result.stdout;
     assert.match(out, /Live signal \(this machine; needs no pairing\)/);
     assert.match(out, /^ {2}✓ Node {17}\S+ \(v\d+/m);
-    assert.match(out, /^ {2}✓ Hooks {16}13\/13 in ~\/\.claude\/settings\.json \(every project\)/m);
+    assert.match(out, /^ {2}✓ Hooks {16}15\/15 in ~\/\.claude\/settings\.json \(every project\)/m);
     assert.match(out, /^ {2}· Last hook {12}none yet/m);
     assert.match(out, /^ {2}· Screen saver {9}not running/m);
     assert.match(out, /^ {2}· Round trip {11}nobody is listening right now/m);
