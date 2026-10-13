@@ -807,3 +807,104 @@ test("messages sharing a placeholder id stay apart by request id", async () => {
     assert.equal(session.metrics.outputTokens, 50);
   });
 });
+
+// ── Minutes: a copied subagent transcript is its parent's ──────────────────
+//
+// The same copies as above, read for time. A resumed or forked session's
+// directory can hold its parent's `agent-<id>.jsonl`, every line naming the
+// parent, and those instants are the parent's.
+
+const MINUTES_PROJECT = "-Users-example-Dev-minutes";
+const minuteAt = (h, m) => `2026-10-02T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00.000Z`;
+const minutesUser = (sessionId, uuid, h, m) =>
+  ({ type: "user", uuid, timestamp: minuteAt(h, m), sessionId, version: "2.1.288", cwd: "/Users/example/Dev/minutes", message: { role: "user", content: "redacted" } });
+const minutesAssistant = (sessionId, uuid, h, m, extra = {}) =>
+  ({ type: "assistant", uuid, timestamp: minuteAt(h, m), sessionId, version: "2.1.288", message: { id: `msg_${uuid}`, role: "assistant", model: "claude-opus-5", content: [{ type: "text" }], usage: { input_tokens: 1, output_tokens: 1 } }, ...extra });
+// Four minutes of helper work, 09:02 to 09:06, written under s-home.
+const HELPER = ["h1", "h2", "h3"].map((uuid, i) =>
+  minutesAssistant("s-home", uuid, 9, 2 + 2 * i, { isSidechain: true, agentId: "agent-x" })
+);
+
+/**
+ * s-home ran 09:00-09:06 with its helper. Each resume in `resumes` opens with a
+ * copy of s-home's two lines, holds a copy of the helper, and then works for
+ * three minutes of its own.
+ */
+async function writeMinutesStore({ withHome = true, resumes = ["s-resume"] } = {}) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minutes-store-"));
+  const dir = path.join(root, "projects", MINUTES_PROJECT);
+  const write = async (rel, lines) => {
+    await fs.mkdir(path.dirname(path.join(dir, rel)), { recursive: true });
+    await fs.writeFile(path.join(dir, rel), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  };
+  const home = [minutesUser("s-home", "u1", 9, 0), minutesAssistant("s-home", "a1", 9, 1)];
+  if (withHome) {
+    await write("s-home.jsonl", home);
+    await write("s-home/subagents/agent-agent-x.jsonl", HELPER);
+  }
+  for (const [i, id] of resumes.entries()) {
+    const hour = 10 + i;
+    await write(`${id}.jsonl`, [...home, minutesUser(id, `${id}-u`, hour, 0), minutesAssistant(id, `${id}-a`, hour, 3)]);
+    await write(`${id}/subagents/agent-agent-x.jsonl`, HELPER);
+  }
+  return root;
+}
+
+test("a subagent transcript copied into a resume counts its minutes in the parent only", async () => {
+  const root = await writeMinutesStore();
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.equal(s["s-home"].activeMinutes, 6);
+    assert.equal(s["s-resume"].activeMinutes, 3, "the copied helper's four minutes are s-home's");
+    assert.equal(s["s-resume"].handsOnMinutes + s["s-resume"].agentSupervisingMinutes, 3);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a copied subagent transcript doesn't move the resume's window", async () => {
+  const root = await writeMinutesStore();
+  try {
+    const events = await extractStore(root);
+    const resume = events.find((e) => e.eventKind === "create_focus_session" && e.sessionRef === "s-resume");
+    assert.equal(new Date(resume.metrics.sessionStartedAt).toISOString(), minuteAt(10, 0));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("with the parent gone, the first resume the walk reaches counts the helper's minutes", async () => {
+  const root = await writeMinutesStore({ withHome: false, resumes: ["s-fork", "s-resume"] });
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.equal(s["s-home"], undefined);
+    // s-fork is first in walk order: it takes s-home's six minutes, helper
+    // included, on top of its own three. s-resume keeps only its own.
+    assert.equal(s["s-fork"].activeMinutes, 6 + 3);
+    assert.equal(s["s-resume"].activeMinutes, 3);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a resume holding nothing of its own but a copied helper reports no session", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minutes-store-"));
+  const dir = path.join(root, "projects", MINUTES_PROJECT);
+  try {
+    await fs.mkdir(path.join(dir, "s-home", "subagents"), { recursive: true });
+    await fs.mkdir(path.join(dir, "s-copy", "subagents"), { recursive: true });
+    const jsonl = (lines) => lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+    await fs.writeFile(path.join(dir, "s-home.jsonl"), jsonl([minutesUser("s-home", "u1", 9, 0)]));
+    await fs.writeFile(path.join(dir, "s-home", "subagents", "agent-agent-x.jsonl"), jsonl(HELPER));
+    // The top-level transcript is gone and only the copied directory is left.
+    await fs.writeFile(path.join(dir, "s-copy", "subagents", "agent-agent-x.jsonl"), jsonl(HELPER));
+    const events = await extractStore(root);
+    const s = sessionsByRef(events);
+    assert.equal(s["s-copy"], undefined);
+    assert.equal(s["s-home"].activeMinutes, 6);
+    const epoch = events.find((e) => e.eventKind === "extraction_epoch");
+    assert.equal(epoch.metrics.sessionsWithOnlyInheritedLines, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
