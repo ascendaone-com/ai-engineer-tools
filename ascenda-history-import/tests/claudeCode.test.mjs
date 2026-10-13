@@ -727,7 +727,8 @@ async function writeUsageStore({ withHome = true } = {}) {
   const home = [
     usageUser("s-home", "u1", 0),
     usageAssistant("s-home", "a1", 1, "msg_a", "req_a", 5),
-    usageAssistant("s-home", "a2", 1, "msg_a", "req_a", 50)
+    usageAssistant("s-home", "a2", 1, "msg_a", "req_a", 50, { message: { id: "msg_a", role: "assistant", model: "claude-opus-5", content: [{ type: "tool_use", id: "toolu_1", name: "Read" }], usage: { input_tokens: 10, output_tokens: 50, cache_read_input_tokens: 100 } } }),
+    { type: "user", uuid: "r1", timestamp: usageAt(2), sessionId: "s-home", version: "2.1.288", toolUseResult: { userModified: true }, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", is_error: true, content: "redacted" }] } }
   ];
   const helper = [usageSidechain(usageAssistant("s-home", "h1", 2, "msg_h", "req_h", 7), "agent-x")];
   if (withHome) {
@@ -757,6 +758,23 @@ test("usage copied into a resumed session counts once, in the session that spent
     assert.equal(s["s-home"].subagentAssistantTurns, 1);
     assert.equal(s["s-resume"].subagentTokensTotal, 0, "the copied helper transcript is s-home's too");
     assert.equal(s["s-resume"].subagentAssistantTurns, 0);
+    // Everything else a copied line adds stays with s-home too.
+    assert.equal(s["s-home"].toolCallCount, 1);
+    assert.equal(s["s-resume"].toolCallCount, 0);
+    assert.equal(s["s-home"].toolResultCount, 1);
+    assert.equal(s["s-resume"].toolResultCount, 0);
+    assert.equal(s["s-resume"].toolResultErrorCount, 0);
+    assert.equal(s["s-resume"].userModifiedEditCount, 0);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a copied tool call is one ai_tool_call_started event, not one per session", async () => {
+  const root = await writeUsageStore();
+  try {
+    const calls = (await extractStore(root)).filter((e) => e.eventKind === "ai_tool_call_started");
+    assert.deepEqual(calls.map((e) => e.sessionRef), ["s-home"]);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

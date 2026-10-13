@@ -467,8 +467,8 @@ export async function readPromptLedger(
  * October 2026) a resumed or forked session's directory held copies of its
  * parent's `agent-<id>.jsonl` files, every line still naming the parent's
  * session: 1,813 subagent messages sat in more than one directory, and exactly
- * one copy of each was in the directory its `sessionId` names. Token figures
- * use {@link ownsSidechainUsage} for that. Instants still take the
+ * one copy of each was in the directory its `sessionId` names. The counts a
+ * line adds use {@link ownsSidechainLine} for that. Instants still take the
  * unconditional rule, so a session's active minutes include a copied
  * subagent's; changing that moves the minutes basis and is its own change.
  */
@@ -525,17 +525,18 @@ export class TimelineOwnership {
   }
 
   /**
-   * Whether a subagent line's usage belongs to the session it was found under.
-   * Yes when the line names that session, or names none. No when it names
-   * another session still in the store, which counts its own copy. Where that
-   * session is gone, the first fold to meet the message claims it, by
-   * `messageKey`, the way {@link owns} treats an orphaned main-thread line.
+   * Whether a subagent line's counts belong to the session it was found under:
+   * its tokens, turns, tool calls and results. Yes when the line names that
+   * session, or names none. No when it names another session still in the
+   * store, which counts its own copy. Where that session is gone, the first
+   * fold to meet the line claims it by `uuid`, the way {@link owns} treats an
+   * orphaned main-thread line. Call it once per line: a claim is remembered.
    */
-  ownsSidechainUsage(lineSessionId: string | null, foundUnderSessionId: string, messageKey: string | null): boolean {
-    if (lineSessionId === null || lineSessionId === foundUnderSessionId) return true;
-    if (this.transcriptIds.has(lineSessionId)) return false;
-    if (messageKey === null) return true;
-    const key = `sidechain:${messageKey}`;
+  ownsSidechainLine(line: { uuid: string | null; sessionId: string | null }, foundUnderSessionId: string): boolean {
+    if (line.sessionId === null || line.sessionId === foundUnderSessionId) return true;
+    if (this.transcriptIds.has(line.sessionId)) return false;
+    if (line.uuid === null) return true;
+    const key = `sidechain:${line.uuid}`;
     if (this.claimedOrphans.has(key)) return false;
     this.claimedOrphans.add(key);
     return true;
