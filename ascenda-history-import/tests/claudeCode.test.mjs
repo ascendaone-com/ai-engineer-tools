@@ -328,6 +328,58 @@ test("a `<synthetic>` notice moves none of the three model figures", async () =>
   });
 });
 
+test("a message split over several lines is counted once, from its last line", async () => {
+  // The runtime writes one API message as a line per content block, each
+  // repeating the message's usage; the earlier lines carry a partial
+  // `output_tokens`. Shapes copied from a real transcript, ids and text
+  // replaced.
+  const split = (timestamp, id, block, output_tokens) =>
+    JSON.stringify({
+      type: "assistant",
+      timestamp,
+      sessionId: "session1",
+      version: "2.1.288",
+      message: {
+        id,
+        role: "assistant",
+        model: "claude-opus-5",
+        content: [{ type: block }],
+        usage: { input_tokens: 5, output_tokens, cache_read_input_tokens: 1000 }
+      }
+    });
+  const lines = [
+    JSON.stringify({
+      type: "user",
+      timestamp: "2026-10-02T09:00:00.000Z",
+      sessionId: "session1",
+      version: "2.1.288",
+      cwd: "/Users/example/Dev/testproj",
+      message: { role: "user", content: "redacted" }
+    }),
+    split("2026-10-02T09:00:02.000Z", "msg_a", "thinking", 3),
+    split("2026-10-02T09:00:03.000Z", "msg_a", "text", 40),
+    split("2026-10-02T09:00:04.000Z", "msg_a", "tool_use", 90),
+    split("2026-10-02T09:00:06.000Z", "msg_b", "text", 20)
+  ];
+
+  await withTempSnapshot(lines, async (snapshotDir) => {
+    const events = [];
+    for await (const event of extractClaudeCode(snapshotDir, "extraction-split")) {
+      events.push(event);
+    }
+    const session = events.find((e) => e.eventKind === "create_focus_session");
+    assert.ok(session, "expected a create_focus_session event");
+    // Two messages, not four lines.
+    assert.equal(session.metrics.assistantTurns, 2);
+    assert.equal(session.metrics.inputTokens, 5 + 5);
+    assert.equal(session.metrics.outputTokens, 90 + 20);
+    assert.equal(session.metrics.cacheReadTokens, 1000 + 1000);
+    // The tool call is still a tool call, whichever line of the message it is on.
+    assert.equal(session.metrics.toolCallCount, 1);
+    assert.equal(session.metrics.modelSwitchCount, 0);
+  });
+});
+
 test("a session of nothing but notices reports no model, not an unknown one", async () => {
   // Absent and unknown are different facts and both are typed. Emitting
   // `primaryModel: "<synthetic>"` here would classify as bare `unknown` —
