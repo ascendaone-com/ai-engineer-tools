@@ -42,7 +42,12 @@ const RUNTIME_WRAPPER_ELEMENTS = [
   "command-args",
   "local-command-stdout",
   "local-command-stderr",
-  "local-command-caveat"
+  "local-command-caveat",
+  // A `!` shell command: its input, and the output it captured. The model
+  // doesn't run for these, and Claude Code writes them as one `user` line.
+  "bash-input",
+  "bash-stdout",
+  "bash-stderr"
 ] as const;
 
 const INTERRUPTION_MARKER = /^\[Request interrupted by[^\]]*\]$/;
