@@ -315,6 +315,61 @@ export const METRIC_KEYS = {
   subagentAssistantTurns: { family: "counts", readBy: ["diagnostic"] },
   subagentPrompts: { family: "counts", readBy: ["diagnostic"] },
   subagentTokensTotal: { family: "context", readBy: ["diagnostic"] },
+  advisorMessageCount: {
+    family: "counts",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: advisor calls (a second model consulted inside one API message). Their tokens and models are already folded into the session totals and model mix, and this is the receipt for how much of that they are."
+  },
+  advisorTokensTotal: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "tokens",
+    note: "Claude Code only: input, output and cache tokens spent by advisor calls. A part of the session totals, not an addition to them."
+  },
+  cacheCreationTokens: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "tokens",
+    note: "Prompt-cache writes, summed once per API message. Absent where the store never wrote the figure, which is not the same as none written."
+  },
+  cacheCreation5mTokens: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "tokens",
+    note: "The part of cacheCreationTokens written with the 5-minute lifetime. Absent on transcripts that only record the total."
+  },
+  cacheCreation1hTokens: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "tokens",
+    note: "The part of cacheCreationTokens written with the 1-hour lifetime. Absent on transcripts that only record the total."
+  },
+  headlessPromptLines: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    unit: "lines",
+    note: "Claude Code only: user lines written by the Agent SDK or a headless run (entrypoint sdk-*). Nobody typed them, so promptCount leaves them out. Counted once per line across the store."
+  },
+  tokensNotCollected: {
+    family: "context",
+    readBy: ["diagnostic"],
+    note: "True when the store recorded no token figures for this session (Cursor builds that write a zero tokenCount, Codex rollouts from before token_count events). The token keys are then left off the event instead of being sent as 0, so absent and zero stay apart. Metrics are flat scalars with no null, so a flag beside the missing keys is the marker the contract allows."
+  },
+  unattributedSubagentTranscripts: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: flat subagent transcripts whose lines name no parent session, so they could not be folded anywhere."
+  },
+  duplicateChatSessions: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    note: "VS Code only: chat sessions seen in more than one place (a transferred session also in a workspace). Counted once."
+  },
+  sessionsStartedFromBubble: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    note: "Cursor only: sessions whose start is the earliest message rather than the header's createdAt, which can sit months before anyone typed."
+  },
   toolName: {
     family: "tools",
     readBy: ["backend"],

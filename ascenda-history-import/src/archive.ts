@@ -39,7 +39,7 @@
  * there.
  */
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -114,6 +114,26 @@ export function defaultArchiveSources(
   ];
   if (includeVsCodeSessions) {
     sources.push({ store: "vscode", root: paths.vscodeWorkspaceStorage, label: "workspaceStorage" });
+  }
+  // Other VS Code installs, only where they exist so a manifest doesn't list
+  // roots that were never there. The loose chat directories (chats with no
+  // folder open) are small and are kept for every install that has them.
+  for (const variant of paths.vscodeVariants) {
+    const suffix = variant.name === "Code" ? "" : `-${variant.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    if (suffix !== "") {
+      if (existsSync(variant.history)) {
+        sources.push({ store: "vscode", root: variant.history, label: `history${suffix}` });
+      }
+      if (includeVsCodeSessions && existsSync(variant.workspaceStorage)) {
+        sources.push({ store: "vscode", root: variant.workspaceStorage, label: `workspaceStorage${suffix}` });
+      }
+    }
+    if (existsSync(variant.emptyWindowChatSessions)) {
+      sources.push({ store: "vscode", root: variant.emptyWindowChatSessions, label: `emptyWindowChatSessions${suffix}` });
+    }
+    if (existsSync(variant.transferredChatSessions)) {
+      sources.push({ store: "vscode", root: variant.transferredChatSessions, label: `transferredChatSessions${suffix}` });
+    }
   }
   return sources;
 }

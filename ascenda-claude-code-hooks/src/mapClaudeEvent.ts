@@ -265,9 +265,19 @@ export function isTaskNotificationPrompt(prompt: string | undefined): boolean {
   return prompt !== undefined && prompt.trimStart().startsWith("<task-notification>");
 }
 
+/**
+ * A `!` shell command is recorded as a prompt wrapped in `<bash-input>`, and
+ * the model doesn't run for it. The history importer declines the same lines.
+ * Whether Claude Code fires `UserPromptSubmit` for one at all isn't
+ * documented, so this guard costs nothing if it never does.
+ */
+export function isBashModePrompt(prompt: string | undefined): boolean {
+  return prompt !== undefined && prompt.trimStart().startsWith("<bash-input>");
+}
+
 function mapUserPromptSubmit(input: ClaudeHookInput): MappedAscendaEvent[] {
   const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]]);
-  if (isTaskNotificationPrompt(prompt)) return [];
+  if (isTaskNotificationPrompt(prompt) || isBashModePrompt(prompt)) return [];
   const autonomy = autonomyModeMetadata(input);
   const events: MappedAscendaEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: { promptClass: "unknown", ...autonomy } }];
   if (looksLikeCorrection(prompt)) {

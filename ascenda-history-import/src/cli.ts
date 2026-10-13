@@ -59,7 +59,7 @@ import {
 import { extractClaudeCode } from "./extractors/claudeCode.js";
 import { CODEX_SNAPSHOT_DIRS, extractCodex } from "./extractors/codex.js";
 import { extractCursor } from "./extractors/cursor.js";
-import { extractVsCode } from "./extractors/vscode.js";
+import { extractVsCode, type VsCodeRoot } from "./extractors/vscode.js";
 import {
   archiveSizeBytes,
   archiveStores,
@@ -127,6 +127,15 @@ function formatInventory(inv: StoreInventory): string {
  * one phase earlier: the failure was real, and the report of it was a bare
  * errno on stderr with the store's name nowhere in sight.
  */
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function safeScan(
   store: HistoryStore,
   rootPath: string,
@@ -481,14 +490,15 @@ async function main(): Promise<number> {
 
       // What this run will actually copy. VS Code chat sessions are read in
       // place unless --snapshot-sessions, so they are not in this list.
-      const willCopy = [paths.cursorStateDb, paths.vscodeHistory].filter(
-        (_, i) => [cursorInventory.present, vsCodeInventory.present][i]
-      );
+      const willCopy = [paths.cursorStateDb].filter((_, i) => [cursorInventory.present][i]);
       // Every Claude Code projects dir, measured — an absent one measures 0.
       if (claudeInventory.present) willCopy.push(...paths.claudeProjectsDirs);
+      if (vsCodeInventory.present) willCopy.push(...paths.vscodeVariants.map((v) => v.history));
       // Both Codex roots, measured — whichever of them is absent measures 0.
       if (codexInventory.present) willCopy.push(paths.codexSessions, paths.codexArchivedSessions);
-      if (snapshotSessions && vsCodeInventory.present) willCopy.push(paths.vscodeWorkspaceStorage);
+      if (snapshotSessions && vsCodeInventory.present) {
+        willCopy.push(...paths.vscodeVariants.map((v) => v.workspaceStorage));
+      }
 
       const space = await checkSpaceForSnapshot(stagingRoot, willCopy);
       if (!space.sufficient) {
@@ -563,19 +573,31 @@ async function main(): Promise<number> {
           // consistency guarantee against a risk the readers already handle —
           // a truncated `.jsonl` tail counts as malformed lines, an unreadable
           // file now counts as unreadable — so they are read in place.
-          await snapshotPath(area, paths.vscodeHistory, path.join("vscode", "history"));
-          let workspaceStorageDir = paths.vscodeWorkspaceStorage;
-          if (snapshotSessions) {
-            workspaceStorageDir = await snapshotVsCodeWorkspaceStorage(
-              area,
-              paths.vscodeWorkspaceStorage,
-              path.join("vscode", "workspaceStorage")
-            );
+          // Every VS Code install on the machine (Code, Insiders, VSCodium).
+          // Code keeps the original staging names; the others get a suffix.
+          const roots: VsCodeRoot[] = [];
+          for (const variant of paths.vscodeVariants) {
+            const suffix = variant.name === "Code" ? "" : `-${variant.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+            const stagedHistory = path.join(area.root, "vscode", `history${suffix}`);
+            if (await pathExists(variant.history)) {
+              await snapshotPath(area, variant.history, path.join("vscode", `history${suffix}`));
+            }
+            let workspaceStorageDir = variant.workspaceStorage;
+            if (snapshotSessions && (await pathExists(variant.workspaceStorage))) {
+              workspaceStorageDir = await snapshotVsCodeWorkspaceStorage(
+                area,
+                variant.workspaceStorage,
+                path.join("vscode", `workspaceStorage${suffix}`)
+              );
+            }
+            roots.push({
+              historyDir: stagedHistory,
+              workspaceStorageDir,
+              // Small and not worth a snapshot: read in place.
+              looseChatDirs: [variant.emptyWindowChatSessions, variant.transferredChatSessions]
+            });
           }
-          const source = {
-            historyDir: path.join(area.root, "vscode", "history"),
-            workspaceStorageDir
-          };
+          const source = roots;
           for await (const event of extractVsCode(source, area.extractionId)) collect(event);
         }, (events) => buildVsCodeHandoff(events, area.extractionId, new Date().toISOString()), vsCodeScan.scanError, crossStore);
 

@@ -39,11 +39,28 @@ export interface StorePaths {
   vscodeHistory: string;
   /** Copilot chat sessions, one JSON per session, under workspaceStorage. */
   vscodeWorkspaceStorage: string;
+  /** Every VS Code install this machine might have, Code first. Each keeps its
+   * own history, workspace storage and loose chat directories. */
+  vscodeVariants: VsCodeVariantPaths[];
   /** Where git repos are looked for. Overridable — `~/Dev` is one machine's
    * convention, not a rule. */
   devRoot: string;
   zshHistory: string;
 }
+
+/** One VS Code flavour's stores. All three share a layout under
+ * `<Application Support>/<name>/User`. */
+export interface VsCodeVariantPaths {
+  name: string;
+  history: string;
+  workspaceStorage: string;
+  /** Chats made with no folder open. */
+  emptyWindowChatSessions: string;
+  /** Sessions VS Code moved between windows. */
+  transferredChatSessions: string;
+}
+
+export const VSCODE_VARIANT_NAMES = ["Code", "Code - Insiders", "VSCodium"] as const;
 
 function expandHome(entry: string, home: string): string {
   if (entry === "~") return home;
@@ -114,6 +131,16 @@ export function resolveStorePaths(
     ),
     vscodeHistory: path.join(appSupport, "Code", "User", "History"),
     vscodeWorkspaceStorage: path.join(appSupport, "Code", "User", "workspaceStorage"),
+    vscodeVariants: VSCODE_VARIANT_NAMES.map((name) => {
+      const user = path.join(appSupport, name, "User");
+      return {
+        name,
+        history: path.join(user, "History"),
+        workspaceStorage: path.join(user, "workspaceStorage"),
+        emptyWindowChatSessions: path.join(user, "globalStorage", "emptyWindowChatSessions"),
+        transferredChatSessions: path.join(user, "globalStorage", "transferredChatSessions")
+      };
+    }),
     devRoot: path.join(home, "Dev"),
     zshHistory: path.join(home, ".zsh_history")
   };
