@@ -180,7 +180,7 @@ A cut counts in the session you pressed Escape in, and in no other. Resuming
 a session copies the history it inherits, markers included, so before this
 rule every resume in a lineage reported its ancestors' interruptions as
 well — a fifth of the counted total on the store this was measured against.
-The same ownership rule as the minutes (`minutesBasis: owned_lines`).
+The same ownership rule as the minutes.
 
 ### When two files both say a line is theirs
 
@@ -216,6 +216,21 @@ active minutes. **Your week doesn't move** — the union of your active time
 holds to a minute, because a line counted twice was one minute counted twice.
 Hands-on shifts a little more than that: a span changes sides when the lines
 around it move, so the unioned hands-on figure moved by 19 minutes in 6,734.
+
+### Subagent transcripts copied into a resume
+
+A session's subagents write to `<session>/subagents/agent-<id>.jsonl`, and
+every line in there names the parent session. Resume or fork that session and
+the new session's directory can get byte-for-byte copies of those files. The
+lines still name the parent, so that's where they count. A copy only counts
+where it sits when the parent's own transcript is gone, and then only in the
+first session the import reaches.
+
+On the store this was measured against, 1,813 subagent messages sat in more
+than one directory. Counted in each, they added 942 minutes to the summed
+active time, spread over 14 sessions and all of it agent supervising. Hands-on
+didn't move. Nor did the union, since a copy repeats an interval that's
+already counted.
 
 ### What counts as a prompt
 
@@ -272,9 +287,11 @@ typed. A handoff without the stamp counted every `user` line that wasn't a tool
 result. Prompt counts for the same week run highest under that rule and lowest
 under `typed_once`. The schema number doesn't move.
 
-Beside it, `minutesBasis: "owned_lines"` says the minutes were cut the same
-way. `"every_line"` — and an absent stamp — means a transcript's whole
-contents counted there, inherited history included. Gate on this before
+Beside it, `minutesBasis: "owned_lines_and_subagents"` says the minutes were
+cut the same way, subagent transcripts included. `"owned_lines"` is the same
+rule with a copied subagent transcript counted in every session that held one.
+`"every_line"`, and an absent stamp, mean a transcript's whole contents
+counted there, inherited history included. Gate on this before
 comparing minutes across two handoffs: a store's figures drop when it changes,
 and nothing else in the file says so.
 
