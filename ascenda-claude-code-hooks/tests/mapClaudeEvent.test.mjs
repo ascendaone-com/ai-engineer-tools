@@ -172,6 +172,15 @@ test("UserPromptSubmit: a task notification is not a prompt", () => {
   assert.equal(typed[0].eventType, "ai_prompt_submitted");
 });
 
+test("UserPromptSubmit: a `!` shell command is not a prompt", () => {
+  const bash = "<bash-input>git status</bash-input><bash-stdout>clean</bash-stdout>";
+  assert.deepEqual(mapClaudeEvent("UserPromptSubmit", { prompt: bash }), []);
+  assert.deepEqual(mapClaudeEvent("UserPromptSubmit", { prompt: `\n${bash}` }), []);
+  const typed = mapClaudeEvent("UserPromptSubmit", { prompt: "what is <bash-input> for?" });
+  assert.equal(typed.length, 1);
+  assert.equal(typed[0].eventType, "ai_prompt_submitted");
+});
+
 test("PreToolUse: tool call started with sanitised tool name", () => {
   const events = mapClaudeEvent("PreToolUse", { tool_name: "We!rd Name@@" });
   assert.equal(events[0].eventType, "ai_tool_call_started");
