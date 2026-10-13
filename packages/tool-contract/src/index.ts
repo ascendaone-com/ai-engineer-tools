@@ -1295,13 +1295,15 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   supervision_interruption: "supervision",
 
   // The agent asked to run a tool, and the auto-mode classifier refused one.
-  // Claude Code's `PermissionRequest` and `PermissionDenied` hooks. The same
-  // leg and the same rule as `supervision_interruption` above: attention paid
-  // to the agent, never risk, and never a score. `permission_requested` fires
-  // before the person answers and no hook reports their answer, so neither
-  // event says whether the request was granted.
-  permission_requested: "supervision",
-  permission_denied: "supervision",
+  // Claude Code's `PermissionRequest` and `PermissionDenied` hooks. Neutral,
+  // because the Notification for the same prompt is already counted above as
+  // `supervision_interruption`, and counting both would weigh one prompt
+  // twice. These rows exist for the public event stream: which tool asked, and
+  // under which posture. `permission_requested` fires before the person
+  // answers and no hook reports their answer, so neither event says whether
+  // the request was granted.
+  permission_requested: "neutral",
+  permission_denied: "neutral",
 
   // Semantic (agent-observed) — see SEMANTIC_WORK_SIGNAL_EVENT_TYPES.
   approach_churn_detected: "risk",

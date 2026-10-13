@@ -29,8 +29,8 @@ This adapter is the **primary Phase 1 source for `AIInteractionLoad`** and workf
 | SessionEnd (every reason) | `recovery_offline_period` (`activity: session_ended`, `sessionEndReason`) | neutral |
 | SubagentStart | `subagent_started` (`subagentId`, `subagentClass`) | neutral |
 | SubagentStop | `subagent_stopped` (`subagentId`, `subagentClass`) | neutral |
-| PermissionRequest | `permission_requested` (`toolName`, `autonomyMode`) | supervision |
-| PermissionDenied (auto mode only) | `permission_denied` (`toolName`, `autonomyMode`) | supervision |
+| PermissionRequest | `permission_requested` (`toolName`, `autonomyMode`) | neutral |
+| PermissionDenied (auto mode only) | `permission_denied` (`toolName`, `autonomyMode`) | neutral |
 
 `SessionEnd` runs while Claude Code exits, so it doesn't send. It writes the
 event to the outbox and returns, and the next hook of the same install delivers
