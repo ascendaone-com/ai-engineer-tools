@@ -659,7 +659,9 @@ export type DisclosureFamily =
   | "context"
   | "waiting"
   | "reading"
-  | "subagents";
+  | "subagents"
+  | "forge"
+  | "turns";
 
 export type Disclosure = DisclosureFamily | "transport" | "local";
 
@@ -681,6 +683,9 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   gitAction: "git",
   milestoneKind: "git",
   branchHash: "repo",
+  repoKey: "forge",
+  branchKey: "forge",
+  promptId: "turns",
   autonomyMode: "posture",
   modelClass: "model",
   modelId: "model",
@@ -771,6 +776,35 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * re-keyed, so the older digest is registered as a local alias instead.
    */
   branchHash?: string;
+
+  /**
+   * The repository this work was in, as the code-forge collector names it: the
+   * 32-bit digest of the lowercased `owner/repo` read from the checkout's
+   * `origin` (or `upstream`) remote. Unsalted, so a pull request event from the
+   * forge collector carries the same value for the same repository.
+   *
+   * Omitted for a remote that isn't on github.com, a checkout with no remote,
+   * and a machine that turned it off (`setup --repo-keys off`). Absence means
+   * "no key", never a default.
+   */
+  repoKey?: string;
+
+  /**
+   * The branch, as a 64-bit digest of `owner/repo` and the branch name, the
+   * same recipe the forge collector uses for a pull request's head branch.
+   * Per event, because a session can move between branches. Omitted on the
+   * repository's default branch, which joins to nothing, and under every
+   * condition `repoKey` is omitted. Low-entropy and unsalted: see
+   * `forgeKeys.ts` in tool-kit for the trade-off.
+   */
+  branchKey?: string;
+
+  /**
+   * The agent's own opaque id for the prompt a turn answers, where it gives
+   * one (Claude Code's `prompt_id`), so every event of one turn groups. Never
+   * derived from the prompt's text.
+   */
+  promptId?: string;
 
   /**
    * The permission posture in force when this event happened, in upstream's
@@ -1026,6 +1060,9 @@ export const EVENT_METADATA_FIELDS = [
   "gitAction",
   "milestoneKind",
   "branchHash",
+  "repoKey",
+  "branchKey",
+  "promptId",
   "autonomyMode",
   "modelClass",
   "modelId",

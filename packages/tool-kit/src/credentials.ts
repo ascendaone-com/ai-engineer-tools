@@ -37,6 +37,12 @@ export type HostCredentials = {
    * `setup --event-log`.
    */
   eventLogPath?: string;
+  /**
+   * `false` keeps the repository and branch keys off every event (see
+   * forgeKeys.ts). Machine-wide, like `eventLogPath`: read from the top level
+   * only. Written by any adapter's `setup --repo-keys`. Absent means on.
+   */
+  repoKeys?: false;
 };
 
 export type MachineCredentials = HostCredentials & {
@@ -80,11 +86,20 @@ export function writeMachineCredentials(credentials: MachineCredentials): void {
 export function writeTopLevelCredentials(credentials: HostCredentials): void {
   const existing = readMachineCredentials();
   const eventLogPath = credentials.eventLogPath ?? existing?.eventLogPath;
+  const repoKeys = credentials.repoKeys ?? existing?.repoKeys;
   writeMachineCredentials({
     ...credentials,
     ...(eventLogPath ? { eventLogPath } : {}),
+    ...(repoKeys === false ? { repoKeys } : {}),
     ...(existing?.tools ? { tools: existing.tools } : {})
   });
+}
+
+/** Saves the machine-wide repo keys setting. `on` removes the override. */
+export function writeRepoKeysSetting(on: boolean): void {
+  const existing = readMachineCredentials() ?? {};
+  const { repoKeys: _dropped, ...rest } = existing;
+  writeMachineCredentials(on ? rest : { ...rest, repoKeys: false });
 }
 
 /** Saves the machine-wide event log setting: a path, or `off`. */

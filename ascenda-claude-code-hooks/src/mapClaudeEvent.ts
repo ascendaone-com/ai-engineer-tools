@@ -1,4 +1,4 @@
-import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd } from "@ascenda-one/tool-kit";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd, deriveForgeKeysForCwd } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason, SubagentClass } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent, claudeRuntime } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
@@ -31,12 +31,17 @@ export function mapClaudeEvent(hookName: ClaudeHookEventName, input: ClaudeHookI
   // don't touch the filesystem to decorate an empty list.
   if (events.length === 0) return events;
 
-  const branchHash = deriveBranchHashForCwd(getString(input, ["cwd"]) ?? process.cwd());
+  const cwd = getString(input, ["cwd"]) ?? process.cwd();
+  const branchHash = deriveBranchHashForCwd(cwd);
+  // The unsalted pair a pull request can be matched on. Per event, like the
+  // branch digest, because a session can move between branches.
+  const { repoKey, branchKey } = deriveForgeKeysForCwd(cwd);
+  const promptId = readPromptId(input);
   const runtime = claudeRuntime();
   const subagentId = readSubagentId(input);
   return events.map((event) => ({
     ...event,
-    metadata: { host: CLAUDE_HOST, runtime, ...(branchHash ? { branchHash } : {}), ...(subagentId ? { subagentId } : {}), ...event.metadata }
+    metadata: { host: CLAUDE_HOST, runtime, ...(branchHash ? { branchHash } : {}), ...(repoKey ? { repoKey } : {}), ...(branchKey ? { branchKey } : {}), ...(promptId ? { promptId } : {}), ...(subagentId ? { subagentId } : {}), ...event.metadata }
   }));
 }
 
@@ -218,6 +223,19 @@ const BUILT_IN_SUBAGENTS: Record<string, SubagentClass> = {
   "statusline-setup": "statusline_setup",
   "claude-code-guide": "claude_code_guide"
 };
+
+/**
+ * The payload's `prompt_id`, when it is one: Claude Code's UUID for the prompt
+ * a turn answers, absent before the first user input. Same rule as
+ * {@link readSubagentId}: anything that isn't a short run of letters, digits,
+ * `-` and `_` isn't an id and is left off rather than sent.
+ */
+export function readPromptId(input: ClaudeHookInput): string | undefined {
+  const raw = input["prompt_id"];
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : undefined;
+}
 
 /**
  * The payload's `agent_id`, when it is one. Claude Code generates these
