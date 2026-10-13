@@ -392,6 +392,17 @@ interface SessionFold {
   subagentTokensTotal: number;
   subagentToolCallCount: number;
   /**
+   * The token figures each API message has added so far, by `messageKeyOf`,
+   * main thread and subagents in one map. The runtime writes one message over
+   * several `assistant` lines (thinking, text, each `tool_use`), and every
+   * line repeats the message's `usage`; only the last carries the final
+   * `output_tokens`. Summing per line counted a session's tokens about 2.2x
+   * on the store this was measured on (11,059 lines, 5,173 messages). A line
+   * of a message already seen replaces what that message added instead of
+   * adding to it, so the last line wins whichever order it arrives in.
+   */
+  messageTokens: Map<string, { input: number; output: number; cacheRead: number }>;
+  /**
    * One entry per `tool_use` item, main thread and subagents merged — the
    * raw material for the per-call events. Merged because the demand rail
    * counts events and a subagent's `Bash` call is as real a demand on the
@@ -467,6 +478,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     subagentAssistantTurns: 0,
     subagentTokensTotal: 0,
     subagentToolCallCount: 0,
+    messageTokens: new Map(),
     toolCalls: [],
     timelinePoints: [],
     undatedTimelineLines: 0,
@@ -474,6 +486,46 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     humanPromptTimestamps: [],
     interruptedRuns: 0,
     interruptedRunTimestamps: []
+  };
+}
+
+/**
+ * Which API message a line belongs to: `message.id` with the line's
+ * `requestId`. Every line of one message shares both. The request id keeps a
+ * proxy that writes one placeholder id on every message from folding them all
+ * into one; it's left off when a line doesn't carry one.
+ */
+export function messageKeyOf(record: Record<string, unknown>): string | null {
+  const id = (record.message as Record<string, unknown> | undefined)?.id;
+  if (typeof id !== "string" || id === "") return null;
+  return typeof record.requestId === "string" && record.requestId !== "" ? `${id}|${record.requestId}` : id;
+}
+
+/**
+ * Fold one `assistant` line's usage into the fold's per-message figures and
+ * return what the totals should move by. A line with no `message.id` is a
+ * message of its own. `firstLine` is false for a further line of a message
+ * the fold has already met, so the caller counts that message's turn once.
+ */
+function foldMessageUsage(
+  fold: SessionFold,
+  messageId: string | null,
+  usage: Record<string, unknown> | undefined
+): { input: number; output: number; cacheRead: number; firstLine: boolean } {
+  const now = {
+    input: usage ? asNumber(usage.input_tokens) : 0,
+    output: usage ? asNumber(usage.output_tokens) : 0,
+    cacheRead: usage ? asNumber(usage.cache_read_input_tokens) : 0
+  };
+  if (messageId === null) return { ...now, firstLine: true };
+  const before = fold.messageTokens.get(messageId);
+  fold.messageTokens.set(messageId, now);
+  if (!before) return { ...now, firstLine: true };
+  return {
+    input: now.input - before.input,
+    output: now.output - before.output,
+    cacheRead: now.cacheRead - before.cacheRead,
+    firstLine: false
   };
 }
 
@@ -628,9 +680,16 @@ async function foldLinesInto(
       // copy of everything its ancestors held, and those lines belong to the
       // sessions they were written in — see `TimelineOwnership`. Everything
       // time-shaped below hangs off this: the session's window, its spans, its
-      // minutes and its day slices. The counts and tokens do not; they are
-      // each handled where they are made.
+      // minutes and its day slices.
       const owned = opts.ownership.owns(sniffed, filePath, { isSidechain: opts.isSidechain });
+      // Whose counts it adds to: tokens, turns, the model mix, tool calls and
+      // their events, tool results and failures, edits, compactions and API
+      // errors. The main thread uses the same answer. A subagent line can be a
+      // copy too, when a resumed or forked session's directory holds its
+      // parent's subagent transcripts, so it gets its own rule. A copy is
+      // still read, because the turn state below needs every line, but it adds
+      // nothing. Typed prompts are settled by the ledger (`claim`) instead.
+      const counts = opts.isSidechain ? opts.ownership.ownsSidechainLine(sniffed, fold.sessionId) : owned;
       // Trust the store's own id over the filename when they disagree — main
       // thread only, and only from a line this file owns, which is the same
       // thing as a line written here. A subagent's own sessionId already
@@ -706,10 +765,11 @@ async function foldLinesInto(
               fold.interruptedRunTimestamps.push(sniffed.occurredAt);
             }
           }
-          if (isToolFailureLine(record)) fold.toolResultErrorCount += 1;
+          if (counts && isToolFailureLine(record)) fold.toolResultErrorCount += 1;
           if (isToolResultUserLine(record)) {
             // A tool round-trip completing is the agent's work landing.
             agentOutputHere = true;
+            if (!counts) break;
             fold.toolResults += 1;
             const tur = record.toolUseResult;
             if (tur && typeof tur === "object" && !Array.isArray(tur)) {
@@ -725,7 +785,7 @@ async function foldLinesInto(
             // folded into promptCount. The orchestrator wrote it, so it is
             // the agent's output as far as the human turn is concerned.
             agentOutputHere = true;
-            fold.subagentPrompts += 1;
+            if (counts) fold.subagentPrompts += 1;
           } else if (!isTypedPromptLine(record)) {
             // Written on the person's behalf: a notification, the runtime's
             // bookkeeping, a slash command's wrapper, an interrupt marker. Not
@@ -733,6 +793,9 @@ async function foldLinesInto(
             // goes, so it bounds nothing. Counted so the prompts it left out
             // are visible. Its posture is still a declaration of the session's
             // mode, so it is read the way a prompt's is.
+            // Not gated on `counts` yet: a copied runtime line still counts in
+            // each transcript holding it. The desktop app's importer is held to
+            // this figure (`claude-store-lineage.cli.json`), so the two move together.
             fold.syntheticPromptLines += 1;
             if (typeof record.permissionMode === "string" && record.permissionMode !== "") {
               postureHere = snakeCasePermissionMode(record.permissionMode);
@@ -778,9 +841,19 @@ async function foldLinesInto(
           agentOutputHere = true;
           const record = JSON.parse(line) as Record<string, unknown>;
           if (!opts.isSidechain) turnRunning = stepRun(turnRunning, record, isToolResultUserLine).running;
-          const usage = (record.message as Record<string, unknown> | undefined)?.usage as
-            | Record<string, unknown>
-            | undefined;
+          // A copy's model still moves `lastMainModel`, so the first model this
+          // session runs on is compared with the one it resumed from. It adds
+          // nothing else; the session that wrote it does.
+          if (!counts) {
+            const copiedModel = opts.isSidechain ? null : foldableModelOf(sniffed.model);
+            if (copiedModel) fold.lastMainModel = copiedModel;
+            break;
+          }
+          const message = record.message as Record<string, unknown> | undefined;
+          const usage = message?.usage as Record<string, unknown> | undefined;
+          // Counted once per API message, not once per line: see
+          // `messageTokens`. Turns and the model mix are per message too.
+          const counted = foldMessageUsage(fold, messageKeyOf(record), usage);
           // Before the sidechain split: a tool call is a tool call whichever
           // thread issued it, and the counters below keep the two apart.
           // A line with no usable timestamp can still be counted but cannot
@@ -798,21 +871,16 @@ async function foldLinesInto(
             }
           }
           if (opts.isSidechain) {
-            fold.subagentAssistantTurns += 1;
-            if (usage) {
-              fold.subagentTokensTotal +=
-                asNumber(usage.input_tokens) +
-                asNumber(usage.output_tokens) +
-                asNumber(usage.cache_read_input_tokens);
-            }
+            if (counted.firstLine) fold.subagentAssistantTurns += 1;
+            fold.subagentTokensTotal += counted.input + counted.output + counted.cacheRead;
             break;
           }
-          fold.assistantTurns += 1;
+          if (counted.firstLine) fold.assistantTurns += 1;
           // A runtime notice names no model, so it moves none of the three
           // model figures — and crucially does not touch `lastMainModel`
           // either, so a run interrupted by a notice and resumed on the same
           // model reads as the zero switches it was.
-          const foldedModel = foldableModelOf(sniffed.model);
+          const foldedModel = counted.firstLine ? foldableModelOf(sniffed.model) : null;
           if (foldedModel) {
             fold.models.set(foldedModel, (fold.models.get(foldedModel) ?? 0) + 1);
             if (fold.lastMainModel && fold.lastMainModel !== foldedModel) {
@@ -828,10 +896,10 @@ async function foldLinesInto(
           // second rule, and would hard-code the assumption that these lines
           // always report zero — if one ever reports real tokens, they were
           // really spent and this counts them.
+          fold.inputTokens += counted.input;
+          fold.outputTokens += counted.output;
+          fold.cacheReadTokens += counted.cacheRead;
           if (usage) {
-            fold.inputTokens += asNumber(usage.input_tokens);
-            fold.outputTokens += asNumber(usage.output_tokens);
-            fold.cacheReadTokens += asNumber(usage.cache_read_input_tokens);
             const contextTokens =
               asNumber(usage.input_tokens) +
               asNumber(usage.cache_read_input_tokens) +
@@ -853,6 +921,7 @@ async function foldLinesInto(
           // folds into the same session counters if it ever does.
           const record = JSON.parse(line) as Record<string, unknown>;
           if (!opts.isSidechain) turnRunning = stepRun(turnRunning, record, isToolResultUserLine).running;
+          if (!counts) break;
           if (record.subtype === "compact_boundary") {
             fold.compactionCount += 1;
             const trigger = (record.compactMetadata as Record<string, unknown> | undefined)?.trigger;

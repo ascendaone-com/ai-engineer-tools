@@ -10,7 +10,7 @@ import {
   looksLikeCorrection,
   shellCommandFacts
 } from "@ascenda-one/tool-kit";
-import type { AutonomyMode } from "@ascenda-one/tool-contract";
+import type { AutonomyMode, SessionEndReason } from "@ascenda-one/tool-contract";
 import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from "./types.js";
 
 /**
@@ -61,6 +61,11 @@ function mapEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurat
     // the count is that a gate was reached, when, and in which session.
     case "PermissionRequest":
       return [{ eventType: "supervision_interruption", severity: "low", metadata: withHost({ interruptionKind: "permission_request" }) }];
+    // Codex 0.146 and later. The session is over, whatever the `reason`: Codex
+    // sends "other" for every ending today, so it is carried only as the
+    // catalog's own word and never branched on. Same row as Claude Code's
+    // `SessionEnd`, so the two sum.
+    case "SessionEnd": return mapSessionEnd(input);
     // The subagent lifecycle is still deliberately unmapped: it is not an
     // interruption of the person, and it is out of scope here.
     case "SubagentStart":
@@ -80,6 +85,18 @@ function mapSessionStart(input: CodexHookInput): MappedCodexEvent[] {
   // every later hook too, and the mode can be switched mid-session, so no
   // reader may treat this one value as the session's posture.
   return [{ eventType: "create_focus_session", severity: "low", metadata: withHost({ activity: "session_started", ...autonomyModeMetadata(input) }) }];
+}
+
+function mapSessionEnd(input: CodexHookInput): MappedCodexEvent[] {
+  const raw = input["reason"];
+  return [{
+    eventType: "recovery_offline_period",
+    severity: "low",
+    metadata: withHost({
+      activity: "session_ended",
+      ...(raw === undefined || raw === null ? {} : { sessionEndReason: classifySessionEndReason(raw) })
+    })
+  }];
 }
 
 function mapUserPromptSubmit(input: CodexHookInput): MappedCodexEvent[] {
@@ -243,6 +260,15 @@ const AUTONOMY_BY_PERMISSION_MODE: Record<string, AutonomyMode> = {
   dontask: "dont_ask",
   bypasspermissions: "bypass_permissions"
 };
+
+const SESSION_END_REASONS: readonly SessionEndReason[] = ["clear", "resume", "logout", "prompt_input_exit", "other"];
+
+/** Total, like {@link classifyAutonomyMode}: an unrecognised reason is sent as `unknown`, not dropped. */
+export function classifySessionEndReason(raw: unknown): SessionEndReason {
+  if (typeof raw !== "string") return "unknown";
+  const value = raw.trim().toLowerCase();
+  return (SESSION_END_REASONS as readonly string[]).includes(value) ? value as SessionEndReason : "unknown";
+}
 
 /**
  * Codex Desktop namespaces its tools (`functions.apply_patch`); the CLI does

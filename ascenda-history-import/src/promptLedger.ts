@@ -462,6 +462,15 @@ export async function readPromptLedger(
  * inherited under the rule above. Verified on the same store: no subagent line
  * carries a `sessionId` other than its session directory's. So they are owned
  * by the fold they were found under, unconditionally.
+ *
+ * **That no longer holds everywhere.** On a later store (2,180 transcripts,
+ * October 2026) a resumed or forked session's directory held copies of its
+ * parent's `agent-<id>.jsonl` files, every line still naming the parent's
+ * session: 1,813 subagent messages sat in more than one directory, and exactly
+ * one copy of each was in the directory its `sessionId` names. The counts a
+ * line adds use {@link ownsSidechainLine} for that. Instants still take the
+ * unconditional rule, so a session's active minutes include a copied
+ * subagent's; changing that moves the minutes basis and is its own change.
  */
 export class TimelineOwnership {
   /** Basenames of every main-thread transcript the walk listed. */
@@ -512,6 +521,24 @@ export class TimelineOwnership {
     // it owns it, the way the ledger gives it the prompt.
     if (this.claimedOrphans.has(line.uuid)) return false;
     this.claimedOrphans.add(line.uuid);
+    return true;
+  }
+
+  /**
+   * Whether a subagent line's counts belong to the session it was found under:
+   * its tokens, turns, tool calls and results. Yes when the line names that
+   * session, or names none. No when it names another session still in the
+   * store, which counts its own copy. Where that session is gone, the first
+   * fold to meet the line claims it by `uuid`, the way {@link owns} treats an
+   * orphaned main-thread line. Call it once per line: a claim is remembered.
+   */
+  ownsSidechainLine(line: { uuid: string | null; sessionId: string | null }, foundUnderSessionId: string): boolean {
+    if (line.sessionId === null || line.sessionId === foundUnderSessionId) return true;
+    if (this.transcriptIds.has(line.sessionId)) return false;
+    if (line.uuid === null) return true;
+    const key = `sidechain:${line.uuid}`;
+    if (this.claimedOrphans.has(key)) return false;
+    this.claimedOrphans.add(key);
     return true;
   }
 

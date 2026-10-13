@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-async function withIngest(run) {
+export async function withIngest(run) {
   const received = [];
   const server = http.createServer((req, res) => {
     let body = "";
@@ -38,7 +38,7 @@ async function withIngest(run) {
   }
 }
 
-function runHook(cli, hook, input, env) {
+export function runHook(cli, hook, input, env) {
   return new Promise((resolve, reject) => {
     const child = spawn("node", [cli, hook], { env });
     let stderr = "";

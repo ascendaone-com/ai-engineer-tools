@@ -289,3 +289,13 @@ test("PostToolUse: a commit with no reported success carries no gitAction", () =
   assert.equal(events[0].metadata.outcome, "unknown");
   assert.equal(events[0].metadata.gitAction, undefined);
 });
+
+test("SessionEnd: one session_ended row, with the reason only when Codex sent one", () => {
+  const [event] = mapCodexEvent("SessionEnd", { reason: "other" });
+  assert.equal(event.eventType, "recovery_offline_period");
+  assert.equal(event.metadata.activity, "session_ended");
+  assert.equal(event.metadata.sessionEndReason, "other");
+  assert.equal(event.metadata.host, "codex");
+  assert.equal("sessionEndReason" in mapCodexEvent("SessionEnd", {})[0].metadata, false);
+  assert.equal(mapCodexEvent("SessionEnd", { reason: "something_new" })[0].metadata.sessionEndReason, "unknown");
+});
