@@ -15,3 +15,8 @@ process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-home-"));
 // and whether the sender may rotate a token. Cleared so a suite run inside one
 // sees the same defaults as a run on a laptop; tests that need it set it.
 delete process.env.CLAUDE_CODE_REMOTE;
+
+// Hooks deliver from a detached flusher by default. Most tests here read what
+// one hook process sent before it exited, so they run the inline path; the
+// background path has its own tests, which clear this.
+process.env.ASCENDA_HOOK_DELIVERY = "inline";

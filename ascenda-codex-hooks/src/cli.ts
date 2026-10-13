@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCodexEvent } from "./mapCodexEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -18,6 +18,12 @@ import { ASCENDA_TOOL_TYPE, CODEX_HOST, CodexHookEventName, CodexHookInput } fro
  * first would hang on a pipe nothing will ever write to.
  */
 async function main(): Promise<void> {
+  // A detached flusher started by an earlier hook, not a hook: no stdin, no
+  // agent waiting. See backgroundDelivery.ts in tool-kit.
+  if (process.argv[2] === OUTBOX_FLUSH_COMMAND) {
+    await flushHookOutbox({ toolType: ASCENDA_TOOL_TYPE, host: CODEX_HOST, source: "cli_agent" });
+    return;
+  }
   const command = process.argv[2];
   if (isCliAgentManagementCommand(command)) {
     managementExitCode = await runCliAgentSetup(process.argv.slice(2), SETUP);
