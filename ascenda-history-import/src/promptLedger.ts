@@ -462,6 +462,15 @@ export async function readPromptLedger(
  * inherited under the rule above. Verified on the same store: no subagent line
  * carries a `sessionId` other than its session directory's. So they are owned
  * by the fold they were found under, unconditionally.
+ *
+ * **That no longer holds everywhere.** On a later store (2,180 transcripts,
+ * October 2026) a resumed or forked session's directory held copies of its
+ * parent's `agent-<id>.jsonl` files, every line still naming the parent's
+ * session: 1,813 subagent messages sat in more than one directory, and exactly
+ * one copy of each was in the directory its `sessionId` names. Token figures
+ * use {@link ownsSidechainUsage} for that. Instants still take the
+ * unconditional rule, so a session's active minutes include a copied
+ * subagent's; changing that moves the minutes basis and is its own change.
  */
 export class TimelineOwnership {
   /** Basenames of every main-thread transcript the walk listed. */
@@ -512,6 +521,23 @@ export class TimelineOwnership {
     // it owns it, the way the ledger gives it the prompt.
     if (this.claimedOrphans.has(line.uuid)) return false;
     this.claimedOrphans.add(line.uuid);
+    return true;
+  }
+
+  /**
+   * Whether a subagent line's usage belongs to the session it was found under.
+   * Yes when the line names that session, or names none. No when it names
+   * another session still in the store, which counts its own copy. Where that
+   * session is gone, the first fold to meet the message claims it, by
+   * `messageKey`, the way {@link owns} treats an orphaned main-thread line.
+   */
+  ownsSidechainUsage(lineSessionId: string | null, foundUnderSessionId: string, messageKey: string | null): boolean {
+    if (lineSessionId === null || lineSessionId === foundUnderSessionId) return true;
+    if (this.transcriptIds.has(lineSessionId)) return false;
+    if (messageKey === null) return true;
+    const key = `sidechain:${messageKey}`;
+    if (this.claimedOrphans.has(key)) return false;
+    this.claimedOrphans.add(key);
     return true;
   }
 

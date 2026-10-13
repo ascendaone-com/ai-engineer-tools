@@ -392,7 +392,7 @@ interface SessionFold {
   subagentTokensTotal: number;
   subagentToolCallCount: number;
   /**
-   * The token figures each API message has added so far, by `message.id`,
+   * The token figures each API message has added so far, by `messageKeyOf`,
    * main thread and subagents in one map. The runtime writes one message over
    * several `assistant` lines (thinking, text, each `tool_use`), and every
    * line repeats the message's `usage`; only the last carries the final
@@ -487,6 +487,21 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     interruptedRuns: 0,
     interruptedRunTimestamps: []
   };
+}
+
+/** What an `assistant` line another session owns adds: nothing, and no turn. */
+const NOT_COUNTED = { input: 0, output: 0, cacheRead: 0, firstLine: false } as const;
+
+/**
+ * Which API message a line belongs to: `message.id` with the line's
+ * `requestId`. Every line of one message shares both. The request id keeps a
+ * proxy that writes one placeholder id on every message from folding them all
+ * into one; it's left off when a line doesn't carry one.
+ */
+export function messageKeyOf(record: Record<string, unknown>): string | null {
+  const id = (record.message as Record<string, unknown> | undefined)?.id;
+  if (typeof id !== "string" || id === "") return null;
+  return typeof record.requestId === "string" && record.requestId !== "" ? `${id}|${record.requestId}` : id;
 }
 
 /**
@@ -822,7 +837,17 @@ async function foldLinesInto(
           const usage = message?.usage as Record<string, unknown> | undefined;
           // Counted once per API message, not once per line: see
           // `messageTokens`. Turns and the model mix are per message too.
-          const counted = foldMessageUsage(fold, typeof message?.id === "string" ? message.id : null, usage);
+          //
+          // And only by the session the message was made in. A resumed or
+          // forked transcript opens with a copy of its ancestors' lines, and
+          // its directory can hold copies of their subagent transcripts, all
+          // naming the session that wrote them. Counted where they're copied,
+          // they were counted again per descendant.
+          const messageKey = messageKeyOf(record);
+          const ownsUsage = opts.isSidechain
+            ? opts.ownership.ownsSidechainUsage(sniffed.sessionId, fold.sessionId, messageKey)
+            : owned;
+          const counted = ownsUsage ? foldMessageUsage(fold, messageKey, usage) : NOT_COUNTED;
           // Before the sidechain split: a tool call is a tool call whichever
           // thread issued it, and the counters below keep the two apart.
           // A line with no usable timestamp can still be counted but cannot
@@ -868,7 +893,7 @@ async function foldLinesInto(
           fold.inputTokens += counted.input;
           fold.outputTokens += counted.output;
           fold.cacheReadTokens += counted.cacheRead;
-          if (usage) {
+          if (usage && ownsUsage) {
             const contextTokens =
               asNumber(usage.input_tokens) +
               asNumber(usage.cache_read_input_tokens) +
