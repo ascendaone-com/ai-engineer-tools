@@ -123,12 +123,12 @@ that. Otherwise the attribute sits under `ascenda.`.
 | Event field | OpenTelemetry | OpenInference |
 | --- | --- | --- |
 | `time` | the record's `timeUnixNano` | |
-| `kind` | `event.name` (also the record body) | |
+| `kind` | the record's `eventName` field, and the body | |
 | `sessionId` | `session.id` | `session.id` |
 | `agent` | `gen_ai.agent.name` | |
 | `tool` | `gen_ai.tool.name` | `tool.name` |
 | `model` | `gen_ai.request.model` | `llm.model_name` |
-| `repoKey` | `vcs.repository.id` | |
+| `repoKey` | `ascenda.vcs.repo_key` | |
 | `branchKey` | `ascenda.vcs.branch_key` | |
 | `headRepoKey` | `ascenda.vcs.head_repo_key` | |
 | `prCreatedAt`, `prClosedAt`, `prMergedAt` | `ascenda.pr.created_at`, `.closed_at`, `.merged_at` | |
@@ -142,15 +142,18 @@ on the resource: set `OTEL_RESOURCE_ATTRIBUTES=team.id=platform,department=eng`
 where the forwarder runs. Those two names are a convention to agree on, not
 part of the semantic conventions.
 
-**No OpenTelemetry equivalent:** `branchKey`, `headRepoKey`, the `pr*At` times, `promptId`, `vcsAction`,
-`reason`, `outcome`, `durationBucket`, `subagentId`, `projectHash`, `id` and
-`collectorVersion`. The standard `vcs.*` names carry a repository URL or a
-branch name, and the key is a digest of one, so `repoKey` goes in
-`vcs.repository.id` as an opaque id and `branchKey` stays under `ascenda.`.
-Putting a digest where a name belongs would make the attribute lie.
+**No OpenTelemetry equivalent:** `repoKey`, `branchKey`, `headRepoKey`, the
+`pr*At` times, `promptId`, `vcsAction`, `reason`, `outcome`, `durationBucket`,
+`subagentId`, `projectHash`, `id` and `collectorVersion`. The standard `vcs.*`
+names carry a repository URL or a branch name, and a key is a digest of one.
+Putting a digest where a name belongs would make the attribute lie, so the keys
+stay under `ascenda.`. `gen_ai.prompt.name` names a prompt template, not one
+turn, so it doesn't fit `promptId` either. `gen_ai.agent.name` has moved from
+the main registry to the GenAI conventions, where it's still defined.
 
 Permission events and `permissionMode` are planned and aren't in the format
 yet, so they aren't mapped here.
+
 OpenInference describes LLM and tool spans, not an agent's session log, so most
 fields have no counterpart there. The OpenInference column shows where one
 exists.

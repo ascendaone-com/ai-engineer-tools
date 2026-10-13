@@ -67,9 +67,10 @@ test("sends the log as OTLP logs and picks up where it stopped", async () => {
     assert.equal(records.length, 2);
     assert.equal(records[0].timeUnixNano, `${BigInt(Date.parse(EVENTS[0].time)) * 1_000_000n}`);
     assert.deepEqual(attr(records[0], "session.id"), { stringValue: "s1" });
-    assert.deepEqual(attr(records[0], "event.name"), { stringValue: "session.started" });
+    assert.equal(records[0].eventName, "session.started");
+    assert.equal(attr(records[0], "event.name"), undefined, "event.name is deprecated as an attribute");
     assert.deepEqual(attr(records[0], "gen_ai.request.model"), { stringValue: "m-1" });
-    assert.deepEqual(attr(records[0], "vcs.repository.id"), { stringValue: "aabbccdd" });
+    assert.deepEqual(attr(records[0], "ascenda.vcs.repo_key"), { stringValue: "aabbccdd" });
     assert.deepEqual(attr(records[0], "ascenda.vcs.branch_key"), { stringValue: "0011223344556677" });
     assert.deepEqual(attr(records[0], "ascenda.vcs.head_repo_key"), { stringValue: "ddccbbaa" });
     assert.deepEqual(attr(records[0], "ascenda.pr.merged_at"), { stringValue: "2026-10-14T02:00:00Z" });

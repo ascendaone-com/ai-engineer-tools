@@ -59,12 +59,11 @@ const str = (key, value) => (value === undefined || value === null || value === 
 /** The attributes for one event. Fields with no OpenTelemetry name go under `ascenda.`. */
 export function attributesFor(event) {
   return [
-    ...str("event.name", event.kind),
     ...str("session.id", event.sessionId),
     ...str("gen_ai.agent.name", event.agent),
     ...str("gen_ai.tool.name", event.tool),
     ...str("gen_ai.request.model", event.model),
-    ...str("vcs.repository.id", event.repoKey),
+    ...str("ascenda.vcs.repo_key", event.repoKey),
     ...str("ascenda.vcs.branch_key", event.branchKey),
     ...str("ascenda.vcs.head_repo_key", event.headRepoKey),
     ...str("ascenda.vcs.action", event.vcsAction),
@@ -93,6 +92,7 @@ export function logRecord(event) {
     observedTimeUnixNano: `${BigInt(Date.now()) * 1_000_000n}`,
     severityNumber: event.kind === "tool.failed" ? 17 : 9,
     severityText: event.kind === "tool.failed" ? "ERROR" : "INFO",
+    eventName: event.kind,
     body: { stringValue: event.kind },
     attributes: attributesFor(event)
   };
