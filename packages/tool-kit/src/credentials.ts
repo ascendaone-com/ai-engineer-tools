@@ -40,7 +40,7 @@ export type HostCredentials = {
   /**
    * `false` keeps the repository and branch keys off every event (see
    * forgeKeys.ts). Machine-wide, like `eventLogPath`: read from the top level
-   * only. Written by any adapter's `setup --repo-keys`. Absent means on.
+   * only. Written by any adapter's `setup --no-repo-keys`. Absent means on.
    */
   repoKeys?: false;
 };

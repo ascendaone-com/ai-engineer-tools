@@ -56,7 +56,7 @@ test("an unknown kind reads as other", () => {
 // without them still passes and an older reader just never sees them.
 
 test("the join and detail fields are optional and typed in the schema", () => {
-  for (const field of ["repoKey", "branchKey", "promptId", "vcsAction", "reason", "model"]) {
+  for (const field of ["repoKey", "branchKey", "promptId", "vcsAction", "reason", "model", "permissionMode"]) {
     assert.equal(schema.properties[field]?.type, "string", field);
     assert.ok(!schema.required.includes(field), `${field} must stay optional`);
   }
@@ -72,5 +72,5 @@ test("the exported value lists name what the schema's descriptions promise", () 
 });
 
 test("an event with the new fields is still an event", () => {
-  assert.ok(isAgentEventV0({ ...EVENT, repoKey: "a1b2c3d4", branchKey: "a1b2c3d4e5f60718", promptId: "p1", vcsAction: "push", reason: "idle", model: "m" }));
+  assert.ok(isAgentEventV0({ ...EVENT, repoKey: "a1b2c3d4", branchKey: "a1b2c3d4e5f60718", promptId: "p1", vcsAction: "push", reason: "idle", model: "m", permissionMode: "auto" }));
 });

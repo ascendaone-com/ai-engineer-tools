@@ -20,7 +20,7 @@ export const SETUP: CliAgentSetupSpec = {
   restartHint: "Restart Cursor to load the hooks.",
   // Cursor reports its composer's context occupancy on a compaction. It
   // exposes no permission posture, so no posture line is printed.
-  sends: ["context"],
+  sends: ["context", "turns", "forge"],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".cursor", "hooks.json") : path.join(projectDir, ".cursor", "hooks.json"),

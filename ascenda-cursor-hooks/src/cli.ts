@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCursorEvent } from "./mapCursorEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -38,8 +38,16 @@ async function main(): Promise<void> {
   let turnDurationMs: number | undefined;
   // That this agent ran a hook at all, for `status` and `doctor`.
   stampLastHook(CURSOR_HOST, hookName);
-  if (hookName === "beforeSubmitPrompt") recordTurnStart(CURSOR_HOST, sessionId);
+  // These agents give hooks no id for the prompt a turn answers, so the turn's
+  // first hook mints one and the rest read it back. Read before the turn-end
+  // hook consumes the state.
+  const promptId = hookName === "beforeSubmitPrompt"
+    ? recordTurnStart(CURSOR_HOST, sessionId)
+    : readTurnPromptId(CURSOR_HOST, sessionId);
   if (hookName === "stop") turnDurationMs = consumeTurnDurationMs(CURSOR_HOST, sessionId);
+
+  // Where the work happened, for the repository and branch keys.
+  const workDir = Array.isArray(input.workspace_roots) && typeof input.workspace_roots[0] === "string" ? input.workspace_roots[0] : undefined;
 
   // The local live bus, before the cloud send. See `emitLive` below.
   await emitLive(hookName, input, sessionId);
@@ -49,7 +57,10 @@ async function main(): Promise<void> {
     host: CURSOR_HOST,
     setupCommand: `npx ${SETUP.packageName} setup`,
     source: "cli_agent",
-    sessionId
+    sessionId,
+    promptId,
+    cwd: workDir,
+    forgeKeys: true
   });
 }
 

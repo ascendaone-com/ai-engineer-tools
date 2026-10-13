@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily, Tone } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { describeAge, readLastHook, resolveHookNode } from "./hookHealth.js";
@@ -49,7 +49,7 @@ import { ASCENDA_TOOL_TYPE } from "./types.js";
  * including the empty type Claude Code's internal agents stop with. Their rate
  * is one pair per subagent run, well below tool volume.
  */
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd", "SubagentStart", "SubagentStop"] as const;
+const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd", "SubagentStart", "SubagentStop", "PermissionRequest", "PermissionDenied"] as const;
 
 /**
  * The version of {@link HOOK_EVENTS}, written onto every registered command
@@ -58,11 +58,12 @@ const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostTool
  *
  * Set 1 is every registration without the flag. Set 2 added `StopFailure`
  * and `Notification`, eleven events. Set 3 is the thirteen above, adding
- * `SubagentStart` and `SubagentStop`. Bump this whenever the list changes,
+ * `SubagentStart` and `SubagentStop`. Set 4 is the fifteen, adding
+ * `PermissionRequest` and `PermissionDenied`. Bump this whenever the list changes,
  * along with the plugin's `hooks/hooks.json` and `kCurrentHookSets` in the
  * app.
  */
-export const HOOK_SET = 3;
+export const HOOK_SET = 4;
 
 /**
  * Claude Code's default timeout for `command` hooks is 600s. Telemetry that
@@ -102,6 +103,8 @@ type Options = {
   pair: boolean;
   /** `--event-log`'s value: a path or `off`. Absent leaves the saved setting alone. */
   eventLog?: string;
+  /** `--repo-keys` (true) or `--no-repo-keys` (false). Absent leaves the saved setting alone. */
+  repoKeys?: boolean;
   action: "install" | "status" | "uninstall" | "help";
 };
 
@@ -128,6 +131,10 @@ Options
   --event-log [path|off]        keep every event in a local JSONL file (default ~/.ascenda/events.jsonl).
                                 On by default when not paired; machine-wide, shared by every agent
                                 (--no-pairing is accepted too)
+  --no-repo-keys                leave the repository and branch keys off every event. On by default: a GitHub
+                                repository gets a key and, off its default branch, a branch key, so a pull
+                                request can be matched to a session. They are digests anyone who guesses the
+                                names can reproduce. Machine-wide. --repo-keys turns them back on
   --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
@@ -192,6 +199,7 @@ export async function runSetup(argv: string[]): Promise<number> {
       ...(unpaired ? { localOnly: true, installedAt: now } : { pairedAt: now })
     });
     if (options.eventLog !== undefined) writeEventLogSetting(options.eventLog);
+    if (options.repoKeys !== undefined) writeRepoKeysSetting(options.repoKeys);
   }
 
   if (isHomeProject(options)) {
@@ -350,6 +358,12 @@ function parseArgs(argv: string[]): Options {
         i += consumed;
         break;
       }
+      case "--repo-keys":
+        options.repoKeys = true;
+        break;
+      case "--no-repo-keys":
+        options.repoKeys = false;
+        break;
       case "--no-pair":
       // `--no-pairing` is the spelling the CLI agents' setup landed under
       // first, and the one their README still showed for a day. Both parse

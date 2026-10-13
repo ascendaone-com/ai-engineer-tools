@@ -27,7 +27,7 @@ export const SETUP: CliAgentSetupSpec = {
   restartHint: "Restart Windsurf to load the hooks.",
   // Nothing beyond the shared set. Cascade's file hooks report that a write
   // happened, never how much of it changed.
-  sends: [],
+  sends: ["turns", "forge"],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".codeium", "windsurf", "hooks.json") : path.join(projectDir, ".windsurf", "hooks.json"),

@@ -44,7 +44,7 @@ export const SETUP: CliAgentSetupSpec = {
   restartHint: "Restart Gemini CLI to load the hooks.",
   // Nothing beyond the shared set: Gemini's hooks expose no posture, no
   // model, no git action and no context figure.
-  sends: [],
+  sends: ["turns", "forge"],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".gemini", "settings.json") : path.join(projectDir, ".gemini", "settings.json"),

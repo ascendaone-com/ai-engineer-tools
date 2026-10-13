@@ -66,8 +66,8 @@ test("the notification's own words never appear anywhere in the event", () => {
   );
 });
 
-test("interruptionKind is one of three constant labels, never derived text", () => {
-  const allowed = new Set(["permission_request", "idle_prompt", "other"]);
+test("interruptionKind is one of four constant labels, never derived text", () => {
+  const allowed = new Set(["permission_request", "input_request", "idle_prompt", "other"]);
   for (const message of [
     "Claude needs your permission to use Bash",
     "Claude is waiting for your input",

@@ -154,9 +154,10 @@ Options
   --no-pair                     install without pairing: local features on, nothing sent
   --event-log [path|off]        keep every event in a local JSONL file (default ~/.ascenda/events.jsonl).
                                 On by default when not paired; machine-wide, shared by every agent
-  --repo-keys on|off            on (default): GitHub repositories get a key for the repository and one for the
-                                branch, so a pull request can be matched to a session. They are digests anyone
-                                who guesses the names can reproduce. Machine-wide
+  --no-repo-keys                leave the repository and branch keys off every event. On by default: a GitHub
+                                repository gets a key and, off its default branch, a branch key, so a pull
+                                request can be matched to a session. They are digests anyone who guesses the
+                                names can reproduce. Machine-wide. --repo-keys turns them back on
   --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
@@ -400,12 +401,12 @@ function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
         i += consumed;
         break;
       }
-      case "--repo-keys": {
-        const value = next().toLowerCase();
-        if (value !== "on" && value !== "off") throw new Error("--repo-keys takes on or off");
-        options.repoKeys = value === "on";
+      case "--repo-keys":
+        options.repoKeys = true;
         break;
-      }
+      case "--no-repo-keys":
+        options.repoKeys = false;
+        break;
       case "--no-pair":
       // `--no-pairing` is the spelling this landed under first. Both appeared
       // only in an unreleased changelog, so this alias exists to spare anyone

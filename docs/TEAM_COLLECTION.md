@@ -54,7 +54,7 @@ repository across machines, use `repoKey`: it's the same digest everywhere, for
 GitHub repositories. `branchKey` is the same for a branch, so a session can be
 matched to the pull request on that branch. Both come with a catch: they aren't
 salted, so anyone holding your events can check a guess at a repository or
-branch name. Engineers can turn them off with `setup --repo-keys off`, and then
+branch name. Engineers can turn them off with `setup --no-repo-keys`, and then
 you're back to `source` and `sessionId`. See
 [Matching a session to a pull request](../packages/agent-events/README.md#matching-a-session-to-a-pull-request).
 
