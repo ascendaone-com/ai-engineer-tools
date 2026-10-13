@@ -388,7 +388,7 @@ export interface ProjectElapsedDay {
 export type PromptBasis = "typed_once" | "typed" | "every_user_line";
 
 /** Which lines a handoff's minutes were built from; see `HandoffFile.minutesBasis`. */
-export type MinutesBasis = "owned_lines" | "every_line";
+export type MinutesBasis = "owned_lines_and_subagents" | "owned_lines" | "every_line";
 
 export interface HandoffFile {
   schema: number;
@@ -424,10 +424,16 @@ export interface HandoffFile {
    * Additive, so the schema number doesn't move; a reader keeps the value as
    * written.
    *
-   * - `owned_lines` (this writer): each line counts on one session's timeline.
-   *   Resuming or forking a session writes a transcript that opens with a copy
-   *   of the inherited history, and those lines belong to the session they
-   *   were written in.
+   * - `owned_lines_and_subagents` (this writer): each line counts on one
+   *   session's timeline, subagent lines included. Resuming or forking a
+   *   session writes a transcript that opens with a copy of the inherited
+   *   history, and those lines belong to the session they were written in. Its
+   *   directory can also hold copies of the parent's subagent transcripts,
+   *   which belong to the parent the same way.
+   * - `owned_lines`: the same, except that a copied subagent transcript
+   *   counted in every session directory holding it. On the reference store
+   *   that added 1.5% to the summed active minutes, all of it agent
+   *   supervising, and left the union of the same intervals where it was.
    * - `every_line`: every line in a transcript counted there, so a resumed
    *   session's minutes included its ancestors' and its `startedAt` was the
    *   lineage's first instant. On the reference store that summed to 2.8x the
@@ -511,9 +517,10 @@ export interface HandoffFile {
  * Codex's handoff session. Close to Claude Code's — both are agent
  * transcripts with prompts, tool calls, tokens and compaction — but a
  * distinct shape rather than a reuse, for the reason the Cursor shape gives
- * below: Codex has no subagent transcripts folded into a session and no
- * `userModified` marker, and a field that can never be collected should be
- * absent from the shape, not present as a permanent null.
+ * below: Codex has no `userModified` marker, and a field that can never be
+ * collected should be absent from the shape, not present as a permanent
+ * null. Subagent threads do fold into a Codex session; their breakdown rides
+ * on the event's metrics and isn't part of this shape yet.
  */
 export interface CodexHandoffSession {
   /** Per-local-day slices, oldest first; see {@link HandoffSession.days}. */
@@ -1054,8 +1061,9 @@ export function buildHandoff(
     promptBasis: "typed_once",
     // And the same lineage rule on the timeline: an inherited line's instant
     // belongs to the session it was written in, so the minutes below are this
-    // session's own and `startedAt` is when it was resumed.
-    minutesBasis: "owned_lines",
+    // session's own and `startedAt` is when it was resumed. The same goes for
+    // a subagent transcript copied into a resume's directory.
+    minutesBasis: "owned_lines_and_subagents",
     // And what each of those figures measures, keyed by the path a reader
     // walks. The `projects` rollup below is why this store needs the stamp
     // most: it carries the summed pair and the unioned pair under one

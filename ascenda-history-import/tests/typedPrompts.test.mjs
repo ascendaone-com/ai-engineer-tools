@@ -181,6 +181,11 @@ test("a handoff from before the stamp reads as every user line, and the schema d
   assert.equal(promptBasisRead(after), "typed_once");
 });
 
+test("the handoff stamps minutesBasis owned_lines_and_subagents", async () => {
+  const handoff = handoffOf(await extractLines([userAt("2026-09-08T12:00:00.000Z", "redacted"), replyAt("2026-09-08T12:00:05.000Z")]));
+  assert.equal(handoff.minutesBasis, "owned_lines_and_subagents");
+});
+
 // ── Shell mode (`!`) ───────────────────────────────────────────────────────
 
 const bashLine = (at) =>
