@@ -100,6 +100,11 @@ rather than appending, hooks belonging to anyone else are left alone, and the
 file is backed up to `.ascenda-backup` before the first write. Settings that
 are not valid JSON abort the run rather than being overwritten.
 
+With `CLAUDE_CONFIG_DIR` set, user-scope setup, `status` and `uninstall` use
+`$CLAUDE_CONFIG_DIR/settings.json`. If another tool has added its own hook to
+one of our groups, setup and `uninstall` take out only ours and leave theirs.
+A symlinked settings file stays a symlink.
+
 #### Upgrading
 
 Re-run `setup` with the scope you installed with. It keeps your pairing, adds

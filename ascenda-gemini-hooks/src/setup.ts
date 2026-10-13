@@ -31,8 +31,6 @@ export const HOOK_SET = 2;
  */
 const HOOK_TIMEOUT_SECONDS = 5;
 
-type GeminiHookGroup = { matcher?: string; hooks?: Array<{ type?: string; command?: unknown }> };
-
 export const SETUP: CliAgentSetupSpec = {
   host: GEMINI_HOST,
   displayName: "Gemini CLI",
@@ -53,10 +51,6 @@ export const SETUP: CliAgentSetupSpec = {
     // an array of { matcher, hooks: [{ type, command }] }. The event name
     // arrives in `hook_event_name` on stdin, so one command serves every hook.
     entry: (command) => ({ hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT_SECONDS }] }),
-    commandOf: (entry) => {
-      const group = entry as GeminiHookGroup | undefined;
-      const command = group?.hooks?.find((hook) => typeof hook?.command === "string")?.command;
-      return typeof command === "string" ? command : undefined;
-    }
+    grouped: true
   }
 };

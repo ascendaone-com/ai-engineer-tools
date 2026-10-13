@@ -116,6 +116,39 @@ test("a hook invocation still exits 0, even unconfigured", () => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test("the user hooks file follows CODEX_HOME, and a project's file doesn't", () => {
+  const previous = process.env.CODEX_HOME;
+  try {
+    delete process.env.CODEX_HOME;
+    assert.equal(SETUP.settings.settingsPath("user", "/p"), path.join(os.homedir(), ".codex", "hooks.json"));
+    process.env.CODEX_HOME = "/opt/codex-home";
+    assert.equal(SETUP.settings.settingsPath("user", "/p"), path.join("/opt/codex-home", "hooks.json"));
+    assert.equal(SETUP.settings.settingsPath("project", "/p"), path.join("/p", ".codex", "hooks.json"));
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previous;
+  }
+});
+
+test("setup and uninstall keep another tool's command in a group shared with ours", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-codex-shared-"));
+  const file = SETUP.settings.settingsPath("project", dir);
+  writeHookSettings(file, BINARY, SETUP, false);
+  const shared = read(file);
+  const foreign = { type: "command", command: "/usr/local/bin/other-tool-hook" };
+  shared.hooks.Stop[0].hooks.push(foreign);
+  fs.writeFileSync(file, JSON.stringify(shared, null, 2));
+
+  assert.equal(writeHookSettings(file, "/elsewhere/ascenda-codex-hook", SETUP, false), true);
+  assert.equal(read(file).hooks.Stop.length, 1);
+  assert.deepEqual(read(file).hooks.Stop[0].hooks[1], foreign);
+
+  const result = spawnSync("node", [CLI, "uninstall", "--scope", "project", "--project-dir", dir], { encoding: "utf8", cwd: dir, env: { ...process.env } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(read(file).hooks, { Stop: [{ hooks: [foreign] }] });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("SessionEnd is registered with a timeout Codex accepts (3 s at most), the rest keep 10 s", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-codex-timeout-"));
   const file = SETUP.settings.settingsPath("project", dir);
