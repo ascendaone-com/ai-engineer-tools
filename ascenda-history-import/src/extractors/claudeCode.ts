@@ -10,6 +10,15 @@
  * session fold is seeded from whichever appears first and merged with
  * whichever appears second — never dropped for missing its sibling.
  *
+ * Older Claude Code wrote those flat instead, as `<project>/agent-<id>.jsonl`.
+ * A top-level file is a subagent transcript when its lines say so
+ * (`isSidechain: true` or an `agentId`), whatever it is called, and it folds
+ * into the session named by its `sessionId` like the nested ones do.
+ *
+ * Lines written by the Agent SDK or a headless run carry an `entrypoint`
+ * starting `sdk`. Nobody typed them, so they are counted in
+ * `headlessPromptLines` and not as prompts.
+ *
  * Subagent lines carry the PARENT session's `sessionId` (`isSidechain: true`,
  * `agentId` set) — a subagent is not a session of its own. Its `user` lines
  * are the orchestrator's task instructions and its own tool-result
@@ -259,6 +268,17 @@ export function foldableModelOf(model: string | null): string | null {
   return model;
 }
 
+/**
+ * Whether a `user` line was written by a program rather than typed: the Agent
+ * SDK (`sdk-ts`, `sdk-py`) and headless runs (`sdk-cli`) stamp their
+ * `entrypoint` on every line. `userType` is not read. It says `external` for
+ * ordinary terminal sessions too, so it cannot tell the two apart.
+ */
+export function isHeadlessEntrypoint(record: Record<string, unknown>): boolean {
+  const entrypoint = record.entrypoint;
+  return typeof entrypoint === "string" && entrypoint.toLowerCase().startsWith("sdk");
+}
+
 /** A user-role line that is actually a tool result round-trip, not a person
  * typing. Two independent markers observed in real stores; either decides. */
 export function isToolResultUserLine(record: Record<string, unknown>): boolean {
@@ -373,6 +393,26 @@ interface SessionFold {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  /** Cache-write tokens, summed once per API message like the others. Only
+   * shipped once a line has carried the field, so a store that never wrote it
+   * reads as not collected rather than as zero. */
+  cacheCreationTokens: number;
+  cacheCreationSeen: boolean;
+  /** The 5-minute and 1-hour halves of the cache writes, from
+   * `usage.cache_creation`. Absent on older transcripts, which only have the
+   * total. */
+  cacheCreation5mTokens: number;
+  cacheCreation1hTokens: number;
+  cacheCreationSplitSeen: boolean;
+  /** Advisor calls (`usage.iterations[]` of type `advisor_message`): a second
+   * model consulted inside one API message. Their tokens are NOT in the
+   * message's own `usage` totals, so they are added to the totals above and
+   * counted here as well, so the share they contribute stays visible. */
+  advisorMessageCount: number;
+  advisorTokensTotal: number;
+  /** Main-thread `user` lines an SDK or headless entrypoint wrote. Counted
+   * once per line, like a prompt, and left out of `humanPrompts`. */
+  headlessPromptLines: number;
   models: Map<string, number>;
   lastMainModel: string | null;
   modelSwitchCount: number;
@@ -401,7 +441,7 @@ interface SessionFold {
    * of a message already seen replaces what that message added instead of
    * adding to it, so the last line wins whichever order it arrives in.
    */
-  messageTokens: Map<string, { input: number; output: number; cacheRead: number }>;
+  messageTokens: Map<string, MessageUsage>;
   /**
    * One entry per `tool_use` item, main thread and subagents merged — the
    * raw material for the per-call events. Merged because the demand rail
@@ -460,6 +500,14 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    cacheCreationSeen: false,
+    cacheCreation5mTokens: 0,
+    cacheCreation1hTokens: 0,
+    cacheCreationSplitSeen: false,
+    advisorMessageCount: 0,
+    advisorTokensTotal: 0,
+    headlessPromptLines: 0,
     models: new Map(),
     lastMainModel: null,
     modelSwitchCount: 0,
@@ -489,6 +537,81 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
   };
 }
 
+/** What one API message has added to the totals, at the latest line seen. */
+interface MessageUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+  cacheCreation5m: number;
+  cacheCreation1h: number;
+  /** Advisor iterations: how many, their tokens, and which models ran them. */
+  advisor: {
+    count: number;
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheCreation: number;
+    models: Map<string, number>;
+  };
+}
+
+/** What a line's `usage` says, read loosely: every field may be missing, and
+ * `iterations[].model` may be null. */
+export function readMessageUsage(usage: Record<string, unknown> | undefined): {
+  usage: MessageUsage;
+  hasCacheCreation: boolean;
+  hasCacheCreationSplit: boolean;
+} {
+  const out: MessageUsage = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheCreation: 0,
+    cacheCreation5m: 0,
+    cacheCreation1h: 0,
+    advisor: { count: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0, models: new Map() }
+  };
+  if (!usage) return { usage: out, hasCacheCreation: false, hasCacheCreationSplit: false };
+  out.input = asNumber(usage.input_tokens);
+  out.output = asNumber(usage.output_tokens);
+  out.cacheRead = asNumber(usage.cache_read_input_tokens);
+  out.cacheCreation = asNumber(usage.cache_creation_input_tokens);
+  const split = usage.cache_creation;
+  const splitRecord =
+    typeof split === "object" && split !== null && !Array.isArray(split)
+      ? (split as Record<string, unknown>)
+      : null;
+  const hasSplit =
+    splitRecord !== null &&
+    (typeof splitRecord.ephemeral_5m_input_tokens === "number" ||
+      typeof splitRecord.ephemeral_1h_input_tokens === "number");
+  if (splitRecord) {
+    out.cacheCreation5m = asNumber(splitRecord.ephemeral_5m_input_tokens);
+    out.cacheCreation1h = asNumber(splitRecord.ephemeral_1h_input_tokens);
+    if (out.cacheCreation === 0) out.cacheCreation = out.cacheCreation5m + out.cacheCreation1h;
+  }
+  if (Array.isArray(usage.iterations)) {
+    for (const item of usage.iterations) {
+      if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+      const entry = item as Record<string, unknown>;
+      if (entry.type !== "advisor_message") continue;
+      out.advisor.count += 1;
+      out.advisor.input += asNumber(entry.input_tokens);
+      out.advisor.output += asNumber(entry.output_tokens);
+      out.advisor.cacheRead += asNumber(entry.cache_read_input_tokens);
+      out.advisor.cacheCreation += asNumber(entry.cache_creation_input_tokens);
+      const model = foldableModelOf(typeof entry.model === "string" ? entry.model : null);
+      if (model) out.advisor.models.set(model, (out.advisor.models.get(model) ?? 0) + 1);
+    }
+  }
+  return {
+    usage: out,
+    hasCacheCreation: typeof usage.cache_creation_input_tokens === "number" || hasSplit,
+    hasCacheCreationSplit: hasSplit
+  };
+}
+
 /**
  * Fold one `assistant` line's usage into the fold's per-message figures and
  * return what the totals should move by. A line with no `message.id` is a
@@ -498,21 +621,34 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
 function foldMessageUsage(
   fold: SessionFold,
   messageId: string | null,
-  usage: Record<string, unknown> | undefined
-): { input: number; output: number; cacheRead: number; firstLine: boolean } {
-  const now = {
-    input: usage ? asNumber(usage.input_tokens) : 0,
-    output: usage ? asNumber(usage.output_tokens) : 0,
-    cacheRead: usage ? asNumber(usage.cache_read_input_tokens) : 0
-  };
-  if (messageId === null) return { ...now, firstLine: true };
+  now: MessageUsage
+): { delta: MessageUsage; firstLine: boolean } {
+  if (messageId === null) return { delta: now, firstLine: true };
   const before = fold.messageTokens.get(messageId);
   fold.messageTokens.set(messageId, now);
-  if (!before) return { ...now, firstLine: true };
+  if (!before) return { delta: now, firstLine: true };
+  const models = new Map<string, number>();
+  for (const [model, count] of now.advisor.models) {
+    const more = count - (before.advisor.models.get(model) ?? 0);
+    if (more > 0) models.set(model, more);
+  }
   return {
-    input: now.input - before.input,
-    output: now.output - before.output,
-    cacheRead: now.cacheRead - before.cacheRead,
+    delta: {
+      input: now.input - before.input,
+      output: now.output - before.output,
+      cacheRead: now.cacheRead - before.cacheRead,
+      cacheCreation: now.cacheCreation - before.cacheCreation,
+      cacheCreation5m: now.cacheCreation5m - before.cacheCreation5m,
+      cacheCreation1h: now.cacheCreation1h - before.cacheCreation1h,
+      advisor: {
+        count: now.advisor.count - before.advisor.count,
+        input: now.advisor.input - before.advisor.input,
+        output: now.advisor.output - before.advisor.output,
+        cacheRead: now.advisor.cacheRead - before.advisor.cacheRead,
+        cacheCreation: now.advisor.cacheCreation - before.advisor.cacheCreation,
+        models
+      }
+    },
     firstLine: false
   };
 }
@@ -777,6 +913,16 @@ async function foldLinesInto(
             if (typeof record.permissionMode === "string" && record.permissionMode !== "") {
               postureHere = snakeCasePermissionMode(record.permissionMode);
             }
+          } else if (isHeadlessEntrypoint(record)) {
+            // Written by a program driving the Agent SDK or a headless run, not
+            // typed. Counted once per line so the prompts it left out are
+            // visible. Like a synthetic line it bounds nothing in the split,
+            // but it declares the session's posture, and it still starts the
+            // agent's first turn (`stepRun` above).
+            if (opts.ledger.claim(record, filePath)) fold.headlessPromptLines += 1;
+            if (typeof record.permissionMode === "string" && record.permissionMode !== "") {
+              postureHere = snakeCasePermissionMode(record.permissionMode);
+            }
           } else if (opts.ledger.isDispatched(record)) {
             // A chip's prompt, opening the session it launched. Nobody typed
             // it, so it is not a prompt and not a person's instant; clicking
@@ -822,7 +968,18 @@ async function foldLinesInto(
           const usage = message?.usage as Record<string, unknown> | undefined;
           // Counted once per API message, not once per line: see
           // `messageTokens`. Turns and the model mix are per message too.
-          const counted = foldMessageUsage(fold, typeof message?.id === "string" ? message.id : null, usage);
+          const read = readMessageUsage(usage);
+          if (read.hasCacheCreation) fold.cacheCreationSeen = true;
+          if (read.hasCacheCreationSplit) fold.cacheCreationSplitSeen = true;
+          const { delta: counted, firstLine } = foldMessageUsage(
+            fold,
+            typeof message?.id === "string" ? message.id : null,
+            read.usage
+          );
+          const advisor = counted.advisor;
+          const advisorTokens = advisor.input + advisor.output + advisor.cacheRead + advisor.cacheCreation;
+          fold.advisorMessageCount += advisor.count;
+          fold.advisorTokensTotal += advisorTokens;
           // Before the sidechain split: a tool call is a tool call whichever
           // thread issued it, and the counters below keep the two apart.
           // A line with no usable timestamp can still be counted but cannot
@@ -840,16 +997,17 @@ async function foldLinesInto(
             }
           }
           if (opts.isSidechain) {
-            if (counted.firstLine) fold.subagentAssistantTurns += 1;
-            fold.subagentTokensTotal += counted.input + counted.output + counted.cacheRead;
+            if (firstLine) fold.subagentAssistantTurns += 1;
+            fold.subagentTokensTotal +=
+              counted.input + counted.output + counted.cacheRead + counted.cacheCreation + advisorTokens;
             break;
           }
-          if (counted.firstLine) fold.assistantTurns += 1;
+          if (firstLine) fold.assistantTurns += 1;
           // A runtime notice names no model, so it moves none of the three
           // model figures — and crucially does not touch `lastMainModel`
           // either, so a run interrupted by a notice and resumed on the same
           // model reads as the zero switches it was.
-          const foldedModel = counted.firstLine ? foldableModelOf(sniffed.model) : null;
+          const foldedModel = firstLine ? foldableModelOf(sniffed.model) : null;
           if (foldedModel) {
             fold.models.set(foldedModel, (fold.models.get(foldedModel) ?? 0) + 1);
             if (fold.lastMainModel && fold.lastMainModel !== foldedModel) {
@@ -865,9 +1023,18 @@ async function foldLinesInto(
           // second rule, and would hard-code the assumption that these lines
           // always report zero — if one ever reports real tokens, they were
           // really spent and this counts them.
-          fold.inputTokens += counted.input;
-          fold.outputTokens += counted.output;
-          fold.cacheReadTokens += counted.cacheRead;
+          // The advisor's tokens are not in the message's own `usage`, so they
+          // join the totals here. Its model joins the mix without touching
+          // `lastMainModel`: the main thread did not switch to it.
+          for (const [model, count] of advisor.models) {
+            fold.models.set(model, (fold.models.get(model) ?? 0) + count);
+          }
+          fold.inputTokens += counted.input + advisor.input;
+          fold.outputTokens += counted.output + advisor.output;
+          fold.cacheReadTokens += counted.cacheRead + advisor.cacheRead;
+          fold.cacheCreationTokens += counted.cacheCreation + advisor.cacheCreation;
+          fold.cacheCreation5mTokens += counted.cacheCreation5m;
+          fold.cacheCreation1hTokens += counted.cacheCreation1h;
           if (usage) {
             const contextTokens =
               asNumber(usage.input_tokens) +
@@ -981,12 +1148,70 @@ async function walkJsonlFiles(root: string): Promise<{ files: string[]; otherFil
   return { files: out, otherFiles };
 }
 
+/** How many object lines to look at before calling a top-level file a main
+ * thread. A flat subagent file marks itself on its first line, so this only
+ * bounds the cost of the check on the usual case, a real session. */
+const SIDECHAIN_PROBE_LINES = 20;
+
+/**
+ * Whether a top-level `<project>/*.jsonl` is a subagent transcript, and if so
+ * the session it belongs to.
+ *
+ * Older Claude Code wrote subagent transcripts flat, as
+ * `<project>/agent-<id>.jsonl`, rather than under the parent's directory. Their
+ * lines say so themselves: `isSidechain: true`, an `agentId`, and the parent's
+ * `sessionId`. The lines are what decide, not the file name, which is only a
+ * habit of the runtime that wrote them. A main-thread transcript carries
+ * neither field, so one that does not announce itself in its first lines is
+ * read as a session.
+ */
+export async function probeTopLevelTranscript(
+  filePath: string
+): Promise<{ sidechain: boolean; parentSessionId: string | null }> {
+  let handle;
+  try {
+    handle = await fs.open(filePath);
+  } catch {
+    return { sidechain: false, parentSessionId: null };
+  }
+  let seen = 0;
+  try {
+    for await (const line of handle.readLines({ encoding: "utf8" })) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
+      const record = parsed as Record<string, unknown>;
+      if (record.isSidechain === true || (typeof record.agentId === "string" && record.agentId !== "")) {
+        return {
+          sidechain: true,
+          parentSessionId:
+            typeof record.sessionId === "string" && record.sessionId !== "" ? record.sessionId : null
+        };
+      }
+      seen += 1;
+      if (seen >= SIDECHAIN_PROBE_LINES) break;
+    }
+  } finally {
+    await handle.close();
+  }
+  return { sidechain: false, parentSessionId: null };
+}
+
 /** One project directory's transcripts, listed before anything is read. */
 interface ProjectPlan {
   slug: string;
   dir: string;
   /** Main-thread transcript names, sorted. */
   topLevelFiles: string[];
+  /** Top-level files that are subagent transcripts, with the session each
+   * belongs to (null where their lines name none). */
+  flatSidechains: { name: string; parentSessionId: string | null }[];
   /** Files at the top level that aren't transcripts. */
   otherFiles: number;
   /** Session directories, sorted, each with its subagent transcripts. */
@@ -1043,6 +1268,9 @@ export async function* extractClaudeCode(
   // Reported rather than dropped in silence, because the count is the cost of
   // the ownership rule and a reader is entitled to see it.
   let sessionsWithOnlyInheritedLines = 0;
+  // Flat subagent files whose lines name no parent session. Dropped from the
+  // session list on purpose, and counted here so the drop is visible.
+  let unattributedSubagentTranscripts = 0;
 
   // The whole walk is listed before anything is read, because the prompt
   // ledger has to read every transcript, in this order, before the first
@@ -1056,10 +1284,16 @@ export async function* extractClaudeCode(
     } catch {
       continue;
     }
-    const topLevelFiles = entries
+    const topLevelFiles: string[] = [];
+    const flatSidechains: ProjectPlan["flatSidechains"] = [];
+    for (const name of entries
       .filter((e) => e.isFile() && e.name.endsWith(".jsonl"))
       .map((e) => e.name)
-      .sort();
+      .sort()) {
+      const probe = await probeTopLevelTranscript(path.join(dir, name));
+      if (probe.sidechain) flatSidechains.push({ name, parentSessionId: probe.parentSessionId });
+      else topLevelFiles.push(name);
+    }
     const sessionDirs: ProjectPlan["sessionDirs"] = [];
     for (const name of entries
       .filter((e) => e.isDirectory())
@@ -1072,6 +1306,7 @@ export async function* extractClaudeCode(
       slug,
       dir,
       topLevelFiles,
+      flatSidechains,
       otherFiles: entries.filter((e) => e.isFile() && !e.name.endsWith(".jsonl")).length,
       sessionDirs
     });
@@ -1080,7 +1315,10 @@ export async function* extractClaudeCode(
   const mainTranscripts = plan.flatMap((p) => p.topLevelFiles.map((name) => path.join(p.dir, name)));
   const { ledger, claims } = await readPromptLedger(
     mainTranscripts,
-    plan.flatMap((p) => p.sessionDirs.flatMap((d) => d.files)),
+    plan.flatMap((p) => [
+      ...p.flatSidechains.map((f) => path.join(p.dir, f.name)),
+      ...p.sessionDirs.flatMap((d) => d.files)
+    ]),
     isToolResultUserLine
   );
   // Which transcript wrote each line that two of them claim. Only the files
@@ -1096,8 +1334,8 @@ export async function* extractClaudeCode(
   // because the rule for a line whose home file is gone is first-come.
   const ownership = new TimelineOwnership(mainTranscripts, contestedOwners);
 
-  for (const { slug, dir, topLevelFiles, otherFiles, sessionDirs } of plan) {
-    let slugJsonlFiles = topLevelFiles.length;
+  for (const { slug, dir, topLevelFiles, flatSidechains, otherFiles, sessionDirs } of plan) {
+    let slugJsonlFiles = topLevelFiles.length + flatSidechains.length;
     let slugOtherFiles = otherFiles;
 
     // Keyed by the top-level filename's own basename, which is also the
@@ -1119,6 +1357,25 @@ export async function* extractClaudeCode(
     for (const name of topLevelFiles) {
       const fold = await foldTranscript(path.join(dir, name), slug, ledger, ownership);
       foldsByKey.set(path.basename(name, ".jsonl"), fold);
+    }
+
+    // Flat subagent files fold into the session they name, the way the nested
+    // ones fold into their directory's. When that session's own transcript is
+    // gone (the purge), the fold is seeded from the subagent file, as it is for
+    // an orphaned directory. A file naming no session has nowhere to go, and is
+    // counted rather than turned into a session of its own.
+    for (const { name, parentSessionId } of flatSidechains) {
+      if (parentSessionId === null) {
+        unattributedSubagentTranscripts += 1;
+        continue;
+      }
+      let fold = foldsByKey.get(parentSessionId);
+      if (!fold) {
+        fold = newFold(parentSessionId, slug);
+        foldsByKey.set(parentSessionId, fold);
+      }
+      fold.subagentTranscripts += 1;
+      await foldLinesInto(fold, path.join(dir, name), { isSidechain: true, ledger, ownership });
     }
 
     for (const { name: sessionDirName, files: nestedFiles, otherFiles: nestedOther } of sessionDirs) {
@@ -1202,6 +1459,7 @@ export async function* extractClaudeCode(
         inputTokens: fold.inputTokens,
         outputTokens: fold.outputTokens,
         cacheReadTokens: fold.cacheReadTokens,
+        headlessPromptLines: fold.headlessPromptLines,
         durationBucket: durationBucketOf(fold),
         afterHoursPrompts: fold.afterHoursPrompts,
         unknownLines: fold.unknownLines,
@@ -1244,6 +1502,18 @@ export async function* extractClaudeCode(
         subagentTokensTotal: fold.subagentTokensTotal,
         subagentToolCallCount: fold.subagentToolCallCount
       };
+      // Present only where the store wrote the field at all: an older
+      // transcript with no cache-write figure is not a session that wrote
+      // nothing to the cache.
+      if (fold.cacheCreationSeen) sessionMetrics.cacheCreationTokens = fold.cacheCreationTokens;
+      if (fold.cacheCreationSplitSeen) {
+        sessionMetrics.cacheCreation5mTokens = fold.cacheCreation5mTokens;
+        sessionMetrics.cacheCreation1hTokens = fold.cacheCreation1hTokens;
+      }
+      if (fold.advisorMessageCount > 0) {
+        sessionMetrics.advisorMessageCount = fold.advisorMessageCount;
+        sessionMetrics.advisorTokensTotal = fold.advisorTokensTotal;
+      }
       // Exact minutes, not just the bucket — the backend's SessionMinutesPerDay
       // reader prefers an explicit `sessionMinutes` metric over deriving a
       // bucket midpoint, so ship the real number when the timeline gives it.
@@ -1349,7 +1619,7 @@ export async function* extractClaudeCode(
   // this extractor could no longer read produced no diagnostic at all —
   // silence indistinguishable from "you did no work". Emit whenever there is
   // either a window or a read failure to declare.
-  if ((windowOldest && windowNewest) || projectsWithNoReadableTranscript > 0 || sessionsWithOnlyInheritedLines > 0) {
+  if ((windowOldest && windowNewest) || projectsWithNoReadableTranscript > 0 || sessionsWithOnlyInheritedLines > 0 || unattributedSubagentTranscripts > 0) {
     const window: Record<string, string> =
       windowOldest && windowNewest ? { windowOldest, windowNewest } : {};
     yield {
@@ -1365,7 +1635,8 @@ export async function* extractClaudeCode(
         ...window,
         sessionCount,
         projectsWithNoReadableTranscript,
-        sessionsWithOnlyInheritedLines
+        sessionsWithOnlyInheritedLines,
+        unattributedSubagentTranscripts
       },
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId

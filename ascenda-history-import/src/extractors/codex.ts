@@ -287,6 +287,10 @@ interface SessionFold {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  /** Whether any `token_count` event carried a running total. Rollouts written
+   * before those events existed have none, and their sums are not zero, they
+   * are unmeasured. */
+  tokensSeen: boolean;
   models: Map<string, number>;
   lastModel: string | null;
   modelSwitchCount: number;
@@ -323,6 +327,7 @@ function newFold(sessionId: string): SessionFold {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
+    tokensSeen: false,
     models: new Map(),
     lastModel: null,
     modelSwitchCount: 0,
@@ -467,6 +472,7 @@ async function foldRollout(filePath: string): Promise<SessionFold> {
               if (!info) break;
               const total = asRecord(info.total_token_usage);
               if (total) {
+                fold.tokensSeen = true;
                 fold.inputTokens = Math.max(fold.inputTokens, asNumber(total.input_tokens));
                 fold.outputTokens = Math.max(fold.outputTokens, asNumber(total.output_tokens));
                 fold.cacheReadTokens = Math.max(fold.cacheReadTokens, asNumber(total.cached_input_tokens));
@@ -680,9 +686,6 @@ export async function* extractCodex(
       assistantTurns: fold.assistantTurns,
       toolCallCount: fold.toolCallCount,
       toolResultCount: fold.toolResults,
-      inputTokens: fold.inputTokens,
-      outputTokens: fold.outputTokens,
-      cacheReadTokens: fold.cacheReadTokens,
       durationBucket: durationBucketOf(fold),
       afterHoursPrompts: fold.afterHoursPrompts,
       unknownLines: fold.unknownLines,
@@ -703,6 +706,16 @@ export async function* extractCodex(
       activeSplitUndatedLines: fold.undatedTimelineLines,
       activeSplitUnposturedInstants: split.unposturedInstants
     };
+    // Token keys only where a `token_count` event reported a total. Without
+    // one the figures are unmeasured, and shipping 0 would read as a session
+    // that spent nothing. The flag says why the keys are missing.
+    if (fold.tokensSeen) {
+      sessionMetrics.inputTokens = fold.inputTokens;
+      sessionMetrics.outputTokens = fold.outputTokens;
+      sessionMetrics.cacheReadTokens = fold.cacheReadTokens;
+    } else {
+      sessionMetrics.tokensNotCollected = true;
+    }
     // The ratio only where the store named its own denominator. Claude Code
     // has to assume one; this store does not, and computing against a guess
     // when the real figure is usually right there would be a step backwards.

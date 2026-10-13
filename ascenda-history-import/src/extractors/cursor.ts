@@ -354,6 +354,13 @@ interface ComposerFold {
   recencyMs: number | null;
   checkpointAtMs: number | null;
   lastBubbleMs: number | null;
+  /** The earliest dated bubble of the composer's own. See `startMsOf`. */
+  firstBubbleMs: number | null;
+  /** Whether any bubble, the composer's own or a subagent's, recorded a
+   * nonzero token figure. Current Cursor builds write `tokenCount` as
+   * {0, 0} on every bubble, so a sum of zeros is "not collected", and it
+   * must not ship as if it were a measured zero. */
+  tokensSeen: boolean;
   mode: string | null;
   linesAdded: number;
   linesRemoved: number;
@@ -422,6 +429,8 @@ function newFold(row: RawHeaderRow, sniffed: Extract<SniffedCursorHeader, { kind
     recencyMs: Number.isFinite(row.recency) ? (row.recency as number) : null,
     checkpointAtMs: Number.isFinite(row.checkpointAt) ? (row.checkpointAt as number) : null,
     lastBubbleMs: null,
+    firstBubbleMs: null,
+    tokensSeen: false,
     mode: sniffed.mode,
     linesAdded: sniffed.linesAdded,
     linesRemoved: sniffed.linesRemoved,
@@ -457,6 +466,10 @@ function newFold(row: RawHeaderRow, sniffed: Extract<SniffedCursorHeader, { kind
 export type CursorTimelineSource = "header" | "bubbles" | "recency" | "checkpoint";
 
 export interface ResolvedTimeline {
+  startedAtMs: number;
+  /** Where the start came from: the earliest bubble, or the header's
+   * `createdAt` for a composer with no dated bubble. */
+  startSource: "header" | "bubble";
   endedAtMs: number;
   source: CursorTimelineSource;
 }
@@ -481,29 +494,53 @@ export interface ResolvedTimeline {
  *  - `checkpointAt` — last, present on only 27 of the 42 and describing a
  *    checkpoint rather than the conversation.
  *
- * A candidate before `createdAtMs` is not an end and is skipped, so a
+ * A candidate before the start is not an end and is skipped, so a
  * repaired timeline can never invent a negative duration.
  */
 export function resolveTimeline(fold: ComposerFold): ResolvedTimeline | null {
-  if (fold.createdAtMs === null) return null;
-  if (fold.lastUpdatedAtMs !== null) return { endedAtMs: fold.lastUpdatedAtMs, source: "header" };
-  const candidates: [number | null, CursorTimelineSource][] = [
-    [fold.lastBubbleMs, "bubbles"],
-    [fold.recencyMs, "recency"],
-    [fold.checkpointAtMs, "checkpoint"]
-  ];
-  for (const [ms, source] of candidates) {
-    if (ms !== null && Number.isFinite(ms) && ms >= fold.createdAtMs) {
-      return { endedAtMs: ms, source };
+  const created = typeof fold.createdAtMs === "number" ? fold.createdAtMs : null;
+  const firstBubble = typeof fold.firstBubbleMs === "number" ? fold.firstBubbleMs : null;
+  // The end is judged against the earlier of the two starts, so a bubble that
+  // predates `createdAt` can never make a valid end look too early.
+  const floor =
+    created !== null && firstBubble !== null ? Math.min(created, firstBubble) : (created ?? firstBubble);
+  if (floor === null) return null;
+  let end: { ms: number; source: CursorTimelineSource } | null = null;
+  if (fold.lastUpdatedAtMs !== null && fold.lastUpdatedAtMs >= floor) {
+    end = { ms: fold.lastUpdatedAtMs, source: "header" };
+  } else {
+    const candidates: [number | null, CursorTimelineSource][] = [
+      [fold.lastBubbleMs, "bubbles"],
+      [fold.recencyMs, "recency"],
+      [fold.checkpointAtMs, "checkpoint"]
+    ];
+    for (const [ms, source] of candidates) {
+      if (ms !== null && Number.isFinite(ms) && ms >= floor) {
+        end = { ms, source };
+        break;
+      }
     }
   }
-  return null;
+  if (end === null) return null;
+  // The start is the earliest message, not the header's `createdAt`: a
+  // conversation can be created months before anyone types into it. The
+  // exception is a first message dated after the end the header gave, which no
+  // real conversation has and which would make a negative duration.
+  if (firstBubble !== null && firstBubble <= end.ms) {
+    return { startedAtMs: firstBubble, startSource: "bubble", endedAtMs: end.ms, source: end.source };
+  }
+  return {
+    startedAtMs: created !== null && created <= end.ms ? created : floor,
+    startSource: "header",
+    endedAtMs: end.ms,
+    source: end.source
+  };
 }
 
 function sessionDurationMs(fold: ComposerFold): number | null {
   const timeline = resolveTimeline(fold);
   if (timeline === null) return null;
-  const ms = timeline.endedAtMs - (fold.createdAtMs as number);
+  const ms = timeline.endedAtMs - timeline.startedAtMs;
   return Number.isFinite(ms) && ms >= 0 ? ms : null;
 }
 
@@ -612,6 +649,7 @@ export async function* extractCursor(
       );
       ownFold.inputTokens += sniffed.inputTokens;
       ownFold.outputTokens += sniffed.outputTokens;
+      if (sniffed.inputTokens + sniffed.outputTokens > 0) ownFold.tokensSeen = true;
       ownFold.humanChangesCount += sniffed.humanChangesCount;
       ownFold.lintErrorsCount += sniffed.lintErrorsCount;
       if (sniffed.modelName) {
@@ -621,6 +659,9 @@ export async function* extractCursor(
         const ms = Date.parse(sniffed.createdAt);
         if (Number.isFinite(ms) && (ownFold.lastBubbleMs === null || ms > ownFold.lastBubbleMs)) {
           ownFold.lastBubbleMs = ms;
+        }
+        if (Number.isFinite(ms) && (ownFold.firstBubbleMs === null || ms < ownFold.firstBubbleMs)) {
+          ownFold.firstBubbleMs = ms;
         }
       }
       foldToolCall(ownFold, sniffed);
@@ -649,6 +690,7 @@ export async function* extractCursor(
     }
     parentFold.subagentComposerIds.add(sniffed.composerId);
     parentFold.subagentTokensTotal += sniffed.inputTokens + sniffed.outputTokens;
+    if (sniffed.inputTokens + sniffed.outputTokens > 0) parentFold.tokensSeen = true;
     // Into the SAME map as the parent's own calls, not a parallel one: the
     // dedup by id is exactly what stops a subagent's tool bubbles — which
     // Cursor also copies into the parent composer — from being counted twice.
@@ -670,6 +712,9 @@ export async function* extractCursor(
   /** Composers no fallback could date — the loud version of the old silent
    * `continue`. Non-zero means conversations are missing from this import. */
   let sessionsWithoutTimeline = 0;
+  /** Sessions started at their earliest message rather than the header's
+   * `createdAt`, because the two disagree. */
+  let sessionsStartedFromBubble = 0;
   /** Conversations opened and never used. Not sessions (a window nobody
    * typed into is not work), but counted, because "excluded by rule" and
    * "lost at a boundary" must not look alike. */
@@ -693,7 +738,10 @@ export async function* extractCursor(
     if (timeline.source !== "header") {
       derivedTimelines.set(timeline.source, (derivedTimelines.get(timeline.source) ?? 0) + 1);
     }
-    const startedAt = new Date(fold.createdAtMs as number).toISOString();
+    const startedAt = new Date(timeline.startedAtMs).toISOString();
+    if (timeline.startSource === "bubble" && fold.createdAtMs !== timeline.startedAtMs) {
+      sessionsStartedFromBubble += 1;
+    }
     const endedAt = new Date(timeline.endedAtMs).toISOString();
     sessionCount += 1;
     if (!windowOldest || startedAt < windowOldest) windowOldest = startedAt;
@@ -750,8 +798,6 @@ export async function* extractCursor(
       toolCallsUndated,
       promptCount: fold.humanPrompts,
       assistantTurns: fold.assistantTurns,
-      inputTokens: fold.inputTokens,
-      outputTokens: fold.outputTokens,
       linesAdded: fold.linesAdded,
       linesRemoved: fold.linesRemoved,
       filesChangedCount: fold.filesChangedCount,
@@ -765,9 +811,19 @@ export async function* extractCursor(
       subagentComposers: fold.subagentComposerIds.size,
       subagentPrompts: fold.subagentPromptCount,
       subagentAssistantTurns: fold.subagentAssistantTurns,
-      subagentTokensTotal: fold.subagentTokensTotal,
       sessionStartedAt: startedAt
     };
+    // Current Cursor builds write every bubble's `tokenCount` as {0, 0}. A
+    // session whose bubbles all say that was not measured, so the token keys
+    // are left off rather than shipped as 0, and a flag says why they are
+    // missing. A session with any nonzero figure keeps the sums, zeros and all.
+    if (fold.tokensSeen) {
+      sessionMetrics.inputTokens = fold.inputTokens;
+      sessionMetrics.outputTokens = fold.outputTokens;
+      sessionMetrics.subagentTokensTotal = fold.subagentTokensTotal;
+    } else {
+      sessionMetrics.tokensNotCollected = true;
+    }
     if (durationMs !== null) sessionMetrics.sessionMinutes = Math.round(durationMs / 60_000);
     if (fold.mode) sessionMetrics.mode = fold.mode;
     if (fold.contextUsagePercent !== null) {
@@ -860,6 +916,7 @@ export async function* extractCursor(
         orphanedBubbles,
         sessionsWithoutTimeline,
         emptyComposers,
+        sessionsStartedFromBubble,
         sessionsFromBubbleTimeline: derivedTimelines.get("bubbles") ?? 0,
         sessionsFromRecencyTimeline: derivedTimelines.get("recency") ?? 0,
         sessionsFromCheckpointTimeline: derivedTimelines.get("checkpoint") ?? 0
