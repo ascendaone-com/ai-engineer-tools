@@ -89,6 +89,10 @@ export function sessionOnTheWire({ cli, toolType, hooks, payloads, sessionField,
           assert.equal(received.length, 0, `${hook} is registered for the live bus alone and sent ${received.length} events`);
           return;
         }
+        // By default a hook queues and a detached flusher sends, after the
+        // hook has exited. Inline delivery has already sent by now.
+        const deadline = Date.now() + 10_000;
+        while (received.length === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
         assert.ok(received.length > 0, `${hook} sent nothing`);
         for (const payload of received) {
           assert.equal(payload.sessionId, SESSION, `${payload.eventType} from ${hook} carried sessionId=${JSON.stringify(payload.sessionId)}`);

@@ -18,7 +18,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractClaudeCode } from "../dist/extractors/claudeCode.js";
-import { isTypedPromptLine } from "../dist/interruptedRuns.js";
+import { isTypedPromptLine, stepRun } from "../dist/interruptedRuns.js";
 import { buildHandoff } from "../dist/localHandoff.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +72,8 @@ test("lines the runtime writes on the person's behalf aren't typed", () => {
     "a slash command's stdout": line("<local-command-stdout>redacted</local-command-stdout>"),
     "a slash command's stderr": line("<local-command-stderr>redacted</local-command-stderr>"),
     "the local-command caveat": line([{ type: "text", text: "<local-command-caveat>redacted</local-command-caveat>" }]),
+    "a `!` command and its output": line("<bash-input>git status</bash-input><bash-stdout>clean</bash-stdout><bash-stderr></bash-stderr>", { origin: { kind: "human" } }),
+    "a `!` command with no output yet": line("<bash-input>ls</bash-input>"),
     "a bare reminder": line("  <system-reminder>redacted</system-reminder>\n")
   };
   for (const [what, record] of Object.entries(declined)) {
@@ -85,6 +87,7 @@ test("a typed prompt is typed, wrapper or not", () => {
     "a text block": line([{ type: "text", text: "redacted" }]),
     "a reminder with a prompt beside it": line("<system-reminder>redacted</system-reminder>\nredacted"),
     "a prompt that opens like a wrapper": line("<command-name> is the tag I meant"),
+    "a prompt that mentions a bash tag": line("what does <bash-input> mean in the transcript?"),
     "a prompt that mentions the marker": line("why did you write [Request interrupted by user] there?"),
     "a prompt with an image": line([{ type: "text", text: "redacted" }, { type: "image" }]),
     "an origin nobody declines": line("redacted", { origin: { kind: "human" } })
@@ -176,4 +179,46 @@ test("a handoff from before the stamp reads as every user line, and the schema d
   const after = handoffOf(await extractLines([userAt("2026-09-08T12:00:00.000Z", "redacted"), replyAt("2026-09-08T12:00:05.000Z")]));
   assert.equal(after.schema, before.schema);
   assert.equal(promptBasisRead(after), "typed_once");
+});
+
+// ── Shell mode (`!`) ───────────────────────────────────────────────────────
+
+const bashLine = (at) =>
+  userAt(at, "<bash-input>git status</bash-input><bash-stdout>clean</bash-stdout><bash-stderr></bash-stderr>", { origin: { kind: "human" } });
+
+test("a `!` command isn't a prompt: it's counted as a synthetic line", async () => {
+  const events = await extractLines([
+    userAt("2026-09-08T12:00:00.000Z", "redacted"),
+    replyAt("2026-09-08T12:00:10.000Z"),
+    bashLine("2026-09-08T12:01:00.000Z"),
+    userAt("2026-09-08T12:02:00.000Z", "redacted"),
+    replyAt("2026-09-08T12:02:10.000Z")
+  ]);
+  const { metrics } = sessionOf(events);
+  assert.equal(metrics.promptCount, 2);
+  assert.equal(metrics.syntheticPromptLines, 1);
+  assert.equal(events.filter((e) => e.eventKind === "ai_prompt_submitted").length, 2);
+});
+
+test("a `!` command in the middle of a span reads like bookkeeping", async () => {
+  const around = (middle) => [
+    userAt("2026-09-08T12:00:00.000Z", "redacted"),
+    replyAt("2026-09-08T12:00:10.000Z"),
+    middle,
+    userAt("2026-09-08T12:04:10.000Z", "redacted"),
+    replyAt("2026-09-08T12:04:20.000Z")
+  ];
+  const split = (events) => {
+    const { handsOnMinutes, agentSupervisingMinutes, activeMinutes, activeSplitInstants } = sessionOf(events).metrics;
+    return { handsOnMinutes, agentSupervisingMinutes, activeMinutes, activeSplitInstants };
+  };
+  const at = "2026-09-08T12:02:10.000Z";
+  const bookkeeping = split(await extractLines(around(JSON.stringify({ ...base, type: "attachment", timestamp: at }))));
+  assert.deepEqual(split(await extractLines(around(bashLine(at)))), bookkeeping);
+});
+
+test("a `!` command doesn't cut a run short", () => {
+  const record = line("<bash-input>ls</bash-input><bash-stdout></bash-stdout>", { origin: { kind: "human" } });
+  assert.equal(stepRun(true, record, () => false).cut, false);
+  assert.equal(stepRun(false, record, () => false).running, false, "it doesn't start a turn either");
 });

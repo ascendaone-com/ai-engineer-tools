@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCodexEvent } from "./mapCodexEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -18,6 +18,12 @@ import { ASCENDA_TOOL_TYPE, CODEX_HOST, CodexHookEventName, CodexHookInput } fro
  * first would hang on a pipe nothing will ever write to.
  */
 async function main(): Promise<void> {
+  // A detached flusher started by an earlier hook, not a hook: no stdin, no
+  // agent waiting. See backgroundDelivery.ts in tool-kit.
+  if (process.argv[2] === OUTBOX_FLUSH_COMMAND) {
+    await flushHookOutbox({ toolType: ASCENDA_TOOL_TYPE, host: CODEX_HOST, source: "cli_agent" });
+    return;
+  }
   const command = process.argv[2];
   if (isCliAgentManagementCommand(command)) {
     managementExitCode = await runCliAgentSetup(process.argv.slice(2), SETUP);
@@ -38,6 +44,11 @@ async function main(): Promise<void> {
   stampLastHook(CODEX_HOST, hookName);
   if (hookName === "UserPromptSubmit") recordTurnStart(CODEX_HOST, sessionId);
   if (hookName === "Stop") turnDurationMs = consumeTurnDurationMs(CODEX_HOST, sessionId);
+
+  // Codex gives SessionEnd at most 3 s and is exiting while it runs. The
+  // sender's own 3 s default would use all of it, so the send gets half; a send
+  // that times out stays in the outbox for the next hook to deliver.
+  if (hookName === "SessionEnd") process.env.ASCENDA_HTTP_TIMEOUT_MS ??= "1500";
 
   // The local live bus, before the cloud send. See `emitLive` below.
   await emitLive(hookName, input, sessionId);

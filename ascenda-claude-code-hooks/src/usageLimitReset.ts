@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { claudeConfigDir } from "./paths.js";
 
 /**
  * When a usage limit lifts, for the `resumesAt` on a rate-limited `halted`
@@ -178,7 +178,8 @@ export function managedSettingsPath(): string {
 export interface AutoContinueSources {
   managedPath?: string;
   projectDir?: string;
-  home?: string;
+  /** The user settings folder; `$CLAUDE_CONFIG_DIR` or `~/.claude` when absent. */
+  configDir?: string;
 }
 
 /**
@@ -190,13 +191,12 @@ export interface AutoContinueSources {
  * skipped.
  */
 export function autoContinueEnabled(sources: AutoContinueSources = {}): boolean {
-  const home = sources.home ?? os.homedir();
   const files = [
     sources.managedPath ?? managedSettingsPath(),
     ...(sources.projectDir
       ? [path.join(sources.projectDir, ".claude", "settings.local.json"), path.join(sources.projectDir, ".claude", "settings.json")]
       : []),
-    path.join(home, ".claude", "settings.json")
+    path.join(sources.configDir ?? claudeConfigDir(), "settings.json")
   ];
   for (const file of files) {
     const value = readSetting(file, "autoContinueAtUsageLimit");

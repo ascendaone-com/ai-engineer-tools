@@ -26,7 +26,9 @@ export const SETUP: CliAgentSetupSpec = {
   hookEvents: HOOK_EVENTS,
   restartHint: "Restart Windsurf to load the hooks.",
   // Nothing beyond the shared set. Cascade's file hooks report that a write
-  // happened, never how much of it changed.
+  // happened, never how much of it changed, and its command hook reports no
+  // status, so no git action is sent: one is only sent for a call that
+  // succeeded.
   sends: [],
   settings: {
     settingsPath: (scope, projectDir) =>

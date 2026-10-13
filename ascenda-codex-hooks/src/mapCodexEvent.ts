@@ -7,9 +7,10 @@ import {
   getString,
   inferOutcome,
   isVerificationCommand,
-  looksLikeCorrection
+  looksLikeCorrection,
+  shellCommandFacts
 } from "@ascenda-one/tool-kit";
-import type { AutonomyMode } from "@ascenda-one/tool-contract";
+import type { AutonomyMode, SessionEndReason } from "@ascenda-one/tool-contract";
 import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from "./types.js";
 
 /**
@@ -60,6 +61,11 @@ function mapEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurat
     // the count is that a gate was reached, when, and in which session.
     case "PermissionRequest":
       return [{ eventType: "supervision_interruption", severity: "low", metadata: withHost({ interruptionKind: "permission_request" }) }];
+    // Codex 0.146 and later. The session is over, whatever the `reason`: Codex
+    // sends "other" for every ending today, so it is carried only as the
+    // catalog's own word and never branched on. Same row as Claude Code's
+    // `SessionEnd`, so the two sum.
+    case "SessionEnd": return mapSessionEnd(input);
     // The subagent lifecycle is still deliberately unmapped: it is not an
     // interruption of the person, and it is out of scope here.
     case "SubagentStart":
@@ -81,6 +87,18 @@ function mapSessionStart(input: CodexHookInput): MappedCodexEvent[] {
   return [{ eventType: "create_focus_session", severity: "low", metadata: withHost({ activity: "session_started", ...autonomyModeMetadata(input) }) }];
 }
 
+function mapSessionEnd(input: CodexHookInput): MappedCodexEvent[] {
+  const raw = input["reason"];
+  return [{
+    eventType: "recovery_offline_period",
+    severity: "low",
+    metadata: withHost({
+      activity: "session_ended",
+      ...(raw === undefined || raw === null ? {} : { sessionEndReason: classifySessionEndReason(raw) })
+    })
+  }];
+}
+
 function mapUserPromptSubmit(input: CodexHookInput): MappedCodexEvent[] {
   const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"]]);
   const autonomy = autonomyModeMetadata(input);
@@ -95,10 +113,10 @@ function mapPostToolUse(input: CodexHookInput): MappedCodexEvent[] {
   const toolName = getToolName(input);
   const safeToolName = sanitiseToolName(toolName);
   const outcome = inferOutcome(input);
-  const command = getString(input, ["command"]) ?? getNestedString(input, [["tool_input", "command"], ["input", "command"]]);
+  const command = getCommand(input);
   const commandClass = classifyCommand(command);
   const lowered = toolName?.toLowerCase();
-  const isShell = lowered === "bash" || lowered === "shell" || lowered === "local_shell";
+  const isShell = lowered === "bash" || lowered === "shell" || lowered === "local_shell" || lowered === "exec_command" || lowered === "shell_command";
   // Deliberately not gated on outcome. A call that failed still happened under
   // a permission posture, and a failure under `bypass_permissions` is a
   // different fact from the same failure under `default` — gating would erase it.
@@ -120,7 +138,10 @@ function mapPostToolUse(input: CodexHookInput): MappedCodexEvent[] {
     return [{ eventType: "editor_verification_activity", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, activity: "ai_test_or_build_run", ...autonomy }) }];
   }
 
-  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, ...autonomy }) }];
+  // Only a call that reported success is a delivery or a reversion: a failed
+  // commit moved nothing, and an unknown outcome proves nothing either way.
+  const facts = isShell && outcome === "success" ? shellCommandFacts(command) : {};
+  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, ...facts, ...autonomy }) }];
 }
 
 function mapPreCompact(input: CodexHookInput): MappedCodexEvent[] {
@@ -240,8 +261,48 @@ const AUTONOMY_BY_PERMISSION_MODE: Record<string, AutonomyMode> = {
   bypasspermissions: "bypass_permissions"
 };
 
+const SESSION_END_REASONS: readonly SessionEndReason[] = ["clear", "resume", "logout", "prompt_input_exit", "other"];
+
+/** Total, like {@link classifyAutonomyMode}: an unrecognised reason is sent as `unknown`, not dropped. */
+export function classifySessionEndReason(raw: unknown): SessionEndReason {
+  if (typeof raw !== "string") return "unknown";
+  const value = raw.trim().toLowerCase();
+  return (SESSION_END_REASONS as readonly string[]).includes(value) ? value as SessionEndReason : "unknown";
+}
+
+/**
+ * Codex Desktop namespaces its tools (`functions.apply_patch`); the CLI does
+ * not. The prefix is dropped so one spelling reaches every comparison and the
+ * name that goes on the wire.
+ */
 function getToolName(input: CodexHookInput): string | undefined {
-  return getString(input, ["tool_name", "toolName", "name"]);
+  return getString(input, ["tool_name", "toolName", "name"])?.replace(/^functions\./i, "");
+}
+
+/**
+ * The shell command, wherever this tool keeps it. `exec_command` names it
+ * `cmd`, `shell_command` and `bash` use `command`, and `shell` sends argv, in
+ * which case a `bash -lc "<script>"` wrapper is unwrapped to the script. Read
+ * only to classify, never kept.
+ */
+function getCommand(input: CodexHookInput): string | undefined {
+  const direct = getString(input, ["command"]);
+  if (direct !== undefined) return unwrapShell(direct);
+  const toolInput = getNested(input, ["tool_input"]) ?? getNested(input, ["input"]);
+  if (!toolInput || typeof toolInput !== "object") return undefined;
+  const raw = (toolInput as Record<string, unknown>)["command"] ?? (toolInput as Record<string, unknown>)["cmd"];
+  if (typeof raw === "string") return unwrapShell(raw);
+  if (Array.isArray(raw) && raw.every((word) => typeof word === "string")) {
+    const argv = raw as string[];
+    const script = argv.length >= 3 && /^-[a-z]*c$/i.test(argv[1]) ? argv[argv.length - 1] : argv.join(" ");
+    return unwrapShell(script);
+  }
+  return undefined;
+}
+
+function unwrapShell(command: string): string {
+  const wrapped = /^\s*(?:\S*\/)?(?:ba|z|da)?sh\s+-[a-z]*c\s+(["'])([\s\S]*)\1\s*$/i.exec(command);
+  return wrapped ? wrapped[2] : command;
 }
 
 function sanitiseToolName(toolName: string | undefined): string {

@@ -2,12 +2,12 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily, Tone } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { describeAge, readLastHook, resolveHookNode } from "./hookHealth.js";
 import { LAUNCHER_OPTIONS } from "./launcher.js";
-import { credentialsFilePath, hookBinPath, selfCommand, hookBundlePath, hookNoNodePath, hookNodeRecordPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
+import { claudeConfigDir, credentialsFilePath, hookBinPath, selfCommand, hookBundlePath, hookNoNodePath, hookNodeRecordPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
 import type { MachineCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
 
@@ -215,7 +215,7 @@ export async function runSetup(argv: string[]): Promise<number> {
     settingsPath({ ...options, scope: options.scope === "user" ? "project" : "user" }),
     // The home folder's project file, where a project-scope setup run from
     // `~` used to put them.
-    path.join(os.homedir(), ".claude", "settings.local.json")
+    homeProjectSettingsPath()
   ]);
   otherFiles.delete(settingsFile);
   for (const otherFile of otherFiles) {
@@ -525,15 +525,29 @@ function restartLine(options: Options): string {
  * command's path, run by the Node that ran setup.
  */
 function installBinary(dryRun: boolean): string {
-  return installHookRunner({ ...LAUNCHER_OPTIONS, dryRun });
+  return installHookRunner({
+    ...LAUNCHER_OPTIONS,
+    dryRun,
+    onKeptNewer: (installed, incoming) =>
+      console.log(`Kept the installed hook bundle (${installed}) rather than replace it with this older ${incoming}. Run setup from the newer version to change it.`)
+  });
 }
 
 // -------------------------------------------------------------- settings ---
 
+/**
+ * User scope follows `$CLAUDE_CONFIG_DIR` (see `claudeConfigDir`); a
+ * project's file is always in the project.
+ */
 function settingsPath(options: Options): string {
   return options.scope === "user"
-    ? path.join(os.homedir(), ".claude", "settings.json")
+    ? path.join(claudeConfigDir(), "settings.json")
     : path.join(options.projectDir, ".claude", "settings.local.json");
+}
+
+/** The project file for a session started in the home folder. */
+function homeProjectSettingsPath(): string {
+  return path.join(os.homedir(), ".claude", "settings.local.json");
 }
 
 type HookEntry = { type: string; command: string; timeout?: number };
@@ -566,8 +580,7 @@ export function writeSettings(settingsFile: string, binary: string, dryRun: bool
   const hooks = { ...(settings.hooks ?? {}) };
 
   for (const event of HOOK_EVENTS) {
-    const kept = (hooks[event] ?? []).filter((group) => !isOurs(group));
-    hooks[event] = [...kept, { hooks: [{ type: "command", command: `${command} ${event}${hookSetArgument(HOOK_SET)}`, timeout: HOOK_TIMEOUT_SECONDS }] }];
+    hooks[event] = placeOurEntry(hooks[event] ?? [], { type: "command", command: `${command} ${event}${hookSetArgument(HOOK_SET)}`, timeout: HOOK_TIMEOUT_SECONDS });
   }
 
   const updated: Settings = { ...settings, hooks };
@@ -579,11 +592,9 @@ export function writeSettings(settingsFile: string, binary: string, dryRun: bool
     return true;
   }
 
-  // Back up before touching a pre-existing file: hook registration is the
+  // Backed up before the first change: hook registration is the
   // highest-blast-radius thing this command does.
-  if (exists) fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
-  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
-  fs.writeFileSync(settingsFile, serialised, "utf8");
+  replaceSettingsFile(settingsFile, serialised);
   return true;
 }
 
@@ -607,22 +618,73 @@ function removeOurHooks(settingsFile: string): boolean {
     const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as Settings;
     const hooks = { ...(settings.hooks ?? {}) };
     for (const event of Object.keys(hooks)) {
-      const kept = hooks[event].filter((group) => !isOurs(group));
+      const kept = withoutOurEntries(hooks[event]);
       if (kept.length) hooks[event] = kept;
       else delete hooks[event];
     }
     const updated: Settings = { ...settings, hooks };
     if (!Object.keys(hooks).length) delete updated.hooks;
-    fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
-    fs.writeFileSync(settingsFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+    replaceSettingsFile(settingsFile, `${JSON.stringify(updated, null, 2)}\n`);
     return true;
   } catch {
     return false;
   }
 }
 
+function isOurEntry(entry: HookEntry | undefined): boolean {
+  return typeof entry?.command === "string" && entry.command.includes(HOOK_MARKER);
+}
+
+/** True when any hook in the group is ours. */
 function isOurs(group: HookGroup): boolean {
-  return (group.hooks ?? []).some((entry) => typeof entry.command === "string" && entry.command.includes(HOOK_MARKER));
+  return (group.hooks ?? []).some(isOurEntry);
+}
+
+/**
+ * One event's groups with our hooks taken out and everyone else's left where
+ * they were. Another tool can add its own hook to a group we wrote, so a
+ * group is dropped only when ours were all it held.
+ */
+function withoutOurEntries(groups: HookGroup[]): HookGroup[] {
+  const kept: HookGroup[] = [];
+  for (const group of groups) {
+    if (!isOurs(group)) {
+      kept.push(group);
+      continue;
+    }
+    const others = (group.hooks ?? []).filter((entry) => !isOurEntry(entry));
+    if (others.length) kept.push({ ...group, hooks: others });
+  }
+  return kept;
+}
+
+/**
+ * One event's groups with exactly one hook of ours, `wanted`. When the first
+ * group carrying ours has no matcher, ours is replaced where it stands: a
+ * group another tool has added to stays one group, and an install that is
+ * current reads as current. Otherwise ours are taken out and `wanted` goes
+ * on the end in a group of its own.
+ */
+function placeOurEntry(groups: HookGroup[], wanted: HookEntry): HookGroup[] {
+  let placed = false;
+  const result: HookGroup[] = [];
+  for (const group of groups) {
+    if (!isOurs(group)) {
+      result.push(group);
+      continue;
+    }
+    const matchesAll = group.matcher === undefined || group.matcher === "";
+    const next: HookEntry[] = [];
+    for (const entry of group.hooks ?? []) {
+      if (!isOurEntry(entry)) next.push(entry);
+      else if (!placed && matchesAll) {
+        next.push(wanted);
+        placed = true;
+      }
+    }
+    if (next.length) result.push({ ...group, hooks: next });
+  }
+  return placed ? result : [...result, { hooks: [wanted] }];
 }
 
 /**
@@ -663,9 +725,8 @@ export function ourHookSets(settings: Settings): Map<string, number> {
   const sets = new Map<string, number>();
   for (const [event, groups] of Object.entries(settings.hooks ?? {})) {
     for (const group of groups ?? []) {
-      if (!isOurs(group)) continue;
       for (const entry of group.hooks ?? []) {
-        if (typeof entry?.command !== "string") continue;
+        if (!isOurEntry(entry)) continue;
         const set = hookSetOfCommand(entry.command);
         sets.set(event, Math.min(set, sets.get(event) ?? set));
       }
@@ -690,13 +751,13 @@ export function registrationSummary(projectDir: string): { file: string; scope: 
   const files = new Map<string, "user" | "project">([
     [settingsPath({ scope: "user", projectDir } as Options), "user"],
     [settingsPath({ scope: "project", projectDir } as Options), "project"],
-    [path.join(os.homedir(), ".claude", "settings.local.json"), "project"]
+    [homeProjectSettingsPath(), "project"]
   ]);
   const found: { file: string; scope: "user" | "project"; registered: number; homeProject: boolean }[] = [];
   for (const [file, scope] of files) {
     const { registered } = countRegistered(file, binary);
     if (registered === 0) continue;
-    found.push({ file, scope, registered, homeProject: path.resolve(file) === path.resolve(os.homedir(), ".claude", "settings.local.json") });
+    found.push({ file, scope, registered, homeProject: path.resolve(file) === path.resolve(homeProjectSettingsPath()) });
   }
   return found;
 }
@@ -830,7 +891,7 @@ function uninstall(options: Options): number {
     console.log(`hooks removed from ${settingsFile}`);
   }
 
-  for (const file of [hookBinPath(), hookBundlePath(), hookNodeRecordPath(), hookNoNodePath()]) {
+  for (const file of [hookBinPath(), hookBundlePath(), hookNodeRecordPath(), hookNoNodePath(), `${hookBinPath()}.version`]) {
     if (!fs.existsSync(file)) continue;
     fs.rmSync(file);
     if (file === hookBinPath() || file === hookBundlePath()) console.log(`removed ${file}`);

@@ -263,3 +263,7 @@ test("the built CLI puts awaiting on the socket for an approval gate", async () 
     assert.deepEqual(signal, { tool: HOST, session: SESSION_ID, event: "awaiting" });
   });
 });
+
+test("SessionEnd halts the session, so closing Codex mid-turn doesn't leave it held", () => {
+  assert.deepEqual(liveSignalFor("SessionEnd", { reason: "other" }), { event: "halted" });
+});

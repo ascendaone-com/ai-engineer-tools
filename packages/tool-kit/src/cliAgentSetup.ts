@@ -9,6 +9,7 @@ import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstal
 import { createPairingSession, getPairingStatus, readInitiatives } from "./http";
 import { describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand } from "./hookSet";
 import { initiativesStatusLines } from "./initiatives";
+import { replaceSettingsFile } from "./settingsFile";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
 import { describeAge, hookRunnerCommand, hookRunnerPaths, installHookRunner, readLastHook, removeHookRunner, resolveHookNode, tidyHomePath } from "./hookRunner";
@@ -46,8 +47,40 @@ export type HookSettingsFormat = {
   scaffold?: Record<string, unknown>;
   /** The element registered under `hooks[event]` for our command. */
   entry: (command: string, event: string) => Record<string, unknown>;
-  /** The command string inside an element of `hooks[event]`, whatever its shape. */
-  commandOf: (entry: unknown) => string | undefined;
+} & (
+  | {
+      /**
+       * Each element of `hooks[event]` is a group, `{ matcher?, hooks: [{ type,
+       * command }] }` (Codex, Gemini). Another tool can add its own command to
+       * a group we wrote, so ours are found and taken out one command at a
+       * time, and a group is dropped only once nothing is left in it.
+       */
+      grouped: true;
+    }
+  | {
+      grouped?: false;
+      /** The command string inside a flat element of `hooks[event]`. */
+      commandOf: (entry: unknown) => string | undefined;
+    }
+);
+
+/** Where one of our handlers sits in an agent's hooks file: `hooks[event][group].hooks[handler]`. */
+export type HookPosition = { event: string; group: number; handler: number };
+
+/**
+ * What an agent that gates hooks behind an approval says about ours. A hook
+ * that is registered but not approved never runs and never reports that it
+ * didn't, so `status` and `doctor` have to read the approvals themselves.
+ */
+export type HookTrustReport = {
+  /** The file the approvals live in, as a person should read it. */
+  approvalsFile: string;
+  /** Registered handlers with no approval recorded. */
+  untrusted: HookPosition[];
+  /** Approvals on record for this hooks file that no longer match one of our handlers, or may predate a change. */
+  stale: string[];
+  /** The approvals file could not be read. */
+  unreadable?: boolean;
 };
 
 export type CliAgentSetupSpec = {
@@ -87,6 +120,16 @@ export type CliAgentSetupSpec = {
    */
   sends: readonly DisclosureFamily[];
   settings: HookSettingsFormat;
+  /**
+   * For an agent that skips hooks it has not been told to trust (Codex).
+   * Given the hooks file and where our handlers sit in it; absent for agents
+   * that run what is registered.
+   */
+  trust?: {
+    check: (settingsFile: string, ours: HookPosition[]) => HookTrustReport;
+    /** What to do about an untrusted or stale hook, e.g. `Open /hooks in Codex and approve the Ascenda hooks.` */
+    fix: string;
+  };
 };
 
 export type SetupScope = "project" | "user";
@@ -588,7 +631,13 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
  * runs, so hooks must not point at it.
  */
 function installBinary(spec: CliAgentSetupSpec, dryRun: boolean): string {
-  return installHookRunner({ binaryName: spec.binaryName, setupCommand: `npx ${spec.packageName} setup`, dryRun });
+  return installHookRunner({
+    binaryName: spec.binaryName,
+    setupCommand: `npx ${spec.packageName} setup`,
+    dryRun,
+    onKeptNewer: (installed, incoming) =>
+      console.log(`  Kept the installed hook bundle (${installed}) rather than replace it with this older ${incoming}. Run setup from the newer version to change it.`)
+  });
 }
 
 // -------------------------------------------------------------- settings ---
@@ -623,8 +672,7 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
   const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
 
   for (const event of spec.hookEvents) {
-    const kept = (hooks[event] ?? []).filter((entry) => !isOurs(entry, spec));
-    hooks[event] = [...kept, spec.settings.entry(command, event)];
+    hooks[event] = placeOurEntry(hooks[event] ?? [], spec.settings.entry(command, event), spec);
   }
 
   const updated: HookSettings = { ...settings, hooks };
@@ -636,11 +684,9 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
     return true;
   }
 
-  // Back up before touching a pre-existing file: hook registration is the
+  // Backed up before the first change: hook registration is the
   // highest-blast-radius thing this command does.
-  if (exists) fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
-  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
-  fs.writeFileSync(settingsFile, serialised, "utf8");
+  replaceSettingsFile(settingsFile, serialised);
   return true;
 }
 
@@ -662,17 +708,136 @@ export function registeredHookSets(settings: HookSettings, spec: CliAgentSetupSp
   const sets = new Map<string, number>();
   for (const [event, entries] of Object.entries(settings.hooks ?? {})) {
     for (const entry of entries ?? []) {
-      if (!isOurs(entry, spec)) continue;
-      const set = hookSetOfCommand(spec.settings.commandOf(entry) as string);
-      sets.set(event, Math.min(set, sets.get(event) ?? set));
+      for (const command of commandsOf(entry, spec)) {
+        if (!isOurCommand(command, spec)) continue;
+        const set = hookSetOfCommand(command);
+        sets.set(event, Math.min(set, sets.get(event) ?? set));
+      }
     }
   }
   return sets;
 }
 
-function isOurs(entry: unknown, spec: CliAgentSetupSpec): boolean {
+/** Every handler of ours in the file, by position. Entries without a `hooks` array (Cursor's flat shape) count as group `n`, handler 0. */
+export function ourHookPositions(settings: HookSettings, spec: CliAgentSetupSpec): HookPosition[] {
+  const found: HookPosition[] = [];
+  for (const [event, groups] of Object.entries(settings.hooks ?? {})) {
+    (groups ?? []).forEach((group, groupIndex) => {
+      const handlers = (group as { hooks?: unknown[] } | undefined)?.hooks;
+      if (Array.isArray(handlers)) {
+        handlers.forEach((handler, handlerIndex) => {
+          if (isOurs({ hooks: [handler] }, spec)) found.push({ event, group: groupIndex, handler: handlerIndex });
+        });
+      } else if (isOurs(group, spec)) {
+        found.push({ event, group: groupIndex, handler: 0 });
+      }
+    });
+  }
+  return found;
+}
+
+/** Status and doctor lines for hooks the agent will skip until they are approved. Empty when all is well. */
+export function trustProblemLines(spec: CliAgentSetupSpec, settingsFile: string, settings: HookSettings, indent: string): string[] {
+  if (!spec.trust) return [];
+  const ours = ourHookPositions(settings, spec);
+  if (ours.length === 0) return [];
+  const report = spec.trust.check(settingsFile, ours);
+  const where = tidyHomePath(report.approvalsFile, os.homedir());
+  const lines: string[] = [];
+  if (report.unreadable) {
+    lines.push(`${spec.displayName}'s approvals in ${where} could not be read, so whether these hooks are trusted is unknown.`);
+  }
+  if (report.untrusted.length) {
+    const names = [...new Set(report.untrusted.map((position) => position.event))].join(", ");
+    lines.push(`${report.untrusted.length} of ${ours.length} hooks are not approved in ${where} (${names}). ${spec.displayName} skips them without a message, so nothing is sent for those events.`);
+  }
+  for (const entry of report.stale) lines.push(entry);
+  if (lines.length) lines.push(spec.trust.fix);
+  return lines.map((line) => `${indent}${line}`);
+}
+
+/** Every command an element of `hooks[event]` runs: one for a flat entry, any number for a group. */
+function commandsOf(entry: unknown, spec: CliAgentSetupSpec): string[] {
+  if (spec.settings.grouped) {
+    return innerHooks(entry)
+      .map(commandOfHook)
+      .filter((command): command is string => typeof command === "string");
+  }
   const command = spec.settings.commandOf(entry);
-  return typeof command === "string" && command.includes(spec.binaryName);
+  return typeof command === "string" ? [command] : [];
+}
+
+function innerHooks(entry: unknown): unknown[] {
+  const hooks = entry && typeof entry === "object" ? (entry as { hooks?: unknown }).hooks : undefined;
+  return Array.isArray(hooks) ? hooks : [];
+}
+
+function commandOfHook(hook: unknown): unknown {
+  return hook && typeof hook === "object" ? (hook as { command?: unknown }).command : undefined;
+}
+
+function isOurCommand(command: string, spec: CliAgentSetupSpec): boolean {
+  return command.includes(spec.binaryName);
+}
+
+/** True when any command in the element is ours. */
+function isOurs(entry: unknown, spec: CliAgentSetupSpec): boolean {
+  return commandsOf(entry, spec).some((command) => isOurCommand(command, spec));
+}
+
+function isOurInnerHook(hook: unknown, spec: CliAgentSetupSpec): boolean {
+  const command = commandOfHook(hook);
+  return typeof command === "string" && isOurCommand(command, spec);
+}
+
+/**
+ * `hooks[event]` with our commands taken out and everyone else's left where
+ * they were. A group is dropped only when ours were all it held.
+ */
+function withoutOurEntries(entries: unknown[], spec: CliAgentSetupSpec): unknown[] {
+  if (!spec.settings.grouped) return entries.filter((entry) => !isOurs(entry, spec));
+  const kept: unknown[] = [];
+  for (const entry of entries) {
+    if (!isOurs(entry, spec)) {
+      kept.push(entry);
+      continue;
+    }
+    const others = innerHooks(entry).filter((hook) => !isOurInnerHook(hook, spec));
+    if (others.length) kept.push({ ...(entry as Record<string, unknown>), hooks: others });
+  }
+  return kept;
+}
+
+/**
+ * `hooks[event]` with exactly one registration of ours, `wanted`. In a
+ * grouped format, when the first group carrying ours has no matcher, our
+ * command is replaced where it stands: a group another tool has added to
+ * stays one group, and an install that is current reads as current.
+ * Otherwise ours are taken out and `wanted` goes on the end.
+ */
+function placeOurEntry(entries: unknown[], wanted: Record<string, unknown>, spec: CliAgentSetupSpec): unknown[] {
+  if (!spec.settings.grouped) return [...withoutOurEntries(entries, spec), wanted];
+  const replacements = innerHooks(wanted);
+  let placed = false;
+  const result: unknown[] = [];
+  for (const entry of entries) {
+    if (!isOurs(entry, spec)) {
+      result.push(entry);
+      continue;
+    }
+    const matcher = (entry as { matcher?: unknown }).matcher;
+    const matchesAll = matcher === undefined || matcher === "";
+    const next: unknown[] = [];
+    for (const hook of innerHooks(entry)) {
+      if (!isOurInnerHook(hook, spec)) next.push(hook);
+      else if (!placed && matchesAll) {
+        next.push(...replacements);
+        placed = true;
+      }
+    }
+    if (next.length) result.push({ ...(entry as Record<string, unknown>), hooks: next });
+  }
+  return placed ? result : [...result, wanted];
 }
 
 /**
@@ -686,10 +851,10 @@ export function findStaleHookCommands(settings: HookSettings, binary: string, sp
   const stale = new Set<string>();
   for (const entries of Object.values(settings.hooks ?? {})) {
     for (const entry of entries ?? []) {
-      const command = spec.settings.commandOf(entry);
-      if (typeof command !== "string") continue;
-      if (!/ascenda/i.test(command) || command.includes(binary)) continue;
-      stale.add(command);
+      for (const command of commandsOf(entry, spec)) {
+        if (!/ascenda/i.test(command) || command.includes(binary)) continue;
+        stale.add(command);
+      }
     }
   }
   return [...stale];
@@ -753,6 +918,14 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
       : `hook set       ${spec.hookSet} (current)`);
   }
 
+  const trustLines = trustProblemLines(spec, settingsFile, settings, "");
+  if (trustLines.length) {
+    console.log(`not trusted    ${trustLines[0]}`);
+    for (const line of trustLines.slice(1)) console.log(`               ${line}`);
+  } else if (spec.trust && registered > 0) {
+    console.log("trust          every registered hook is approved");
+  }
+
   if (stale.length) {
     console.log(`stale hooks    ${stale.length} not pointing at the installed binary — each one fails silently per event:`);
     for (const command of stale) console.log(`               ${command}`);
@@ -783,7 +956,7 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   // User hooks apply in every project, so hooks found there answer a
   // project-scope check. The reverse does not hold.
   const wired = registered === spec.hookEvents.length || (options.scope === "project" && elsewhere === spec.hookEvents.length);
-  const healthy = paired && wired && fs.existsSync(binary) && !stale.length && !node?.problem;
+  const healthy = paired && wired && fs.existsSync(binary) && !stale.length && !node?.problem && trustLines.length === 0;
   return healthy ? 0 : 1;
 }
 
@@ -835,11 +1008,35 @@ async function runDoctor(options: SetupOptions, spec: CliAgentSetupSpec): Promis
   } catch (error) {
     lines.push(`  Live signal           (could not be checked: ${error instanceof Error ? error.message : String(error)})`);
   }
+  if (spec.trust) {
+    const found = trustDoctorLines(spec, options.projectDir, ui);
+    if (found.length) lines.push("", ...found);
+  }
   lines.push("", ...accountLines(ui, spec));
   const localOnly = isLocalOnlyHostInstall(spec.host, (id) => readTokenFile(defaultTokenFilePath(id)) !== undefined);
   lines.push("", `  ${ui.bold("Local events")}  ${describeEventLog(resolveEventLog({ localOnly }), `npx ${spec.packageName} setup`)}`);
   console.log(lines.join("\n"));
   return 0;
+}
+
+/** `doctor`'s approvals section, for each scope's hooks file that holds some of our hooks. */
+function trustDoctorLines(spec: CliAgentSetupSpec, projectDir: string, ui: TerminalStyle): string[] {
+  const userFile = spec.settings.settingsPath("user", projectDir);
+  const projectFile = spec.settings.settingsPath("project", projectDir);
+  const files = userFile === projectFile ? [userFile] : [userFile, projectFile];
+  const out: string[] = [];
+  for (const file of files) {
+    const settings = readSettings(file);
+    if (ourHookPositions(settings, spec).length === 0) continue;
+    const problems = trustProblemLines(spec, file, settings, "");
+    if (problems.length === 0) {
+      out.push(`  ${ui.mark("ok")} ${"Hook approvals".padEnd(20)} every hook in ${tidyHomePath(file, os.homedir())} is approved`);
+      continue;
+    }
+    out.push(`  ${ui.mark("bad")} ${"Hook approvals".padEnd(20)} ${ui.red(problems[0])}`);
+    for (const line of problems.slice(1)) out.push(`${" ".repeat(25)}${line}`);
+  }
+  return out;
 }
 
 function accountLines(ui: TerminalStyle, spec: CliAgentSetupSpec): string[] {
@@ -881,14 +1078,13 @@ function removeOurHookEntries(settingsFile: string, spec: CliAgentSetupSpec): bo
     const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as HookSettings;
     const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
     for (const event of Object.keys(hooks)) {
-      const kept = hooks[event].filter((entry) => !isOurs(entry, spec));
+      const kept = withoutOurEntries(hooks[event], spec);
       if (kept.length) hooks[event] = kept;
       else delete hooks[event];
     }
     const updated: HookSettings = { ...settings, hooks };
     if (!Object.keys(hooks).length) delete updated.hooks;
-    fs.copyFileSync(settingsFile, `${settingsFile}.ascenda-backup`);
-    fs.writeFileSync(settingsFile, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+    replaceSettingsFile(settingsFile, `${JSON.stringify(updated, null, 2)}\n`);
     return true;
   } catch {
     return false;

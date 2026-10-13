@@ -98,3 +98,46 @@ test("isReworkGitAction: only the three that undo work", () => {
   assert.equal(isReworkGitAction("amend"), false);
   assert.equal(isReworkGitAction(undefined), false);
 });
+
+test("classifyGitAction: skips git's global options before the verb", () => {
+  assert.equal(classifyGitAction("git -C ../other commit -m x"), "commit");
+  assert.equal(classifyGitAction("git -c user.name=bot -c commit.gpgsign=false commit -m x"), "commit");
+  assert.equal(classifyGitAction("git --no-pager push origin main"), "push");
+  assert.equal(classifyGitAction("git --git-dir=/tmp/x/.git --work-tree=/tmp/x commit --amend"), "amend");
+  assert.equal(classifyGitAction("git --git-dir /tmp/x/.git revert abc1234"), "revert");
+  assert.equal(classifyGitAction("git -C sub reset --hard HEAD~1"), "reset_hard");
+});
+
+test("classifyGitAction: an option's value is not mistaken for the verb", () => {
+  assert.equal(classifyGitAction("git -C commit status"), undefined);
+  assert.equal(classifyGitAction("git commit-tree abc"), undefined);
+});
+
+test("classifyGitAction: more ways to throw away uncommitted work", () => {
+  assert.equal(classifyGitAction("git checkout ."), "restore");
+  assert.equal(classifyGitAction("git checkout src/app.ts"), "restore");
+  assert.equal(classifyGitAction("git checkout ./notes"), "restore");
+  assert.equal(classifyGitAction("git checkout HEAD~1 src/app"), "restore");
+  assert.equal(classifyGitAction("git checkout -- src/app"), "restore");
+  assert.equal(classifyGitAction("git clean -f"), "restore");
+  assert.equal(classifyGitAction("git clean -fdx"), "restore");
+  assert.equal(classifyGitAction("git clean --force -d"), "restore");
+  assert.equal(classifyGitAction("git switch --discard-changes main"), "restore");
+  assert.equal(classifyGitAction("git -C app checkout ."), "restore");
+});
+
+test("classifyGitAction: switching branches and dry runs lose nothing", () => {
+  assert.equal(classifyGitAction("git checkout main"), undefined);
+  assert.equal(classifyGitAction("git checkout feature/login"), undefined);
+  assert.equal(classifyGitAction("git checkout release-1.2"), undefined);
+  assert.equal(classifyGitAction("git checkout -b new-branch"), undefined);
+  assert.equal(classifyGitAction("git switch main"), undefined);
+  assert.equal(classifyGitAction("git clean -n"), undefined);
+  assert.equal(classifyGitAction("git clean -nfd"), undefined);
+  assert.equal(classifyGitAction("git clean --dry-run -f"), undefined);
+  assert.equal(classifyGitAction("git restore --staged src/app.ts"), undefined);
+});
+
+test("isReworkGitAction: the new restore forms count as rework", () => {
+  assert.equal(isReworkGitAction(classifyGitAction("git clean -fd")), true);
+});
