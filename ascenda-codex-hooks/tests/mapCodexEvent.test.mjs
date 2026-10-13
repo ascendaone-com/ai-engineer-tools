@@ -266,11 +266,11 @@ test("PostToolUse: a failed commit carries no gitAction", () => {
 });
 
 test("PostToolUse: exec_command and shell_command are shell tools, in any command shape", () => {
-  const exec = mapCodexEvent("PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "git push origin main" }, tool_response: {} });
+  const exec = mapCodexEvent("PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "git push origin main" }, tool_response: { exit_code: 0 } });
   assert.equal(exec[0].metadata.gitAction, "push");
-  const shellCommand = mapCodexEvent("PostToolUse", { tool_name: "shell_command", tool_input: { command: "git commit -m x" }, tool_response: {} });
+  const shellCommand = mapCodexEvent("PostToolUse", { tool_name: "shell_command", tool_input: { command: "git commit -m x" }, tool_response: { exit_code: 0 } });
   assert.equal(shellCommand[0].metadata.gitAction, "commit");
-  const argv = mapCodexEvent("PostToolUse", { tool_name: "shell", tool_input: { command: ["bash", "-lc", "git commit -m x"] }, tool_response: {} });
+  const argv = mapCodexEvent("PostToolUse", { tool_name: "shell", tool_input: { command: ["bash", "-lc", "git commit -m x"] }, tool_response: { exit_code: 0 } });
   assert.equal(argv[0].metadata.gitAction, "commit");
   const verify = mapCodexEvent("PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "npm test" }, tool_response: { exit_code: 1 } });
   assert.equal(verify[0].eventType, "compile_error");
@@ -280,6 +280,12 @@ test("PostToolUse: a functions. prefix (Codex Desktop) is stripped", () => {
   const edit = mapCodexEvent("PostToolUse", { tool_name: "functions.apply_patch", tool_response: {} });
   assert.equal(edit[0].eventType, "ai_file_edit");
   assert.equal(edit[0].metadata.toolName, "apply_patch");
-  const shell = mapCodexEvent("PostToolUse", { tool_name: "functions.exec_command", tool_input: { cmd: "git commit -m x" }, tool_response: {} });
+  const shell = mapCodexEvent("PostToolUse", { tool_name: "functions.exec_command", tool_input: { cmd: "git commit -m x" }, tool_response: { exit_code: 0 } });
   assert.equal(shell[0].metadata.gitAction, "commit");
+});
+
+test("PostToolUse: a commit with no reported success carries no gitAction", () => {
+  const events = mapCodexEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "git commit -m x" }, tool_response: {} });
+  assert.equal(events[0].metadata.outcome, "unknown");
+  assert.equal(events[0].metadata.gitAction, undefined);
 });

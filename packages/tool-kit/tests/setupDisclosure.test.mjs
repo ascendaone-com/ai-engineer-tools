@@ -123,7 +123,6 @@ const ADAPTERS = [
       ["post_write_code", { tool_info: { file_path: "/p/a.ts" } }],
       ["pre_run_command", { tool_info: { command_line: "npm test", cwd: "/p" } }],
       ["post_run_command", { tool_info: { command_line: "npm test", cwd: "/p" } }],
-      ["post_run_command", { tool_info: { command_line: "git commit -m x", cwd: "/p" } }],
       ["post_cascade_response", {}, 120000]
     ].flatMap(([hook, input, turnMs]) => mapWindsurfEvent(hook, { agent_action_name: hook, ...input }, turnMs))
   }

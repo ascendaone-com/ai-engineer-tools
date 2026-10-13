@@ -69,8 +69,9 @@ function mapPostToolUse(input: CursorHookInput): MappedCursorEvent[] {
     return [{ eventType: "editor_verification_activity", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, durationBucket, activity: "ai_test_or_build_run" }) }];
   }
 
-  // Failures returned above, so a shell command reaching here did not fail.
-  const facts = isShell(toolName) ? shellCommandFacts(command) : {};
+  // Only a call that reported success is a delivery or a reversion: a failed
+  // commit moved nothing, and an unknown outcome proves nothing either way.
+  const facts = isShell(toolName) && outcome === "success" ? shellCommandFacts(command) : {};
   return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, durationBucket, ...facts }) }];
 }
 

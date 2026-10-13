@@ -78,9 +78,10 @@ test("transcript and worktree hooks map to nothing", () => {
   assert.deepEqual(mapWindsurfEvent("post_setup_worktree", { tool_info: { worktree_path: "/w" } }), []);
 });
 
-test("post_run_command: a commit and an issue close carry gitAction and milestoneKind", () => {
+test("post_run_command: an unknown-outcome commit or issue close carries no gitAction or milestoneKind", () => {
   const commit = mapWindsurfEvent("post_run_command", { tool_info: { command_line: "git commit -m x" } });
-  assert.equal(commit[0].metadata.gitAction, "commit");
+  assert.equal(commit[0].metadata.outcome, "unknown");
+  assert.equal(commit[0].metadata.gitAction, undefined);
   const close = mapWindsurfEvent("post_run_command", { tool_info: { command_line: "gh issue close 9" } });
-  assert.equal(close[0].metadata.milestoneKind, "issue_closed");
+  assert.equal(close[0].metadata.milestoneKind, undefined);
 });

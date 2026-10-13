@@ -98,8 +98,15 @@ test("hooks without catalog counterparts map to nothing", () => {
 });
 
 test("postToolUse: a shell commit and PR merge carry gitAction and milestoneKind", () => {
-  const commit = mapCursorEvent("postToolUse", { tool_name: "Shell", tool_input: { command: "git commit -m x" } });
+  const ok = '{"exitCode":0}';
+  const commit = mapCursorEvent("postToolUse", { tool_name: "Shell", tool_input: { command: "git commit -m x" }, tool_output: ok });
   assert.equal(commit[0].metadata.gitAction, "commit");
-  const merge = mapCursorEvent("postToolUse", { tool_name: "Shell", tool_input: { command: "gh pr merge 3" } });
+  const merge = mapCursorEvent("postToolUse", { tool_name: "Shell", tool_input: { command: "gh pr merge 3" }, tool_output: ok });
   assert.equal(merge[0].metadata.milestoneKind, "pr_merged");
+});
+
+test("postToolUse: a commit with no reported success carries no gitAction", () => {
+  const events = mapCursorEvent("postToolUse", { tool_name: "Shell", tool_input: { command: "git commit -m x" } });
+  assert.equal(events[0].metadata.outcome, "unknown");
+  assert.equal(events[0].metadata.gitAction, undefined);
 });
