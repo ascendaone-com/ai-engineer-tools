@@ -54,6 +54,9 @@ function mapPostRunCommand(input: WindsurfHookInput): MappedWindsurfEvent[] {
   if (isVerificationCommand(commandClass)) {
     return [{ eventType: "editor_verification_activity", severity: "low", metadata: withHost({ toolName: "run_command", commandClass, outcome: "unknown", activity: "ai_test_or_build_run" }) }];
   }
+  // No gitAction or milestoneKind here, on purpose. Cascade reports no status,
+  // so the outcome is always unknown, and a git action is only sent for a call
+  // that succeeded: a failed commit must not read as a delivery.
   return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: "run_command", commandClass, outcome: "unknown" }) }];
 }
 
