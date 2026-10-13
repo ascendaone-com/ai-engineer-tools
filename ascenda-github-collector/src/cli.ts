@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { AscendaEventSender } from "@ascenda-one/tool-kit";
+import { AscendaEventSender, repoKeysEnabled } from "@ascenda-one/tool-kit";
 import { loadConfigFromEnv } from "./config.js";
 import { mapForgeEvent, ForgePayload } from "./mapForgeEvent.js";
 
@@ -17,11 +17,15 @@ import { mapForgeEvent, ForgePayload } from "./mapForgeEvent.js";
 async function main(): Promise<void> {
   const config = loadConfigFromEnv();
 
-  const eventName = process.env.GITHUB_EVENT_NAME ?? process.argv[2];
+  const args = process.argv.slice(2);
+  // The same opt-out as the hooks' `setup --no-repo-keys`. A CI runner has no
+  // saved machine setting, so the flag and ASCENDA_REPO_KEYS=off are what apply.
+  const repoKeys = !args.includes("--no-repo-keys") && repoKeysEnabled();
+  const eventName = process.env.GITHUB_EVENT_NAME ?? args.find((arg) => !arg.startsWith("--"));
   const payload = await readPayload();
   if (!payload) return;
 
-  const events = mapForgeEvent(eventName, payload, config.viewerLogin);
+  const events = mapForgeEvent(eventName, payload, config.viewerLogin, { repoKeys });
   if (events.length === 0) return;
 
   const sender = new AscendaEventSender({

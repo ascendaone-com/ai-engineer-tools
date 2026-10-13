@@ -14,6 +14,17 @@ export type MappedForgeEvent = {
  */
 export type ForgePayload = Record<string, unknown>;
 
+export type MapForgeOptions = {
+  /**
+   * Whether to put `repoKey`, `branchKey` and `headRepoKey` on events. On
+   * unless the caller turns it off: the CLI passes false for `--no-repo-keys`
+   * and for the machine's own opt-out (`ASCENDA_REPO_KEYS=off`, the switch
+   * `setup --no-repo-keys` saves). The 8-character `projectHash` and the
+   * times stay either way.
+   */
+  repoKeys?: boolean;
+};
+
 /**
  * Maps a code-forge event to Ascenda's collaboration events (§4.2's
  * collaboration family).
@@ -53,9 +64,11 @@ export type ForgePayload = Record<string, unknown>;
 export function mapForgeEvent(
   eventName: string | undefined,
   payload: ForgePayload,
-  viewerLogin: string | undefined
+  viewerLogin: string | undefined,
+  options: MapForgeOptions = {}
 ): MappedForgeEvent[] {
   if (!eventName || !viewerLogin) return [];
+  const keys = options.repoKeys !== false;
 
   const action = str(payload["action"]);
   const viewer = viewerLogin.toLowerCase();
@@ -68,7 +81,7 @@ export function mapForgeEvent(
       return [{
         eventType: "pull_request_opened",
         severity: "low",
-        metadata: { ...base(payload), ...pullRequestKeys(pr) }
+        metadata: { ...base(payload, keys), ...pullRequestKeys(payload, pr, keys) }
       }];
     }
 
@@ -80,7 +93,7 @@ export function mapForgeEvent(
       return [{
         eventType: merged ? "pull_request_merged" : "pull_request_closed",
         severity: "low",
-        metadata: { ...base(payload), ...pullRequestKeys(pr), ...pullRequestTimes(pr, merged) }
+        metadata: { ...base(payload, keys), ...pullRequestKeys(payload, pr, keys), ...pullRequestTimes(pr, merged) }
       }];
     }
 
@@ -92,7 +105,7 @@ export function mapForgeEvent(
         return [{
           eventType: "review_requested_of_me",
           severity: "low",
-          metadata: base(payload)
+          metadata: { ...base(payload, keys), ...pullRequestKeys(payload, pr, keys) }
         }];
       }
     }
@@ -109,7 +122,8 @@ export function mapForgeEvent(
       eventType: "review_given",
       severity: "low",
       metadata: {
-        ...base(payload),
+        ...base(payload, keys),
+        ...pullRequestKeys(payload, obj(payload["pull_request"]), keys),
         // The verdict is a property of the checking work, not of the author,
         // and it is the closest thing to a "how heavy was this review" signal
         // that carries no content. `commented` and `changes_requested` are
@@ -122,7 +136,7 @@ export function mapForgeEvent(
   return [];
 }
 
-function base(payload: ForgePayload): AscendaEventMetadata {
+function base(payload: ForgePayload, keys: boolean): AscendaEventMetadata {
   const repo = str(obj(payload["repository"])["full_name"]);
   return {
     host: "github",
@@ -136,7 +150,8 @@ function base(payload: ForgePayload): AscendaEventMetadata {
     // function now lives in tool-kit so a developer's own machine, which holds
     // both identities, can compute this exact digest and file it beside its
     // own; nothing about what this step emits has changed.
-    ...(repo ? { projectHash: forgeProjectHash(repo), repoKey: forgeRepoKey(repo) } : {})
+    ...(repo ? { projectHash: forgeProjectHash(repo) } : {}),
+    ...(keys && repo && onGithub(obj(payload["repository"])) ? { repoKey: forgeRepoKey(repo) } : {})
   };
 }
 
@@ -146,21 +161,41 @@ function base(payload: ForgePayload): AscendaEventMetadata {
  * A clone of a fork has the fork as `origin`, so its sessions are keyed by the
  * fork, not by the base repository. The branch key therefore uses the head
  * repository when GitHub gives one, and `headRepoKey` names it when it isn't
- * the base. No branch key on the head repository's default branch, which is
- * where the hooks leave it off too.
+ * the base. Same limits as the hooks:
+ *
+ *  - github.com only. A payload whose repository URL is on another host gets
+ *    nothing, and one with no URL is taken as github.com's.
+ *  - No branch key on the head repository's default branch.
+ *  - A deleted fork leaves `head.repo` null. Its name is gone, so the branch
+ *    can't be hashed the way the contributor's clone did, and the key is left
+ *    off rather than taken from the base repository.
+ *  - Nothing at all when `keys` is false.
  */
-function pullRequestKeys(pr: Record<string, unknown>): AscendaEventMetadata {
+function pullRequestKeys(payload: ForgePayload, pr: Record<string, unknown>, keys: boolean): AscendaEventMetadata {
+  if (!keys || !onGithub(obj(payload["repository"]))) return {};
   const head = obj(pr["head"]);
   const headRepo = obj(head["repo"]);
-  const headName = str(headRepo["full_name"]);
-  const base = str(obj(obj(pr["base"])["repo"])["full_name"]);
+  const base = str(obj(obj(pr["base"])["repo"])["full_name"]) ?? str(obj(payload["repository"])["full_name"]);
+  const headName = head["repo"] === undefined ? base : str(headRepo["full_name"]);
   const branch = str(head["ref"]);
-  const keyName = headName ?? base;
-  const onDefault = branch !== undefined && branch === str(headRepo["default_branch"]);
+  const defaultBranch = head["repo"] === undefined
+    ? str(obj(payload["repository"])["default_branch"])
+    : str(headRepo["default_branch"]);
+  const onDefault = branch !== undefined && branch === defaultBranch;
   return {
     ...(headName && base && headName.toLowerCase() !== base.toLowerCase() ? { headRepoKey: forgeRepoKey(headName) } : {}),
-    ...(keyName && branch && !onDefault ? { branchKey: forgeBranchKey(keyName, branch) } : {})
+    ...(headName && branch && !onDefault ? { branchKey: forgeBranchKey(headName, branch) } : {})
   };
+}
+
+function onGithub(repository: Record<string, unknown>): boolean {
+  const url = str(repository["html_url"]);
+  if (!url) return true;
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "") === "github.com";
+  } catch {
+    return false;
+  }
 }
 
 /** `repoKey` is the base repository's; see {@link pullRequestKeys} for the head's. */

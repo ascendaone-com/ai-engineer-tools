@@ -51,11 +51,36 @@ The forwarder posts batches like this:
 `source` is the machine's label. `projectHash` in an event is salted on each
 machine, so the same repository hashes differently on two laptops. To group by
 repository across machines, use `repoKey`: it's the same digest everywhere, for
-GitHub repositories. `branchKey` is the same for a branch, so a session can be
-matched to the pull request on that branch. Both come with a catch: they aren't
-salted, so anyone holding your events can check a guess at a repository or
-branch name. Engineers can turn them off with `setup --repo-keys off`, and then
-you're back to `source` and `sessionId`. See
+GitHub repositories.
+
+### Joining a session to its pull request
+
+Each person's [GitHub collector](../ascenda-github-collector/README.md) writes
+`pull_request.opened`, `pull_request.closed` and `pull_request.merged` events.
+They carry a `repoKey`, a `branchKey` for the head branch, and the pull
+request's own times: `prCreatedAt`, `prClosedAt` and, for a merge,
+`prMergedAt`. A session belongs to a pull request when all three hold:
+
+1. The session's `repoKey` equals the PR's `headRepoKey` if it has one, and its
+   `repoKey` if not. A pull request from a fork has a `headRepoKey`, because a
+   contributor's clone has the fork as `origin` and their sessions carry the
+   fork's key.
+2. The session's `branchKey` equals the PR's.
+3. The session's events fall between `prCreatedAt` and `prClosedAt` (or
+   `prMergedAt`). A branch called `fix` gets reused, and the window says which
+   PR a session was working on. For a PR that's still open, the window has no
+   end.
+
+There's no `branchKey` on a default branch, on either side, so work done
+directly on `main` can't be matched this way. It still groups by `repoKey`. A
+PR whose head branch is its fork's default branch has none either, and neither
+does one from a deleted fork.
+
+Both keys come with a catch: they aren't salted, so anyone holding your events
+can check a guess at a repository or branch name. Engineers turn them off for
+the hooks with `setup --no-repo-keys`, and for the collector with
+`--no-repo-keys` or `ASCENDA_REPO_KEYS=off` in the workflow step. With them
+off, you're back to `source` and `sessionId`. See
 [Matching a session to a pull request](../packages/agent-events/README.md#matching-a-session-to-a-pull-request).
 
 ## Set it up

@@ -290,9 +290,12 @@ test("a PR from a fork is keyed by the fork and names it", () => {
   assert.equal(event.metadata.branchKey, forgeBranchKey("octocat/payments-service", "feat/auth"));
 });
 
-test("a deleted fork falls back to the base repository for the branch key", () => {
+test("a deleted fork leaves the branch key off rather than borrowing the base's", () => {
+  // The contributor's clone hashed the fork's name, which is gone. A key over
+  // the base repository would match no session.
   const [event] = mapForgeEvent("pull_request", ownPr("opened", { head: { ref: "feat/auth", repo: null } }), ME);
-  assert.equal(event.metadata.branchKey, forgeBranchKey("acme/payments-service", "feat/auth"));
+  assert.equal(event.metadata.repoKey, forgeRepoKey("acme/payments-service"));
+  assert.equal("branchKey" in event.metadata, false);
   assert.equal("headRepoKey" in event.metadata, false);
 });
 
@@ -315,4 +318,86 @@ test("neither the branch name nor the number nor the title is on what's sent", (
       assert.equal(sent.includes(secret), false, `${secret} leaked in ${action}`);
     }
   }
+});
+
+// ── the window, the opt-out, hosts, and the hooks' side ───────────────────
+
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+test("a reused branch name gives one key, so the window has to separate the PRs", () => {
+  const head = { ref: "fix", repo: { full_name: "acme/payments-service", default_branch: "main" } };
+  const first = mapForgeEvent("pull_request", ownPr("closed", {
+    head, merged: true, created_at: "2026-09-01T09:00:00Z", closed_at: "2026-09-02T09:00:00Z", merged_at: "2026-09-02T09:00:00Z"
+  }), ME)[0].metadata;
+  const second = mapForgeEvent("pull_request", ownPr("closed", {
+    head, merged: false, created_at: "2026-10-05T09:00:00Z", closed_at: "2026-10-06T09:00:00Z"
+  }), ME)[0].metadata;
+  assert.equal(first.branchKey, second.branchKey);
+  assert.equal(first.repoKey, second.repoKey);
+  assert.ok(first.prClosedAt < second.prCreatedAt, "the windows don't overlap");
+  // A session at this moment belongs to the second PR only.
+  const at = "2026-10-05T12:00:00.000Z";
+  const inWindow = (m) => at >= m.prCreatedAt && at <= m.prClosedAt;
+  assert.deepEqual([inWindow(first), inWindow(second)], [false, true]);
+});
+
+test("review events carry the keys too", () => {
+  const requested = mapForgeEvent("pull_request", { ...ownPr("review_requested"), requested_reviewer: { login: ME } }, ME)[0];
+  const reviewed = mapForgeEvent("pull_request_review", { ...ownPr("submitted"), review: { user: { login: ME }, state: "approved" } }, ME)[0];
+  for (const event of [requested, reviewed]) {
+    assert.equal(event.metadata.repoKey, forgeRepoKey("acme/payments-service"));
+    assert.equal(event.metadata.branchKey, forgeBranchKey("acme/payments-service", "feat/auth"));
+  }
+});
+
+test("the opt-out drops every key and keeps the project hash and the times", () => {
+  const fork = { full_name: "octocat/payments-service", default_branch: "main" };
+  const events = [
+    mapForgeEvent("pull_request", ownPr("opened", { head: { ref: "feat/auth", repo: fork } }), ME, { repoKeys: false })[0],
+    mapForgeEvent("pull_request", ownPr("closed", { merged: true, merged_at: "2026-10-12T05:30:00Z", head: { ref: "feat/auth", repo: fork } }), ME, { repoKeys: false })[0],
+    mapForgeEvent("pull_request", { ...ownPr("review_requested"), requested_reviewer: { login: ME } }, ME, { repoKeys: false })[0]
+  ];
+  for (const event of events) {
+    for (const key of ["repoKey", "branchKey", "headRepoKey"]) assert.equal(key in event.metadata, false, key);
+    assert.match(event.metadata.projectHash, /^[0-9a-f]{8}$/);
+  }
+  assert.equal(events[1].metadata.prMergedAt, "2026-10-12T05:30:00.000Z");
+});
+
+test("only github.com gets keys", () => {
+  const enterprise = { ...repo, html_url: "https://git.example.com/acme/payments-service", default_branch: "main" };
+  const [event] = mapForgeEvent("pull_request", { ...ownPr("opened"), repository: enterprise }, ME);
+  assert.equal("repoKey" in event.metadata, false);
+  assert.equal("branchKey" in event.metadata, false);
+  const github = { ...repo, html_url: "https://github.com/acme/payments-service" };
+  const [onGithub] = mapForgeEvent("pull_request", { ...ownPr("opened"), repository: github }, ME);
+  assert.equal(onGithub.metadata.repoKey, forgeRepoKey("acme/payments-service"));
+});
+
+test("a fork whose default branch differs from the upstream's uses its own", () => {
+  const fork = { full_name: "octocat/payments-service", default_branch: "trunk" };
+  const onTrunk = mapForgeEvent("pull_request", ownPr("opened", { head: { ref: "trunk", repo: fork } }), ME)[0];
+  assert.equal("branchKey" in onTrunk.metadata, false);
+  const onMain = mapForgeEvent("pull_request", ownPr("opened", { head: { ref: "main", repo: fork } }), ME)[0];
+  assert.equal(onMain.metadata.branchKey, forgeBranchKey("octocat/payments-service", "main"));
+});
+
+test("a session in a fork clone sends the keys the fork PR carries", async () => {
+  process.env.ASCENDA_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-collector-home-"));
+  const { deriveForgeKeysForCwd } = await import("@ascenda-one/tool-kit");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-fork-clone-"));
+  fs.mkdirSync(path.join(root, ".git", "refs", "remotes", "origin"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".git", "HEAD"), "ref: refs/heads/fix/auth\n");
+  fs.writeFileSync(
+    path.join(root, ".git", "config"),
+    '[remote "origin"]\n\turl = git@github.com:octocat/payments-service.git\n[remote "upstream"]\n\turl = git@github.com:acme/payments-service.git\n'
+  );
+  fs.writeFileSync(path.join(root, ".git", "refs", "remotes", "origin", "HEAD"), "ref: refs/remotes/origin/main\n");
+  const session = deriveForgeKeysForCwd(root);
+  const fork = { full_name: "octocat/payments-service", default_branch: "main" };
+  const [pr] = mapForgeEvent("pull_request", ownPr("opened", { head: { ref: "fix/auth", repo: fork } }), ME);
+  assert.equal(session.branchKey, pr.metadata.branchKey);
+  assert.equal(session.repoKey, pr.metadata.headRepoKey);
 });

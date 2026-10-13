@@ -38,6 +38,7 @@ jobs:
       # One step per participant. Add a copy with another suffix for each
       # colleague who pairs; each step emits only its own person's activity.
       - name: ascenda (octocat)
+        # Add --no-repo-keys to leave the repository and branch digests off.
         run: npx @ascenda-one/github-collector
         env:
           ASCENDA_TOOL_INSTALLATION_ID: ${{ secrets.ASCENDA_TOOL_INSTALLATION_ID_OCTOCAT }}
