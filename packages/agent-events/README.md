@@ -112,6 +112,44 @@ registers, and an agent without a hook for something can't report it.
 Events never contain prompt text, file contents, file names, command lines or
 command output. That's a rule for v0 and for every version after it.
 
+## Mapping to OpenTelemetry
+
+If your telemetry already lives in an OpenTelemetry backend, the events can go
+there as log records.
+[examples/otlp-forwarder](../../examples/otlp-forwarder/) does it, and uses
+these names. Where the semantic conventions have a name for the thing, it uses
+that. Otherwise the attribute sits under `ascenda.`.
+
+| Event field | OpenTelemetry | OpenInference |
+| --- | --- | --- |
+| `time` | the record's `timeUnixNano` | |
+| `kind` | `event.name` (also the record body) | |
+| `sessionId` | `session.id` | `session.id` |
+| `agent` | `gen_ai.agent.name` | |
+| `tool` | `gen_ai.tool.name` | `tool.name` |
+| `model` | `gen_ai.request.model` | `llm.model_name` |
+| `repoKey` | `vcs.repository.id` | |
+| `branchKey` | `ascenda.vcs.branch_key` | |
+| `promptId` | `ascenda.prompt.id` | |
+| `vcsAction` | `ascenda.vcs.action` | |
+| `reason` | `ascenda.wait.reason` | |
+| `outcome`, `durationBucket`, `subagentId`, `projectHash`, `id`, `collectorVersion`, `utcOffsetMinutes` | `ascenda.*`, same name in snake case | |
+
+Team and department aren't event fields. They belong to the machine, so they go
+on the resource: set `OTEL_RESOURCE_ATTRIBUTES=team.id=platform,department=eng`
+where the forwarder runs. Those two names are a convention to agree on, not
+part of the semantic conventions.
+
+**No OpenTelemetry equivalent:** `branchKey`, `promptId`, `vcsAction`,
+`reason`, `outcome`, `durationBucket`, `subagentId`, `projectHash`, `id` and
+`collectorVersion`. The standard `vcs.*` names carry a repository URL or a
+branch name, and the key is a digest of one, so `repoKey` goes in
+`vcs.repository.id` as an opaque id and `branchKey` stays under `ascenda.`.
+Putting a digest where a name belongs would make the attribute lie.
+OpenInference describes LLM and tool spans, not an agent's session log, so most
+fields have no counterpart there. The OpenInference column shows where one
+exists.
+
 ## Matching a session to a pull request
 
 `projectHash` is salted on each machine, so it can't be matched to anything
@@ -131,10 +169,28 @@ the same repository and head branch carry the same pair.
 - Only github.com remotes get keys. There's no `branchKey` on the repository's
   default branch, where every session would share one.
 
+**Joining on the time window.** The keys narrow the candidates and the clock
+picks the one. For a pull request with a head repository, a head branch, an
+open time and a close or merge time:
+
+1. Take the events whose `repoKey` equals the digest of the head
+   `owner/repo` and whose `branchKey` equals the digest of that repo, a
+   newline and the head branch.
+2. Keep the sessions (`sessionId`) with at least one such event between the
+   PR's first commit time and its close or merge time. A session that started
+   before the branch existed still counts, because `branchKey` is per event.
+3. The session's `commit`, `push` and `pr_created` values of `vcsAction` mark
+   the steps that moved the PR. `pr_merged` says an agent ran the merge.
+
+A session that never left the default branch has no `branchKey`. Join it by
+`repoKey` and the time window alone, and expect more than one PR to match.
+Without the window, a reused branch name matches every PR that ever used it.
+
 **The trade-off.** Neither key is salted. They're digests, not secrets: anyone
 who holds one can check a guess like "branch `feat/x` of `acme/api`", and for a
-public repository those names are public. It's the trade-off the GitHub
-collector's repository digest already makes, with a branch name added. If you
+public repository those names are public. The inputs are short and guessable, so a dictionary of likely names would find
+most of them. It's the trade-off the GitHub collector's repository digest
+already makes, with a branch name added. If you
 don't want them on your events, turn them off for this machine:
 
 ```bash
