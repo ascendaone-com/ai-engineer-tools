@@ -115,3 +115,32 @@ test("a hook invocation still exits 0, even unconfigured", () => {
   assert.equal(result.status, 0, "exit 2 would block the user's turn; any non-zero reads as hook failure");
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+test("SessionEnd is registered with a timeout Codex accepts (3 s at most), the rest keep 10 s", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-codex-timeout-"));
+  const file = SETUP.settings.settingsPath("project", dir);
+  writeHookSettings(file, BINARY, SETUP, false);
+  const { hooks } = read(file);
+  assert.ok(hooks.SessionEnd, "SessionEnd must be registered, not just mapped");
+  const timeout = hooks.SessionEnd[0].hooks[0].timeout;
+  assert.ok(timeout > 0 && timeout <= 3, `SessionEnd timeout was ${timeout}`);
+  assert.equal(hooks.Stop[0].hooks[0].timeout, 10);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("status reports hooks Codex has not been told to trust, and exits non-zero", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-codex-status-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-codex-status-project-"));
+  writeHookSettings(SETUP.settings.settingsPath("project", dir), BINARY, SETUP, false);
+  const result = spawnSync("node", [CLI, "status", "--scope", "project", "--project-dir", dir], {
+    encoding: "utf8",
+    input: "",
+    timeout: 15_000,
+    env: { ...process.env, HOME: home, ASCENDA_HOME: home, ASCENDA_STATE_DIR: path.join(home, "state"), ASCENDA_TOOL_INSTALLATION_ID: "" }
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /not trusted\s+\d+ of \d+ hooks are not approved/);
+  assert.match(result.stdout, /open \/hooks/);
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true });
+});

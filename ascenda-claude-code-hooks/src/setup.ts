@@ -525,7 +525,12 @@ function restartLine(options: Options): string {
  * command's path, run by the Node that ran setup.
  */
 function installBinary(dryRun: boolean): string {
-  return installHookRunner({ ...LAUNCHER_OPTIONS, dryRun });
+  return installHookRunner({
+    ...LAUNCHER_OPTIONS,
+    dryRun,
+    onKeptNewer: (installed, incoming) =>
+      console.log(`Kept the installed hook bundle (${installed}) rather than replace it with this older ${incoming}. Run setup from the newer version to change it.`)
+  });
 }
 
 // -------------------------------------------------------------- settings ---
@@ -830,7 +835,7 @@ function uninstall(options: Options): number {
     console.log(`hooks removed from ${settingsFile}`);
   }
 
-  for (const file of [hookBinPath(), hookBundlePath(), hookNodeRecordPath(), hookNoNodePath()]) {
+  for (const file of [hookBinPath(), hookBundlePath(), hookNodeRecordPath(), hookNoNodePath(), `${hookBinPath()}.version`]) {
     if (!fs.existsSync(file)) continue;
     fs.rmSync(file);
     if (file === hookBinPath() || file === hookBundlePath()) console.log(`removed ${file}`);
