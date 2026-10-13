@@ -335,7 +335,9 @@ export type AscendaTelemetryEventType =
   | "scope_change_declared"
   | "review_requested_of_me"
   | "review_given"
-  | "pull_request_opened";
+  | "pull_request_opened"
+  | "pull_request_closed"
+  | "pull_request_merged";
 
 /**
  * The semantic subset of {@link AscendaTelemetryEventType} — agent-observed
@@ -374,7 +376,9 @@ export const SEMANTIC_WORK_SIGNAL_EVENT_TYPES: readonly AscendaTelemetryEventTyp
 export const COLLABORATION_EVENT_TYPES: readonly AscendaTelemetryEventType[] = [
   "review_requested_of_me",
   "review_given",
-  "pull_request_opened"
+  "pull_request_opened",
+  "pull_request_closed",
+  "pull_request_merged"
 ];
 
 export type AscendaSeverity = "low" | "medium" | "high" | "critical";
@@ -685,6 +689,10 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   branchHash: "repo",
   repoKey: "forge",
   branchKey: "forge",
+  headRepoKey: "forge",
+  prCreatedAt: "forge",
+  prClosedAt: "forge",
+  prMergedAt: "forge",
   promptId: "turns",
   autonomyMode: "posture",
   modelClass: "model",
@@ -798,6 +806,26 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * `forgeKeys.ts` in tool-kit for the trade-off.
    */
   branchKey?: string;
+
+  /**
+   * Pull-request events from the forge collector only: the key of the head
+   * repository, set when the pull request comes from a fork. A session in a
+   * fork clone has the fork's `repoKey`, so it matches this rather than the
+   * pull request's own `repoKey`. Same limits as `repoKey`.
+   */
+  headRepoKey?: string;
+
+  /**
+   * Pull-request events from the forge collector only: when the pull request
+   * was created, closed and merged, as ISO 8601 UTC. `prCreatedAt` is on
+   * every event for the pull request that carries it; `prClosedAt` on closed
+   * and merged events; `prMergedAt` on merged events only. A branch name such
+   * as `fix` repeats across pull requests, so a session joins one only when
+   * its time falls between created and closed or merged.
+   */
+  prCreatedAt?: string;
+  prClosedAt?: string;
+  prMergedAt?: string;
 
   /**
    * The agent's own opaque id for the prompt a turn answers, where it gives
@@ -1062,6 +1090,10 @@ export const EVENT_METADATA_FIELDS = [
   "branchHash",
   "repoKey",
   "branchKey",
+  "headRepoKey",
+  "prCreatedAt",
+  "prClosedAt",
+  "prMergedAt",
   "promptId",
   "autonomyMode",
   "modelClass",
@@ -1259,6 +1291,10 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   review_requested_of_me: "supervision",
   review_given: "supervision",
   pull_request_opened: "creation",
+  // Closing and merging mark the end of the window a session can belong to
+  // (see `prCreatedAt` and friends). They carry no load of their own.
+  pull_request_closed: "neutral",
+  pull_request_merged: "neutral",
   context_pressure_high: "risk",
   agent_loop_long: "risk",
   after_hours_ai_session: "risk",

@@ -121,8 +121,12 @@ the same repository and head branch carry the same pair.
 - A session can move between branches, so `branchKey` is set on each event, not
   once per session. Match on the key and on the session overlapping the PR's
   open window, because a branch called `fix` gets reused.
-- On a fork, the checkout's `origin` is the fork. Match against the PR's head
-  repository, not the base.
+- On a fork, the checkout's `origin` is the fork. The collector's PR events
+  carry the fork's key as `headRepoKey`, and `branchKey` is taken over the
+  fork's name. Match the session's `repoKey` against `repoKey` or
+  `headRepoKey`.
+- The PR events also carry `prCreatedAt`, `prClosedAt` and `prMergedAt`. Join
+  on the window between created and closed or merged.
 - Only github.com remotes get keys. There's no `branchKey` on the repository's
   default branch, where every session would share one.
 

@@ -10,6 +10,8 @@ pull-request activity, collected from a code forge.
 | `review_requested_of_me` | someone asked **you** to review | supervision |
 | `review_given` | **you** submitted a review | supervision |
 | `pull_request_opened` | **you** opened a pull request | creation |
+| `pull_request_closed` | one of **your** pull requests was closed without merging | neutral |
+| `pull_request_merged` | one of your pull requests was merged | neutral |
 
 The two review events are the report's *verification overload* concern — the
 checking burden that concentrates on senior engineers as a team adopts AI.
@@ -30,11 +32,40 @@ minimum cohort size.
 
 ### What never travels
 
-No repository name, PR title, branch, PR number, review body, or any other
+No repository name, PR title, branch name, PR number, review body, or any other
 person's login. The repository is reduced to an 8-character hash so that "is it
 always the same repository" stays answerable without naming it. There is no
 field on the emitted metadata that a title or a body could be placed in, and a
 test asserts each of those strings is absent from what gets sent.
+
+### Matching a PR to a coding session
+
+Pull request events also carry the digests the agent hooks put on a session, so
+the two can be joined:
+
+| Key | What it is |
+|---|---|
+| `repoKey` | the repository, as a 32-bit digest of the lowercased `owner/repo` |
+| `branchKey` | the head branch, as a 64-bit digest of `owner/repo` and the branch name |
+| `headRepoKey` | the head repository's `repoKey`, only when the PR comes from a fork |
+| `prCreatedAt` | when the PR was created, on opened, closed and merged events |
+| `prClosedAt` | when it was closed, on closed and merged events |
+| `prMergedAt` | when it was merged, on merged events |
+
+For a fork, `branchKey` is taken over the fork's `owner/repo`, because that's
+the name a contributor's clone has as `origin`. There's no `branchKey` when the
+head branch is its repository's default branch, the same rule the hooks follow.
+Only github.com repositories get keys.
+
+A branch called `fix` is reused, so the join also needs the window: a session
+belongs to the PR whose `prCreatedAt` to `prClosedAt` (or `prMergedAt`) holds
+its events. [The team collection guide](../docs/TEAM_COLLECTION.md#joining-a-session-to-its-pull-request)
+spells out the rule.
+
+The digests are unsalted, so anyone holding one can check a guess at a name.
+Turn them off with `--no-repo-keys` on the command, or `ASCENDA_REPO_KEYS=off`
+in the step's environment. The 8-character `projectHash` stays either way, and
+the times do too.
 
 ### Withdrawal is not derivable, deliberately
 
@@ -62,7 +93,7 @@ repository secrets with that person's suffix, along with their GitHub login.
 name: ascenda-collaboration
 on:
   pull_request:
-    types: [opened, review_requested]
+    types: [opened, closed, review_requested]
   pull_request_review:
     types: [submitted]
 

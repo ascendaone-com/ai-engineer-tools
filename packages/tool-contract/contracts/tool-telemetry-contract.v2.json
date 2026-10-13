@@ -100,6 +100,8 @@
     "review_requested_of_me",
     "review_given",
     "pull_request_opened",
+    "pull_request_closed",
+    "pull_request_merged",
     "ai_turn_completed",
     "supervision_interruption",
     "subagent_started",

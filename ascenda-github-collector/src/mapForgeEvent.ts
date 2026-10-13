@@ -1,5 +1,5 @@
 import { AscendaTelemetryEventType, AscendaEventMetadata } from "@ascenda-one/tool-contract";
-import { forgeProjectHash } from "@ascenda-one/tool-kit";
+import { forgeBranchKey, forgeProjectHash, forgeRepoKey } from "@ascenda-one/tool-kit";
 
 export type MappedForgeEvent = {
   eventType: AscendaTelemetryEventType;
@@ -13,6 +13,15 @@ export type MappedForgeEvent = {
  * telemetry mapper that crashes takes the user's CI step down with it.
  */
 export type ForgePayload = Record<string, unknown>;
+
+export type MapForgeOptions = {
+  /**
+   * Whether to put `repoKey`, `branchKey` and `headRepoKey` on pull-request
+   * events. On unless the caller turns it off: the CLI passes false for
+   * `--no-repo-keys` and for the machine's own opt-out (`ASCENDA_REPO_KEYS=off`).
+   */
+  repoKeys?: boolean;
+};
 
 /**
  * Maps a code-forge event to Ascenda's collaboration events (§4.2's
@@ -34,18 +43,21 @@ export type ForgePayload = Record<string, unknown>;
  *
  * ## What never travels
  *
- * No repository name, PR title, branch name, PR number, or any other person's
+ * No repository name, PR title, branch name (as text), PR number, or any other person's
  * login. The repository is reduced to an opaque hash so that "always the same
  * repo" stays answerable without naming it, and nothing else about the change
- * is carried. There is no field on the emitted metadata that a title or a body
+ * is carried. The repository and branch travel only as unsalted digests (see
+ * {@link joinKeys}), and that is switchable. There is no field on the emitted metadata that a title or a body
  * could be placed in.
  */
 export function mapForgeEvent(
   eventName: string | undefined,
   payload: ForgePayload,
-  viewerLogin: string | undefined
+  viewerLogin: string | undefined,
+  options: MapForgeOptions = {}
 ): MappedForgeEvent[] {
   if (!eventName || !viewerLogin) return [];
+  const keys = options.repoKeys !== false;
 
   const action = str(payload["action"]);
   const viewer = viewerLogin.toLowerCase();
@@ -58,7 +70,18 @@ export function mapForgeEvent(
       return [{
         eventType: "pull_request_opened",
         severity: "low",
-        metadata: base(payload)
+        metadata: { ...base(payload, keys), ...times(pr) }
+      }];
+    }
+
+    // The end of the window a session can belong to. GitHub sends `closed`
+    // for both, and `merged` on the pull request tells them apart.
+    if (action === "closed" && author === viewer) {
+      const merged = pr["merged"] === true;
+      return [{
+        eventType: merged ? "pull_request_merged" : "pull_request_closed",
+        severity: "low",
+        metadata: { ...base(payload, keys), ...times(pr), ...(merged ? mergedTime(pr) : {}) }
       }];
     }
 
@@ -70,7 +93,7 @@ export function mapForgeEvent(
         return [{
           eventType: "review_requested_of_me",
           severity: "low",
-          metadata: base(payload)
+          metadata: base(payload, keys)
         }];
       }
     }
@@ -87,7 +110,7 @@ export function mapForgeEvent(
       eventType: "review_given",
       severity: "low",
       metadata: {
-        ...base(payload),
+        ...base(payload, keys),
         // The verdict is a property of the checking work, not of the author,
         // and it is the closest thing to a "how heavy was this review" signal
         // that carries no content. `commented` and `changes_requested` are
@@ -100,7 +123,7 @@ export function mapForgeEvent(
   return [];
 }
 
-function base(payload: ForgePayload): AscendaEventMetadata {
+function base(payload: ForgePayload, keys: boolean): AscendaEventMetadata {
   const repo = str(obj(payload["repository"])["full_name"]);
   return {
     host: "github",
@@ -114,8 +137,85 @@ function base(payload: ForgePayload): AscendaEventMetadata {
     // function now lives in tool-kit so a developer's own machine, which holds
     // both identities, can compute this exact digest and file it beside its
     // own; nothing about what this step emits has changed.
-    ...(repo ? { projectHash: forgeProjectHash(repo) } : {})
+    ...(repo ? { projectHash: forgeProjectHash(repo) } : {}),
+    ...(keys ? joinKeys(payload) : {})
   };
+}
+
+/**
+ * The keys a coding session is matched to this pull request by: the
+ * repository, the head branch, and for a fork the head repository.
+ *
+ * The same recipe as the hooks (tool-kit's forgeRepoKey and forgeBranchKey),
+ * and the same limits:
+ *
+ *  - github.com only. A payload whose repository URL is on another host gets
+ *    nothing. A payload with no URL at all is taken as github.com's.
+ *  - No `branchKey` when the head branch is its repository's default branch,
+ *    because the hooks leave it off there too and a key one side never sends
+ *    can't join anything.
+ *
+ * For a fork the branch key is taken over the FORK's `owner/repo`. The clone a
+ * contributor works in has the fork as `origin`, so that's the name its
+ * sessions hash. `headRepoKey` carries the fork's repository key for the same
+ * reason: that session's `repoKey` is the fork's, not the upstream's.
+ */
+function joinKeys(payload: ForgePayload): AscendaEventMetadata {
+  const repository = obj(payload["repository"]);
+  const baseName = str(repository["full_name"]);
+  if (!baseName || !onGithub(repository)) return {};
+
+  const head = obj(obj(payload["pull_request"])["head"]);
+  const headRepo = obj(head["repo"]);
+  // A deleted fork leaves `head.repo` null. Without its name there is no way to
+  // hash the branch the way the contributor's clone did, so the branch key is
+  // left off rather than guessed from the upstream.
+  const headName = head["repo"] === undefined ? baseName : str(headRepo["full_name"]);
+  const headDefault = headRepo["default_branch"] !== undefined
+    ? str(headRepo["default_branch"])
+    : str(repository["default_branch"]);
+  const ref = str(head["ref"]);
+
+  const keys: AscendaEventMetadata = { repoKey: forgeRepoKey(baseName) };
+  if (headName && ref && ref !== headDefault) keys.branchKey = forgeBranchKey(headName, ref);
+  if (headName && headName.toLowerCase() !== baseName.toLowerCase()) keys.headRepoKey = forgeRepoKey(headName);
+  return keys;
+}
+
+function onGithub(repository: Record<string, unknown>): boolean {
+  const url = str(repository["html_url"]);
+  if (!url) return true;
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "") === "github.com";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * When the pull request was created, and when it was closed if it has been.
+ * These are the window a session is joined inside: a branch named `fix` is
+ * reused, and the window says which pull request a session belonged to.
+ */
+function times(pr: Record<string, unknown>): AscendaEventMetadata {
+  const created = isoTime(pr["created_at"]);
+  const closed = isoTime(pr["closed_at"]);
+  return {
+    ...(created ? { prCreatedAt: created } : {}),
+    ...(closed ? { prClosedAt: closed } : {})
+  };
+}
+
+function mergedTime(pr: Record<string, unknown>): AscendaEventMetadata {
+  const merged = isoTime(pr["merged_at"]);
+  return merged ? { prMergedAt: merged } : {};
+}
+
+function isoTime(value: unknown): string | undefined {
+  const text = str(value);
+  if (!text) return undefined;
+  const ms = Date.parse(text);
+  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
 }
 
 /**
