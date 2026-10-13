@@ -74,6 +74,7 @@ export function attributesFor(event) {
     ...str("ascenda.subagent.id", event.subagentId),
     ...str("ascenda.outcome", event.outcome),
     ...str("ascenda.wait.reason", event.reason),
+    ...str("ascenda.permission_mode", event.permissionMode),
     ...str("ascenda.duration_bucket", event.durationBucket),
     ...str("ascenda.project_hash", event.projectHash),
     ...str("ascenda.event.id", event.id),
@@ -84,14 +85,19 @@ export function attributesFor(event) {
   ];
 }
 
+function severityFor(kind) {
+  if (kind === "tool.failed") return { severityNumber: 17, severityText: "ERROR" };
+  if (kind === "permission.denied") return { severityNumber: 13, severityText: "WARN" };
+  return { severityNumber: 9, severityText: "INFO" };
+}
+
 export function logRecord(event) {
   const ms = Date.parse(event.time);
   const nanos = Number.isFinite(ms) ? `${BigInt(ms) * 1_000_000n}` : undefined;
   return {
     ...(nanos ? { timeUnixNano: nanos } : {}),
     observedTimeUnixNano: `${BigInt(Date.now()) * 1_000_000n}`,
-    severityNumber: event.kind === "tool.failed" ? 17 : 9,
-    severityText: event.kind === "tool.failed" ? "ERROR" : "INFO",
+    ...severityFor(event.kind),
     eventName: event.kind,
     body: { stringValue: event.kind },
     attributes: attributesFor(event)

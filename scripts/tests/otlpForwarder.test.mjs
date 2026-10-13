@@ -13,7 +13,8 @@ const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..
 
 const EVENTS = [
   { schema: "agent-event/v0", id: "e1", time: "2026-10-14T01:02:03.456Z", agent: "claude_code", kind: "session.started", sessionId: "s1", model: "m-1", repoKey: "aabbccdd", branchKey: "0011223344556677", headRepoKey: "ddccbbaa", prMergedAt: "2026-10-14T02:00:00Z" },
-  { schema: "agent-event/v0", id: "e2", time: "2026-10-14T01:02:04.000Z", agent: "claude_code", kind: "tool.failed", sessionId: "s1", tool: "Bash", outcome: "failure", promptId: "p1", utcOffsetMinutes: 600 }
+  { schema: "agent-event/v0", id: "e2", time: "2026-10-14T01:02:04.000Z", agent: "claude_code", kind: "tool.failed", sessionId: "s1", tool: "Bash", outcome: "failure", promptId: "p1", utcOffsetMinutes: 600, permissionMode: "auto" },
+  { schema: "agent-event/v0", id: "e4", time: "2026-10-14T01:02:05.000Z", agent: "claude_code", kind: "permission.denied", sessionId: "s1", tool: "Bash", permissionMode: "auto" }
 ];
 
 function fakeReceiver(status = 200) {
@@ -64,7 +65,7 @@ test("sends the log as OTLP logs and picks up where it stopped", async () => {
     assert.deepEqual(resource, { "service.name": "ascenda-agent-events", "team.id": "platform", department: "eng ops" });
 
     const records = body.resourceLogs[0].scopeLogs[0].logRecords;
-    assert.equal(records.length, 2);
+    assert.equal(records.length, 3);
     assert.equal(records[0].timeUnixNano, `${BigInt(Date.parse(EVENTS[0].time)) * 1_000_000n}`);
     assert.deepEqual(attr(records[0], "session.id"), { stringValue: "s1" });
     assert.equal(records[0].eventName, "session.started");
@@ -78,6 +79,9 @@ test("sends the log as OTLP logs and picks up where it stopped", async () => {
     assert.deepEqual(attr(records[1], "ascenda.prompt.id"), { stringValue: "p1" });
     assert.deepEqual(attr(records[1], "ascenda.utc_offset_minutes"), { intValue: "600" });
     assert.equal(records[1].severityText, "ERROR");
+    assert.deepEqual(attr(records[1], "ascenda.permission_mode"), { stringValue: "auto" });
+    assert.equal(records[2].eventName, "permission.denied");
+    assert.equal(records[2].severityText, "WARN");
     assert.equal(JSON.stringify(body).includes("not forwarded"), false, "only the public event goes out");
 
     // Nothing new: nothing sent. Then one more line: only that line.
