@@ -99,7 +99,7 @@ test("--no-pair installs the hooks and records an installation with no pairing",
   assert.doesNotMatch(result.stdout, /Installed, not paired/);
 
   assert.ok(fs.existsSync(m.binary()), "the hook binary is installed");
-  assert.equal(registeredEvents(m.userSettings()).length, 13);
+  assert.equal(registeredEvents(m.userSettings()).length, 15);
 
   const credentials = m.credentials();
   assert.match(credentials.toolInstallationId, /^claude_code:/);
@@ -121,7 +121,7 @@ test("--no-pairing is accepted too, and the disclosure says it applies once pair
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(m.credentials().localOnly, true);
-  assert.equal(registeredEvents(m.userSettings()).length, 13);
+  assert.equal(registeredEvents(m.userSettings()).length, 15);
 
   // The pairing disclosure still prints — someone choosing to stay local is
   // entitled to know what pairing would cost — but after the install has
@@ -145,7 +145,7 @@ test("a pairing that cannot reach the backend still finishes the install", async
   // Tried and failed is not the same as asked not to: this one warns.
   assert.match(result.stdout, /pairing\s+not paired: could not reach/);
   assert.match(result.stdout, /Installed, not paired\./);
-  assert.equal(registeredEvents(m.userSettings()).length, 13);
+  assert.equal(registeredEvents(m.userSettings()).length, 15);
   assert.equal(m.credentials().localOnly, true);
   m.cleanup();
 });
@@ -297,7 +297,7 @@ test("status reports an unpaired install as installed, and exits 0", () => {
   assert.match(here.stdout, /pairing\s+claude_code:\S+ \(not paired, installed /);
   assert.match(here.stdout, /delivery\s+inactive/);
   assert.match(here.stdout, /local features active/);
-  assert.match(here.stdout, /hooks\s+13\/13 registered/);
+  assert.match(here.stdout, /hooks\s+15\/15 registered/);
   assert.match(here.stdout, /^version {8}(unreleased \(built from a checkout, not a release\)|\d+\.\d+\.\d+)$/m, "status names the running build");
 
   // The scope trap: asked about one project on a machine set up with --scope
@@ -305,7 +305,7 @@ test("status reports an unpaired install as installed, and exits 0", () => {
   // answer the question and the install is not broken.
   const fromProject = run(m, ["status", "--scope", "project"], { cwd: m.project, env: { CLAUDE_PROJECT_DIR: m.project } });
   assert.equal(fromProject.status, 0, "hooks in the user file cover this project too");
-  assert.match(fromProject.stdout, /13\/13 found in .*settings\.json \(--scope user\)/);
+  assert.match(fromProject.stdout, /15\/15 found in .*settings\.json \(--scope user\)/);
   m.cleanup();
 });
 
@@ -400,5 +400,36 @@ test("uninstall clears an unpaired install and leaves other tools' pairings alon
   const left = JSON.parse(fs.readFileSync(file, "utf8"));
   assert.equal(left.toolInstallationId, undefined, "this tool's record is gone");
   assert.equal(left.tools.codex.toolInstallationId, "cli_agent:xyz", "another agent's pairing survives");
+  m.cleanup();
+});
+
+test("setup, status and uninstall use CLAUDE_CONFIG_DIR, and uninstall keeps another tool's hook in a shared group", () => {
+  const m = machine("configdir");
+  const configDir = path.join(m.root, "claude-config");
+  const env = { CLAUDE_CONFIG_DIR: configDir };
+  const settingsFile = path.join(configDir, "settings.json");
+  const original = JSON.stringify({ model: "opus" });
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(settingsFile, original);
+
+  const setup = run(m, ["setup", "--no-pair", "--scope", "user", "--project-dir", m.project], { env });
+  assert.equal(setup.status, 0, setup.stderr);
+  assert.equal(registeredEvents(settingsFile).length, 15);
+  assert.equal(fs.existsSync(m.userSettings()), false, "nothing lands in ~/.claude");
+
+  const status = run(m, ["status", "--scope", "user"], { env });
+  assert.match(status.stdout, /hooks\s+15\/15 registered/);
+
+  const shared = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+  const foreign = { type: "command", command: "/usr/local/bin/other-tool-hook" };
+  shared.hooks.Stop[0].hooks.push(foreign);
+  fs.writeFileSync(settingsFile, JSON.stringify(shared, null, 2));
+
+  const uninstall = run(m, ["uninstall", "--scope", "user"], { env });
+  assert.equal(uninstall.status, 0, uninstall.stderr);
+  const left = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+  assert.deepEqual(left.hooks, { Stop: [{ hooks: [foreign] }] }, "only our hooks are gone");
+  assert.equal(left.model, "opus");
+  assert.equal(fs.readFileSync(`${settingsFile}.ascenda-backup`, "utf8"), original, "the backup is the file before setup touched it");
   m.cleanup();
 });

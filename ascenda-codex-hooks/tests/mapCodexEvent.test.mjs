@@ -249,3 +249,53 @@ test("autonomyMode: no retired ladder rung reaches the wire from any payload", (
     }
   }
 });
+
+test("PostToolUse: a shell commit and PR merge carry gitAction and milestoneKind", () => {
+  const commit = mapCodexEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "git -C app commit -m x" }, tool_response: { exit_code: 0 } });
+  assert.equal(commit[0].metadata.gitAction, "commit");
+  const merge = mapCodexEvent("PostToolUse", { tool_name: "local_shell", tool_input: { command: "gh pr merge 12" }, tool_response: { exit_code: 0 } });
+  assert.equal(merge[0].metadata.milestoneKind, "pr_merged");
+  const revert = mapCodexEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "git revert abc" }, tool_response: { exit_code: 0 } });
+  assert.equal(revert[0].metadata.activity, "rework_reversion");
+});
+
+test("PostToolUse: a failed commit carries no gitAction", () => {
+  const events = mapCodexEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "git commit -m x" }, tool_response: { exit_code: 1 } });
+  assert.equal(events[0].eventType, "ai_tool_call_failed");
+  assert.equal(events[0].metadata.gitAction, undefined);
+});
+
+test("PostToolUse: exec_command and shell_command are shell tools, in any command shape", () => {
+  const exec = mapCodexEvent("PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "git push origin main" }, tool_response: { exit_code: 0 } });
+  assert.equal(exec[0].metadata.gitAction, "push");
+  const shellCommand = mapCodexEvent("PostToolUse", { tool_name: "shell_command", tool_input: { command: "git commit -m x" }, tool_response: { exit_code: 0 } });
+  assert.equal(shellCommand[0].metadata.gitAction, "commit");
+  const argv = mapCodexEvent("PostToolUse", { tool_name: "shell", tool_input: { command: ["bash", "-lc", "git commit -m x"] }, tool_response: { exit_code: 0 } });
+  assert.equal(argv[0].metadata.gitAction, "commit");
+  const verify = mapCodexEvent("PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "npm test" }, tool_response: { exit_code: 1 } });
+  assert.equal(verify[0].eventType, "compile_error");
+});
+
+test("PostToolUse: a functions. prefix (Codex Desktop) is stripped", () => {
+  const edit = mapCodexEvent("PostToolUse", { tool_name: "functions.apply_patch", tool_response: {} });
+  assert.equal(edit[0].eventType, "ai_file_edit");
+  assert.equal(edit[0].metadata.toolName, "apply_patch");
+  const shell = mapCodexEvent("PostToolUse", { tool_name: "functions.exec_command", tool_input: { cmd: "git commit -m x" }, tool_response: { exit_code: 0 } });
+  assert.equal(shell[0].metadata.gitAction, "commit");
+});
+
+test("PostToolUse: a commit with no reported success carries no gitAction", () => {
+  const events = mapCodexEvent("PostToolUse", { tool_name: "Bash", tool_input: { command: "git commit -m x" }, tool_response: {} });
+  assert.equal(events[0].metadata.outcome, "unknown");
+  assert.equal(events[0].metadata.gitAction, undefined);
+});
+
+test("SessionEnd: one session_ended row, with the reason only when Codex sent one", () => {
+  const [event] = mapCodexEvent("SessionEnd", { reason: "other" });
+  assert.equal(event.eventType, "recovery_offline_period");
+  assert.equal(event.metadata.activity, "session_ended");
+  assert.equal(event.metadata.sessionEndReason, "other");
+  assert.equal(event.metadata.host, "codex");
+  assert.equal("sessionEndReason" in mapCodexEvent("SessionEnd", {})[0].metadata, false);
+  assert.equal(mapCodexEvent("SessionEnd", { reason: "something_new" })[0].metadata.sessionEndReason, "unknown");
+});

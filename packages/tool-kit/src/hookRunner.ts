@@ -1,6 +1,7 @@
 import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { COLLECTOR_VERSION } from "./collectorVersion";
 import { ascendaHome } from "./tokenStore";
 
 /**
@@ -40,11 +41,13 @@ export interface HookRunnerPaths {
   record: string;
   /** Written when a hook ran and no Node could be found. */
   noNode: string;
+  /** The release the installed bundle came from, so an older `setup` can tell it would be a downgrade. */
+  version: string;
 }
 
 export function hookRunnerPaths(binaryName: string): HookRunnerPaths {
   const launcher = path.join(ascendaHome(), "bin", binaryName);
-  return { launcher, bundle: `${launcher}.mjs`, record: `${launcher}.node`, noNode: `${launcher}.no-node` };
+  return { launcher, bundle: `${launcher}.mjs`, record: `${launcher}.node`, noNode: `${launcher}.no-node`, version: `${launcher}.version` };
 }
 
 /**
@@ -161,22 +164,73 @@ export function hookLauncherScript(options: HookLauncherOptions): string {
 }
 
 /**
+ * Pulls `major.minor.patch` out of a release tag (`v0.1.35`, `0.1.35-rc.1`).
+ * Anything else, including a build from a checkout, has no order.
+ */
+function releaseOf(version: string | undefined): [number, number, number] | undefined {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec((version ?? "").trim());
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : undefined;
+}
+
+/** True when `installed` is a release newer than `incoming`. A version either side can't be ordered never blocks an install. */
+export function isDowngrade(installed: string | undefined, incoming: string): boolean {
+  const have = releaseOf(installed);
+  const want = releaseOf(incoming);
+  if (!have || !want) return false;
+  for (let i = 0; i < 3; i++) {
+    if (have[i] !== want[i]) return have[i] > want[i];
+  }
+  return false;
+}
+
+function readInstalledVersion(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Installs the running bundle, its launcher and the Node record, each
  * write-then-rename, so a hook the agent starts mid-install runs the old
  * file or the new one, never half of one. Returns the path the hook command
  * should name.
+ *
+ * The bundle is shared by every checkout and every `npx` cache that runs
+ * `setup`, so an older one can be the one running. It does not replace a newer
+ * install: the newer bundle may register events or read state this one
+ * doesn't know, and the hooks file this run is about to write only names the
+ * launcher. `onKeptNewer` is told when that happens.
  */
-export function installHookRunner(options: HookLauncherOptions & { dryRun: boolean; source?: string }): string {
+export function installHookRunner(options: HookLauncherOptions & {
+  dryRun: boolean;
+  source?: string;
+  /** The release the source bundle is. Defaults to this build's own. */
+  version?: string;
+  onKeptNewer?: (installed: string, incoming: string) => void;
+}): string {
   const paths = hookRunnerPaths(options.binaryName);
   if (options.dryRun) return paths.launcher;
 
   const source = path.resolve(options.source ?? process.argv[1]);
+  const incoming = options.version ?? COLLECTOR_VERSION;
+  const installed = readInstalledVersion(paths.version);
+  const installedFile = process.platform === "win32" ? paths.launcher : paths.bundle;
+  if (installed && fs.existsSync(installedFile) && isDowngrade(installed, incoming)) {
+    options.onKeptNewer?.(installed, incoming);
+    // The launcher and Node record are what a hook needs to start, and they
+    // may be missing even when the bundle isn't; leave the rest as found.
+    if (process.platform !== "win32" && !fs.existsSync(paths.launcher)) writeAtomically(paths.launcher, hookLauncherScript(options), 0o755);
+    return paths.launcher;
+  }
   fs.mkdirSync(path.dirname(paths.launcher), { recursive: true });
 
   if (process.platform === "win32") {
     // Same file when re-running an already-installed binary; copying it onto
     // itself would truncate it.
     if (source !== path.resolve(paths.launcher)) fs.copyFileSync(source, paths.launcher);
+    writeAtomically(paths.version, `${incoming}\n`, 0o644);
     return paths.launcher;
   }
 
@@ -186,6 +240,8 @@ export function installHookRunner(options: HookLauncherOptions & { dryRun: boole
   if (source !== path.resolve(paths.bundle)) writeAtomically(paths.bundle, fs.readFileSync(source), 0o755);
   writeAtomically(paths.launcher, hookLauncherScript(options), 0o755);
   writeAtomically(paths.record, `${process.execPath}\n`, 0o644);
+  // Last, so a bundle that failed to land never has its version recorded.
+  if (source !== path.resolve(paths.bundle)) writeAtomically(paths.version, `${incoming}\n`, 0o644);
   fs.rmSync(paths.noNode, { force: true });
   return paths.launcher;
 }
@@ -205,11 +261,15 @@ export function removeHookRunner(binaryName: string): string[] {
  * The command a hooks file should carry: the launcher, quoted. On Windows,
  * the Node that ran setup and the bundle.
  */
-export function hookRunnerCommand(launcher: string): string {
-  return process.platform === "win32" ? `"${process.execPath}" "${launcher}"` : `"${launcher}"`;
+export function hookRunnerCommand(launcher: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? `"${process.execPath}" "${launcher}"` : `"${launcher}"`;
 }
 
-function writeAtomically(target: string, contents: string | Buffer, mode: number): void {
+/**
+ * Writes beside the target and renames over it, so a reader never sees half
+ * a file and a crash mid-write leaves the old one in place.
+ */
+export function writeAtomically(target: string, contents: string | Buffer, mode: number): void {
   const tmp = `${target}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, contents, { mode });
   fs.chmodSync(tmp, mode);

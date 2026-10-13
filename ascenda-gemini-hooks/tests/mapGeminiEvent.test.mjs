@@ -71,3 +71,18 @@ test("per-inference hooks map to nothing", () => {
     assert.deepEqual(mapGeminiEvent(hook, { llm_request: {}, llm_response: {} }), []);
   }
 });
+
+test("AfterTool: a shell commit and PR open carry gitAction and milestoneKind", () => {
+  const commit = mapGeminiEvent("AfterTool", { tool_name: "run_shell_command", tool_input: { command: "git --no-pager commit -m x" }, tool_response: { exitCode: 0 } });
+  assert.equal(commit[0].metadata.gitAction, "commit");
+  const pr = mapGeminiEvent("AfterTool", { tool_name: "run_shell_command", tool_input: { command: "gh pr create --fill" }, tool_response: { exitCode: 0 } });
+  assert.equal(pr[0].metadata.milestoneKind, "pr_opened");
+  const notShell = mapGeminiEvent("AfterTool", { tool_name: "read_file", tool_input: { command: "git commit" }, tool_response: {} });
+  assert.equal(notShell[0].metadata.gitAction, undefined);
+});
+
+test("AfterTool: a commit with no reported success carries no gitAction", () => {
+  const events = mapGeminiEvent("AfterTool", { tool_name: "run_shell_command", tool_input: { command: "git commit -m x" }, tool_response: {} });
+  assert.equal(events[0].metadata.outcome, "unknown");
+  assert.equal(events[0].metadata.gitAction, undefined);
+});

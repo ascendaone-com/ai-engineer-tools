@@ -18,9 +18,10 @@ export const SETUP: CliAgentSetupSpec = {
   binaryName: "ascenda-cursor-hook",
   hookEvents: HOOK_EVENTS,
   restartHint: "Restart Cursor to load the hooks.",
-  // Cursor reports its composer's context occupancy on a compaction. It
-  // exposes no permission posture, so no posture line is printed.
-  sends: ["context"],
+  // Cursor reports its composer's context occupancy on a compaction, and the
+  // git action or milestone a shell command reached. It exposes no permission
+  // posture, so no posture line is printed.
+  sends: ["context", "git", "turns", "forge"],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(os.homedir(), ".cursor", "hooks.json") : path.join(projectDir, ".cursor", "hooks.json"),

@@ -22,8 +22,9 @@ import { deriveWorkContext, normalizeBranchName, readBranchName } from "./workCo
 //    names. Anything else gets no key rather than a guess.
 //  - No branch key on the repository's default branch. Every session on `main`
 //    would share one key, and the join has nothing to say about it.
-//  - A switch anyone can flip: `ASCENDA_REPO_KEYS=off`, or `setup --repo-keys
-//    off`, which is saved machine-wide in credentials.json.
+//  - A switch anyone can flip: `ASCENDA_REPO_KEYS=off`, or `setup
+//    --no-repo-keys` on any hook CLI, which is saved machine-wide in
+//    credentials.json.
 
 export const REPO_KEYS_ENV_VAR = "ASCENDA_REPO_KEYS";
 

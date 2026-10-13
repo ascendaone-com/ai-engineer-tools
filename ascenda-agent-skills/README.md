@@ -14,7 +14,7 @@ This package is both the skill/rule content *and* — since `.claude-plugin/plug
 | [`skills/ascenda-work-signals/SKILL.md`](./skills/ascenda-work-signals/SKILL.md) | The Claude Code skill that reports work-friction patterns |
 | [`skills/ascenda-work-checkpoints/SKILL.md`](./skills/ascenda-work-checkpoints/SKILL.md) | The Claude Code skill that *reads* the Flow app's local `get_work_demand_context` and offers a checkpoint at a work boundary |
 | [`skills/ascenda-reveal-read/SKILL.md`](./skills/ascenda-reveal-read/SKILL.md) | The Claude Code skill that *reads*, once per session, what the Flow app showed the person about their own imported history (`get_reveal`), and holds it until they ask or a piece of work has to be placed |
-| [`hooks/hooks.json`](./hooks/hooks.json) | Wires [`ascenda-claude-code-hooks`](../ascenda-claude-code-hooks/)'s CLI into all eight lifecycle events, via `npx` |
+| [`hooks/hooks.json`](./hooks/hooks.json) | Wires [`ascenda-claude-code-hooks`](../ascenda-claude-code-hooks/)'s CLI into all fifteen lifecycle events, via `npx` |
 | [`.mcp.json`](./.mcp.json) | Wires [`ascenda-agent-mcp`](../ascenda-agent-mcp/)'s CLI in as an MCP server, via `npx` |
 | [`cursor/ascenda-work-signals.mdc`](./cursor/ascenda-work-signals.mdc) | The equivalent Cursor project rule (Cursor doesn't use this plugin system, so it's still installed separately — see below) |
 | [`docs/EMISSION_CRITERIA.md`](./docs/EMISSION_CRITERIA.md) | Versioned, per-event trigger thresholds and required evidence — the actual judgement logic both files above summarise |

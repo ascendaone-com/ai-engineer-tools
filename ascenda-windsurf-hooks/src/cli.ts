@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapWindsurfEvent } from "./mapWindsurfEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -18,6 +18,12 @@ import { ASCENDA_TOOL_TYPE, WINDSURF_HOST, WindsurfHookEventName, WindsurfHookIn
  * on a pipe nothing will ever write to.
  */
 async function main(): Promise<void> {
+  // A detached flusher started by an earlier hook, not a hook: no stdin, no
+  // agent waiting. See backgroundDelivery.ts in tool-kit.
+  if (process.argv[2] === OUTBOX_FLUSH_COMMAND) {
+    await flushHookOutbox({ toolType: ASCENDA_TOOL_TYPE, host: WINDSURF_HOST, source: "cli_agent" });
+    return;
+  }
   if (isCliAgentManagementCommand(process.argv[2])) {
     managementExitCode = await runCliAgentSetup(process.argv.slice(2), SETUP);
     return;
@@ -36,8 +42,16 @@ async function main(): Promise<void> {
   let turnDurationMs: number | undefined;
   // That this agent ran a hook at all, for `status` and `doctor`.
   stampLastHook(WINDSURF_HOST, hookName);
-  if (hookName === "pre_user_prompt") recordTurnStart(WINDSURF_HOST, sessionId);
+  // These agents give hooks no id for the prompt a turn answers, so the turn's
+  // first hook mints one and the rest read it back. Read before the turn-end
+  // hook consumes the state.
+  const promptId = hookName === "pre_user_prompt"
+    ? recordTurnStart(WINDSURF_HOST, sessionId)
+    : readTurnPromptId(WINDSURF_HOST, sessionId);
   if (hookName === "post_cascade_response") turnDurationMs = consumeTurnDurationMs(WINDSURF_HOST, sessionId);
+
+  // Where the work happened, for the repository and branch keys.
+  const workDir = typeof (input.tool_info as { cwd?: unknown } | undefined)?.cwd === "string" ? (input.tool_info as { cwd: string }).cwd : undefined;
 
   // The local live bus, before the cloud send. See `emitLive` below.
   await emitLive(hookName, input, sessionId);
@@ -47,7 +61,10 @@ async function main(): Promise<void> {
     host: WINDSURF_HOST,
     setupCommand: `npx ${SETUP.packageName} setup`,
     source: "cli_agent",
-    sessionId
+    sessionId,
+    promptId,
+    cwd: workDir,
+    forgeKeys: true
   });
 }
 

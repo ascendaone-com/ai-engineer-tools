@@ -83,28 +83,31 @@ all, in [examples/local-event-reader](../../examples/local-event-reader/).
 | `kind` | What happened. See below. |
 | `sessionId` | The agent's own session id, when it gives one. |
 | `subagentId` | Set inside a subagent, and on its start and stop. |
-| `tool` | The tool's name as the agent reports it, on `tool.*` kinds. |
+| `tool` | The tool's name as the agent reports it, on `tool.*` and `permission.*` kinds. |
 | `outcome` | `success`, `failure` or `cancelled`, when the collector could tell. |
 | `durationBucket` | `0-1m`, `1-5m`, `5-10m`, `10-30m`, `30-60m` or `60m+`. Never an exact time. |
 | `projectHash` | A salted hash of the project. The salt never leaves the machine. |
 | `repoKey` | The repository, as a digest of its GitHub `owner/repo`. See [Matching a session to a pull request](#matching-a-session-to-a-pull-request). |
 | `branchKey` | The branch, as a digest. Set on each event, off the default branch. Same section. |
-| `promptId` | The agent's own id for the prompt a turn answers, when it gives one. Events of one turn share it. |
+| `promptId` | The agent's own id for the prompt a turn answers, when it gives one, otherwise a random id the collector mints at the start of the turn. Events of one turn share it. Never derived from the prompt's text. |
 | `headRepoKey` | On a pull request from a fork: the fork's key. See below. |
 | `prCreatedAt`, `prClosedAt`, `prMergedAt` | On `pull_request.*`: when GitHub says it was created, closed and merged. |
 | `vcsAction` | On `tool.completed`, when the call was a version-control step: `commit`, `push`, `pr_created` or `pr_merged`. |
-| `reason` | On `agent.waiting`, why the agent stopped: `permission`, `idle` or `other`. |
+| `reason` | On `agent.waiting`, why the agent stopped: `permission`, `idle`, `input` (the agent asked a question) or `other`. |
+| `permissionMode` | The permission posture the agent was working under: `default`, `plan`, `accept_edits`, `auto`, `dont_ask`, `bypass_permissions` or `unknown`. Set per event, since it can change mid-session. |
 | `model` | On `session.started`, the model the agent reported, when it did. |
 | `collectorVersion` | The collector that wrote it. |
 | `sourceType` | The collector's internal name for the event. For debugging only; not part of the contract. |
 
 Kinds: `session.started`, `session.ended`, `prompt.submitted`, `tool.started`,
 `tool.completed`, `tool.failed`, `turn.completed`, `agent.waiting`,
-`context.compacted`, `subagent.started`, `subagent.stopped`, `other`, and from
-the GitHub collector `pull_request.opened`, `pull_request.closed` and
-`pull_request.merged`.
+`permission.requested`, `permission.denied`, `context.compacted`, `subagent.started`,
+`subagent.stopped`, `other`, and from the GitHub collector `pull_request.opened`,
+`pull_request.closed` and `pull_request.merged`.
 
-Not every agent reports every field either. Today the keys, `promptId`, `vcsAction`, `reason` and `model` come from the Claude Code collector, and the others will follow.
+Not every agent reports every field either. `repoKey` and `branchKey` come from every collector with a checkout to read. `reason`, `model`, `vcsAction` and the permission kinds come from the Claude Code collector for now, and the others will follow. `promptId` comes from Claude Code's own id there and is minted by the collector for Codex, Cursor, Gemini CLI and Windsurf.
+
+`permission.requested` is Claude Code's permission prompt, written when the prompt appears. No hook reports the answer, so nothing here says whether the request was granted. `permission.denied` is a tool call the auto-mode classifier refused, so it only appears in auto mode. Both carry `tool` and `permissionMode`, and nothing about what the tool was asked to do.
 
 Not every agent reports every kind. Each collector's README lists the hooks it
 registers, and an agent without a hook for something can't report it.
@@ -203,9 +206,10 @@ already makes, with a branch name added. If you
 don't want them on your events, turn them off for this machine:
 
 ```bash
-npx @ascenda-one/claude-code-hooks setup --repo-keys off
+npx @ascenda-one/claude-code-hooks setup --no-repo-keys
 ```
 
+Every hook CLI takes the same flag, and `setup --repo-keys` turns them back on.
 `ASCENDA_REPO_KEYS=off` does the same for one shell. The names themselves never
 leave the machine. The digests do.
 

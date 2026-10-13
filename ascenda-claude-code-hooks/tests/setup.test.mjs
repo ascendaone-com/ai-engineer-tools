@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const { writeSettings, findStaleHookCommands, HOOK_SET } = await import("../dist/setup.js");
+const { writeSettings, findStaleHookCommands, ourHookSets, HOOK_SET } = await import("../dist/setup.js");
 
 const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // Written out rather than imported from setup.js: this is the independent
@@ -12,7 +12,7 @@ const BINARY = "/home/dev/.ascenda/bin/ascenda-claude-hook";
 // to be a deliberate change here too. SessionStart earns its place twice —
 // it maps to create_focus_session, and it is the hook that carries the
 // intention invite.
-const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd", "SubagentStart", "SubagentStop"];
+const EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd", "SubagentStart", "SubagentStop", "PermissionRequest", "PermissionDenied"];
 
 function tempSettings(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-settings-"));
@@ -35,22 +35,22 @@ test("registers every hook event, and none we do not map", () => {
   // the agent stopping to wait on the person. It was absent for as long as it
   // mapped to nothing, and the two halves moved together.
   assert.ok(hooks.Notification, "Notification must be registered or the interruption count is silently zero");
-  assert.match(hooks.Notification[0].hooks[0].command, /ascenda-claude-hook" Notification --hook-set 3$/);
-  assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse --hook-set 3$/);
+  assert.match(hooks.Notification[0].hooks[0].command, /ascenda-claude-hook" Notification --hook-set 4$/);
+  assert.match(hooks.PostToolUse[0].hooks[0].command, /ascenda-claude-hook" PostToolUse --hook-set 4$/);
   assert.equal(hooks.PostToolUse[0].hooks[0].timeout, 5, "must not inherit the 600s default");
   // SessionEnd closes what SessionStart opened. Its 5s timeout matters more
   // than most: without one, Claude Code gives SessionEnd hooks 1.5s in total.
-  assert.match(hooks.SessionEnd[0].hooks[0].command, /ascenda-claude-hook" SessionEnd --hook-set 3$/);
+  assert.match(hooks.SessionEnd[0].hooks[0].command, /ascenda-claude-hook" SessionEnd --hook-set 4$/);
   assert.equal(hooks.SessionEnd[0].hooks[0].timeout, 5);
 });
 
 test("the hook set moves with the list it versions", () => {
-  // Set 3 is these thirteen events. Changing EVENTS without bumping HOOK_SET
+  // Set 4 is these fifteen events. Changing EVENTS without bumping HOOK_SET
   // leaves every older install looking current to the app, which is the gap
   // the set exists to close. Bump both, and the plugin's hooks.json and the
   // app's kCurrentHookSets with them.
-  assert.equal(HOOK_SET, 3);
-  assert.equal(EVENTS.length, 13);
+  assert.equal(HOOK_SET, 4);
+  assert.equal(EVENTS.length, 15);
 });
 
 test("the example settings register the same hooks, each with a timeout", () => {
@@ -60,7 +60,7 @@ test("the example settings register the same hooks, each with a timeout", () => 
   const example = read(new URL("../examples/settings.local.json", import.meta.url));
   assert.deepEqual(Object.keys(example.hooks).sort(), [...EVENTS].sort());
   for (const [event, groups] of Object.entries(example.hooks)) {
-    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set 3`);
+    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set 4`);
     assert.equal(groups[0].hooks[0].timeout, 5, event);
   }
 });
@@ -172,4 +172,59 @@ test("the same stale command across events is reported once", () => {
   const settings = { hooks: { Stop: [{ hooks: [{ type: "command", command: shared }] }], PreCompact: [{ hooks: [{ type: "command", command: shared }] }] } };
 
   assert.deepEqual(findStaleHookCommands(settings, BINARY), [shared]);
+});
+
+// Another tool can append its own hook to a group we wrote, since our groups
+// carry no matcher. Setup takes out our hook and leaves theirs where it is.
+const FOREIGN = { type: "command", command: "/usr/local/bin/other-tool-hook" };
+
+test("a group we share with another tool keeps their hook through a re-install", () => {
+  const file = tempSettings();
+  writeSettings(file, BINARY, false);
+  const shared = read(file);
+  shared.hooks.Stop[0].hooks.push(FOREIGN);
+  fs.writeFileSync(file, `${JSON.stringify(shared, null, 2)}\n`);
+
+  assert.equal(writeSettings(file, BINARY, false), false, "a current install reads as current");
+  assert.deepEqual(read(file).hooks.Stop[0].hooks[1], FOREIGN);
+
+  assert.equal(writeSettings(file, "/elsewhere/ascenda-claude-hook", false), true);
+  const groups = read(file).hooks.Stop;
+  assert.equal(groups.length, 1, "ours is replaced inside the shared group, not duplicated");
+  assert.match(groups[0].hooks[0].command, /\/elsewhere\//);
+  assert.deepEqual(groups[0].hooks[1], FOREIGN);
+  assert.equal(ourHookSets(read(file)).get("Stop"), HOOK_SET, "their unversioned command doesn't drag our hook set down");
+});
+
+test("ours never joins a group with a matcher; it gets a group of its own", () => {
+  const file = tempSettings(JSON.stringify({
+    hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `"${BINARY}" PreToolUse` }, FOREIGN] }] }
+  }));
+  writeSettings(file, BINARY, false);
+  const groups = read(file).hooks.PreToolUse;
+  assert.deepEqual(groups[0], { matcher: "Bash", hooks: [FOREIGN] });
+  assert.equal(groups.length, 2);
+  assert.equal(groups[1].matcher, undefined);
+});
+
+test("a symlinked settings file stays a symlink, and the file it points at is updated", { skip: process.platform === "win32" }, () => {
+  const dotfiles = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-dotfiles-"));
+  const real = path.join(dotfiles, "settings.json");
+  fs.writeFileSync(real, JSON.stringify({ model: "opus" }));
+  const link = tempSettings();
+  fs.symlinkSync(real, link);
+
+  assert.equal(writeSettings(link, BINARY, false), true);
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), "the link is still a link");
+  assert.equal(read(real).model, "opus");
+  assert.equal(read(real).hooks.Stop.length, 1);
+  assert.equal(fs.readFileSync(`${link}.ascenda-backup`, "utf8"), JSON.stringify({ model: "opus" }));
+});
+
+test("a later write keeps the first backup", () => {
+  const original = JSON.stringify({ model: "opus" });
+  const file = tempSettings(original);
+  writeSettings(file, BINARY, false);
+  writeSettings(file, "/elsewhere/ascenda-claude-hook", false);
+  assert.equal(fs.readFileSync(`${file}.ascenda-backup`, "utf8"), original);
 });

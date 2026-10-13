@@ -104,7 +104,8 @@ test("an undated header with bubbles keeps its session and its prompts", async (
   assert.ok(session, "the session is emitted rather than skipped");
   assert.equal(session.occurredAt, lastPrompt, "the newest bubble dates the session's end");
   assert.equal(session.metrics.promptCount, 2);
-  assert.equal(session.metrics.sessionMinutes, 6, "duration is measured, not guessed");
+  // Counted from the first message (+1 min), not the header's createdAt.
+  assert.equal(session.metrics.sessionMinutes, 5, "duration is measured, not guessed");
 
   const epoch = epochOf(events);
   assert.equal(epoch.metrics.sessionsFromBubbleTimeline, 1);

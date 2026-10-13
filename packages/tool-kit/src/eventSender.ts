@@ -421,6 +421,30 @@ export class AscendaEventSender {
     return outcome;
   }
 
+  /**
+   * One outbox pass with nothing live to send: what a background flusher runs,
+   * once per batch. Unlike the pass {@link post} makes, it may run more than
+   * once per sender, because a flusher isn't on anyone's critical path.
+   *
+   * A halted pass is journaled here. Inside {@link post} the live send that
+   * follows journals it, and a flusher has no live send, so without this an
+   * outage would never reach the journal `doctor` and the notices read.
+   */
+  async flushOutbox(): Promise<OutboxDrainReport | undefined> {
+    await this.renewIfExpiring();
+    this.outboxServiced = false;
+    this.lastDrain = undefined;
+    const halted = await this.serviceOutbox();
+    if (halted) {
+      this.lastState = recordSendOutcome(this.stateFilePath(), this.config.toolInstallationId, halted.result, {
+        httpStatus: halted.httpStatus,
+        errorCode: halted.errorCode,
+        detail: withNote(halted.detail, "kept in outbox")
+      });
+    }
+    return this.lastDrain;
+  }
+
   /** A failure that never reached a verdict. Replaying can change the answer. */
   private isRetryable(outcome: IngestOutcome): boolean {
     return outcome.result === "transport_error" && (outcome.httpStatus === undefined || isRetryableStatus(outcome.httpStatus));

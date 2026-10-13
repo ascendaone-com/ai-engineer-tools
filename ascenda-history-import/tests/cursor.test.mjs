@@ -382,9 +382,13 @@ test("extractCursor folds a composer's bubbles, excludes subagent composers from
     assert.equal(s.metrics.unknownBubbles, 1); // b6
     assert.equal(s.metrics.primaryModel, "claude-opus-5");
     assert.equal(s.metrics.afterHoursPrompts, 1); // b3
-    assert.equal(s.metrics.sessionMinutes, 4);
-    assert.equal(s.metrics.durationBucket, "1-5m");
-    assert.equal(s.metrics.sessionStartedAt, new Date(CREATED_AT_MS).toISOString());
+    // The session starts at its earliest message (IN_HOURS_DATE) unless that is
+    // dated after the header's end, which depends on the machine's time zone
+    // here: the fixture's bubble dates are local wall-clock, its header's UTC.
+    const expectedStartMs =
+      IN_HOURS_DATE.getTime() <= UPDATED_AT_MS ? IN_HOURS_DATE.getTime() : CREATED_AT_MS;
+    assert.equal(s.metrics.sessionStartedAt, new Date(expectedStartMs).toISOString());
+    assert.equal(s.metrics.sessionMinutes, Math.round((UPDATED_AT_MS - expectedStartMs) / 60_000));
 
     // C2's work: one task instruction (not a prompt), one assistant turn,
     // 220 tokens — folded into C1's subagent breakdown.

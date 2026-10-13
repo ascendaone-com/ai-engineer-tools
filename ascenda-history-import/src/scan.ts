@@ -37,32 +37,37 @@ class Window {
 export async function scanClaudeCode(paths: StorePaths): Promise<StoreInventory> {
   const inv: StoreInventory = {
     store: "claude_code",
-    rootPath: paths.claudeProjects,
+    rootPath: paths.claudeProjectsDirs.join(", "),
     present: false,
     counts: {},
     notes: []
   };
-  const root = await statOrNull(paths.claudeProjects);
-  if (!root) return inv;
-  inv.present = true;
 
+  // One dir normally; several when CLAUDE_CONFIG_DIR lists more than one.
   const window = new Window();
+  let projectCount = 0;
   let transcripts = 0;
   let bytes = 0;
-  const projects = await fs.readdir(paths.claudeProjects, { withFileTypes: true });
-  for (const project of projects) {
-    if (!project.isDirectory()) continue;
-    const dir = path.join(paths.claudeProjects, project.name);
-    for (const entry of await fs.readdir(dir)) {
-      if (!entry.endsWith(".jsonl")) continue;
-      const st = await statOrNull(path.join(dir, entry));
-      if (!st) continue;
-      transcripts += 1;
-      bytes += st.size;
-      window.see(st.mtime);
+  for (const projectsDir of paths.claudeProjectsDirs) {
+    if (!(await statOrNull(projectsDir))) continue;
+    inv.present = true;
+    const projects = await fs.readdir(projectsDir, { withFileTypes: true });
+    projectCount += projects.length;
+    for (const project of projects) {
+      if (!project.isDirectory()) continue;
+      const dir = path.join(projectsDir, project.name);
+      for (const entry of await fs.readdir(dir)) {
+        if (!entry.endsWith(".jsonl")) continue;
+        const st = await statOrNull(path.join(dir, entry));
+        if (!st) continue;
+        transcripts += 1;
+        bytes += st.size;
+        window.see(st.mtime);
+      }
     }
   }
-  inv.counts = { projects: projects.length, transcripts, bytes };
+  if (!inv.present) return inv;
+  inv.counts = { projects: projectCount, transcripts, bytes };
   inv.oldest = window.oldest?.toISOString();
   inv.newest = window.newest?.toISOString();
 
@@ -109,7 +114,7 @@ async function countRollouts(
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await walk(full);
-      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      } else if (entry.isFile() && (entry.name.endsWith(".jsonl") || entry.name.endsWith(".jsonl.zst"))) {
         const st = await statOrNull(full);
         if (!st) continue;
         rollouts += 1;
@@ -194,40 +199,66 @@ export async function scanVsCode(paths: StorePaths): Promise<StoreInventory> {
     counts: {},
     notes: []
   };
-  const root = await statOrNull(paths.vscodeHistory);
-  if (root) {
-    inv.present = true;
-    const window = new Window();
-    let fileHistories = 0;
-    for (const entry of await fs.readdir(paths.vscodeHistory, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      fileHistories += 1;
-      const st = await statOrNull(path.join(paths.vscodeHistory, entry.name));
-      if (st) window.see(st.mtime);
-    }
-    inv.counts.fileHistories = fileHistories;
-    inv.oldest = window.oldest?.toISOString();
-    inv.newest = window.newest?.toISOString();
-  }
-
-  // Copilot chat sessions live under a different root; count them into the
-  // same inventory since they ship in the same extractor.
+  const window = new Window();
+  let fileHistories = 0;
   let chatSessions = 0;
-  const wsRoot = await statOrNull(paths.vscodeWorkspaceStorage);
-  if (wsRoot) {
-    inv.present = true;
-    for (const ws of await fs.readdir(paths.vscodeWorkspaceStorage, { withFileTypes: true })) {
-      if (!ws.isDirectory()) continue;
-      const sessions = path.join(paths.vscodeWorkspaceStorage, ws.name, "chatSessions");
-      try {
-        chatSessions += (await fs.readdir(sessions)).filter((f) => f.endsWith(".json")).length;
-      } catch {
-        // Most workspaces have no chatSessions dir; absence is the norm.
+  let looseChatSessions = 0;
+  const installs: string[] = [];
+  for (const variant of paths.vscodeVariants) {
+    let seen = false;
+    const root = await statOrNull(variant.history);
+    if (root) {
+      seen = true;
+      for (const entry of await fs.readdir(variant.history, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        fileHistories += 1;
+        const st = await statOrNull(path.join(variant.history, entry.name));
+        if (st) window.see(st.mtime);
       }
     }
+
+    // Copilot chat sessions live under a different root; count them into the
+    // same inventory since they ship in the same extractor.
+    const wsRoot = await statOrNull(variant.workspaceStorage);
+    if (wsRoot) {
+      seen = true;
+      for (const ws of await fs.readdir(variant.workspaceStorage, { withFileTypes: true })) {
+        if (!ws.isDirectory()) continue;
+        const sessions = path.join(variant.workspaceStorage, ws.name, "chatSessions");
+        try {
+          chatSessions += (await fs.readdir(sessions)).filter(isChatSessionFile).length;
+        } catch {
+          // Most workspaces have no chatSessions dir; absence is the norm.
+        }
+      }
+    }
+
+    // Chats with no folder open sit outside every workspace.
+    for (const dir of [variant.emptyWindowChatSessions, variant.transferredChatSessions]) {
+      try {
+        const found = (await fs.readdir(dir)).filter(isChatSessionFile).length;
+        looseChatSessions += found;
+        seen = true;
+      } catch {
+        // Absent on most machines.
+      }
+    }
+    if (seen) installs.push(variant.name);
   }
+  if (installs.length > 0) {
+    inv.present = true;
+    inv.oldest = window.oldest?.toISOString();
+    inv.newest = window.newest?.toISOString();
+    if (installs.length > 1 || installs[0] !== "Code") inv.notes.push(`installs read: ${installs.join(", ")}`);
+  }
+  inv.counts.fileHistories = fileHistories;
   inv.counts.chatSessions = chatSessions;
+  inv.counts.looseChatSessions = looseChatSessions;
   return inv;
+}
+
+function isChatSessionFile(name: string): boolean {
+  return name.endsWith(".json") || name.endsWith(".jsonl");
 }
 
 export async function scanGit(paths: StorePaths): Promise<StoreInventory> {

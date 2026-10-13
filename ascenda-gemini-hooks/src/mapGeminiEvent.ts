@@ -1,6 +1,7 @@
 import {
   bucketDurationMs,
   classifyCommand,
+  shellCommandFacts,
   getNestedString,
   getString,
   inferOutcome,
@@ -57,7 +58,8 @@ function mapAfterAgent(turnDurationMs: number | undefined): MappedGeminiEvent[] 
 function mapAfterTool(input: GeminiHookInput): MappedGeminiEvent[] {
   const toolName = getToolName(input);
   const safeToolName = sanitiseToolName(toolName);
-  const commandClass = classifyCommand(getCommand(input));
+  const command = getCommand(input);
+  const commandClass = classifyCommand(command);
   const outcome = inferOutcome(input);
 
   if (outcome === "failure") {
@@ -75,7 +77,10 @@ function mapAfterTool(input: GeminiHookInput): MappedGeminiEvent[] {
     return [{ eventType: "editor_verification_activity", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, activity: "ai_test_or_build_run" }) }];
   }
 
-  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome }) }];
+  // Only a call that reported success is a delivery or a reversion: a failed
+  // commit moved nothing, and an unknown outcome proves nothing either way.
+  const facts = isShell(toolName) && outcome === "success" ? shellCommandFacts(command) : {};
+  return [{ eventType: "ai_tool_call_completed", severity: "low", metadata: withHost({ toolName: safeToolName, commandClass, outcome, ...facts }) }];
 }
 
 function getToolName(input: GeminiHookInput): string | undefined {

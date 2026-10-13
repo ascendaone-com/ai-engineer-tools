@@ -14,7 +14,10 @@ export type ClaudeHookEventName =
   // an overloaded server, a billing or auth failure.
   | "StopFailure"
   | "Notification" | "SessionEnd"
-  | "SubagentStart" | "SubagentStop";
+  | "SubagentStart" | "SubagentStop"
+  // The permission prompt appearing, and the auto-mode classifier refusing a
+  // call. See mapClaudeEvent for what each sends.
+  | "PermissionRequest" | "PermissionDenied";
 
 /**
  * The same names as a value, so an unrecognised argument can be rejected
@@ -26,7 +29,7 @@ export const CLAUDE_HOOK_EVENT_NAMES: readonly ClaudeHookEventName[] = [
   "SessionStart", "UserPromptSubmit", "PreToolUse",
   "PostToolUse", "PostToolUseFailure",
   "PreCompact", "PostCompact", "Stop", "StopFailure", "Notification", "SessionEnd",
-  "SubagentStart", "SubagentStop"
+  "SubagentStart", "SubagentStop", "PermissionRequest", "PermissionDenied"
 ];
 
 export function isClaudeHookEventName(value: string): value is ClaudeHookEventName {
