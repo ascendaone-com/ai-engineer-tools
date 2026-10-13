@@ -95,3 +95,23 @@ test("nothing in, nothing out", () => {
   assert.equal(classifyWorkMilestone(null), undefined);
   assert.equal(classifyWorkMilestone(""), undefined);
 });
+
+test("classifyMcpWorkMilestone: PRs and issues handled through an MCP tool", () => {
+  const { classifyMcpWorkMilestone } = require("../out/index.js");
+  assert.equal(classifyMcpWorkMilestone("mcp__github__create_pull_request"), "pr_opened");
+  assert.equal(classifyMcpWorkMilestone("mcp__github__merge_pull_request"), "pr_merged");
+  assert.equal(classifyMcpWorkMilestone("mcp__gitlab__create_merge_request"), "pr_opened");
+  assert.equal(classifyMcpWorkMilestone("mcp__gitlab__accept_merge_request"), "pr_merged");
+  assert.equal(classifyMcpWorkMilestone("mcp__my_forge__closeIssue"), "issue_closed");
+  assert.equal(classifyMcpWorkMilestone("mcp__github__createPullRequest"), "pr_opened");
+});
+
+test("classifyMcpWorkMilestone: near misses and non-MCP names stay empty", () => {
+  const { classifyMcpWorkMilestone } = require("../out/index.js");
+  assert.equal(classifyMcpWorkMilestone("mcp__github__create_pull_request_review"), undefined);
+  assert.equal(classifyMcpWorkMilestone("mcp__github__list_pull_requests"), undefined);
+  assert.equal(classifyMcpWorkMilestone("mcp__github__get_pull_request"), undefined);
+  assert.equal(classifyMcpWorkMilestone("create_pull_request"), undefined);
+  assert.equal(classifyMcpWorkMilestone("Bash"), undefined);
+  assert.equal(classifyMcpWorkMilestone(undefined), undefined);
+});

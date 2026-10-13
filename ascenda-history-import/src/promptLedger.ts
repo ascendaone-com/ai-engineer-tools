@@ -404,8 +404,8 @@ export async function readPromptLedger(
         }
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return;
         const record = parsed as Record<string, unknown>;
-        // A subagent transcript is never inherited and its lines carry the
-        // parent's id, so it claims nothing — see `TimelineOwnership`.
+        // A subagent line carries the parent's id, never its own file's name,
+        // so it claims no file — see `TimelineOwnership`.
         if (claiming) claims.observe(record.uuid, record.sessionId, transcript);
         if (mayMatter(line)) {
           ledger.observe(record, transcript, { isSidechain, isToolResult });
@@ -456,12 +456,23 @@ export async function readPromptLedger(
  * timelines; it is one instant, usually inside a stretch the lines around it
  * already cover, and inventing an id for it would be worse.
  *
- * A subagent transcript is never inherited — a resume copies the main thread's
- * lines, not the `subagents/` directory beside it, and its lines carry the
- * parent session's id rather than their own file's name, which would read as
- * inherited under the rule above. Verified on the same store: no subagent line
- * carries a `sessionId` other than its session directory's. So they are owned
- * by the fold they were found under, unconditionally.
+ * A subagent line carries the parent session's id, not its own file's name,
+ * so the filename test above would read every one as inherited. It is asked
+ * of the session directory instead: a subagent line's instant belongs to the
+ * session it was found under when its `sessionId` names that session. A
+ * resumed or forked session's directory can hold byte-for-byte copies of its
+ * parent's `agent-<id>.jsonl` files, every line still naming the parent, and
+ * those copies are the parent's work. Measured on a store of 2,180 transcripts
+ * in October 2026: 1,813 subagent messages sat in more than one directory, and
+ * exactly one copy of each was in the directory its `sessionId` names. Counted
+ * under every directory that held them, they added 942 agent-supervising
+ * minutes across 14 sessions (1.5% of active minutes) and moved the union of
+ * the same intervals by nothing.
+ *
+ * Where the named session is gone, the first fold to meet the line owns it, by
+ * `uuid`, the way an orphaned main-thread line is settled. A subagent line with
+ * no `sessionId` stays with the directory it was found in. The counts a line adds
+ * follow the same answer, from {@link ownsSidechainLine}.
  */
 export class TimelineOwnership {
   /** Basenames of every main-thread transcript the walk listed. */
@@ -493,9 +504,9 @@ export class TimelineOwnership {
   owns(
     line: { uuid: string | null; sessionId: string | null },
     transcript: string,
-    opts: { isSidechain: boolean }
+    opts: { isSidechain: false } | { isSidechain: true; foundUnderSessionId: string }
   ): boolean {
-    if (opts.isSidechain) return true;
+    if (opts.isSidechain) return this.ownsSidechainLine(line, opts.foundUnderSessionId);
     if (line.sessionId === null || line.uuid === null) return true;
     if (isHomeTranscript(transcript, line.sessionId)) {
       // Usually the end of it: the line names this file, so it was written
@@ -512,6 +523,24 @@ export class TimelineOwnership {
     // it owns it, the way the ledger gives it the prompt.
     if (this.claimedOrphans.has(line.uuid)) return false;
     this.claimedOrphans.add(line.uuid);
+    return true;
+  }
+
+  /**
+   * Whether a subagent line belongs to the session it was found under: its
+   * instant, and its tokens, turns, tool calls and results. Yes when the line names that
+   * session, or names none. No when it names another session still in the
+   * store, which counts its own copy. Where that session is gone, the first
+   * fold to meet the line claims it by `uuid`, the way {@link owns} treats an
+   * orphaned main-thread line. Call it once per line: a claim is remembered.
+   */
+  ownsSidechainLine(line: { uuid: string | null; sessionId: string | null }, foundUnderSessionId: string): boolean {
+    if (line.sessionId === null || line.sessionId === foundUnderSessionId) return true;
+    if (this.transcriptIds.has(line.sessionId)) return false;
+    if (line.uuid === null) return true;
+    const key = `sidechain:${line.uuid}`;
+    if (this.claimedOrphans.has(key)) return false;
+    this.claimedOrphans.add(key);
     return true;
   }
 

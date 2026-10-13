@@ -39,7 +39,7 @@ test("both channels close the session they open", () => {
     assert.ok(hooks[event], `the plugin does not register ${event}`);
     assert.ok(setupHookEvents().includes(event), `setup does not register ${event}`);
   }
-  assert.equal(hooks.SessionEnd[0].hooks[0].command, "npx -y @ascenda-one/claude-code-hooks SessionEnd --hook-set 3");
+  assert.equal(hooks.SessionEnd[0].hooks[0].command, "npx -y @ascenda-one/claude-code-hooks SessionEnd --hook-set 4");
 });
 
 test("every plugin hook carries a timeout", () => {
@@ -66,4 +66,12 @@ test("every plugin hook names the hook set `setup` registers", () => {
   for (const [event, groups] of Object.entries(hooks)) {
     assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set ${set[1]}`);
   }
+});
+
+test("the README counts the lifecycle events the plugin registers", () => {
+  const words = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen"];
+  const readme = readFileSync(here("../README.md"), "utf8");
+  const claimed = readme.match(/into all (\w+) lifecycle events/);
+  assert.ok(claimed, "the README no longer says how many lifecycle events hooks.json wires");
+  assert.equal(claimed[1], words[Object.keys(hooks).length]);
 });

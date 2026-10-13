@@ -59,20 +59,20 @@ test("setup upgrades an older install in place and says what it added", () => {
     seedOldInstall(m.projectSettings);
     const first = run(m, ["setup", "--no-pair", "--scope", "project", "--project-dir", m.project]);
     assert.equal(first.status, 0, first.stderr);
-    assert.match(first.stdout, /upgraded: added StopFailure, Notification, SubagentStart, SubagentStop; hook set 1 → 3/);
+    assert.match(first.stdout, /upgraded: added StopFailure, Notification, SubagentStart, SubagentStop, PermissionRequest, PermissionDenied; hook set 1 → 4/);
 
     const settings = JSON.parse(fs.readFileSync(m.projectSettings, "utf8"));
     assert.equal(settings.model, "opus", "the rest of the file is the person's");
-    assert.equal(Object.keys(settings.hooks).length, 13);
+    assert.equal(Object.keys(settings.hooks).length, 15);
     for (const [event, groups] of Object.entries(settings.hooks)) {
       const ours = groups.filter((g) => g.hooks.some((h) => h.command.includes("ascenda-claude-hook")));
       assert.equal(ours.length, 1, `${event} has exactly one of our hooks`);
-      assert.match(ours[0].hooks[0].command, new RegExp(` ${event} --hook-set 3$`));
+      assert.match(ours[0].hooks[0].command, new RegExp(` ${event} --hook-set 4$`));
     }
     assert.equal(settings.hooks.Stop[0].hooks[0].command, "say done", "a hook the person wrote stays where it was");
 
     const again = run(m, ["setup", "--no-pair", "--scope", "project", "--project-dir", m.project]);
-    assert.match(again.stdout, /13 events, (this project only, )?already current/);
+    assert.match(again.stdout, /15 events, (this project only, )?already current/);
     assert.doesNotMatch(again.stdout, /upgraded:/, "a re-run that changed nothing claims nothing");
   } finally {
     m.cleanup();
@@ -95,10 +95,10 @@ test("status names an older hook set and the command that upgrades it", () => {
   try {
     seedOldInstall(m.userSettings);
     const result = run(m, ["status", "--scope", "user"]);
-    assert.match(result.stdout, /hook set {7}1, this version registers 3\. Upgrade: npx @ascenda-one\/claude-code-hooks setup --scope user/);
+    assert.match(result.stdout, /hook set {7}1, this version registers 4\. Upgrade: npx @ascenda-one\/claude-code-hooks setup --scope user/);
 
     run(m, ["setup", "--no-pair", "--scope", "user"]);
-    assert.match(run(m, ["status", "--scope", "user"]).stdout, /hook set {7}3 \(current\)/);
+    assert.match(run(m, ["status", "--scope", "user"]).stdout, /hook set {7}4 \(current\)/);
   } finally {
     m.cleanup();
   }
@@ -119,7 +119,7 @@ test("setup moves its hooks out of the other scope, so each event runs once", ()
     assert.equal(after.hooks.Stop[0].hooks[0].command, "say done");
     assert.ok(fs.existsSync(`${m.userSettings}.ascenda-backup`));
     const project = JSON.parse(fs.readFileSync(m.projectSettings, "utf8"));
-    assert.equal(Object.keys(project.hooks).length, 13);
+    assert.equal(Object.keys(project.hooks).length, 15);
   } finally {
     m.cleanup();
   }
@@ -132,7 +132,7 @@ test("a project install in the home folder is made a user install", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /scope {8}user/);
     assert.equal(fs.existsSync(path.join(m.home, ".claude", "settings.local.json")), false);
-    assert.equal(Object.keys(JSON.parse(fs.readFileSync(m.userSettings, "utf8")).hooks).length, 13);
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(m.userSettings, "utf8")).hooks).length, 15);
   } finally {
     m.cleanup();
   }
@@ -147,7 +147,7 @@ test("a re-run moves an old home-folder install into the user file", () => {
     assert.match(result.stdout, /moved {8}removed the copy in .*settings\.local\.json/);
     const left = JSON.parse(fs.readFileSync(path.join(m.home, ".claude", "settings.local.json"), "utf8"));
     assert.deepEqual(Object.keys(left.hooks), ["Stop"]);
-    assert.equal(Object.keys(JSON.parse(fs.readFileSync(m.userSettings, "utf8")).hooks).length, 13);
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(m.userSettings, "utf8")).hooks).length, 15);
   } finally {
     m.cleanup();
   }
@@ -209,4 +209,32 @@ test("a malformed set or an empty plugin root sends nothing, never a wrong value
   }
   const [line] = await signalsFrom(["PreToolUse", "--hook-set", "2"], payload, { CLAUDE_PLUGIN_ROOT: "" });
   assert.equal("viaPlugin" in line, false, "never viaPlugin: false");
+});
+
+test("--no-repo-keys saves the setting machine-wide, and --repo-keys clears it", () => {
+  const m = machine();
+  try {
+    const credentials = path.join(m.home, ".ascenda", "credentials.json");
+    const off = run(m, ["setup", "--no-pair", "--no-repo-keys", "--project-dir", m.project]);
+    assert.equal(off.status, 0, off.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(credentials, "utf8")).repoKeys, false);
+
+    const on = run(m, ["setup", "--no-pair", "--repo-keys", "--project-dir", m.project]);
+    assert.equal(on.status, 0, on.stderr);
+    assert.equal("repoKeys" in JSON.parse(fs.readFileSync(credentials, "utf8")), false);
+  } finally {
+    m.cleanup();
+  }
+});
+
+test("a setup run that doesn't mention it leaves the saved setting alone", () => {
+  const m = machine();
+  try {
+    const credentials = path.join(m.home, ".ascenda", "credentials.json");
+    run(m, ["setup", "--no-pair", "--no-repo-keys", "--project-dir", m.project]);
+    run(m, ["setup", "--no-pair", "--project-dir", m.project]);
+    assert.equal(JSON.parse(fs.readFileSync(credentials, "utf8")).repoKeys, false);
+  } finally {
+    m.cleanup();
+  }
 });

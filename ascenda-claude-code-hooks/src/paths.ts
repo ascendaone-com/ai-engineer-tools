@@ -7,7 +7,18 @@ import type { HostCredentials } from "@ascenda-one/tool-kit";
 export { credentialsFilePath } from "@ascenda-one/tool-kit";
 
 /**
- * What every registered hook command runs: the shell launcher `setup`
+ * Where Claude Code keeps its user settings: `$CLAUDE_CONFIG_DIR` when it is
+ * set, as Claude Code itself reads it, otherwise `~/.claude`. A project's own
+ * `.claude` folder is not affected by it, and neither is the home folder's,
+ * which is the project file for a session started in `~`.
+ */
+export function claudeConfigDir(): string {
+  const configured = process.env.CLAUDE_CONFIG_DIR?.trim();
+  return configured ? path.resolve(configured) : path.join(os.homedir(), ".claude");
+}
+
+/**
+ * What every registered hook command runs:the shell launcher `setup`
  * writes (see launcher.ts), which finds a Node and runs the bundle beside
  * it. No sudo, no npm -g.
  */

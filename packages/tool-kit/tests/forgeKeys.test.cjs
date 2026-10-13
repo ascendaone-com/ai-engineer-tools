@@ -8,7 +8,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { forgeBranchKey, forgeProjectHash, forgeRepoKey, deriveForgeKeysForCwd, repoKeysEnabled, writeRepoKeysSetting, readMachineCredentials, writeTopLevelCredentials } = require("../out");
+const { withForgeKeys, forgeBranchKey, forgeProjectHash, forgeRepoKey, deriveForgeKeysForCwd, repoKeysEnabled, writeRepoKeysSetting, readMachineCredentials, writeTopLevelCredentials } = require("../out");
 
 // The forge collector computes these from a webhook payload and the hooks from
 // a checkout. They only join if both sides agree to the byte.
@@ -107,4 +107,48 @@ test("the environment and the saved setting both turn the keys off", () => {
   }
   assert.equal(repoKeysEnabled(), true);
   assert.equal("repoKeys" in (readMachineCredentials() ?? {}), false);
+});
+
+// What the Codex, Cursor, Gemini and Windsurf CLIs call before they send.
+
+test("withForgeKeys stamps both keys, on a feature branch, without overriding an event's own", () => {
+  const root = checkout({ remote: "git@github.com:acme/payments.git", branch: "feat/x", defaultBranch: "main" });
+  process.env.ASCENDA_REPO_KEYS = "on";
+  try {
+    const [a, b] = withForgeKeys([{ eventType: "a", metadata: { x: 1 } }, { eventType: "b", metadata: { repoKey: "own" } }], root);
+    assert.equal(a.metadata.repoKey, forgeRepoKey("acme/payments"));
+    assert.equal(a.metadata.branchKey, forgeBranchKey("acme/payments", "feat/x"));
+    assert.equal(b.metadata.repoKey, "own");
+  } finally {
+    delete process.env.ASCENDA_REPO_KEYS;
+  }
+});
+
+test("withForgeKeys: the default branch gets the repository key only, another forge gets nothing", () => {
+  process.env.ASCENDA_REPO_KEYS = "on";
+  try {
+    const main = checkout({ remote: "git@github.com:acme/payments.git", branch: "main", defaultBranch: "main" });
+    const [onMain] = withForgeKeys([{ eventType: "a", metadata: {} }], main);
+    assert.equal(onMain.metadata.repoKey, forgeRepoKey("acme/payments"));
+    assert.equal("branchKey" in onMain.metadata, false);
+
+    const gitlab = checkout({ remote: "https://gitlab.com/acme/payments.git", branch: "feat/x", defaultBranch: "main" });
+    const [elsewhere] = withForgeKeys([{ eventType: "a", metadata: {} }], gitlab);
+    assert.equal("repoKey" in elsewhere.metadata, false);
+    assert.equal("branchKey" in elsewhere.metadata, false);
+  } finally {
+    delete process.env.ASCENDA_REPO_KEYS;
+  }
+});
+
+test("withForgeKeys: the switch turns both off", () => {
+  const root = checkout({ remote: "git@github.com:acme/payments.git", branch: "feat/x", defaultBranch: "main" });
+  process.env.ASCENDA_REPO_KEYS = "off";
+  try {
+    const [event] = withForgeKeys([{ eventType: "a", metadata: {} }], root);
+    assert.equal("repoKey" in event.metadata, false);
+    assert.equal("branchKey" in event.metadata, false);
+  } finally {
+    delete process.env.ASCENDA_REPO_KEYS;
+  }
 });

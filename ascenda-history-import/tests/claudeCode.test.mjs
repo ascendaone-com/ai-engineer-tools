@@ -328,6 +328,58 @@ test("a `<synthetic>` notice moves none of the three model figures", async () =>
   });
 });
 
+test("a message split over several lines is counted once, from its last line", async () => {
+  // The runtime writes one API message as a line per content block, each
+  // repeating the message's usage; the earlier lines carry a partial
+  // `output_tokens`. Shapes copied from a real transcript, ids and text
+  // replaced.
+  const split = (timestamp, id, block, output_tokens) =>
+    JSON.stringify({
+      type: "assistant",
+      timestamp,
+      sessionId: "session1",
+      version: "2.1.288",
+      message: {
+        id,
+        role: "assistant",
+        model: "claude-opus-5",
+        content: [{ type: block }],
+        usage: { input_tokens: 5, output_tokens, cache_read_input_tokens: 1000 }
+      }
+    });
+  const lines = [
+    JSON.stringify({
+      type: "user",
+      timestamp: "2026-10-02T09:00:00.000Z",
+      sessionId: "session1",
+      version: "2.1.288",
+      cwd: "/Users/example/Dev/testproj",
+      message: { role: "user", content: "redacted" }
+    }),
+    split("2026-10-02T09:00:02.000Z", "msg_a", "thinking", 3),
+    split("2026-10-02T09:00:03.000Z", "msg_a", "text", 40),
+    split("2026-10-02T09:00:04.000Z", "msg_a", "tool_use", 90),
+    split("2026-10-02T09:00:06.000Z", "msg_b", "text", 20)
+  ];
+
+  await withTempSnapshot(lines, async (snapshotDir) => {
+    const events = [];
+    for await (const event of extractClaudeCode(snapshotDir, "extraction-split")) {
+      events.push(event);
+    }
+    const session = events.find((e) => e.eventKind === "create_focus_session");
+    assert.ok(session, "expected a create_focus_session event");
+    // Two messages, not four lines.
+    assert.equal(session.metrics.assistantTurns, 2);
+    assert.equal(session.metrics.inputTokens, 5 + 5);
+    assert.equal(session.metrics.outputTokens, 90 + 20);
+    assert.equal(session.metrics.cacheReadTokens, 1000 + 1000);
+    // The tool call is still a tool call, whichever line of the message it is on.
+    assert.equal(session.metrics.toolCallCount, 1);
+    assert.equal(session.metrics.modelSwitchCount, 0);
+  });
+});
+
 test("a session of nothing but notices reports no model, not an unknown one", async () => {
   // Absent and unknown are different facts and both are typed. Emitting
   // `primaryModel: "<synthetic>"` here would classify as bare `unknown` —
@@ -646,4 +698,213 @@ test("the desktop app's copy of the expected output still matches this writer", 
   const expected = JSON.parse(await fs.readFile(`${LINEAGE}.cli.json`, "utf8"));
   const events = await extractStore(LINEAGE);
   assert.deepEqual(lineageFigures(events), expected.figures);
+});
+
+// ── Usage: counted in the session that spent it ────────────────────────────
+//
+// A resumed transcript opens with copies of its ancestor's lines, and a
+// resumed or forked session's directory can hold copies of the ancestor's
+// subagent transcripts. Every copied line names the session that wrote it.
+// Built here rather than added to the lineage fixture, which the desktop
+// app's test copies.
+
+const PROJECT = "-Users-example-Dev-usage";
+const usageAt = (s) => `2026-10-02T09:${String(s).padStart(2, "0")}:00.000Z`;
+const usageUser = (sessionId, uuid, minute) =>
+  ({ type: "user", uuid, timestamp: usageAt(minute), sessionId, version: "2.1.288", cwd: "/Users/example/Dev/usage", message: { role: "user", content: "redacted" } });
+const usageAssistant = (sessionId, uuid, minute, id, requestId, output_tokens, extra = {}) =>
+  ({ type: "assistant", uuid, timestamp: usageAt(minute), sessionId, requestId, version: "2.1.288", message: { id, role: "assistant", model: "claude-opus-5", usage: { input_tokens: 10, output_tokens, cache_read_input_tokens: 100 } }, ...extra });
+const usageSidechain = (line, agentId) => ({ ...line, isSidechain: true, agentId });
+
+async function writeUsageStore({ withHome = true } = {}) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "usage-store-"));
+  const dir = path.join(root, "projects", PROJECT);
+  const write = async (rel, lines) => {
+    await fs.mkdir(path.dirname(path.join(dir, rel)), { recursive: true });
+    await fs.writeFile(path.join(dir, rel), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  };
+  // s-home: one message over two lines, and one helper with one message.
+  const home = [
+    usageUser("s-home", "u1", 0),
+    usageAssistant("s-home", "a1", 1, "msg_a", "req_a", 5),
+    usageAssistant("s-home", "a2", 1, "msg_a", "req_a", 50, { message: { id: "msg_a", role: "assistant", model: "claude-opus-5", content: [{ type: "tool_use", id: "toolu_1", name: "Read" }], usage: { input_tokens: 10, output_tokens: 50, cache_read_input_tokens: 100 } } }),
+    { type: "user", uuid: "r1", timestamp: usageAt(2), sessionId: "s-home", version: "2.1.288", toolUseResult: { userModified: true }, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", is_error: true, content: "redacted" }] } }
+  ];
+  const helper = [usageSidechain(usageAssistant("s-home", "h1", 2, "msg_h", "req_h", 7), "agent-x")];
+  if (withHome) {
+    await write("s-home.jsonl", home);
+    await write("s-home/subagents/agent-agent-x.jsonl", helper);
+  }
+  // s-resume: copies of all of it, then one message of its own.
+  await write("s-resume.jsonl", [...home, usageUser("s-resume", "u2", 10), usageAssistant("s-resume", "b1", 11, "msg_b", "req_b", 30)]);
+  await write("s-resume/subagents/agent-agent-x.jsonl", helper);
+  return root;
+}
+
+const TOKENS_A = 10 + 50 + 100;
+const TOKENS_B = 10 + 30 + 100;
+const TOKENS_H = 10 + 7 + 100;
+const totalTokens = (m) => m.inputTokens + m.outputTokens + m.cacheReadTokens;
+
+test("usage copied into a resumed session counts once, in the session that spent it", async () => {
+  const root = await writeUsageStore();
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.equal(totalTokens(s["s-home"]), TOKENS_A);
+    assert.equal(s["s-home"].assistantTurns, 1);
+    assert.equal(totalTokens(s["s-resume"]), TOKENS_B, "the copied message is s-home's");
+    assert.equal(s["s-resume"].assistantTurns, 1);
+    assert.equal(s["s-home"].subagentTokensTotal, TOKENS_H);
+    assert.equal(s["s-home"].subagentAssistantTurns, 1);
+    assert.equal(s["s-resume"].subagentTokensTotal, 0, "the copied helper transcript is s-home's too");
+    assert.equal(s["s-resume"].subagentAssistantTurns, 0);
+    // Everything else a copied line adds stays with s-home too.
+    assert.equal(s["s-home"].toolCallCount, 1);
+    assert.equal(s["s-resume"].toolCallCount, 0);
+    assert.equal(s["s-home"].toolResultCount, 1);
+    assert.equal(s["s-resume"].toolResultCount, 0);
+    assert.equal(s["s-resume"].toolResultErrorCount, 0);
+    assert.equal(s["s-resume"].userModifiedEditCount, 0);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a copied tool call is one ai_tool_call_started event, not one per session", async () => {
+  const root = await writeUsageStore();
+  try {
+    const calls = (await extractStore(root)).filter((e) => e.eventKind === "ai_tool_call_started");
+    assert.deepEqual(calls.map((e) => e.sessionRef), ["s-home"]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("with the ancestor gone, the resume counts the usage it copied", async () => {
+  const root = await writeUsageStore({ withHome: false });
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.equal(totalTokens(s["s-resume"]), TOKENS_A + TOKENS_B);
+    assert.equal(s["s-resume"].assistantTurns, 2);
+    assert.equal(s["s-resume"].subagentTokensTotal, TOKENS_H);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("messages sharing a placeholder id stay apart by request id", async () => {
+  // A translating proxy can write one constant id on every message.
+  const lines = [
+    JSON.stringify(usageUser("session1", "u1", 0)),
+    JSON.stringify(usageAssistant("session1", "p1", 1, "msg_translated", "req_1", 20)),
+    JSON.stringify(usageAssistant("session1", "p2", 2, "msg_translated", "req_2", 30))
+  ];
+  await withTempSnapshot(lines, async (snapshotDir) => {
+    const events = [];
+    for await (const event of extractClaudeCode(snapshotDir, "extraction-placeholder")) events.push(event);
+    const session = events.find((e) => e.eventKind === "create_focus_session");
+    assert.equal(session.metrics.assistantTurns, 2);
+    assert.equal(session.metrics.outputTokens, 50);
+  });
+});
+
+// ── Minutes: a copied subagent transcript is its parent's ──────────────────
+//
+// The same copies as above, read for time. A resumed or forked session's
+// directory can hold its parent's `agent-<id>.jsonl`, every line naming the
+// parent, and those instants are the parent's.
+
+const MINUTES_PROJECT = "-Users-example-Dev-minutes";
+const minuteAt = (h, m) => `2026-10-02T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00.000Z`;
+const minutesUser = (sessionId, uuid, h, m) =>
+  ({ type: "user", uuid, timestamp: minuteAt(h, m), sessionId, version: "2.1.288", cwd: "/Users/example/Dev/minutes", message: { role: "user", content: "redacted" } });
+const minutesAssistant = (sessionId, uuid, h, m, extra = {}) =>
+  ({ type: "assistant", uuid, timestamp: minuteAt(h, m), sessionId, version: "2.1.288", message: { id: `msg_${uuid}`, role: "assistant", model: "claude-opus-5", content: [{ type: "text" }], usage: { input_tokens: 1, output_tokens: 1 } }, ...extra });
+// Four minutes of helper work, 09:02 to 09:06, written under s-home.
+const HELPER = ["h1", "h2", "h3"].map((uuid, i) =>
+  minutesAssistant("s-home", uuid, 9, 2 + 2 * i, { isSidechain: true, agentId: "agent-x" })
+);
+
+/**
+ * s-home ran 09:00-09:06 with its helper. Each resume in `resumes` opens with a
+ * copy of s-home's two lines, holds a copy of the helper, and then works for
+ * three minutes of its own.
+ */
+async function writeMinutesStore({ withHome = true, resumes = ["s-resume"] } = {}) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minutes-store-"));
+  const dir = path.join(root, "projects", MINUTES_PROJECT);
+  const write = async (rel, lines) => {
+    await fs.mkdir(path.dirname(path.join(dir, rel)), { recursive: true });
+    await fs.writeFile(path.join(dir, rel), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  };
+  const home = [minutesUser("s-home", "u1", 9, 0), minutesAssistant("s-home", "a1", 9, 1)];
+  if (withHome) {
+    await write("s-home.jsonl", home);
+    await write("s-home/subagents/agent-agent-x.jsonl", HELPER);
+  }
+  for (const [i, id] of resumes.entries()) {
+    const hour = 10 + i;
+    await write(`${id}.jsonl`, [...home, minutesUser(id, `${id}-u`, hour, 0), minutesAssistant(id, `${id}-a`, hour, 3)]);
+    await write(`${id}/subagents/agent-agent-x.jsonl`, HELPER);
+  }
+  return root;
+}
+
+test("a subagent transcript copied into a resume counts its minutes in the parent only", async () => {
+  const root = await writeMinutesStore();
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.equal(s["s-home"].activeMinutes, 6);
+    assert.equal(s["s-resume"].activeMinutes, 3, "the copied helper's four minutes are s-home's");
+    assert.equal(s["s-resume"].handsOnMinutes + s["s-resume"].agentSupervisingMinutes, 3);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a copied subagent transcript doesn't move the resume's window", async () => {
+  const root = await writeMinutesStore();
+  try {
+    const events = await extractStore(root);
+    const resume = events.find((e) => e.eventKind === "create_focus_session" && e.sessionRef === "s-resume");
+    assert.equal(new Date(resume.metrics.sessionStartedAt).toISOString(), minuteAt(10, 0));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("with the parent gone, the first resume the walk reaches counts the helper's minutes", async () => {
+  const root = await writeMinutesStore({ withHome: false, resumes: ["s-fork", "s-resume"] });
+  try {
+    const s = sessionsByRef(await extractStore(root));
+    assert.equal(s["s-home"], undefined);
+    // s-fork is first in walk order: it takes s-home's six minutes, helper
+    // included, on top of its own three. s-resume keeps only its own.
+    assert.equal(s["s-fork"].activeMinutes, 6 + 3);
+    assert.equal(s["s-resume"].activeMinutes, 3);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a resume holding nothing of its own but a copied helper reports no session", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minutes-store-"));
+  const dir = path.join(root, "projects", MINUTES_PROJECT);
+  try {
+    await fs.mkdir(path.join(dir, "s-home", "subagents"), { recursive: true });
+    await fs.mkdir(path.join(dir, "s-copy", "subagents"), { recursive: true });
+    const jsonl = (lines) => lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+    await fs.writeFile(path.join(dir, "s-home.jsonl"), jsonl([minutesUser("s-home", "u1", 9, 0)]));
+    await fs.writeFile(path.join(dir, "s-home", "subagents", "agent-agent-x.jsonl"), jsonl(HELPER));
+    // The top-level transcript is gone and only the copied directory is left.
+    await fs.writeFile(path.join(dir, "s-copy", "subagents", "agent-agent-x.jsonl"), jsonl(HELPER));
+    const events = await extractStore(root);
+    const s = sessionsByRef(events);
+    assert.equal(s["s-copy"], undefined);
+    assert.equal(s["s-home"].activeMinutes, 6);
+    const epoch = events.find((e) => e.eventKind === "extraction_epoch");
+    assert.equal(epoch.metrics.sessionsWithOnlyInheritedLines, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

@@ -74,7 +74,7 @@ npx @ascenda-one/claude-code-hooks uninstall   # removes hooks and the binary
 | `--local [port]` | shorthand for a local [dev server](../ascenda-dev-server/) (default `4477`) |
 | `--tool-installation-id <id>` / `--token <t>` | reuse an existing pairing instead of creating one |
 | `--no-pair` | install the local half only: hooks work, nothing is sent |
-| `--repo-keys on\|off` | on by default: GitHub repositories get a `repoKey` and, off the default branch, a `branchKey`, so a pull request can be matched to a session. Unsalted digests, so anyone who guesses the names can recompute them. Machine-wide |
+| `--no-repo-keys` | GitHub repositories get a `repoKey` and, off the default branch, a `branchKey`, so a pull request can be matched to a session. They are unsalted digests, so anyone who guesses the names can recompute them. This turns both off, machine-wide. `--repo-keys` turns them back on |
 | `--event-log [path\|off]` | keep every event in a local JSONL file (default `~/.ascenda/events.jsonl`). On by default without a pairing; `off` stops it |
 | `--scope user\|project` | register in `~/.claude/settings.json` (default, every project) or in this project's `.claude/settings.local.json` |
 | `--project-dir <path>` | project root for `--scope project` (default cwd) |
@@ -101,6 +101,11 @@ rather than appending, hooks belonging to anyone else are left alone, and the
 file is backed up to `.ascenda-backup` before the first write. Settings that
 are not valid JSON abort the run rather than being overwritten.
 
+With `CLAUDE_CONFIG_DIR` set, user-scope setup, `status` and `uninstall` use
+`$CLAUDE_CONFIG_DIR/settings.json`. If another tool has added its own hook to
+one of our groups, setup and `uninstall` take out only ours and leave theirs.
+A symlinked settings file stays a symlink.
+
 #### Upgrading
 
 Re-run `setup` with the scope you installed with. It keeps your pairing, adds
@@ -108,7 +113,7 @@ the hooks this version registers, and prints what it added:
 
 ```text
   hooks        ~/.claude/settings.json (13 events)
-               upgraded: added SubagentStart, SubagentStop; hook set 2 → 3
+               upgraded: added PermissionRequest, PermissionDenied; hook set 3 → 4
 ```
 
 `status` prints the installed hook set and, when it's older, the command to
@@ -234,13 +239,14 @@ Optional environment:
 | `ASCENDA_EVENT_WRITE_TOKEN` | Only if you have no prior pairing to reuse — normally the token file supplies this |
 | `ASCENDA_EVENT_WRITE_TOKEN_FILE` | Override token file path (default `~/.ascenda/tokens/<toolInstallationId>`) |
 | `ASCENDA_SESSION_ID` | Stable session id across hooks |
-| `ASCENDA_REPO_KEYS` | `off` leaves the repository and branch keys off every event. Wins over `setup --repo-keys` |
+| `ASCENDA_REPO_KEYS` | `off` leaves the repository and branch keys off every event. Wins over `setup --no-repo-keys` |
 | `ASCENDA_EVENT_LOG_FILE` | Local JSONL event log path, or `off`. Wins over `setup --event-log`. Without either, an unpaired install writes `~/.ascenda/events.jsonl` and a paired one writes nothing |
 | `ASCENDA_WORKSPACE_HASH` | Override only. By default the hook derives this from the payload's own `cwd`: a machine-salted hash of the checkout folder's basename (never the path itself) |
 | `ASCENDA_PROJECT_HASH` | Override only. Defaults to the salted hash of the canonical repository's basename — a git worktree folds into the repo it was created from |
 | `ASCENDA_STATE_FILE` | Override the send journal path (default `~/.ascenda/state/<toolInstallationId>.json`) |
 | `ASCENDA_OUTBOX_FILE` | Override the outbox path (default `~/.ascenda/state/<toolInstallationId>.outbox.jsonl`) |
-| `ASCENDA_OUTBOX_DRAIN` | `true` lets the next hook re-send queued events. **Off by default** until the ingest endpoint is confirmed to dedupe live events on `idempotencyKey`; see "When the collector cannot reach Ascenda" |
+| `ASCENDA_HOOK_DELIVERY` | `inline` makes each hook send its own events and wait for the answer. By default a background sender does it; see "How events leave the machine" |
+| `ASCENDA_OUTBOX_DRAIN` | `0` holds the outbox without sending it, and hooks send their own events inline. On by default |
 | `ASCENDA_DISABLE_FAILURE_NOTICE` | `true` silences the one-time in-session notice about a collector that has stopped delivering |
 
 On first run the CLI seeds `~/.ascenda/tokens/<toolInstallationId>` so
@@ -294,7 +300,9 @@ for machine-wide coverage:
     "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification", "timeout": 5 }] }],
     "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionEnd", "timeout": 5 }] }],
     "SubagentStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStart", "timeout": 5 }] }],
-    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStop", "timeout": 5 }] }]
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStop", "timeout": 5 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PermissionRequest", "timeout": 5 }] }],
+    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PermissionDenied", "timeout": 5 }] }]
   }
 }
 ```
@@ -361,42 +369,46 @@ call, and never repeats until the collector has recovered and failed again.
 distinguish a dead token from a night's sleep, because both are "no events".
 Only the collector knows it tried and was refused.
 
-### When the collector cannot reach Ascenda
+### How events leave the machine
 
-A send that fails without a verdict — the endpoint unreachable, a timeout, a
-`429` or `5xx` — is retried once after 250 ms and then **kept**, not dropped.
-The payload is appended to an outbox next to the journal:
+A hook doesn't send anything itself. It appends its events to an outbox next
+to the journal, starts a background sender, and hands control back to Claude
+Code in a few milliseconds:
 
 ```
 ~/.ascenda/state/<toolInstallationId>.outbox.jsonl
 ```
 
-one JSON line per event, exactly as it would have gone on the wire, plus the
-time it was queued. Anything longer than a blip — a laptop waking from sleep,
-a VPN reconnecting, a captive portal, a slow network on a train — used to lose
-every event for its duration with no copy anywhere. Now it costs nothing but
-delay. A rejection *with* a verdict (`400`, `401`, `403`) is not queued:
-replaying it cannot change the answer.
+Each line is one event, exactly as it goes on the wire, plus the time it was
+queued. The background sender is the same CLI run with `__flush-outbox`. It
+sends the outbox oldest first, up to 100 events per request, until it's empty,
+and exits. One sender runs at a time: a lock file next to the outbox
+(`.flushing`) tells the next hook that one is already working.
 
-The next hook invocation drains the outbox, oldest first, one batch of up to
-100 per invocation and never with a backoff loop — the hook is on your
-critical path, and the invocation after that is usually seconds away. An
-entry is deleted when the server answers `accepted` **or** `duplicate`; a
-duplicate means the server already had it, which is the point of the
-`idempotencyKey` every event carries. If the door refuses again, the pass stops
-with everything still on disk, and the live event joins the queue instead of
-knocking on a door that just said no.
+So the network never sits between you and your agent. A slow connection, a
+captive portal or an outage costs delay, not a stalled tool call. Each event's
+time and `idempotencyKey` are set when the hook fires, so an event sent a few
+seconds later keeps its time, and one sent twice comes back `duplicate`.
 
-> **Sending from the outbox is off by default.** Set `ASCENDA_OUTBOX_DRAIN=true`
-> to enable it. A drain against an ingest endpoint that does not yet dedupe
-> live events on `idempotencyKey` would land every queued event a second
-> time — the exact double-count that blocked this queue until the key existed.
-> Until the deployed backend is confirmed to answer a replay with `duplicate`,
-> events are queued, bounded and reported, but not re-sent.
+An entry is deleted when the server answers `accepted` or `duplicate`. If the
+server can't be reached (a timeout, a `429` or `5xx`), the sender stops with
+everything still on disk and journals the failure, and the next hook starts
+another. A refusal with a verdict (`400`, `401`, `403`) isn't kept: replaying it
+can't change the answer.
+
+Two settings send from the hook itself, as earlier versions did:
+
+- `ASCENDA_HOOK_DELIVERY=inline`. The hook sends each event and waits for the
+  answer. A failed send is retried once after 250 ms and then queued.
+- `ASCENDA_OUTBOX_DRAIN=0`, which holds the outbox without sending it. The
+  hook still sends its own events inline, so nothing stops arriving.
+
+A hosted session always sends inline. Its container goes when the session
+does, and an outbox in it would go too.
 
 The outbox is bounded: 10,000 entries and 7 days. When a bound evicts, the
 discard is recorded in the journal as `"lastOutcome": "outbox_discarded"` with
-a cumulative `outboxDiscarded` block — how many, when, why, and how far back
+a cumulative `outboxDiscarded` block: how many, when, why, and how far back
 the loss reaches. It survives every later success, because a gap that has
 since closed is still a gap in the data.
 
@@ -405,7 +417,8 @@ since closed is still a gap in the data.
 ```
   Outbox                ~/.ascenda/state/claude_code_….outbox.jsonl
   Outbox depth          37 waiting — oldest queued 2026-09-03T01:12:08.114Z (3h 41m ago)
-  Outbox drain          off (queued events are kept and bounded, not sent) — ASCENDA_OUTBOX_DRAIN
+  Outbox drain          on (queued events are replayed, oldest first) — ASCENDA_OUTBOX_DRAIN
+  Delivery              background sender (the hook queues and returns)
   Outbox discarded      12 total; last 12 at 2026-09-02T… (12 age, reaching back to 2026-08-25T…)
 ```
 
@@ -413,11 +426,11 @@ A non-empty outbox is the honest health answer. `consecutiveFailures` resets
 on the first success after an outage; the outbox says events from that outage
 are still on this machine.
 
-Hooks overlap — Claude Code fires `PreToolUse` and `PostToolUse` from separate
-processes — so appends use `O_APPEND` (whole lines, never fragments) and a
-drain takes the file by renaming it out from under concurrent appenders. An
-entry is never deleted before the server has confirmed it; a drain that dies
-mid-way leaves a claim file that the next drain sweeps back in.
+Hooks overlap, since Claude Code fires `PreToolUse` and `PostToolUse` from
+separate processes. Appends use `O_APPEND` (whole lines, never fragments), and
+a sender takes the file by renaming it out from under concurrent appenders. An
+entry is never deleted before the server has confirmed it. A sender that dies
+partway leaves a claim file that the next one sweeps back in.
 
 ## Build from source
 
@@ -461,6 +474,8 @@ Notification
 SessionEnd
 SubagentStart
 SubagentStop
+PermissionRequest
+PermissionDenied
 ```
 
 ## Ascenda event mappings
@@ -483,6 +498,8 @@ Notification       -> supervision_interruption (interruptionKind only, never the
 SessionEnd         -> recovery_offline_period (activity session_ended, sessionEndReason)
 SubagentStart      -> subagent_started (subagentId, subagentClass)
 SubagentStop       -> subagent_stopped (subagentId, subagentClass)
+PermissionRequest  -> permission_requested (toolName, autonomyMode)
+PermissionDenied   -> permission_denied (toolName, autonomyMode), auto mode only
 ```
 
 ## Privacy defaults
@@ -490,11 +507,18 @@ SubagentStop       -> subagent_stopped (subagentId, subagentClass)
 Metadata-only telemetry. Does not send raw prompts, responses, code, file names, repository names, branch names, or terminal output.
 
 When the agent stops and waits for you, `Notification` records only which kind
-of wait it was — `permission_request`, `idle_prompt` or `other`. The
-notification's own wording is read to pick one of those three labels and is
-then discarded; it never leaves the hook process, and neither does anything you
+of wait it was — `permission_request`, `input_request`, `idle_prompt` or
+`other`. Claude Code's `notification_type` picks the label, and the
+notification's own wording does it on a version that doesn't send one. The
+wording is then discarded; it never leaves the hook process, and neither does anything you
 answer. `tests/interruptionContentGuard.test.mjs` fails the build if that
 changes.
+
+`PermissionRequest` and `PermissionDenied` send the tool's name and the
+permission posture, and nothing about what the tool was asked to do. The
+request hook fires before you answer and no hook reports the answer, so a
+request doesn't say whether it was granted. The denied hook only fires in auto
+mode.
 
 Repository and branch identity travel only as digests, derived in the hook
 process and never as text. Most are machine-salted: `workspaceHash` and `projectHash` from
@@ -513,7 +537,7 @@ where no salt exists, so a session and a pull request on the same repository
 and branch carry the same pair. They go on events for github.com remotes only,
 and `branchKey` is left off the default branch. Because they're unsalted,
 anyone who guesses a repository or branch name can confirm it, and for a public
-repository those names are public. Turn them off with `setup --repo-keys off`
+repository those names are public. Turn them off with `setup --no-repo-keys`
 or `ASCENDA_REPO_KEYS=off`. `metadata.promptId` is Claude Code's own id for the
 prompt a turn answers, and says nothing about its text.
 

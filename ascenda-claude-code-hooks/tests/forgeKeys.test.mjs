@@ -77,3 +77,12 @@ test("the switch turns them off", () => {
     process.env.ASCENDA_REPO_KEYS = "on";
   }
 });
+
+test("the permission events carry the keys too", () => {
+  const repo = makeCheckout("permissions", "feat/x", "git@github.com:acme/payments.git");
+  for (const hook of ["PermissionRequest", "PermissionDenied"]) {
+    const [event] = mapClaudeEvent(hook, { cwd: repo, tool_name: "Bash" });
+    assert.equal(event.metadata.repoKey, forgeRepoKey("acme/payments"), hook);
+    assert.equal(event.metadata.branchKey, forgeBranchKey("acme/payments", "feat/x"), hook);
+  }
+});

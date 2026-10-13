@@ -57,13 +57,13 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 | `fix-retention` (Claude `cleanupPeriodDays`, merge-not-clobber) | implemented |
 | Staging/snapshot (copy-then-parse, WAL-aware, **torn down by the run that makes it**) | implemented |
 | `archive` (durable content-addressed copy, dedup, verify, restore, prune) | **implemented; exercised against a real multi-GB store** |
-| **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented; exercised end to end against the ingest API** |
-| **Codex extractor** (`~/.codex/sessions` and `archived_sessions` rollouts: `user_message` prompts, per-turn model mix, issued tool calls, tool and runtime failures, cumulative tokens, context peak against the window the rollout itself records, compaction items, long turns, gap-split active minutes, epoch marker) | **implemented; fixture-tested and run against a developer machine's rollouts** |
+| **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts and older flat `agent-*.jsonl` ones, SDK-written prompts counted apart from typed ones, cache-write and advisor tokens, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented; exercised end to end against the ingest API** |
+| **Codex extractor** (`~/.codex/sessions` and `archived_sessions` rollouts: `user_message` prompts, per-turn model mix, issued tool calls, tool and runtime failures, cumulative tokens (left off for rollouts that predate them), context peak against the window the rollout itself records, compaction items, long turns, gap-split active minutes, epoch marker) | **implemented; fixture-tested and run against a developer machine's rollouts** |
 | **Active-time split** (hands-on vs agent-supervising, per session, per local day and per project digest; autonomy bands off the transcript's own `permissionMode`) | **implemented; exercised against a real store** |
 | **Tool-call counting, all four stores** (`tool_use` items / tool-call `response_item`s / `toolFormerData` / `toolInvocationSerialized`, one `ai_tool_call_started` per call) | **implemented; exercised end to end against all four stores on a developer machine** |
 | **Batch shipper** (`POST /v1/tool-events/batch`, salted hashes, stable importKey) | **implemented; exercised end to end against the ingest API** |
-| **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, epoch marker) | **implemented; exercised end to end against the ingest API** |
-| **VS Code extractor** (Timeline-history Chat-Edit day×workspace aggregation, Copilot chatSessions folding, workspace identity via `workspace.json` longest-prefix match, epoch marker) | **implemented; exercised end to end against the ingest API** |
+| **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, sessions started at their first message, tokens left off when the build recorded none, epoch marker) | **implemented; exercised end to end against the ingest API** |
+| **VS Code extractor** (Timeline-history Chat-Edit day×workspace aggregation, Copilot chatSessions folding (including chats with no folder open, and Insiders and VSCodium installs), workspace identity via `workspace.json` longest-prefix match, epoch marker) | **implemented; exercised end to end against the ingest API** |
 | `import [--ship]` end to end | **implemented; exercised end to end against all three stores, dry run and `--ship`, on a developer machine** |
 | git extractor | stub — throws with a pointer |
 | zsh `EXTENDED_HISTORY` apply | snippet only |
@@ -180,7 +180,7 @@ A cut counts in the session you pressed Escape in, and in no other. Resuming
 a session copies the history it inherits, markers included, so before this
 rule every resume in a lineage reported its ancestors' interruptions as
 well — a fifth of the counted total on the store this was measured against.
-The same ownership rule as the minutes (`minutesBasis: owned_lines`).
+The same ownership rule as the minutes.
 
 ### When two files both say a line is theirs
 
@@ -217,6 +217,21 @@ holds to a minute, because a line counted twice was one minute counted twice.
 Hands-on shifts a little more than that: a span changes sides when the lines
 around it move, so the unioned hands-on figure moved by 19 minutes in 6,734.
 
+### Subagent transcripts copied into a resume
+
+A session's subagents write to `<session>/subagents/agent-<id>.jsonl`, and
+every line in there names the parent session. Resume or fork that session and
+the new session's directory can get byte-for-byte copies of those files. The
+lines still name the parent, so that's where they count. A copy only counts
+where it sits when the parent's own transcript is gone, and then only in the
+first session the import reaches.
+
+On the store this was measured against, 1,813 subagent messages sat in more
+than one directory. Counted in each, they added 942 minutes to the summed
+active time, spread over 14 sessions and all of it agent supervising. Hands-on
+didn't move. Nor did the union, since a copy repeats an interval that's
+already counted.
+
 ### What counts as a prompt
 
 `promptCount` on a Claude Code session counts the prompts you typed. Claude
@@ -228,8 +243,9 @@ Code also writes `user` lines on your behalf, and none of these count:
   (`isCompactSummary`);
 - a line that's empty once its wrapper elements are stripped: `system-reminder`,
   `command-name`, `command-message`, `command-args`, `local-command-stdout`,
-  `local-command-stderr`, `local-command-caveat`. That's what a slash command
-  and its output look like. A prompt with typed text beside a wrapper still
+  `local-command-stderr`, `local-command-caveat`, `bash-input`, `bash-stdout`,
+  `bash-stderr`. That's what a slash command and its output look like, and
+  what a `!` shell command does: the agent never runs for it. A prompt with typed text beside a wrapper still
   counts, and so does one that merely starts with a tag's name;
 - the interrupt marker, `[Request interrupted by user]` and its `for tool use`
   variant.
@@ -271,9 +287,11 @@ typed. A handoff without the stamp counted every `user` line that wasn't a tool
 result. Prompt counts for the same week run highest under that rule and lowest
 under `typed_once`. The schema number doesn't move.
 
-Beside it, `minutesBasis: "owned_lines"` says the minutes were cut the same
-way. `"every_line"` — and an absent stamp — means a transcript's whole
-contents counted there, inherited history included. Gate on this before
+Beside it, `minutesBasis: "owned_lines_and_subagents"` says the minutes were
+cut the same way, subagent transcripts included. `"owned_lines"` is the same
+rule with a copied subagent transcript counted in every session that held one.
+`"every_line"`, and an absent stamp, mean a transcript's whole contents
+counted there, inherited history included. Gate on this before
 comparing minutes across two handoffs: a store's figures drop when it changes,
 and nothing else in the file says so.
 
