@@ -99,7 +99,14 @@ export function defaultArchiveSources(
   includeVsCodeSessions = false
 ): ArchiveSource[] {
   const sources: ArchiveSource[] = [
-    { store: "claude_code", root: paths.claudeProjects, label: "projects" },
+    // `projects` for the first config dir, `projects-2` onward for any extra
+    // ones CLAUDE_CONFIG_DIR lists, so a single-dir machine's manifest keeps
+    // the label it always had.
+    ...paths.claudeProjectsDirs.map((root, i) => ({
+      store: "claude_code" as const,
+      root,
+      label: i === 0 ? "projects" : `projects-${i + 1}`
+    })),
     { store: "codex", root: paths.codexSessions, label: "sessions" },
     { store: "codex", root: paths.codexArchivedSessions, label: "archived_sessions" },
     { store: "cursor", root: paths.cursorStateDb, siblings: ["-wal", "-shm"], label: "state" },

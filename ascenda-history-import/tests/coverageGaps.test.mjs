@@ -602,3 +602,104 @@ test("store paths name all three VS Code installs, and the scan sees one that is
     await fs.rm(home, { recursive: true, force: true });
   }
 });
+
+/* ------------------------------------------------------------------------ *
+ * Codex threads: the not-collected marker over per-thread token counters
+ * ------------------------------------------------------------------------ */
+
+const T_PARENT = "11111111-1111-4111-8111-111111111111";
+const T_CHILD = "33333333-3333-4333-8333-333333333333";
+
+function threadMeta(timestamp, id, extra = {}) {
+  return codexLine(timestamp, "session_meta", {
+    id,
+    timestamp,
+    cwd: "/work/repo-a",
+    cli_version: "0.150.0",
+    source: "cli",
+    ...extra
+  });
+}
+
+const threadTokens = (timestamp, input, output) =>
+  codexLine(timestamp, "event_msg", {
+    type: "token_count",
+    info: {
+      total_token_usage: { input_tokens: input, cached_input_tokens: 0, output_tokens: output },
+      last_token_usage: { input_tokens: input, cached_input_tokens: 0, output_tokens: 0 },
+      model_context_window: 1000
+    }
+  });
+
+async function threadStore(parentLines, childLines) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-gaps-threads-"));
+  const dir = path.join(root, "sessions", "2026", "08", "03");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `rollout-2026-08-03T09-00-00-${T_PARENT}.jsonl`), parentLines.join("\n") + "\n");
+  await fs.writeFile(path.join(dir, `rollout-2026-08-03T09-00-30-${T_CHILD}.jsonl`), childLines.join("\n") + "\n");
+  return root;
+}
+
+const parentNoTokens = [
+  threadMeta("2026-08-03T09:00:00.000Z", T_PARENT),
+  codexLine("2026-08-03T09:00:01.000Z", "event_msg", { type: "user_message", message: "redacted", images: [] }),
+  codexLine("2026-08-03T09:00:02.000Z", "turn_context", { turn_id: "t1", model: "gpt-5" })
+];
+
+const childMeta = threadMeta("2026-08-03T09:00:30.000Z", T_CHILD, {
+  source: "subagent",
+  thread_source: "subagent",
+  parent_thread_id: T_PARENT
+});
+
+test("a subagent's token events keep the session's token keys and clear the flag", async () => {
+  const root = await threadStore(parentNoTokens, [
+    childMeta,
+    codexLine("2026-08-03T09:00:31.000Z", "event_msg", { type: "user_message", message: "task", images: [] }),
+    threadTokens("2026-08-03T09:00:40.000Z", 400, 40)
+  ]);
+  try {
+    const events = await collect(extractCodex(root, "x1"));
+    const [s] = events.filter((e) => e.eventKind === "create_focus_session");
+    assert.equal(s.metrics.inputTokens, 400);
+    assert.equal(s.metrics.outputTokens, 40);
+    assert.equal(s.metrics.subagentTokensTotal, 440);
+    assert.equal("tokensNotCollected" in s.metrics, false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a parent with tokens and a subagent without keeps the parent's, with no subagent total", async () => {
+  const root = await threadStore([...parentNoTokens, threadTokens("2026-08-03T09:00:05.000Z", 100, 10)], [
+    childMeta,
+    codexLine("2026-08-03T09:00:31.000Z", "event_msg", { type: "user_message", message: "task", images: [] })
+  ]);
+  try {
+    const events = await collect(extractCodex(root, "x1"));
+    const [s] = events.filter((e) => e.eventKind === "create_focus_session");
+    assert.equal(s.metrics.inputTokens, 100);
+    assert.equal("subagentTokensTotal" in s.metrics, false);
+    assert.equal("tokensNotCollected" in s.metrics, false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("no thread of the session reported tokens: not collected", async () => {
+  const root = await threadStore(parentNoTokens, [
+    childMeta,
+    codexLine("2026-08-03T09:00:31.000Z", "event_msg", { type: "user_message", message: "task", images: [] })
+  ]);
+  try {
+    const events = await collect(extractCodex(root, "x1"));
+    const [s] = events.filter((e) => e.eventKind === "create_focus_session");
+    for (const key of ["inputTokens", "outputTokens", "cacheReadTokens", "subagentTokensTotal"]) {
+      assert.equal(key in s.metrics, false, `${key} is absent`);
+    }
+    assert.equal(s.metrics.tokensNotCollected, true);
+    assert.equal(s.metrics.subagentTranscripts, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

@@ -9,6 +9,17 @@
  * `payload.type`. The date nesting is not documented upstream, so the walk is
  * recursive rather than hardcoded to it.
  *
+ * A session is a thread, not a file. Three things put more than one file
+ * on a thread, or more than one thread in a file, and each is handled where
+ * it's read (see `rolloutIdentityOf`):
+ *  - a long thread continues in `rollout-<ts>-<id>_<rollout>.jsonl`
+ *    (`history_mode: "paginated"`), folded into the same session;
+ *  - a fork (`forked_from_id`) replays its parent's history at the top of
+ *    its own rollout, which is skipped so it isn't counted twice;
+ *  - a subagent thread folds into the session that spawned it.
+ * With history compression on, rollouts are `.jsonl.zst`; see
+ * `decompressZstd` for how they're read.
+ *
  * Everything the import needs sits on five top-level types:
  *  - `session_meta` — the first line: `id` (`session_id` beside it on newer
  *    builds), `cwd`, `cli_version`, `originator`, `git.branch`.
@@ -91,11 +102,16 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { bucketDurationMs, isOutsideBusinessHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 import { DEFAULT_ACTIVE_GAP_MS, activeSpans, minutesOf, splitActiveTime, type ActiveInstant } from "../activeSplit.js";
+
+const execFileAsync = promisify(execFile);
 
 /** Top-level line types the extractor reads fields from. */
 export const KNOWN_CODEX_LINE_TYPES = [
@@ -270,11 +286,74 @@ export function isToolOutputFailure(payload: Record<string, unknown>): boolean {
   return match !== null && match[1] !== "0";
 }
 
+interface TokenTotals {
+  input: number;
+  output: number;
+  cached: number;
+}
+
+const NO_TOKENS: TokenTotals = { input: 0, output: 0, cached: 0 };
+
+function maxTokens(a: TokenTotals, b: TokenTotals): TokenTotals {
+  return {
+    input: Math.max(a.input, b.input),
+    output: Math.max(a.output, b.output),
+    cached: Math.max(a.cached, b.cached)
+  };
+}
+
+/**
+ * One thread's cumulative token counter. `total_token_usage` is cumulative,
+ * so a thread's spend is the largest figure seen on its own lines. A fork
+ * replays its parent's `token_count` lines first, and those carry the
+ * parent's running total: `replayed` holds the largest of them so it can be
+ * taken off again. Whether the fork's counter carried on from that figure
+ * or restarted at zero isn't written down anywhere, so the first reading
+ * after the replay decides it: below the replayed input total means the
+ * counter restarted and nothing needs subtracting.
+ */
+interface TokenTrack {
+  own: TokenTotals;
+  replayed: TokenTotals | null;
+  settled: boolean;
+  /** Whether a `token_count` of this thread's own carried a running total.
+   * Rollouts written before those events existed have none, and a replayed
+   * parent figure doesn't count: the thread itself was not measured. */
+  seen: boolean;
+}
+
+function newTokenTrack(): TokenTrack {
+  return { own: { ...NO_TOKENS }, replayed: null, settled: false, seen: false };
+}
+
+function ownTokensOf(track: TokenTrack): TokenTotals {
+  const base = track.replayed ?? NO_TOKENS;
+  return {
+    input: Math.max(0, track.own.input - base.input),
+    output: Math.max(0, track.own.output - base.output),
+    cached: Math.max(0, track.own.cached - base.cached)
+  };
+}
+
+function totalsOf(info: Record<string, unknown>): TokenTotals | null {
+  const total = asRecord(info.total_token_usage);
+  if (!total) return null;
+  return {
+    input: asNumber(total.input_tokens),
+    output: asNumber(total.output_tokens),
+    cached: asNumber(total.cached_input_tokens)
+  };
+}
+
 interface SessionFold {
   sessionId: string;
   cwd: string | null;
   gitBranch: string | null;
   sourceVersion: string | null;
+  /** Whether a rollout of the thread itself (not one of its subagents) has
+   * been read. A fold can be seeded by a subagent that sorts first; the
+   * thread's own `session_meta` then takes over cwd and branch. */
+  hasPrimary: boolean;
   firstTs: string | null;
   lastTs: string | null;
   humanPrompts: number;
@@ -284,13 +363,14 @@ interface SessionFold {
   unknownLines: number;
   metaLines: number;
   unparsedLines: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  /** Whether any `token_count` event carried a running total. Rollouts written
-   * before those events existed have none, and their sums are not zero, they
-   * are unmeasured. */
-  tokensSeen: boolean;
+  /** The thread's own counter, across all its pages. */
+  tokens: TokenTrack;
+  /** One counter per subagent thread folded in, keyed by its own id. Its
+   * size is the number of subagent threads. */
+  subagentThreads: Map<string, TokenTrack>;
+  subagentPrompts: number;
+  subagentAssistantTurns: number;
+  subagentToolCallCount: number;
   models: Map<string, number>;
   lastModel: string | null;
   modelSwitchCount: number;
@@ -315,6 +395,7 @@ function newFold(sessionId: string): SessionFold {
     cwd: null,
     gitBranch: null,
     sourceVersion: null,
+    hasPrimary: false,
     firstTs: null,
     lastTs: null,
     humanPrompts: 0,
@@ -324,10 +405,11 @@ function newFold(sessionId: string): SessionFold {
     unknownLines: 0,
     metaLines: 0,
     unparsedLines: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    tokensSeen: false,
+    tokens: newTokenTrack(),
+    subagentThreads: new Map(),
+    subagentPrompts: 0,
+    subagentAssistantTurns: 0,
+    subagentToolCallCount: 0,
     models: new Map(),
     lastModel: null,
     modelSwitchCount: 0,
@@ -395,181 +477,397 @@ function rapidRepromptCountOf(fold: SessionFold): number {
  */
 const LONG_TURN_BUCKETS = new Set(["30-60m", "60m+"]);
 
-/** Session id from a rollout filename — `rollout-<YYYY-MM-DDTHH-MM-SS>-<id>.jsonl`.
- * The store's own `session_meta.id` overrides it when the two disagree. */
-export function sessionIdFromRolloutName(fileName: string): string {
-  const base = path.basename(fileName, ".jsonl");
-  const match = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)$/.exec(base);
-  return match ? match[1] : base;
+/** A rollout's name with its extension off: `.jsonl`, or `.jsonl.zst` when
+ * history compression is on. */
+function rolloutBaseName(fileName: string): string {
+  const base = path.basename(fileName);
+  if (base.endsWith(".jsonl.zst")) return base.slice(0, -".jsonl.zst".length);
+  if (base.endsWith(".jsonl")) return base.slice(0, -".jsonl".length);
+  return base;
 }
+
+/** Session id from a rollout filename — `rollout-<YYYY-MM-DDTHH-MM-SS>-<id>.jsonl`.
+ * A paginated continuation is `rollout-<ts>-<id>_<rollout>.jsonl` and names
+ * the same thread, so the `_<rollout>` suffix comes off. Thread ids are
+ * UUIDs and carry no underscore. The store's own `session_meta.id`
+ * overrides the filename when the two disagree. */
+export function sessionIdFromRolloutName(fileName: string): string {
+  const base = rolloutBaseName(fileName);
+  const match = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)$/.exec(base);
+  if (!match) return base;
+  const underscore = match[1].indexOf("_");
+  return underscore > 0 ? match[1].slice(0, underscore) : match[1];
+}
+
+/**
+ * What a rollout's first `session_meta` says about the thread it belongs to.
+ *
+ *  - `threadId`: `id`, else the filename's id.
+ *  - `forkedFromId`: set on a fork. The fork's rollout opens with its own
+ *    `session_meta`, then replays the parent's history in one burst: the
+ *    parent's `session_meta`, `user_message`s and cumulative
+ *    `token_count`s. Those are the parent's, already counted on the parent.
+ *  - `subagentParentId` / `isSubagent`: a thread the agent spawned. Newer
+ *    builds write `thread_source: "subagent"`; older ones write
+ *    `source: { subagent: … }`, with the spawning thread under
+ *    `thread_spawn.parent_thread_id`. A subagent isn't a session of its own,
+ *    the same rule `claudeCode.ts` applies to sidechains.
+ *  - `isContinuation`: a later page of a paginated thread
+ *    (`history_mode: "paginated"` with a `history_base`). It carries on the
+ *    thread rather than starting one, so it never opens with a replay.
+ */
+export interface RolloutIdentity {
+  threadId: string;
+  forkedFromId: string | null;
+  isSubagent: boolean;
+  subagentParentId: string | null;
+  isContinuation: boolean;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+export function rolloutIdentityOf(meta: Record<string, unknown> | null, fileName: string): RolloutIdentity {
+  const threadId = nonEmptyString(meta?.id) ?? sessionIdFromRolloutName(fileName);
+  if (!meta) {
+    return { threadId, forkedFromId: null, isSubagent: false, subagentParentId: null, isContinuation: false };
+  }
+  const source = asRecord(meta.source);
+  const subagentSource = source && "subagent" in source ? source.subagent : undefined;
+  const isSubagent = meta.thread_source === "subagent" || subagentSource !== undefined;
+  let subagentParentId: string | null = null;
+  if (isSubagent) {
+    const spawn = asRecord(asRecord(subagentSource)?.thread_spawn) ?? asRecord(meta.thread_spawn);
+    subagentParentId = nonEmptyString(meta.parent_thread_id) ?? nonEmptyString(spawn?.parent_thread_id);
+    if (subagentParentId === threadId) subagentParentId = null;
+  }
+  const historyBase = meta.history_base;
+  const isContinuation =
+    meta.history_mode === "paginated" && historyBase !== undefined && historyBase !== null && historyBase !== "";
+  const forkedFromId = nonEmptyString(meta.forked_from_id);
+  return {
+    threadId,
+    forkedFromId: forkedFromId === threadId ? null : forkedFromId,
+    isSubagent,
+    subagentParentId,
+    isContinuation
+  };
+}
+
+/** The session a rollout folds into: its own thread, or for a subagent the
+ * thread that spawned it. A subagent whose parent isn't named folds under
+ * its own id, with its prompts still counted as subagent prompts. */
+export function sessionKeyOf(identity: RolloutIdentity): string {
+  return identity.isSubagent && identity.subagentParentId ? identity.subagentParentId : identity.threadId;
+}
+
+/**
+ * How close together the lines of a fork's replay are. The replay is written
+ * in one go when the fork starts, so its lines sit within milliseconds of
+ * each other, or carry the parent's older timestamps. The fork's own work
+ * starts at the first line that lands later than this after the replay.
+ */
+export const FORK_REPLAY_BURST_MS = 1_000;
 
 function compactionCountOf(fold: SessionFold): number {
   return fold.compactedItems > 0 ? fold.compactedItems : fold.contextCompactedEvents;
 }
 
-async function foldRollout(filePath: string): Promise<SessionFold> {
-  const fold = newFold(sessionIdFromRolloutName(filePath));
-  const handle = await fs.open(filePath);
-  try {
-    for await (const line of handle.readLines({ encoding: "utf8" })) {
-      const sniffed = sniffCodexLine(line);
-      if (sniffed.kind === "unparsed") {
-        if (line.trim() !== "") fold.unparsedLines += 1;
-        continue;
-      }
-      if (sniffed.kind === "meta") {
+function firstSessionMeta(lines: string[]): Record<string, unknown> | null {
+  for (const line of lines) {
+    const sniffed = sniffCodexLine(line);
+    if (sniffed.kind === "session_meta") return sniffed.payload;
+  }
+  return null;
+}
+
+/**
+ * Folds one rollout's lines into the session they belong to. A thread's
+ * own rollouts (its first page and any continuations) count as before. A
+ * subagent's rollout folds into its parent the way a Claude Code sidechain
+ * does: its `user_message`s are the parent agent's task text, counted as
+ * `subagentPrompts` and never as human prompts; its tool calls, failures,
+ * tokens and active time are real work done for the session and count
+ * toward it, with a `subagent*` breakdown beside them. Turn-level figures
+ * (long turns, compactions, context peak, model switches) stay the
+ * thread's own, since a subagent's turn runs inside one of the parent's.
+ */
+function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIdentity): void {
+  const sub = identity.isSubagent;
+  let track = fold.tokens;
+  if (sub) {
+    const existing = fold.subagentThreads.get(identity.threadId);
+    track = existing ?? newTokenTrack();
+    if (!existing) fold.subagentThreads.set(identity.threadId, track);
+  }
+  let ownMetaSeen = false;
+  let replaying = false;
+  let lastReplayMs: number | null = null;
+
+  for (const line of lines) {
+    const sniffed = sniffCodexLine(line);
+    if (sniffed.kind === "unparsed") {
+      if (line.trim() !== "") fold.unparsedLines += 1;
+      continue;
+    }
+    if (sniffed.kind === "meta") {
+      fold.metaLines += 1;
+      continue;
+    }
+    if (sniffed.kind === "unknown") {
+      fold.unknownLines += 1;
+      continue;
+    }
+    if (replaying) {
+      const ms = sniffed.occurredAt ? Date.parse(sniffed.occurredAt) : NaN;
+      if (!Number.isFinite(ms) || lastReplayMs === null || ms <= lastReplayMs + FORK_REPLAY_BURST_MS) {
+        // The parent's history, replayed. Recognised and skipped, like any
+        // other meta line, except that its running token total is kept so
+        // the fork's own counter can be told apart from it.
+        if (Number.isFinite(ms)) lastReplayMs = Math.max(lastReplayMs ?? ms, ms);
         fold.metaLines += 1;
-        continue;
-      }
-      if (sniffed.kind === "unknown") {
-        fold.unknownLines += 1;
-        continue;
-      }
-      if (sniffed.occurredAt) {
-        if (!fold.firstTs || sniffed.occurredAt < fold.firstTs) fold.firstTs = sniffed.occurredAt;
-        if (!fold.lastTs || sniffed.occurredAt > fold.lastTs) fold.lastTs = sniffed.occurredAt;
-      }
-      const payload = sniffed.payload;
-      let humanHere = false;
-      switch (sniffed.kind) {
-        case "session_meta": {
-          const id = typeof payload.id === "string" ? payload.id : null;
-          if (id && id !== fold.sessionId) fold.sessionId = id;
-          if (typeof payload.cwd === "string" && !fold.cwd) fold.cwd = payload.cwd;
-          if (typeof payload.cli_version === "string") fold.sourceVersion = payload.cli_version;
-          const git = asRecord(payload.git);
-          if (git && typeof git.branch === "string" && !fold.gitBranch) fold.gitBranch = git.branch;
-          break;
+        if (sniffed.kind === "event_msg" && sniffed.subtype === "token_count") {
+          const info = asRecord(sniffed.payload.info);
+          const totals = info ? totalsOf(info) : null;
+          if (totals) track.replayed = maxTokens(track.replayed ?? NO_TOKENS, totals);
         }
-        case "turn_context": {
-          if (typeof payload.cwd === "string" && !fold.cwd) fold.cwd = payload.cwd;
-          const model = typeof payload.model === "string" && payload.model !== "" ? payload.model : null;
-          if (model) {
-            fold.models.set(model, (fold.models.get(model) ?? 0) + 1);
+        continue;
+      }
+      replaying = false;
+    }
+    if (sniffed.occurredAt) {
+      if (!fold.firstTs || sniffed.occurredAt < fold.firstTs) fold.firstTs = sniffed.occurredAt;
+      if (!fold.lastTs || sniffed.occurredAt > fold.lastTs) fold.lastTs = sniffed.occurredAt;
+    }
+    const payload = sniffed.payload;
+    let humanHere = false;
+    switch (sniffed.kind) {
+      case "session_meta": {
+        // Only the rollout's first `session_meta` is its own. A later one is
+        // replayed parent history or a repeated header, and must not rename
+        // the session: before, the last one seen won, which filed a fork's
+        // work under its parent's id.
+        if (ownMetaSeen) break;
+        ownMetaSeen = true;
+        const takeOver = !sub && !fold.hasPrimary;
+        if (typeof payload.cwd === "string" && (takeOver || !fold.cwd)) fold.cwd = payload.cwd;
+        if (typeof payload.cli_version === "string" && (!sub || !fold.sourceVersion)) {
+          fold.sourceVersion = payload.cli_version;
+        }
+        const git = asRecord(payload.git);
+        if (git && typeof git.branch === "string" && (takeOver || !fold.gitBranch)) fold.gitBranch = git.branch;
+        if (!sub) fold.hasPrimary = true;
+        if (identity.forkedFromId && !identity.isContinuation) {
+          replaying = true;
+          const ms = sniffed.occurredAt ? Date.parse(sniffed.occurredAt) : NaN;
+          lastReplayMs = Number.isFinite(ms) ? ms : null;
+        }
+        break;
+      }
+      case "turn_context": {
+        if (typeof payload.cwd === "string" && !fold.cwd) fold.cwd = payload.cwd;
+        const model = typeof payload.model === "string" && payload.model !== "" ? payload.model : null;
+        if (model) {
+          fold.models.set(model, (fold.models.get(model) ?? 0) + 1);
+          if (!sub) {
             if (fold.lastModel && fold.lastModel !== model) fold.modelSwitchCount += 1;
             fold.lastModel = model;
           }
-          break;
         }
-        case "compacted": {
-          fold.compactedItems += 1;
-          break;
-        }
-        case "event_msg": {
-          switch (sniffed.subtype) {
-            case "user_message": {
-              if (!isHumanUserMessage(payload)) break;
-              fold.humanPrompts += 1;
-              if (sniffed.occurredAt && isOutsideBusinessHours(new Date(sniffed.occurredAt))) {
-                fold.afterHoursPrompts += 1;
-              }
-              fold.humanPromptTimestamps.push(sniffed.occurredAt);
-              humanHere = true;
-              break;
-            }
-            case "token_count": {
-              const info = asRecord(payload.info);
-              if (!info) break;
-              const total = asRecord(info.total_token_usage);
-              if (total) {
-                fold.tokensSeen = true;
-                fold.inputTokens = Math.max(fold.inputTokens, asNumber(total.input_tokens));
-                fold.outputTokens = Math.max(fold.outputTokens, asNumber(total.output_tokens));
-                fold.cacheReadTokens = Math.max(fold.cacheReadTokens, asNumber(total.cached_input_tokens));
-              }
-              const last = asRecord(info.last_token_usage);
-              if (last) {
-                const context = asNumber(last.input_tokens);
-                if (context > fold.contextWindowPeakTokens) fold.contextWindowPeakTokens = context;
-              }
-              const window = asNumber(info.model_context_window);
-              if (window > fold.contextWindowTokens) fold.contextWindowTokens = window;
-              break;
-            }
-            case "task_started":
-            case "turn_started": {
-              const window = asNumber(payload.model_context_window);
-              if (window > fold.contextWindowTokens) fold.contextWindowTokens = window;
-              break;
-            }
-            case "task_complete":
-            case "turn_complete": {
-              const bucket = bucketDurationMs(asNumber(payload.duration_ms));
-              if (bucket && LONG_TURN_BUCKETS.has(bucket) && sniffed.occurredAt) {
-                fold.longTurns.push({ at: sniffed.occurredAt, durationBucket: bucket });
-              }
-              break;
-            }
-            case "context_compacted": {
-              fold.contextCompactedEvents += 1;
-              break;
-            }
-            case "error": {
-              fold.apiErrorCount += 1;
-              break;
-            }
-            default:
-              break; // agent_message, agent_reasoning, …: timeline only.
-          }
-          break;
-        }
-        case "response_item": {
-          const subtype = sniffed.subtype ?? "";
-          if (TOOL_CALL_ITEM_TYPES.has(subtype)) {
-            fold.toolCallCount += 1;
-            // An undated call still counts but cannot be placed on a rail —
-            // an event would have to invent an instant to exist at all.
-            if (sniffed.occurredAt) {
-              fold.toolCalls.push({ at: sniffed.occurredAt, name: toolCallNameOf(subtype, payload) });
-            }
-          } else if (TOOL_OUTPUT_ITEM_TYPES.has(subtype)) {
-            fold.toolResults += 1;
-            if (isToolOutputFailure(payload)) fold.toolResultErrorCount += 1;
-          } else if (subtype === "message" && payload.role === "assistant") {
-            fold.assistantTurns += 1;
-          }
-          // `message` with role user/developer: the prompt is counted off its
-          // `user_message` event, and the rest is injected context. Timeline
-          // only, like reasoning and the compaction items.
-          break;
-        }
-        default:
-          break;
+        break;
       }
-      if (sniffed.occurredAt) {
-        const ms = Date.parse(sniffed.occurredAt);
-        if (Number.isFinite(ms)) {
-          // No posture: the rollout records approval_policy and
-          // sandbox_policy, not permission_mode, and the live hooks leave
-          // those unmapped on purpose. Null here is what puts every
-          // supervising minute in the `unknown` band, as the header says.
-          // `agentOutput` as the complement of `human` is the nearest-line
-          // rule, stated rather than defaulted: this extractor has not
-          // classified which rollout lines are the runtime's bookkeeping
-          // (`turn_context`, the injected `user_message` kinds) and which are
-          // the agent's output, so the human turn cannot start from the right
-          // line yet. Its handoff stamps `handsOnBoundary: "nearest_line"` for
-          // the same reason. Classifying them is the next step, and the
-          // Claude Code extractor is the worked example.
-          fold.timelinePoints.push({
-            at: ms,
-            human: humanHere,
-            agentOutput: !humanHere,
-            autonomyMode: null
-          });
-        } else {
-          fold.undatedTimelineLines += 1;
+      case "compacted": {
+        if (!sub) fold.compactedItems += 1;
+        break;
+      }
+      case "event_msg": {
+        switch (sniffed.subtype) {
+          case "user_message": {
+            if (!isHumanUserMessage(payload)) break;
+            if (sub) {
+              fold.subagentPrompts += 1;
+              break;
+            }
+            fold.humanPrompts += 1;
+            if (sniffed.occurredAt && isOutsideBusinessHours(new Date(sniffed.occurredAt))) {
+              fold.afterHoursPrompts += 1;
+            }
+            fold.humanPromptTimestamps.push(sniffed.occurredAt);
+            humanHere = true;
+            break;
+          }
+          case "token_count": {
+            const info = asRecord(payload.info);
+            if (!info) break;
+            const totals = totalsOf(info);
+            if (totals) {
+              if (track.replayed && !track.settled && totals.input < track.replayed.input) {
+                track.replayed = null;
+              }
+              track.settled = true;
+              track.seen = true;
+              track.own = maxTokens(track.own, totals);
+            }
+            if (sub) break;
+            const last = asRecord(info.last_token_usage);
+            if (last) {
+              const context = asNumber(last.input_tokens);
+              if (context > fold.contextWindowPeakTokens) fold.contextWindowPeakTokens = context;
+            }
+            const window = asNumber(info.model_context_window);
+            if (window > fold.contextWindowTokens) fold.contextWindowTokens = window;
+            break;
+          }
+          case "task_started":
+          case "turn_started": {
+            if (sub) break;
+            const window = asNumber(payload.model_context_window);
+            if (window > fold.contextWindowTokens) fold.contextWindowTokens = window;
+            break;
+          }
+          case "task_complete":
+          case "turn_complete": {
+            if (sub) break;
+            const bucket = bucketDurationMs(asNumber(payload.duration_ms));
+            if (bucket && LONG_TURN_BUCKETS.has(bucket) && sniffed.occurredAt) {
+              fold.longTurns.push({ at: sniffed.occurredAt, durationBucket: bucket });
+            }
+            break;
+          }
+          case "context_compacted": {
+            if (!sub) fold.contextCompactedEvents += 1;
+            break;
+          }
+          case "error": {
+            fold.apiErrorCount += 1;
+            break;
+          }
+          default:
+            break; // agent_message, agent_reasoning, …: timeline only.
         }
+        break;
+      }
+      case "response_item": {
+        const subtype = sniffed.subtype ?? "";
+        if (TOOL_CALL_ITEM_TYPES.has(subtype)) {
+          fold.toolCallCount += 1;
+          if (sub) fold.subagentToolCallCount += 1;
+          // An undated call still counts but cannot be placed on a rail —
+          // an event would have to invent an instant to exist at all.
+          if (sniffed.occurredAt) {
+            fold.toolCalls.push({ at: sniffed.occurredAt, name: toolCallNameOf(subtype, payload) });
+          }
+        } else if (TOOL_OUTPUT_ITEM_TYPES.has(subtype)) {
+          fold.toolResults += 1;
+          if (isToolOutputFailure(payload)) fold.toolResultErrorCount += 1;
+        } else if (subtype === "message" && payload.role === "assistant") {
+          if (sub) fold.subagentAssistantTurns += 1;
+          else fold.assistantTurns += 1;
+        }
+        // `message` with role user/developer: the prompt is counted off its
+        // `user_message` event, and the rest is injected context. Timeline
+        // only, like reasoning and the compaction items.
+        break;
+      }
+      default:
+        break;
+    }
+    if (sniffed.occurredAt) {
+      const ms = Date.parse(sniffed.occurredAt);
+      if (Number.isFinite(ms)) {
+        // No posture: the rollout records approval_policy and
+        // sandbox_policy, not permission_mode, and the live hooks leave
+        // those unmapped on purpose. Null here is what puts every
+        // supervising minute in the `unknown` band, as the header says.
+        // `agentOutput` as the complement of `human` is the nearest-line
+        // rule, stated rather than defaulted: this extractor has not
+        // classified which rollout lines are the runtime's bookkeeping
+        // (`turn_context`, the injected `user_message` kinds) and which are
+        // the agent's output, so the human turn cannot start from the right
+        // line yet. Its handoff stamps `handsOnBoundary: "nearest_line"` for
+        // the same reason. Classifying them is the next step, and the
+        // Claude Code extractor is the worked example.
+        fold.timelinePoints.push({
+          at: ms,
+          human: humanHere,
+          agentOutput: !humanHere,
+          autonomyMode: null
+        });
+      } else {
+        fold.undatedTimelineLines += 1;
       }
     }
-  } finally {
-    await handle.close();
   }
-  return fold;
 }
 
-/** Every `.jsonl` under `root`, recursively, sorted for determinism. */
-async function walkJsonlFiles(root: string): Promise<string[]> {
+/**
+ * Decompression for `.jsonl.zst` rollouts, which Codex writes when history
+ * compression is on. Node's own zlib gained zstd in 22.15 and 23.8; this
+ * package supports Node 20, so the built-in is feature-detected and used
+ * where it exists. Elsewhere the `zstd` CLI is tried, since it's commonly
+ * installed and costs this package no dependency. With neither, the file
+ * can't be read and is counted in `unreadableRolloutFiles` like any other
+ * rollout this run couldn't open, so the window says it's short.
+ *
+ * `ZstdDecoder` pins the choice. `auto` is the order above; `node` and `cli`
+ * use only that decoder; `none` reads no `.zst` at all. The extractor takes
+ * it as an option, and `ASCENDA_ZSTD_DECODER` sets it for a whole run, which
+ * is how the tests reach the CLI path on a Node that has the built-in, and
+ * how someone can rule a decoder out when chasing a bad read.
+ */
+export type ZstdDecoder = "auto" | "node" | "cli" | "none";
+const ZSTD_DECODERS: readonly ZstdDecoder[] = ["auto", "node", "cli", "none"];
+
+type ZstdDecompress = (buffer: Buffer, callback: (error: Error | null, result: Buffer) => void) => void;
+const nodeZstdDecompress = (zlib as unknown as { zstdDecompress?: ZstdDecompress }).zstdDecompress;
+
+/** Ceiling on one decompressed rollout read through the CLI. Rollouts run
+ * to a few megabytes; this is far past any of them. */
+const ZSTD_MAX_BYTES = 1024 * 1024 * 1024;
+
+/** The decoder an option or `ASCENDA_ZSTD_DECODER` names. An unrecognised
+ * value falls back to `auto` rather than failing the whole store. */
+export function zstdDecoderOf(choice: string | undefined): ZstdDecoder {
+  const value = choice?.trim().toLowerCase();
+  return ZSTD_DECODERS.find((d) => d === value) ?? "auto";
+}
+
+async function decompressZstd(filePath: string, decoder: ZstdDecoder): Promise<string> {
+  if (decoder === "none") throw new Error("zstd decoding is turned off");
+  if ((decoder === "auto" || decoder === "node") && typeof nodeZstdDecompress === "function") {
+    const compressed = await fs.readFile(filePath);
+    const out = await new Promise<Buffer>((resolve, reject) =>
+      nodeZstdDecompress(compressed, (error, result) => (error ? reject(error) : resolve(result)))
+    );
+    return out.toString("utf8");
+  }
+  if (decoder === "node") throw new Error("this Node has no built-in zstd");
+  const { stdout } = await execFileAsync("zstd", ["-dcq", "--", filePath], {
+    encoding: "buffer",
+    maxBuffer: ZSTD_MAX_BYTES
+  });
+  return stdout.toString("utf8");
+}
+
+/**
+ * A rollout's whole text. Read in full before any of it is folded, so a
+ * file that fails partway leaves nothing half-counted in a session other
+ * rollouts also feed.
+ */
+async function readRolloutText(filePath: string, decoder: ZstdDecoder): Promise<string> {
+  if (filePath.endsWith(".zst")) return decompressZstd(filePath, decoder);
+  return fs.readFile(filePath, "utf8");
+}
+
+export interface ExtractCodexOptions {
+  /** How `.jsonl.zst` rollouts are decoded. Defaults to
+   * `ASCENDA_ZSTD_DECODER`, then `auto`. */
+  zstdDecoder?: ZstdDecoder;
+}
+
+/** Every `.jsonl` and `.jsonl.zst` under `root`, recursively. */
+async function walkRolloutFiles(root: string): Promise<string[]> {
   const out: string[] = [];
   async function walk(dir: string): Promise<void> {
     let entries;
@@ -581,11 +879,29 @@ async function walkJsonlFiles(root: string): Promise<string[]> {
     for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) await walk(full);
-      else if (entry.isFile() && entry.name.endsWith(".jsonl")) out.push(full);
+      else if (entry.isFile() && (entry.name.endsWith(".jsonl") || entry.name.endsWith(".jsonl.zst"))) {
+        out.push(full);
+      }
     }
   }
   await walk(root);
   return out;
+}
+
+/**
+ * The rollouts to read, in reading order. A `.jsonl.zst` beside a `.jsonl`
+ * of the same name is the same rollout mid-compression, so only the plain
+ * one is kept. The order is by filename, whose timestamp prefix puts a
+ * thread's first page before its continuations, then by full path.
+ */
+export function rolloutReadingOrder(files: string[]): string[] {
+  const plain = new Set(files.filter((f) => f.endsWith(".jsonl")));
+  return files
+    .filter((f) => !(f.endsWith(".jsonl.zst") && plain.has(f.slice(0, -".zst".length))))
+    .sort((a, b) => {
+      const byName = rolloutBaseName(a).localeCompare(rolloutBaseName(b));
+      return byName !== 0 ? byName : a.localeCompare(b);
+    });
 }
 
 function topModel(models: Map<string, number>): string | null {
@@ -605,29 +921,48 @@ export const CODEX_SNAPSHOT_DIRS = ["sessions", "archived_sessions"] as const;
 
 export async function* extractCodex(
   snapshotDir: string,
-  extractionId: string
+  extractionId: string,
+  options: ExtractCodexOptions = {}
 ): AsyncIterable<NormalizedHistoricalEvent> {
-  const files: string[] = [];
+  const zstdDecoder = options.zstdDecoder ?? zstdDecoderOf(process.env.ASCENDA_ZSTD_DECODER);
+  const found: string[] = [];
   for (const dir of CODEX_SNAPSHOT_DIRS) {
-    for (const file of await walkJsonlFiles(path.join(snapshotDir, dir))) files.push(file);
+    for (const file of await walkRolloutFiles(path.join(snapshotDir, dir))) found.push(file);
   }
-  if (files.length === 0) return;
+  if (found.length === 0) return;
+  const files = rolloutReadingOrder(found);
 
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
   let sessionCount = 0;
   let unreadableRolloutFiles = 0;
 
+  // One fold per session, not per file: a thread's continuation pages and
+  // the subagent threads it spawned all land in the same one. Map order is
+  // first-seen order, which keeps the output deterministic.
+  const folds = new Map<string, SessionFold>();
   for (const file of files) {
-    let fold: SessionFold;
+    let text: string;
     try {
-      fold = await foldRollout(file);
+      text = await readRolloutText(file, zstdDecoder);
     } catch {
-      // A rollout that cannot be opened or read is a hole in the window, and
-      // the epoch marker is the only place that can say so.
+      // A rollout that cannot be opened, read or decompressed is a hole in
+      // the window, and the epoch marker is the only place that can say so.
       unreadableRolloutFiles += 1;
       continue;
     }
+    const lines = text.split("\n");
+    const identity = rolloutIdentityOf(firstSessionMeta(lines), file);
+    const key = sessionKeyOf(identity);
+    let fold = folds.get(key);
+    if (!fold) {
+      fold = newFold(key);
+      folds.set(key, fold);
+    }
+    foldLinesInto(fold, lines, identity);
+  }
+
+  for (const fold of folds.values()) {
     if (!fold.firstTs || !fold.lastTs) continue;
     sessionCount += 1;
     if (!windowOldest || fold.firstTs < windowOldest) windowOldest = fold.firstTs;
@@ -681,6 +1016,14 @@ export async function* extractCodex(
     const toolFailureCount = fold.toolResultErrorCount + fold.apiErrorCount;
     const split = splitActiveTime(fold.timelinePoints, { activeGapMs: ACTIVE_GAP_MS });
     const compactionCount = compactionCountOf(fold);
+    const own = ownTokensOf(fold.tokens);
+    const subagent = { ...NO_TOKENS };
+    for (const track of fold.subagentThreads.values()) {
+      const spent = ownTokensOf(track);
+      subagent.input += spent.input;
+      subagent.output += spent.output;
+      subagent.cached += spent.cached;
+    }
     const sessionMetrics: NormalizedHistoricalEvent["metrics"] = {
       promptCount: fold.humanPrompts,
       assistantTurns: fold.assistantTurns,
@@ -706,15 +1049,27 @@ export async function* extractCodex(
       activeSplitUndatedLines: fold.undatedTimelineLines,
       activeSplitUnposturedInstants: split.unposturedInstants
     };
-    // Token keys only where a `token_count` event reported a total. Without
-    // one the figures are unmeasured, and shipping 0 would read as a session
-    // that spent nothing. The flag says why the keys are missing.
-    if (fold.tokensSeen) {
-      sessionMetrics.inputTokens = fold.inputTokens;
-      sessionMetrics.outputTokens = fold.outputTokens;
-      sessionMetrics.cacheReadTokens = fold.cacheReadTokens;
+    // Token keys only where some thread of the session reported a total.
+    // Without one the figures are unmeasured, and shipping 0 would read as a
+    // session that spent nothing. The flag says why the keys are missing, and
+    // isn't set when a subagent thread did report tokens.
+    const subagentSeen = [...fold.subagentThreads.values()].some((track) => track.seen);
+    if (fold.tokens.seen || subagentSeen) {
+      sessionMetrics.inputTokens = own.input + subagent.input;
+      sessionMetrics.outputTokens = own.output + subagent.output;
+      sessionMetrics.cacheReadTokens = own.cached + subagent.cached;
     } else {
       sessionMetrics.tokensNotCollected = true;
+    }
+    // The subagent breakdown only on a session that had one, so a session
+    // that didn't carries no row of zeros. `subagentTokensTotal` is input
+    // plus output: Codex's input figure already includes the cached part.
+    if (fold.subagentThreads.size > 0) {
+      sessionMetrics.subagentTranscripts = fold.subagentThreads.size;
+      sessionMetrics.subagentPrompts = fold.subagentPrompts;
+      sessionMetrics.subagentAssistantTurns = fold.subagentAssistantTurns;
+      if (subagentSeen) sessionMetrics.subagentTokensTotal = subagent.input + subagent.output;
+      sessionMetrics.subagentToolCallCount = fold.subagentToolCallCount;
     }
     // The ratio only where the store named its own denominator. Claude Code
     // has to assume one; this store does not, and computing against a guess

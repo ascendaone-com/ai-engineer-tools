@@ -37,32 +37,37 @@ class Window {
 export async function scanClaudeCode(paths: StorePaths): Promise<StoreInventory> {
   const inv: StoreInventory = {
     store: "claude_code",
-    rootPath: paths.claudeProjects,
+    rootPath: paths.claudeProjectsDirs.join(", "),
     present: false,
     counts: {},
     notes: []
   };
-  const root = await statOrNull(paths.claudeProjects);
-  if (!root) return inv;
-  inv.present = true;
 
+  // One dir normally; several when CLAUDE_CONFIG_DIR lists more than one.
   const window = new Window();
+  let projectCount = 0;
   let transcripts = 0;
   let bytes = 0;
-  const projects = await fs.readdir(paths.claudeProjects, { withFileTypes: true });
-  for (const project of projects) {
-    if (!project.isDirectory()) continue;
-    const dir = path.join(paths.claudeProjects, project.name);
-    for (const entry of await fs.readdir(dir)) {
-      if (!entry.endsWith(".jsonl")) continue;
-      const st = await statOrNull(path.join(dir, entry));
-      if (!st) continue;
-      transcripts += 1;
-      bytes += st.size;
-      window.see(st.mtime);
+  for (const projectsDir of paths.claudeProjectsDirs) {
+    if (!(await statOrNull(projectsDir))) continue;
+    inv.present = true;
+    const projects = await fs.readdir(projectsDir, { withFileTypes: true });
+    projectCount += projects.length;
+    for (const project of projects) {
+      if (!project.isDirectory()) continue;
+      const dir = path.join(projectsDir, project.name);
+      for (const entry of await fs.readdir(dir)) {
+        if (!entry.endsWith(".jsonl")) continue;
+        const st = await statOrNull(path.join(dir, entry));
+        if (!st) continue;
+        transcripts += 1;
+        bytes += st.size;
+        window.see(st.mtime);
+      }
     }
   }
-  inv.counts = { projects: projects.length, transcripts, bytes };
+  if (!inv.present) return inv;
+  inv.counts = { projects: projectCount, transcripts, bytes };
   inv.oldest = window.oldest?.toISOString();
   inv.newest = window.newest?.toISOString();
 
@@ -109,7 +114,7 @@ async function countRollouts(
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await walk(full);
-      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      } else if (entry.isFile() && (entry.name.endsWith(".jsonl") || entry.name.endsWith(".jsonl.zst"))) {
         const st = await statOrNull(full);
         if (!st) continue;
         rollouts += 1;

@@ -455,7 +455,9 @@ async function main(): Promise<number> {
       const keepStaging = rest.includes("--keep-staging");
       const snapshotSessions = rest.includes("--snapshot-sessions");
 
-      const claudeScan = await safeScan("claude_code", paths.claudeProjects, () => scanClaudeCode(paths));
+      const claudeScan = await safeScan("claude_code", paths.claudeProjectsDirs.join(", "), () =>
+        scanClaudeCode(paths)
+      );
       const codexScan = await safeScan("codex", paths.codexSessions, () => scanCodex(paths));
       const cursorScan = await safeScan("cursor", paths.cursorStateDb, () => scanCursor(paths));
       const vsCodeScan = await safeScan("vscode", paths.vscodeHistory, () => scanVsCode(paths));
@@ -488,9 +490,9 @@ async function main(): Promise<number> {
 
       // What this run will actually copy. VS Code chat sessions are read in
       // place unless --snapshot-sessions, so they are not in this list.
-      const willCopy = [paths.claudeProjects, paths.cursorStateDb].filter(
-        (_, i) => [claudeInventory.present, cursorInventory.present][i]
-      );
+      const willCopy = [paths.cursorStateDb].filter((_, i) => [cursorInventory.present][i]);
+      // Every Claude Code projects dir, measured — an absent one measures 0.
+      if (claudeInventory.present) willCopy.push(...paths.claudeProjectsDirs);
       if (vsCodeInventory.present) willCopy.push(...paths.vscodeVariants.map((v) => v.history));
       // Both Codex roots, measured — whichever of them is absent measures 0.
       if (codexInventory.present) willCopy.push(paths.codexSessions, paths.codexArchivedSessions);
@@ -523,7 +525,17 @@ async function main(): Promise<number> {
       try {
         await runSource(outcomes, "claude_code", claudeInventory, allEvents, async (collect) => {
           const snapshotRoot = path.join(area.root, "claude_code");
-          await snapshotPath(area, paths.claudeProjects, path.join("claude_code", "projects"));
+          // Several config dirs merge into one projects tree. Transcripts are
+          // named by session id, so two dirs only collide on the same
+          // session, and keeping one copy of it is what dedup wants anyway.
+          for (const projectsDir of paths.claudeProjectsDirs) {
+            try {
+              await fs.access(projectsDir);
+            } catch {
+              continue;
+            }
+            await snapshotPath(area, projectsDir, path.join("claude_code", "projects"));
+          }
           for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) collect(event);
         }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError, crossStore);
 
