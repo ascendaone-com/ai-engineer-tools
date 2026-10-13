@@ -99,3 +99,35 @@ test("approvals for some other hooks file don't count", () => {
   assert.equal(report.untrusted.length, HOOK_EVENTS.length);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("with CODEX_HOME set, the user hooks file's approvals are read from $CODEX_HOME/config.toml", () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-codex-home-"));
+  const previous = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+  try {
+    const hooksFile = SETUP.settings.settingsPath("user", "/p");
+    assert.equal(hooksFile, path.join(codexHome, "hooks.json"));
+    writeHookSettings(hooksFile, "/home/dev/.ascenda/bin/ascenda-codex-hook", SETUP, false);
+    const settings = JSON.parse(fs.readFileSync(hooksFile, "utf8"));
+    const report = checkCodexHookTrust(hooksFile, ourHookPositions(settings, SETUP));
+    assert.equal(report.approvalsFile, path.join(codexHome, "config.toml"));
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previous;
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test("re-running setup keeps our handler's position in a shared group, so its approval still matches", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-codex-shared-trust-"));
+  const hooksFile = SETUP.settings.settingsPath("project", dir);
+  writeHookSettings(hooksFile, "/home/dev/.ascenda/bin/ascenda-codex-hook", SETUP, false);
+  const settings = JSON.parse(fs.readFileSync(hooksFile, "utf8"));
+  const before = ourHookPositions(settings, SETUP);
+  settings.hooks.Stop[0].hooks.push({ type: "command", command: "/usr/local/bin/other-tool-hook" });
+  fs.writeFileSync(hooksFile, JSON.stringify(settings, null, 2));
+
+  writeHookSettings(hooksFile, "/home/dev/.ascenda/bin/ascenda-codex-hook", SETUP, false);
+  assert.deepEqual(ourHookPositions(JSON.parse(fs.readFileSync(hooksFile, "utf8")), SETUP), before);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

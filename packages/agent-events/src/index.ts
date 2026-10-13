@@ -35,6 +35,16 @@ export const AGENT_EVENT_KINDS = [
 
 export type AgentEventKind = (typeof AGENT_EVENT_KINDS)[number];
 
+/** The version-control actions a `tool.completed` can carry. */
+export const VCS_ACTIONS = ["commit", "push", "pr_created", "pr_merged"] as const;
+
+export type VcsAction = (typeof VCS_ACTIONS)[number];
+
+/** Why an `agent.waiting` event happened. */
+export const WAIT_REASONS = ["permission", "idle", "other"] as const;
+
+export type WaitReason = (typeof WAIT_REASONS)[number];
+
 /**
  * The agents the collectors cover today. Open-ended on purpose: a collector
  * for a new agent sends its own name before this list learns it.
@@ -68,6 +78,36 @@ export type AgentEventV0 = {
    * differently on another.
    */
   projectHash?: string;
+  /**
+   * The repository, as a 32-bit digest (8 hex characters) of the lowercased
+   * `owner/repo` of a github.com remote. The same value a code-forge
+   * collector puts on its pull request events, so the two can be joined.
+   *
+   * NOT salted. Unlike `projectHash`, the same repository has the same key on
+   * every machine, and anyone who guesses the name can recompute it. Absent
+   * for other forges, for a checkout with no remote, and when the person
+   * turned it off.
+   */
+  repoKey?: string;
+  /**
+   * The branch, as a 64-bit digest (16 hex characters) of the lowercased
+   * `owner/repo`, a newline and the branch name. Matches a pull request's head
+   * branch on the same repository. Set on each event, since a session can move
+   * between branches. Same caveat as `repoKey`: unsalted and guessable. Absent
+   * on the repository's default branch and wherever `repoKey` is absent.
+   */
+  branchKey?: string;
+  /**
+   * The agent's own opaque id for the prompt a turn answers, where it gives
+   * one. Events of one turn share it. Never derived from the prompt's text.
+   */
+  promptId?: string;
+  /** On a `tool.completed` that was a version-control step: one of {@link VCS_ACTIONS}. */
+  vcsAction?: VcsAction;
+  /** On `agent.waiting`: why the agent stopped, one of {@link WAIT_REASONS}. */
+  reason?: WaitReason;
+  /** On `session.started`: the model slug the agent reported, when it did. */
+  model?: string;
   /** Version of the collector that wrote the event. */
   collectorVersion?: string;
   /**

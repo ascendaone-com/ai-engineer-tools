@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyAutonomyMode, classifyModelClass, classifySessionEndReason, classifySubagentType, isNewSessionStart, mapClaudeEvent, readSubagentId } from "../dist/mapClaudeEvent.js";
+import { classifyAutonomyMode, classifyModelClass, classifySessionEndReason, classifySubagentType, isNewSessionStart, mapClaudeEvent, milestoneInviting, readSubagentId } from "../dist/mapClaudeEvent.js";
 
 // ── Real payload shapes ────────────────────────────────────────────────────
 //
@@ -829,4 +829,68 @@ test("an event fired inside a subagent carries its subagentId; one outside carri
   assert.equal("subagentClass" in inside.metadata, false, "the class rides only the start and stop");
   const outside = mapClaudeEvent("PreToolUse", { tool_name: "Read", agent_type: "my-session-agent" })[0];
   assert.equal("subagentId" in outside.metadata, false);
+});
+
+// ── MCP milestones, NotebookEdit, typed notifications, patch-based lines ───
+
+test("PostToolUse: a PR opened or merged through an MCP tool carries milestoneKind", () => {
+  const opened = mapClaudeEvent("PostToolUse", { tool_name: "mcp__github__create_pull_request", tool_input: { title: "x" }, tool_response: {} });
+  assert.equal(opened[0].metadata.milestoneKind, "pr_opened");
+  const merged = mapClaudeEvent("PostToolUse", { tool_name: "mcp__github__merge_pull_request", tool_input: {}, tool_response: {} });
+  assert.equal(merged[0].metadata.milestoneKind, "pr_merged");
+  const failed = mapClaudeEvent("PostToolUseFailure", failurePayload({ tool_name: "mcp__github__merge_pull_request", error: "Exit code 1" }));
+  assert.equal(failed[0].metadata.milestoneKind, undefined);
+});
+
+test("milestoneInviting: an MCP merge invites a debrief, an MCP PR open does not", () => {
+  assert.equal(milestoneInviting({ tool_name: "mcp__github__merge_pull_request", tool_response: {} }), true);
+  assert.equal(milestoneInviting({ tool_name: "mcp__github__create_pull_request", tool_response: {} }), false);
+});
+
+test("PostToolUse: NotebookEdit counts as an edit with a line bucket", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "NotebookEdit",
+    tool_input: { notebook_path: "a.ipynb", new_source: Array.from({ length: 250 }, (_, i) => `x${i}`).join("\n"), edit_mode: "replace" },
+    tool_response: {}
+  });
+  assert.equal(events[0].eventType, "ai_file_edit");
+  assert.equal(events[0].metadata.linesChangedBucket, "200+");
+});
+
+test("Notification: the typed field decides, wording is the fallback", () => {
+  const kind = (input) => mapClaudeEvent("Notification", input)[0].metadata.interruptionKind;
+  assert.equal(kind({ notification_type: "permission_prompt", message: "hello" }), "permission_request");
+  assert.equal(kind({ notification_type: "elicitation_dialog", message: "hello" }), "permission_request");
+  assert.equal(kind({ notification_type: "idle_prompt", message: "needs your permission" }), "idle_prompt");
+  assert.equal(kind({ notification_type: "auth_success", message: "permission granted" }), "other");
+  assert.equal(kind({ message: "Claude needs your permission to use Bash" }), "permission_request");
+  assert.equal(kind({ message: "Claude is waiting for your input" }), "idle_prompt");
+});
+
+const patchLines = (n) => Array.from({ length: n }, (_, i) => `+line ${i}`);
+
+test("PostToolUse: lines changed come from the result's structuredPatch when present", () => {
+  // An overwriting Write: the input is 300 lines, the diff touched 12 of them.
+  const overwrite = mapClaudeEvent("PostToolUse", {
+    tool_name: "Write",
+    tool_input: { file_path: "a.ts", content: Array.from({ length: 300 }, () => "x").join("\n") },
+    tool_response: { type: "update", structuredPatch: [{ lines: [" ctx", ...patchLines(6), "-old", "-old2", "-old3", "-old4", "-old5", "-old6"] }] }
+  });
+  assert.equal(overwrite[0].metadata.linesChangedBucket, "10-50");
+  // replace_all: one old/new pair in the input, many hunks in the result.
+  const many = mapClaudeEvent("PostToolUse", {
+    tool_name: "Edit",
+    tool_input: { file_path: "a.ts", old_string: "a", new_string: "b", replace_all: true },
+    tool_response: { structuredPatch: Array.from({ length: 30 }, () => ({ lines: ["-a", "+b"] })) }
+  });
+  assert.equal(many[0].metadata.linesChangedBucket, "50-200");
+});
+
+test("PostToolUse: a new file's empty patch falls back to the input estimate", () => {
+  const events = mapClaudeEvent("PostToolUse", {
+    tool_name: "Write",
+    tool_input: { file_path: "a.ts", content: Array.from({ length: 250 }, () => "x").join("\n") },
+    tool_response: { type: "create", structuredPatch: [] }
+  });
+  assert.equal(events[0].metadata.linesChangedBucket, "200+");
 });

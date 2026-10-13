@@ -1,6 +1,7 @@
 export { classifyCommand, isVerificationCommand } from "./commandClassifier";
 export { classifyGitAction, isReworkGitAction } from "./gitActionClassifier";
-export { classifyWorkMilestone, invitesDebrief } from "./workMilestoneClassifier";
+export { classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief } from "./workMilestoneClassifier";
+export { shellCommandFacts } from "./shellFacts";
 export { autonomyBand } from "./autonomyBand";
 export type { AutonomyBand } from "./autonomyBand";
 export { classifyModelClass } from "./modelClassifier";
@@ -14,6 +15,16 @@ export {
 } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection, mintIdempotencyKey } from "./payload";
 export { COLLECTOR_VERSION, UNRELEASED_COLLECTOR_VERSION, describeCollectorVersion } from "./collectorVersion";
+export {
+  FLUSH_LOCK_FRESH_MS,
+  HOOK_DELIVERY_ENV_VAR,
+  OUTBOX_FLUSH_COMMAND,
+  flushLockPath,
+  hookDeliveryInline,
+  runOutboxFlush,
+  startBackgroundFlush
+} from "./backgroundDelivery";
+export type { BackgroundFlushOptions } from "./backgroundDelivery";
 export { AscendaEventSender, AscendaSemanticEventError, TOKEN_RENEW_LEAD_MS, buildEventBody, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
 export { toAgentEvent } from "./agentEvent";
@@ -23,6 +34,7 @@ export {
   DEFAULT_API_BASE_URL,
   MissingInstallationIdError,
   deliverHookEvents,
+  flushHookOutbox,
   loadCliAgentConfig,
   resolveCliAgentInstallationId,
   resolveContextHashes
@@ -49,6 +61,7 @@ export {
   removeHostCredentials,
   writeHostCredentials,
   writeEventLogSetting,
+  writeRepoKeysSetting,
   writeMachineCredentials,
   writeTopLevelCredentials
 } from "./credentials";
@@ -102,17 +115,22 @@ export {
 export type { WorkContextRegistry, WorkContextRegistryEntry } from "./contextRegistry";
 export {
   forgeProjectHash,
+  forgeRepoKey,
+  forgeBranchKey,
   parseForgeFullName,
   readForgeFullName,
   forgeFullNameFromConfig,
   recordForgeProjectAlias
 } from "./forgeProject";
+export { REPO_KEYS_ENV_VAR, deriveForgeKeysForCwd, repoKeysEnabled } from "./forgeKeys";
+export type { ForgeKeys } from "./forgeKeys";
 export { emitLiveSignal, deliverLine, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates, LIVE_BUS_BACKGROUND_TRUST_MS } from "./liveBus";
 export { holdForSaver, heldForSaver, probeSocket, readSaverStatuses, saverContainerDir, saverReplayPath, saverStatusDir, saverSupportDir, SAVER_REPLAY_WINDOW_MS } from "./saverHandoff";
 export type { SaverStatus, SaverStatusReading, SocketState } from "./saverHandoff";
 export { colourEnabled, terminalStyle } from "./terminalStyle";
 export type { TerminalStyle, Tone } from "./terminalStyle";
-export { describeAge, hookLauncherScript, hookRunnerCommand, hookRunnerPaths, installHookRunner, isDowngrade, lastHookPath, readLastHook, removeHookRunner, resolveHookNode, stampLastHook, tidyHomePath } from "./hookRunner";
+export { describeAge, hookLauncherScript, hookRunnerCommand, hookRunnerPaths, installHookRunner, isDowngrade, lastHookPath, readLastHook, removeHookRunner, resolveHookNode, stampLastHook, tidyHomePath, writeAtomically } from "./hookRunner";
+export { replaceSettingsFile } from "./settingsFile";
 export type { HookLauncherOptions, HookRunnerPaths, LastHook, NodeResolution } from "./hookRunner";
 export { DOCTOR_VALUE_COLUMN, doctorRow, liveSignalDoctorLines } from "./liveSignalDoctor";
 export type { HookRegistration, LiveSignalDoctorOptions } from "./liveSignalDoctor";

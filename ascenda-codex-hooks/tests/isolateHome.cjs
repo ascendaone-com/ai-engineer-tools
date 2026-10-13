@@ -10,3 +10,12 @@ const os = require("node:os");
 const path = require("node:path");
 
 process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-home-"));
+
+// Codex reads its user files from here when it is set, and so does setup.
+// Cleared so a run on a machine that sets it still writes under the
+// throwaway HOME; tests that need it set it.
+delete process.env.CODEX_HOME;
+
+// Hooks deliver from a detached flusher by default. Tests that read what one
+// hook process sent before it exited run the inline path.
+process.env.ASCENDA_HOOK_DELIVERY = "inline";

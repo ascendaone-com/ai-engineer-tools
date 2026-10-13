@@ -51,3 +51,26 @@ test("an unknown kind reads as other", () => {
   assert.equal(normaliseKind("tool.started"), "tool.started");
   assert.equal(normaliseKind("tool.retried"), "other");
 });
+
+// The fields added after the first v0 release. Each is optional, so an event
+// without them still passes and an older reader just never sees them.
+
+test("the join and detail fields are optional and typed in the schema", () => {
+  for (const field of ["repoKey", "branchKey", "promptId", "vcsAction", "reason", "model"]) {
+    assert.equal(schema.properties[field]?.type, "string", field);
+    assert.ok(!schema.required.includes(field), `${field} must stay optional`);
+  }
+  assert.equal(new RegExp(schema.properties.repoKey.pattern).test("a1b2c3d4"), true);
+  assert.equal(new RegExp(schema.properties.repoKey.pattern).test("a1b2c3d4e5f60718"), false);
+  assert.equal(new RegExp(schema.properties.branchKey.pattern).test("a1b2c3d4e5f60718"), true);
+});
+
+test("the exported value lists name what the schema's descriptions promise", () => {
+  const { VCS_ACTIONS, WAIT_REASONS } = require("../out/index.js");
+  for (const value of VCS_ACTIONS) assert.ok(schema.properties.vcsAction.description.includes(value), value);
+  for (const value of WAIT_REASONS) assert.ok(schema.properties.reason.description.includes(value), value);
+});
+
+test("an event with the new fields is still an event", () => {
+  assert.ok(isAgentEventV0({ ...EVENT, repoKey: "a1b2c3d4", branchKey: "a1b2c3d4e5f60718", promptId: "p1", vcsAction: "push", reason: "idle", model: "m" }));
+});

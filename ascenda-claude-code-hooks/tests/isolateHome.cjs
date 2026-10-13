@@ -15,3 +15,16 @@ process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-test-home-"));
 // and whether the sender may rotate a token. Cleared so a suite run inside one
 // sees the same defaults as a run on a laptop; tests that need it set it.
 delete process.env.CLAUDE_CODE_REMOTE;
+
+// A CI checkout has a github.com remote, so the repository key would appear on
+// every event a test maps and change what a deep comparison sees. Off here, so
+// a run in CI matches a run on a laptop; forgeKeys.test.mjs turns it on.
+process.env.ASCENDA_REPO_KEYS = "off";
+
+// Hooks deliver from a detached flusher by default. Most tests here read what
+// one hook process sent before it exited, so they run the inline path; the
+// background path has its own tests, which clear this.
+process.env.ASCENDA_HOOK_DELIVERY = "inline";
+
+// Setup writes user settings here when it's set, so it's cleared to keep them under HOME.
+delete process.env.CLAUDE_CONFIG_DIR;

@@ -817,15 +817,20 @@ async function foldLinesInto(
       // sessions they were written in — see `TimelineOwnership`. Everything
       // time-shaped below hangs off this: the session's window, its spans, its
       // minutes and its day slices.
-      const owned = opts.ownership.owns(sniffed, filePath, { isSidechain: opts.isSidechain });
-      // Whose counts it adds to: tokens, turns, the model mix, tool calls and
-      // their events, tool results and failures, edits, compactions and API
-      // errors. The main thread uses the same answer. A subagent line can be a
-      // copy too, when a resumed or forked session's directory holds its
-      // parent's subagent transcripts, so it gets its own rule. A copy is
-      // still read, because the turn state below needs every line, but it adds
-      // nothing. Typed prompts are settled by the ledger (`claim`) instead.
-      const counts = opts.isSidechain ? opts.ownership.ownsSidechainLine(sniffed, fold.sessionId) : owned;
+      //
+      // The same answer says whose counts it adds to: tokens, turns, the model
+      // mix, tool calls and their events, tool results and failures, edits,
+      // compactions and API errors. A subagent line can be a copy too, when a
+      // resumed or forked session's directory holds its parent's subagent
+      // transcripts, so it is asked of the directory it was found under. A
+      // copy is still read, because the turn state below needs every line, but
+      // it adds nothing. Typed prompts are settled by the ledger (`claim`)
+      // instead. Asked once per line: an orphan's claim is remembered.
+      const owned = opts.ownership.owns(
+        sniffed,
+        filePath,
+        opts.isSidechain ? { isSidechain: true, foundUnderSessionId: fold.sessionId } : { isSidechain: false }
+      );
       // Trust the store's own id over the filename when they disagree — main
       // thread only, and only from a line this file owns, which is the same
       // thing as a line written here. A subagent's own sessionId already
@@ -901,11 +906,11 @@ async function foldLinesInto(
               fold.interruptedRunTimestamps.push(sniffed.occurredAt);
             }
           }
-          if (counts && isToolFailureLine(record)) fold.toolResultErrorCount += 1;
+          if (owned && isToolFailureLine(record)) fold.toolResultErrorCount += 1;
           if (isToolResultUserLine(record)) {
             // A tool round-trip completing is the agent's work landing.
             agentOutputHere = true;
-            if (!counts) break;
+            if (!owned) break;
             fold.toolResults += 1;
             const tur = record.toolUseResult;
             if (tur && typeof tur === "object" && !Array.isArray(tur)) {
@@ -921,7 +926,7 @@ async function foldLinesInto(
             // folded into promptCount. The orchestrator wrote it, so it is
             // the agent's output as far as the human turn is concerned.
             agentOutputHere = true;
-            if (counts) fold.subagentPrompts += 1;
+            if (owned) fold.subagentPrompts += 1;
           } else if (!isTypedPromptLine(record)) {
             // Written on the person's behalf: a notification, the runtime's
             // bookkeeping, a slash command's wrapper, an interrupt marker. Not
@@ -929,7 +934,7 @@ async function foldLinesInto(
             // goes, so it bounds nothing. Counted so the prompts it left out
             // are visible. Its posture is still a declaration of the session's
             // mode, so it is read the way a prompt's is.
-            // Not gated on `counts` yet: a copied runtime line still counts in
+            // Not gated on `owned` yet: a copied runtime line still counts in
             // each transcript holding it. The desktop app's importer is held to
             // this figure (`claude-store-lineage.cli.json`), so the two move together.
             fold.syntheticPromptLines += 1;
@@ -990,7 +995,7 @@ async function foldLinesInto(
           // A copy's model still moves `lastMainModel`, so the first model this
           // session runs on is compared with the one it resumed from. It adds
           // nothing else; the session that wrote it does.
-          if (!counts) {
+          if (!owned) {
             const copiedModel = opts.isSidechain ? null : foldableModelOf(sniffed.model);
             if (copiedModel) fold.lastMainModel = copiedModel;
             break;
@@ -1088,7 +1093,7 @@ async function foldLinesInto(
           // folds into the same session counters if it ever does.
           const record = JSON.parse(line) as Record<string, unknown>;
           if (!opts.isSidechain) turnRunning = stepRun(turnRunning, record, isToolResultUserLine).running;
-          if (!counts) break;
+          if (!owned) break;
           if (record.subtype === "compact_boundary") {
             fold.compactionCount += 1;
             const trigger = (record.compactMetadata as Record<string, unknown> | undefined)?.trigger;

@@ -35,7 +35,7 @@ import {
   runStudyJoin,
   runStudyObjection
 } from "@ascenda-one/tool-kit";
-import { terminalStyle } from "@ascenda-one/tool-kit";
+import { HOOK_DELIVERY_ENV_VAR, OUTBOX_FLUSH_COMMAND, hookDeliveryInline, runOutboxFlush, startBackgroundFlush, terminalStyle } from "@ascenda-one/tool-kit";
 import type { CollectorState, DisclosureFamily, LiveBusEvent, TerminalStyle, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { liveEventFor } from "./liveEvent.js";
@@ -52,7 +52,7 @@ import {
 import type { ResolvedInstallationId } from "./config.js";
 import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaudeEvent.js";
 import { credentialsFilePath, readCredentials, selfCommand, writeCredentials } from "./paths.js";
-import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
+import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, claudeRuntime, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 import { stampLastHook } from "./hookHealth.js";
 import { doctorRow, localSignalLines } from "./liveDoctor.js";
 
@@ -272,6 +272,12 @@ async function main(): Promise<void> {
     await runDoctor();
     return;
   }
+  // A detached flusher an earlier hook started, not a hook: no stdin, and no
+  // agent waiting on it. See backgroundDelivery.ts in tool-kit.
+  if (command === OUTBOX_FLUSH_COMMAND) {
+    await runFlush();
+    return;
+  }
   if (MANAGEMENT_COMMANDS.has(command)) {
     const { runSetup } = await import("./setup.js");
     setupExitCode = await runSetup(process.argv.slice(2));
@@ -420,6 +426,21 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Into the outbox and straight back to Claude Code; a detached flusher sends
+  // it. A send from here held the turn for a round trip on every event, and on
+  // a hanging network for the whole hook timeout, after which Claude Code
+  // killed the hook before the event was queued. See backgroundDelivery.ts.
+  //
+  // A hosted session sends inline: its container goes when the session does,
+  // and an outbox in it goes too.
+  if (!hookDeliveryInline() && claudeRuntime() !== "cloud") {
+    for (const event of mappedEvents) {
+      if (!client.queue(event)) console.error("Ascenda telemetry not kept: the event could not be written to the outbox.");
+    }
+    startBackgroundFlush({ outboxFilePath: client.outboxFilePath() });
+    return;
+  }
+
   for (const event of mappedEvents) {
     const result = await client.send(event);
     if (result === "accepted") continue;
@@ -432,6 +453,17 @@ async function main(): Promise<void> {
     console.error(explainRejection(result));
     return;
   }
+}
+
+/** The flusher: this installation's pairing, one drain, and out. Silent, since nothing reads its output. */
+async function runFlush(): Promise<void> {
+  let config;
+  try {
+    config = loadConfigFromEnv();
+  } catch {
+    return;
+  }
+  await new AscendaClient(config).flushOutbox();
 }
 
 /**
@@ -870,6 +902,11 @@ function outboxLines(toolInstallationId: string, state: CollectorState | undefin
   // on idempotencyKey; a drain against a door that does not would land every
   // queued event a second time.
   lines.push(`  Outbox drain          ${outboxDrainEnabled() ? "on (queued events are replayed, oldest first)" : "off — queued events are kept and bounded, not sent"} — ${OUTBOX_DRAIN_ENV_VAR}`);
+  lines.push(`  Delivery              ${
+    claudeRuntime() === "cloud" ? "inline (hosted session)"
+      : hookDeliveryInline() ? `inline — ${HOOK_DELIVERY_ENV_VAR} or ${OUTBOX_DRAIN_ENV_VAR}`
+        : "background sender (the hook queues and returns)"
+  }`);
 
   const discarded = state?.outboxDiscarded;
   if (discarded) {

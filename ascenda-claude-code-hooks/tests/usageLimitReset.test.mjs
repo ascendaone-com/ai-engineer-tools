@@ -133,7 +133,7 @@ function settingsTree(files) {
     fs.mkdirSync(path.dirname(paths[name]), { recursive: true });
     fs.writeFileSync(paths[name], typeof content === "string" ? content : JSON.stringify(content));
   }
-  return { sources: { managedPath: paths.managed, projectDir, home }, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { sources: { managedPath: paths.managed, projectDir, configDir: path.join(home, ".claude") }, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
 test("auto-continue follows Claude Code's precedence: managed, project-local, project, user", () => {
@@ -166,4 +166,18 @@ test("with no project, only managed and user settings are read", () => {
   const tree = settingsTree({ user: { autoContinueAtUsageLimit: true } });
   assert.equal(autoContinueEnabled({ ...tree.sources, projectDir: undefined }), true);
   tree.cleanup();
+});
+
+test("the user settings are read from CLAUDE_CONFIG_DIR when it is set", () => {
+  const tree = settingsTree({});
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-claude-config-"));
+  fs.writeFileSync(path.join(configDir, "settings.json"), JSON.stringify({ autoContinueAtUsageLimit: true }));
+  process.env.CLAUDE_CONFIG_DIR = configDir;
+  try {
+    assert.equal(autoContinueEnabled({ managedPath: tree.sources.managedPath }), true);
+  } finally {
+    delete process.env.CLAUDE_CONFIG_DIR;
+    fs.rmSync(configDir, { recursive: true, force: true });
+    tree.cleanup();
+  }
 });

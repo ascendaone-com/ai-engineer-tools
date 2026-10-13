@@ -40,6 +40,12 @@
     "outcome": { "type": "string", "description": "How a tool call ended, when known: success, failure or cancelled." },
     "durationBucket": { "type": "string", "description": "How long it took, as a bucket: 0-1m, 1-5m, 5-10m, 10-30m, 30-60m, 60m+. Never an exact duration." },
     "projectHash": { "type": "string", "description": "Salted hash of the project. The salt stays on the machine." },
+    "repoKey": { "type": "string", "pattern": "^[0-9a-f]{8}$", "description": "The repository: a 32-bit digest of the lowercased owner/repo of a github.com remote. The same value a code-forge collector sends on pull request events. Not salted, so anyone who guesses the name can recompute it." },
+    "branchKey": { "type": "string", "pattern": "^[0-9a-f]{16}$", "description": "The branch: a 64-bit digest of the lowercased owner/repo, a newline and the branch name. Set per event. Not salted. Absent on the default branch." },
+    "promptId": { "type": "string", "description": "The agent's own opaque id for the prompt a turn answers, where it gives one." },
+    "vcsAction": { "type": "string", "description": "On tool.completed, when it was a version-control step: commit, push, pr_created or pr_merged. Read a value you don't know as absent." },
+    "reason": { "type": "string", "description": "On agent.waiting, why the agent stopped: permission, idle or other. Read a value you don't know as other." },
+    "model": { "type": "string", "description": "On session.started: the model slug the agent reported." },
     "collectorVersion": { "type": "string" },
     "sourceType": { "type": "string", "description": "The collector's own name for the event, for debugging. Not part of the contract." }
   },
