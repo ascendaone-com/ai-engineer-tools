@@ -106,6 +106,8 @@ Pick the tools you use. Each works alone, and each has its own pairing.
 | Windsurf | `npx -y @ascenda-one/windsurf-hooks setup` | `~/.codeium/windsurf/hooks.json` |
 | Gemini CLI | `npx -y @ascenda-one/gemini-hooks setup` | `~/.gemini/settings.json` |
 
+If you've set `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, setup writes there.
+
 Add `--no-pair` to install without an account. `setup` then installs the hooks
 and stops. The live signal and the local event log work, and nothing is sent.
 

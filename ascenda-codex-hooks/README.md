@@ -60,6 +60,10 @@ Node 20 or newer itself, so hooks keep working when Codex starts without
 your shell's PATH. `--no-pair` installs without pairing: the screen saver
 and live view work, and nothing is sent.
 
+With `CODEX_HOME` set, the machine-wide file is `$CODEX_HOME/hooks.json`.
+If another tool has added its own command to one of our hook groups, setup
+and `uninstall` take out only ours and leave theirs.
+
 ### 2. Check it
 
 ```bash
