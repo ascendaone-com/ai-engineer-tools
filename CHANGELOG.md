@@ -24,6 +24,25 @@ targets, error counts or internal resource names — this repository is public.
 - Against a server without these pages, like the local dev server, both
   commands name the app, as they did.
 
+### History import: compactions and commits
+
+- **Each compaction gets its own row.** `ascenda-history-import` now writes a
+  `context_compression_manual` or `context_compression_auto` row for every
+  `compact_boundary` in a Claude Code transcript, stamped when it happened.
+  Before, a session wrote one row per kind at its last timestamp. Each new
+  row carries `compactionOrdinal`, its place in the session.
+- **If you imported before, run it again.** The new rows are added beside the
+  old session-end ones; nothing is removed. A reader can tell the old rows by
+  their missing `compactionOrdinal`.
+- **`import --git` reads commit history.** Off unless you pass it. It looks
+  only at repositories your agent sessions ran in, and sends your own commits
+  as time, size buckets, files changed and merge or not. No messages, paths,
+  names or emails. The backend has to accept the `git` store first, so for
+  now the rows are written to the events file, and a `--ship` run may have
+  them refused.
+- Codex rollouts mark a compaction but not whether it was manual or auto, so
+  Codex gets no per-compaction rows.
+
 ## v0.1.37
 
 Claude Code plugin users: update to plugin 0.3.0 with
