@@ -28,3 +28,8 @@ process.env.ASCENDA_HOOK_DELIVERY = "inline";
 
 // Setup writes user settings here when it's set, so it's cleared to keep them under HOME.
 delete process.env.CLAUDE_CONFIG_DIR;
+
+// A release-stamped bundle's flusher checks GitHub for a newer release. CI
+// stamps the bundles these tests run, so the check is off here; releaseCheck
+// has its own tests in tool-kit.
+process.env.ASCENDA_DISABLE_UPDATE_CHECK = "true";

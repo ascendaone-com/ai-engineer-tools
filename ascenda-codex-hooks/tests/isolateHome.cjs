@@ -19,3 +19,8 @@ delete process.env.CODEX_HOME;
 // Hooks deliver from a detached flusher by default. Tests that read what one
 // hook process sent before it exited run the inline path.
 process.env.ASCENDA_HOOK_DELIVERY = "inline";
+
+// A release-stamped bundle's flusher checks GitHub for a newer release. CI
+// stamps the bundles these tests run, so the check is off here; releaseCheck
+// has its own tests in tool-kit.
+process.env.ASCENDA_DISABLE_UPDATE_CHECK = "true";

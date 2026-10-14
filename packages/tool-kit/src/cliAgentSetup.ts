@@ -2,7 +2,8 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { describeCollectorVersion } from "./collectorVersion";
+import { COLLECTOR_VERSION, describeCollectorVersion } from "./collectorVersion";
+import { describeReleaseCheck, installedBundleVersion } from "./releaseCheck";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeEventLogSetting, writeHostCredentials, writeRepoKeysSetting } from "./credentials";
 import { describeEventLog, parseEventLogFlag, resolveEventLog } from "./eventLog";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
@@ -891,6 +892,11 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   console.log(`token          ${localOnly ? "— none needed until this install is paired" : tokenFile && readTokenFile(tokenFile) ? "present" : "— missing"}`);
   console.log(`event log      ${describeEventLog(resolveEventLog({ localOnly }), `npx ${spec.packageName} setup`)}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
+  console.log(`latest         ${describeReleaseCheck({
+    installed: installedBundleVersion(hookRunnerPaths(spec.binaryName).version) ?? COLLECTOR_VERSION,
+    setupCommand: `npx -y ${spec.packageName} setup`,
+    localOnly
+  })}`);
   // Registered is not the same as runnable. Agents swallow a hook that
   // cannot start, so a full count used to sit beside a machine where no hook
   // had ever run. Asked with a bare PATH, the way a Dock-launched agent asks.

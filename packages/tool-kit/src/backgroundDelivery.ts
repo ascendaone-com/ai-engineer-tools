@@ -2,6 +2,7 @@ import * as fs from "fs";
 import { spawn } from "child_process";
 import type { AscendaEventSender, OutboxDrainReport } from "./eventSender";
 import { outboxDrainEnabled } from "./outbox";
+import { refreshReleaseCheck } from "./releaseCheck";
 
 /**
  * Hook delivery off the agent's critical path.
@@ -166,5 +167,8 @@ export async function runOutboxFlush(sender: AscendaEventSender, now: () => numb
   } catch {
     removeLock(lockPath);
   }
+  // After the events, never before them, and only from a flusher, which only
+  // a paired install starts. Once a day at most; see releaseCheck.ts.
+  await refreshReleaseCheck();
   return last;
 }

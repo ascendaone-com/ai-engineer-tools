@@ -35,7 +35,7 @@ import {
   runStudyJoin,
   runStudyObjection
 } from "@ascenda-one/tool-kit";
-import { HOOK_DELIVERY_ENV_VAR, OUTBOX_FLUSH_COMMAND, hookDeliveryInline, runOutboxFlush, startBackgroundFlush, terminalStyle } from "@ascenda-one/tool-kit";
+import { HOOK_DELIVERY_ENV_VAR, OUTBOX_FLUSH_COMMAND, hookDeliveryInline, pendingReleaseNotice, runOutboxFlush, runsFromInstalledBundle, startBackgroundFlush, terminalStyle } from "@ascenda-one/tool-kit";
 import type { CollectorState, DisclosureFamily, LiveBusEvent, TerminalStyle, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { liveEventFor } from "./liveEvent.js";
@@ -54,6 +54,7 @@ import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaud
 import { credentialsFilePath, readCredentials, selfCommand, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, claudeRuntime, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 import { stampLastHook } from "./hookHealth.js";
+import { pendingPluginHookSetNotice } from "./pluginHookSet.js";
 import { doctorRow, localSignalLines } from "./liveDoctor.js";
 
 const INTENTION_INVITE =
@@ -323,6 +324,11 @@ async function main(): Promise<void> {
   const pending = pendingFailureNotice(hookName);
   if (pending) contextParts.push(pending.text);
 
+  // Also a local read: the background sender fetched the release manifest,
+  // and this only compares. See releaseCheck.ts in tool-kit.
+  const release = pendingUpdateNotice(hookName, input) ?? await pendingPluginNotice(hookName, input);
+  if (release) contextParts.push(release.text);
+
   if (contextParts.length > 0) {
     await writeStdout(JSON.stringify({
       hookSpecificOutput: { hookEventName: hookName, additionalContext: contextParts.join("\n\n") }
@@ -330,6 +336,7 @@ async function main(): Promise<void> {
     // Only after the write has actually flushed: a notice recorded as
     // delivered but lost to a truncated pipe is the same bug again.
     if (pending) markFailureNotified(pending.stateFilePath, pending.state);
+    release?.markShown();
   }
 
   // The live presence bus — deliberately above `loadConfigFromEnv()`, which
@@ -665,6 +672,36 @@ function pendingFailureNotice(hookName: ClaudeHookEventName): { text: string; st
     state,
     stateFilePath
   };
+}
+
+/**
+ * The note for an install that a newer release has passed, at the start of a
+ * new session.
+ *
+ * Only for the bundle `setup` installed. The plugin and `npx` run what npm
+ * serves, and telling a plugin user to run `setup` would register every hook
+ * twice. An unpaired install is left out: it never fetched the manifest, and
+ * it gets no note about one.
+ */
+function pendingUpdateNotice(hookName: ClaudeHookEventName, input: ClaudeHookInput): { text: string; markShown: () => void } | undefined {
+  if (hookName !== "SessionStart" || !isNewSessionStart(input)) return undefined;
+  try {
+    if (!runsFromInstalledBundle() || localOnlyInstall()) return undefined;
+    return pendingReleaseNotice({ setupCommand: "npx -y @ascenda-one/claude-code-hooks setup", agentName: "Claude Code" });
+  } catch {
+    return undefined;
+  }
+}
+
+/** The plugin's half: its `hooks.json` is behind the code npx runs. See pluginHookSet.ts. */
+async function pendingPluginNotice(hookName: ClaudeHookEventName, input: ClaudeHookInput): Promise<{ text: string; markShown: () => void } | undefined> {
+  if (hookName !== "SessionStart" || !isNewSessionStart(input)) return undefined;
+  try {
+    const { HOOK_SET } = await import("./setup.js");
+    return pendingPluginHookSetNotice({ currentSet: HOOK_SET });
+  } catch {
+    return undefined;
+  }
 }
 
 function describeOutcome(state: CollectorState): string {

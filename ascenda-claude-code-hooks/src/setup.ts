@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, COLLECTOR_VERSION, describeCollectorVersion, describeReleaseCheck, installedBundleVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily, Tone } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { describeAge, readLastHook, resolveHookNode } from "./hookHealth.js";
@@ -816,6 +816,11 @@ async function printStatus(options: Options): Promise<number> {
   console.log("local features active — the session prompts and the live socket signal need no pairing");
   console.log(`event log      ${describeEventLog(resolveEventLog({ localOnly: unpaired }), "npx @ascenda-one/claude-code-hooks setup")}`);
   console.log(`hook binary    ${fs.existsSync(binary) ? binary : "— not installed"}`);
+  console.log(`latest         ${describeReleaseCheck({
+    installed: installedBundleVersion(`${binary}.version`) ?? COLLECTOR_VERSION,
+    setupCommand: "npx -y @ascenda-one/claude-code-hooks setup",
+    localOnly: unpaired
+  })}`);
   // Registered is not the same as runnable. Claude Code swallows a hook that
   // cannot start, so "13/13 registered" used to sit beside a machine where
   // no hook had ever run. Asked with a bare PATH, the way a Dock-launched
