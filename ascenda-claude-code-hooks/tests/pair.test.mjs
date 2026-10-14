@@ -114,3 +114,65 @@ test("with no flag at all, an exported id is still reused", async () => {
   assert.equal(seen.at(-1).toolInstallationId, "claude_code:keep-me");
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+test("setup prints the join notice and link even when the pairing is confirmed before the first poll", async () => {
+  // A browser already on the review page confirms within milliseconds, so the
+  // first status poll can come back paired. The link and the join notice used
+  // to go out only after a pending poll, and that run printed neither. This
+  // server is confirmed from the start, so the order is fixed, not timed.
+  const window = { windowStartUtc: "2026-10-13T00:00:00Z", windowEndUtc: "2026-11-10T00:00:00Z" };
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/v1/tool-pairing-sessions") {
+      const chunks = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        seen.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          pairingSessionId: "sess_join", code: "135790", qrUrl: "http://127.0.0.1/p/sess_join#secret",
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          studyJoin: { organisationName: "Northview Health", mode: "report", ...window }
+        }));
+      });
+      return;
+    }
+    if (req.method === "GET" && req.url === "/v1/tool-pairing-sessions/sess_join/status") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        status: "paired", toolInstallationId: seen.at(-1)?.toolInstallationId, eventWriteToken: "tok_test",
+        studyJoin: { joinSessionId: "join_1", status: "joined", organisationName: "Northview Health", studyKind: "report", mode: "report", ...window, granted: [], refusedReason: null }
+      }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-setup-join-"));
+  const home = path.join(root, "home");
+  const project = path.join(root, "project");
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(project, { recursive: true });
+
+  const child = spawn("node", [CLI, "setup", "--api-base-url", url, "--project-dir", project], {
+    cwd: root,
+    env: { ...process.env, HOME: home, ASCENDA_HOME: path.join(home, ".ascenda"), ASCENDA_TOOL_INSTALLATION_ID: "", ASCENDA_EVENT_WRITE_TOKEN: "", ASCENDA_PAIR_ORG_JOIN_CODE: "NORTHVIEW-2026" }
+  });
+  child.stdin.end();
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (c) => { stdout += c; });
+  child.stderr.on("data", (c) => { stderr += c; });
+  const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+  const status = await new Promise((resolve) => child.on("close", resolve));
+  clearTimeout(timer);
+  server.close();
+
+  assert.equal(status, 0, stderr);
+  assert.equal(seen[0]?.orgJoinCode, "NORTHVIEW-2026");
+  assert.match(stdout, /This also joins Northview Health \(/);
+  assert.match(stdout, /Open this link to confirm: http:\/\/127\.0\.0\.1\/p\/sess_join#secret/);
+  assert.doesNotMatch(stdout, /135790/, "a join-carrying pairing offers no typed code");
+  fs.rmSync(root, { recursive: true, force: true });
+});
