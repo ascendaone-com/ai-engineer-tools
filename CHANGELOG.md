@@ -10,6 +10,37 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.37
+
+Claude Code plugin users: update to plugin 0.3.0 with
+`claude plugin update ascenda@ascenda-one`, then restart Claude Code.
+`setup` installs have nothing to re-run.
+
+### Plugin hooks start without npm
+
+- **Hooks run from a copy on your machine.** Plugin 0.3.0 runs every hook and
+  the MCP server from `~/.ascenda/plugin`, so a hook starts in under a tenth
+  of a second. Each one used to ask npm for the latest release first. That
+  cost half a second online. On a network that hangs it outlasted the 5
+  seconds Claude Code allows a hook, and the event was lost.
+- Once a day the copy updates itself in the background. A new release reaches
+  you within a day.
+- Your first session after updating still goes through `npx`, while the copy
+  downloads.
+- `ASCENDA_DISABLE_UPDATE_CHECK=true` keeps the copy you have.
+
+### Hooks registered by hand
+
+- **The example runs what `setup` installs.**
+  [`examples/settings.local.json`](./ascenda-claude-code-hooks/examples/settings.local.json)
+  names the hook launcher in `~/.ascenda/bin`, so run `setup` first. Hooks
+  copied from the old example call `npx` and have the same problem as the old
+  plugin. Swap them for the new ones.
+- `setup`, `status` and `uninstall` recognise these entries in the files they
+  manage: your user settings and a project's `settings.local.json`. They
+  couldn't see the `npx` ones. A shared `.claude/settings.json` isn't one of
+  those files, so keep an eye on that one yourself.
+
 ## v0.1.36
 
 Re-run `setup` for each agent after upgrading. It adds the new Claude Code
