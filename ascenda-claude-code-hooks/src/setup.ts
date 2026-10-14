@@ -41,8 +41,8 @@ import { ASCENDA_TOOL_TYPE } from "./types.js";
  * `SessionEnd` closes the session `SessionStart` opened. It writes the end to
  * the outbox and never waits on the network, so it fits the shared 1.5s
  * Claude Code gives these hooks by default. It gets the same 5s timeout as
- * the rest anyway: Node's startup, or npx resolving the package on the plugin
- * channel, can eat most of 1.5s on a slow machine.
+ * the rest anyway: Node's startup, or npx resolving the package on a plugin
+ * install's first run, can eat most of 1.5s on a slow machine.
  *
  * `SubagentStart` and `SubagentStop` mark a subagent's span under its parent
  * session. They're registered with no matcher, so every agent type fires them,
