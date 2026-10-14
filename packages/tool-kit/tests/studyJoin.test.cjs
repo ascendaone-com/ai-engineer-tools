@@ -509,7 +509,7 @@ test("refusal translates the enum reason into plain words — declined", async (
     assert.equal(code, 1);
     // "declined" legitimately appears here as ordinary English, not as the
     // raw enum — the point is the full sentence, not the word's absence.
-    assert.match(output(), /You declined in the app\. Nothing was granted\./);
+    assert.match(output(), /You declined the join\. Nothing was granted\./);
   } finally {
     restore();
   }
