@@ -24,6 +24,27 @@ targets, error counts or internal resource names — this repository is public.
 - Against a server without these pages, like the local dev server, both
   commands name the app, as they did.
 
+### One confirm for the first agent in `participate`
+
+- **Pairing and joining happen in one visit.** `participate <code>` sends
+  your code with the first agent's pairing. Open the link, check the
+  organisation and what you'd share, confirm, and the agent is paired and the
+  study joined. Declining refuses both.
+- **Other agents pair on their own.** They don't carry the code, since the
+  join is yours and not theirs. Two unpaired agents take two confirms, down
+  from three.
+- **No typed code for that pairing.** The app turns a typed code away for a
+  pairing that carries a join, so only the link is printed.
+- **An older server still works.** If the pairing response has no `studyJoin`,
+  `participate` pairs the agents as usual, then joins with the separate
+  question and one more confirm. A re-run on a joined machine asks for
+  nothing.
+- **A refused code still pairs.** A code that isn't found, has nothing live,
+  or names the wrong mode is reported in the summary. The agent pairs without
+  the study.
+- The local dev server takes the code on a pairing too, so you can try the
+  flow without a backend.
+
 ### History import without the Flow app
 
 - **`ascenda-history-import import --ship` finds your pairing.** It reads

@@ -164,6 +164,16 @@ export { INITIATIVE_COPY, initiativesStatusLines, renderInitiatives } from "./in
 export type { InitiativeCopy, InitiativesStatusContext } from "./initiatives";
 export { NOTICED_PURPOSES, renderStudyNotices, runStudyObjection, studyNoticeStatus } from "./studyNotices";
 export type { NoticedPurpose, StudyNoticesStatus, StudyNoticesStatusContext, StudyObjectionContext } from "./studyNotices";
-export { describeStudyKind, describeStudyGrant, formatWindow, runStudyJoin } from "./studyJoin";
+export { describeRefusal as describeStudyJoinRefusal, describeStudyKind, describeStudyGrant, formatWindow, runStudyJoin } from "./studyJoin";
 export { pairingConfirmLines, pairingConfirmUrl, studyJoinConfirmUrl } from "./confirmLinks";
+export {
+  PAIR_JOIN_OUTCOME_FILE_ENV,
+  PAIR_ORG_JOIN_CODE_ENV,
+  createPairingAttempt,
+  pairingAttemptLines,
+  pairingJoinOutcome,
+  settleStudyJoin,
+  writePairingJoinOutcome
+} from "./pairingStudyJoin";
+export type { PairingAttempt, PairingJoinOutcome } from "./pairingStudyJoin";
 export type { StudyJoinContext, StudyJoinOutcome } from "./studyJoin";

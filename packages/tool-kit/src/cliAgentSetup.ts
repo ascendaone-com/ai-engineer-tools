@@ -6,8 +6,10 @@ import { describeCollectorVersion } from "./collectorVersion";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeEventLogSetting, writeHostCredentials, writeRepoKeysSetting } from "./credentials";
 import { describeEventLog, parseEventLogFlag, resolveEventLog } from "./eventLog";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
-import { pairingConfirmLines } from "./confirmLinks";
-import { createPairingSession, getPairingStatus, readInitiatives } from "./http";
+import { getPairingStatus, readInitiatives } from "./http";
+import { createPairingAttempt, pairingAttemptLines, pairingJoinOutcome, settleStudyJoin, writePairingJoinOutcome } from "./pairingStudyJoin";
+import type { PairingAttempt } from "./pairingStudyJoin";
+import type { PairingStatusResponse } from "@ascenda-one/tool-contract";
 import { describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand } from "./hookSet";
 import { initiativesStatusLines } from "./initiatives";
 import { replaceSettingsFile } from "./settingsFile";
@@ -560,16 +562,17 @@ async function resolveIdentity(apiBaseUrl: string, options: SetupOptions, spec: 
   }
 
   const toolInstallationId = existingId ?? `${spec.toolType}:${crypto.randomUUID()}`;
-  let session;
+  let attempt: PairingAttempt;
   try {
-    session = await createPairingSession(apiBaseUrl, toolInstallationId, spec.toolType, `${spec.displayName} on ${os.hostname()}`);
+    attempt = await createPairingAttempt(apiBaseUrl, toolInstallationId, spec.toolType, `${spec.displayName} on ${os.hostname()}`);
   } catch (error) {
     console.error(`\nCould not reach ${apiBaseUrl} to pair: ${error instanceof Error ? error.message : String(error)}`);
     console.error("Start the local dev server and use --local, or pass --api-base-url for your backend.");
     return undefined;
   }
 
-  const token = await pollForToken(apiBaseUrl, session.pairingSessionId, session.code, session.qrUrl, session.expiresAt);
+  if (attempt.refusal) console.log(`\n  ${attempt.refusal} Pairing without the study.`);
+  const token = await pollForToken(apiBaseUrl, attempt);
   if (!token) return undefined;
 
   persistEventWriteToken(defaultTokenFilePath(toolInstallationId), token);
@@ -601,21 +604,29 @@ async function checkSavedToken(apiBaseUrl: string, toolInstallationId: string, t
   return "keep";
 }
 
-async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, qrUrl: string | undefined, expiresAt: string): Promise<string | undefined> {
-  const deadline = Math.min(Date.parse(expiresAt) || Date.now() + 300_000, Date.now() + 300_000);
+async function pollForToken(apiBaseUrl: string, attempt: PairingAttempt): Promise<string | undefined> {
+  const { session } = attempt;
+  const deadline = Math.min(Date.parse(session.expiresAt) || Date.now() + 300_000, Date.now() + 300_000);
   let announced = false;
+  let studyJoin: PairingStatusResponse["studyJoin"];
 
   while (Date.now() < deadline) {
-    const status = await getPairingStatus(apiBaseUrl, pairingSessionId);
+    const status = await getPairingStatus(apiBaseUrl, session.pairingSessionId);
+    studyJoin = status.studyJoin ?? studyJoin;
     // Contract: the token is returned once, on the first paired poll.
-    if (status.status === "paired" && status.eventWriteToken) return status.eventWriteToken;
+    if (status.status === "paired" && status.eventWriteToken) {
+      studyJoin = await settleStudyJoin(apiBaseUrl, session.pairingSessionId, studyJoin);
+      writePairingJoinOutcome(pairingJoinOutcome(attempt, "paired", studyJoin));
+      return status.eventWriteToken;
+    }
     if (status.status === "expired" || status.status === "cancelled") {
       console.error(`\nPairing ${status.status}. Run setup again.`);
+      writePairingJoinOutcome(pairingJoinOutcome(attempt, status.status, studyJoin));
       return undefined;
     }
     if (!announced) {
       console.log("");
-      for (const line of pairingConfirmLines(qrUrl, code)) console.log(`  ${line}`);
+      for (const line of pairingAttemptLines(attempt)) console.log(`  ${line}`);
       console.log("  Waiting...");
       announced = true;
     }
@@ -623,6 +634,7 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
   }
 
   console.error("\nPairing timed out. Run setup again.");
+  writePairingJoinOutcome(pairingJoinOutcome(attempt, "gave_up", studyJoin));
   return undefined;
 }
 

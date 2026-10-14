@@ -2,8 +2,9 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, pairingConfirmLines, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
-import type { DisclosureFamily, Tone } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingAttempt, pairingAttemptLines, pairingJoinOutcome, settleStudyJoin, writePairingJoinOutcome, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import type { DisclosureFamily, PairingAttempt, Tone } from "@ascenda-one/tool-kit";
+import type { PairingStatusResponse } from "@ascenda-one/tool-contract";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { describeAge, readLastHook, resolveHookNode } from "./hookHealth.js";
 import { LAUNCHER_OPTIONS } from "./launcher.js";
@@ -454,9 +455,9 @@ async function resolveIdentity(apiBaseUrl: string, options: Options): Promise<Id
     return { toolInstallationId, pairing: "existing" };
   }
 
-  let session;
+  let attempt: PairingAttempt;
   try {
-    session = await createPairingSession(apiBaseUrl, toolInstallationId, ASCENDA_TOOL_TYPE, `Claude Code on ${os.hostname()}`);
+    attempt = await createPairingAttempt(apiBaseUrl, toolInstallationId, ASCENDA_TOOL_TYPE, `Claude Code on ${os.hostname()}`);
   } catch (error) {
     return {
       toolInstallationId,
@@ -466,7 +467,8 @@ async function resolveIdentity(apiBaseUrl: string, options: Options): Promise<Id
     };
   }
 
-  const outcome = await pollForToken(apiBaseUrl, session.pairingSessionId, session.code, session.qrUrl, session.expiresAt);
+  if (attempt.refusal) console.log(`\n  ${attempt.refusal} Pairing without the study.`);
+  const outcome = await pollForToken(apiBaseUrl, attempt);
   if ("reason" in outcome) return { toolInstallationId, pairing: "local-only", reason: outcome.reason };
 
   persistEventWriteToken(defaultTokenFilePath(toolInstallationId), outcome.token);
@@ -479,10 +481,13 @@ type PairingOutcome = { token: string } | { reason: string };
 /** Polls that may fail in a row before the wait is abandoned. */
 const POLL_ERROR_TOLERANCE = 3;
 
-async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, qrUrl: string | undefined, expiresAt: string): Promise<PairingOutcome> {
-  const deadline = Math.min(Date.parse(expiresAt) || Date.now() + 300_000, Date.now() + 300_000);
+async function pollForToken(apiBaseUrl: string, attempt: PairingAttempt): Promise<PairingOutcome> {
+  const { session } = attempt;
+  const deadline = Math.min(Date.parse(session.expiresAt) || Date.now() + 300_000, Date.now() + 300_000);
   let announced = false;
   let failures = 0;
+  let studyJoin: PairingStatusResponse["studyJoin"];
+  const finish = (pairing: "paired" | "cancelled" | "expired" | "gave_up") => writePairingJoinOutcome(pairingJoinOutcome(attempt, pairing, studyJoin));
 
   while (Date.now() < deadline) {
     // A dropped wifi link mid-wait used to throw straight out of setup, past
@@ -491,27 +496,37 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
     // the install still finishes.
     let status;
     try {
-      status = await getPairingStatus(apiBaseUrl, pairingSessionId);
+      status = await getPairingStatus(apiBaseUrl, session.pairingSessionId);
       failures = 0;
     } catch (error) {
       if (++failures >= POLL_ERROR_TOLERANCE) {
+        finish("gave_up");
         return { reason: `lost contact while waiting (${error instanceof Error ? error.message : String(error)})` };
       }
       await new Promise((resolve) => setTimeout(resolve, 2000));
       continue;
     }
+    studyJoin = status.studyJoin ?? studyJoin;
     // Contract: the token is returned once, on the first paired poll.
-    if (status.status === "paired" && status.eventWriteToken) return { token: status.eventWriteToken };
-    if (status.status === "expired" || status.status === "cancelled") return { reason: `pairing ${status.status}` };
+    if (status.status === "paired" && status.eventWriteToken) {
+      studyJoin = await settleStudyJoin(apiBaseUrl, session.pairingSessionId, studyJoin);
+      finish("paired");
+      return { token: status.eventWriteToken };
+    }
+    if (status.status === "expired" || status.status === "cancelled") {
+      finish(status.status);
+      return { reason: `pairing ${status.status}` };
+    }
     if (!announced) {
       console.log("");
-      for (const line of pairingConfirmLines(qrUrl, code)) console.log(`  ${line}`);
+      for (const line of pairingAttemptLines(attempt)) console.log(`  ${line}`);
       console.log("  Waiting...");
       announced = true;
     }
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
+  finish("gave_up");
   return { reason: "no confirmation within 5 minutes" };
 }
 
