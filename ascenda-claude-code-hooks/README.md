@@ -310,8 +310,10 @@ The commands run the launcher `setup` installs in `~/.ascenda/bin`, so run
 }
 ```
 
-Keep them in one file. Two copies run every event twice, and `status` warns
-when it finds them. `setup --dry-run` prints the exact entries for this
+Keep them in one file: two copies run every event twice. Delete `setup`'s
+entries from the file it wrote. `status` and `uninstall` only read your user
+settings and a project's `settings.local.json`, so they won't see a copy in
+`.claude/settings.json`. `setup --dry-run` prints the exact entries for this
 machine. On Windows there's no launcher, so copy those instead: they name
 Node and the bundle.
 
