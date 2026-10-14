@@ -607,8 +607,15 @@ async function checkSavedToken(apiBaseUrl: string, toolInstallationId: string, t
 async function pollForToken(apiBaseUrl: string, attempt: PairingAttempt): Promise<string | undefined> {
   const { session } = attempt;
   const deadline = Math.min(Date.parse(session.expiresAt) || Date.now() + 300_000, Date.now() + 300_000);
-  let announced = false;
   let studyJoin: PairingStatusResponse["studyJoin"];
+
+  // The link goes out before the first poll. Printed after a pending poll,
+  // a confirm that lands between create and that poll (a browser already on
+  // the page, or the app) skipped it, and the person never saw what they
+  // had confirmed.
+  console.log("");
+  for (const line of pairingAttemptLines(attempt)) console.log(`  ${line}`);
+  console.log("  Waiting...");
 
   while (Date.now() < deadline) {
     const status = await getPairingStatus(apiBaseUrl, session.pairingSessionId);
@@ -623,12 +630,6 @@ async function pollForToken(apiBaseUrl: string, attempt: PairingAttempt): Promis
       console.error(`\nPairing ${status.status}. Run setup again.`);
       writePairingJoinOutcome(pairingJoinOutcome(attempt, status.status, studyJoin));
       return undefined;
-    }
-    if (!announced) {
-      console.log("");
-      for (const line of pairingAttemptLines(attempt)) console.log(`  ${line}`);
-      console.log("  Waiting...");
-      announced = true;
     }
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
