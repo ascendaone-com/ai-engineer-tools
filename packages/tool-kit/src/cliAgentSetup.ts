@@ -6,6 +6,7 @@ import { describeCollectorVersion } from "./collectorVersion";
 import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeEventLogSetting, writeHostCredentials, writeRepoKeysSetting } from "./credentials";
 import { describeEventLog, parseEventLogFlag, resolveEventLog } from "./eventLog";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
+import { pairingConfirmLines } from "./confirmLinks";
 import { createPairingSession, getPairingStatus, readInitiatives } from "./http";
 import { describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand } from "./hookSet";
 import { initiativesStatusLines } from "./initiatives";
@@ -538,8 +539,8 @@ type Identity = { toolInstallationId: string; paired: boolean };
  * Reuse an existing pairing when this host has one whose token still works,
  * otherwise pair. A lapsed token pairs again under the same installation id,
  * so the hooks keep their identity. The local dev server auto-confirms; a
- * real backend needs the 6-digit code confirmed in the Ascenda app, so it is
- * printed and polled for.
+ * real backend needs the pairing confirmed, on its web page or with the
+ * 6-digit code in the Ascenda app, so both are printed and polled for.
  */
 async function resolveIdentity(apiBaseUrl: string, options: SetupOptions, spec: CliAgentSetupSpec): Promise<Identity | undefined> {
   const existingId = options.toolInstallationId ?? readHostCredentials(spec.host)?.toolInstallationId;
@@ -568,7 +569,7 @@ async function resolveIdentity(apiBaseUrl: string, options: SetupOptions, spec: 
     return undefined;
   }
 
-  const token = await pollForToken(apiBaseUrl, session.pairingSessionId, session.code, session.expiresAt);
+  const token = await pollForToken(apiBaseUrl, session.pairingSessionId, session.code, session.qrUrl, session.expiresAt);
   if (!token) return undefined;
 
   persistEventWriteToken(defaultTokenFilePath(toolInstallationId), token);
@@ -600,7 +601,7 @@ async function checkSavedToken(apiBaseUrl: string, toolInstallationId: string, t
   return "keep";
 }
 
-async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, expiresAt: string): Promise<string | undefined> {
+async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, qrUrl: string | undefined, expiresAt: string): Promise<string | undefined> {
   const deadline = Math.min(Date.parse(expiresAt) || Date.now() + 300_000, Date.now() + 300_000);
   let announced = false;
 
@@ -613,7 +614,8 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
       return undefined;
     }
     if (!announced) {
-      console.log(`\n  Confirm in the Ascenda app — code ${code}`);
+      console.log("");
+      for (const line of pairingConfirmLines(qrUrl, code)) console.log(`  ${line}`);
       console.log("  Waiting...");
       announced = true;
     }

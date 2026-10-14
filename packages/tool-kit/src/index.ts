@@ -165,4 +165,5 @@ export type { InitiativeCopy, InitiativesStatusContext } from "./initiatives";
 export { NOTICED_PURPOSES, renderStudyNotices, runStudyObjection, studyNoticeStatus } from "./studyNotices";
 export type { NoticedPurpose, StudyNoticesStatus, StudyNoticesStatusContext, StudyObjectionContext } from "./studyNotices";
 export { runStudyJoin } from "./studyJoin";
+export { pairingConfirmLines, pairingConfirmUrl, studyJoinConfirmUrl } from "./confirmLinks";
 export type { StudyJoinContext } from "./studyJoin";

@@ -248,6 +248,46 @@ test("choosing Report polls until confirmed, then prints every granted item and 
   }
 });
 
+test("an https API base prints the web confirm link first, then the app", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler(),
+    statusHandler({ status: "confirmed", granted: START_RESPONSE.grants, refusedReason: null })
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "https://api.example.test/", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    assert.equal(await done, 0);
+    const text = output();
+    const link = text.indexOf(`Open this link to confirm: https://api.example.test/join/${START_RESPONSE.deviceCode}\n`);
+    const app = text.indexOf(`Or confirm in the Ascenda app with code ${START_RESPONSE.deviceCode}.`);
+    assert.ok(link !== -1, text);
+    assert.ok(app > link, text);
+    assert.ok(text.includes("Study mode needs the Ascenda app."), "study mode is still app-only");
+  } finally {
+    restore();
+  }
+});
+
+test("a plain-http API base, like the local dev server, names only the app", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler(),
+    statusHandler({ status: "confirmed", granted: START_RESPONSE.grants, refusedReason: null })
+  ]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5 });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("1\n");
+    assert.equal(await done, 0);
+    assert.ok(output().includes(`Confirm in the Ascenda app with code ${START_RESPONSE.deviceCode}`));
+    assert.ok(!output().includes("/join/"));
+  } finally {
+    restore();
+  }
+});
+
 test("confirmed with a genuine subset of what Start showed prints only what was actually granted", async () => {
   // A grant attempt can fail without failing the whole join — the status
   // response's granted list is the truth, and it must never be padded back
@@ -469,7 +509,7 @@ test("refusal translates the enum reason into plain words — declined", async (
     assert.equal(code, 1);
     // "declined" legitimately appears here as ordinary English, not as the
     // raw enum — the point is the full sentence, not the word's absence.
-    assert.match(output(), /You declined in the app\. Nothing was granted\./);
+    assert.match(output(), /You declined the join\. Nothing was granted\./);
   } finally {
     restore();
   }
