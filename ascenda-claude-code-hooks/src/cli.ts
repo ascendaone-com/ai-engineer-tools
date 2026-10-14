@@ -36,6 +36,7 @@ import {
   runStudyObjection
 } from "@ascenda-one/tool-kit";
 import { HOOK_DELIVERY_ENV_VAR, OUTBOX_FLUSH_COMMAND, hookDeliveryInline, runOutboxFlush, startBackgroundFlush, terminalStyle } from "@ascenda-one/tool-kit";
+import { describePluginBundleOutcome, installPluginBundle, pluginBundlePaths } from "@ascenda-one/tool-kit";
 import type { CollectorState, DisclosureFamily, LiveBusEvent, TerminalStyle, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { liveEventFor } from "./liveEvent.js";
@@ -249,7 +250,7 @@ async function main(): Promise<void> {
   const command = process.argv[2];
   if (!command) {
     throw new Error(
-      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | object | doctor | setup | status | uninstall"
+      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | object | doctor | setup | status | uninstall | plugin-sync"
     );
   }
 
@@ -276,6 +277,13 @@ async function main(): Promise<void> {
   // agent waiting on it. See backgroundDelivery.ts in tool-kit.
   if (command === OUTBOX_FLUSH_COMMAND) {
     await runFlush();
+    return;
+  }
+  // Started in the background by the plugin's launcher, through
+  // `npx -y`, to copy this release where the launcher runs it from. See
+  // pluginBundle.ts in tool-kit.
+  if (command === PLUGIN_SYNC_COMMAND) {
+    setupExitCode = runPluginSync();
     return;
   }
   if (MANAGEMENT_COMMANDS.has(command)) {
@@ -456,6 +464,19 @@ async function main(): Promise<void> {
 }
 
 /** The flusher: this installation's pairing, one drain, and out. Silent, since nothing reads its output. */
+const PLUGIN_SYNC_COMMAND = "plugin-sync";
+
+function runPluginSync(): number {
+  try {
+    const outcome = installPluginBundle({ name: "claude-code-hooks" });
+    console.log(describePluginBundleOutcome(outcome, pluginBundlePaths("claude-code-hooks").bundle));
+    return 0;
+  } catch (error) {
+    console.error(`plugin-sync: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+}
+
 async function runFlush(): Promise<void> {
   let config;
   try {

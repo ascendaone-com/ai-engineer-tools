@@ -134,6 +134,8 @@ export type { TerminalStyle, Tone } from "./terminalStyle";
 export { describeAge, hookLauncherScript, hookRunnerCommand, hookRunnerPaths, installHookRunner, isDowngrade, lastHookPath, readLastHook, removeHookRunner, resolveHookNode, stampLastHook, tidyHomePath, writeAtomically } from "./hookRunner";
 export { replaceSettingsFile } from "./settingsFile";
 export type { HookLauncherOptions, HookRunnerPaths, LastHook, NodeResolution } from "./hookRunner";
+export { describePluginBundleOutcome, installPluginBundle, pluginBundlePaths } from "./pluginBundle";
+export type { PluginBundleOutcome, PluginBundlePaths } from "./pluginBundle";
 export { DOCTOR_VALUE_COLUMN, doctorRow, liveSignalDoctorLines } from "./liveSignalDoctor";
 export type { HookRegistration, LiveSignalDoctorOptions } from "./liveSignalDoctor";
 export type { LiveBusEvent, LiveBusSignal, LiveBusStopFailureKind, PromptSizeBucket } from "./liveBus";
