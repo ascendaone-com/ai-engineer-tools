@@ -1,4 +1,5 @@
 import * as readline from "node:readline";
+import { studyJoinConfirmUrl } from "./confirmLinks";
 import { AscendaApiError, getStudyJoinStatus, startStudyJoin } from "./http";
 import type { StudyJoinGrant, StudyJoinMode, StudyJoinRefusedReason, StudyJoinStartResponse, StudyJoinStatusResponse } from "@ascenda-one/tool-contract";
 
@@ -11,10 +12,10 @@ import type { StudyJoinGrant, StudyJoinMode, StudyJoinRefusedReason, StudyJoinSt
  *
  * `report` is the only mode this asks about. A full Study mode needs a
  * signed-in surface — the Ascenda app — which is where a person, not a
- * script, decides that; the prompt below says so and points there. There is
- * currently no other confirming surface: an earlier draft of this module
- * also pointed at a web pairing page, but that page cannot confirm a join
- * session as it stands, so this only ever names the app.
+ * script, decides that; the prompt below says so and points there. Report
+ * mode is confirmed by a signed-in person too, either on the backend's
+ * `/join/{deviceCode}` web page or with the device code in the app, so both
+ * are printed (see `studyJoinConfirmUrl`).
  *
  * ## Why the question comes after one network call, not zero
  *
@@ -27,7 +28,7 @@ import type { StudyJoinGrant, StudyJoinMode, StudyJoinRefusedReason, StudyJoinSt
  *
  * That call mints a *pending* session — the same shape `pair`'s
  * `createPairingSession` already has. Nothing is granted by it: a person
- * still has to confirm the device code it returns in the app, so a declined
+ * still has to confirm the device code it returns, so a declined
  * prompt leaves an unconfirmed session that simply expires. The one request
  * this module refuses to make on a decline is the one that would matter —
  * polling for confirmation. That refusal is unconditional: choosing "Not
@@ -100,7 +101,13 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   }
 
   print("");
-  print(`Confirm in the Ascenda app with code ${start.deviceCode}`);
+  const confirmUrl = studyJoinConfirmUrl(ctx.apiBaseUrl, start.deviceCode);
+  if (confirmUrl) {
+    print(`Open this link to confirm: ${confirmUrl}`);
+    print(`Or confirm in the Ascenda app with code ${start.deviceCode}.`);
+  } else {
+    print(`Confirm in the Ascenda app with code ${start.deviceCode}`);
+  }
   print(`Waiting for confirmation (expires ${formatLocalTime(start.expiresAt)})...`);
 
   const pollIntervalMs = ctx.pollIntervalMs ?? POLL_INTERVAL_MS;

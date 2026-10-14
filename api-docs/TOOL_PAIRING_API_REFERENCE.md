@@ -64,7 +64,7 @@ export interface CreateToolPairingSessionResponse {
   code: string;                   // 6 digits
   deviceCode: string;             // alias of code
   secret: string;                 // opaque secret
-  qrUrl: string;                  // deep link
+  qrUrl: string;                  // https confirm page, or legacy ascenda:// deep link
   expiresAt: string;              // ISO8601 UTC, now + 10 min
 }
 
@@ -711,8 +711,10 @@ the fallback (humanise the internal name rather than hide it) in
 2. The response is a preview plus a pending session — the organisation, the
    study, its window, and every grant Report mode carries, so the CLI can ask
    its one question before anything is confirmed. Nothing is granted yet.
-3. A person confirms the returned device code in the Ascenda app, signed in
-   as themselves — the tool's own write token cannot confirm this.
+3. A person confirms the returned device code, signed in as themselves:
+   in the Ascenda app, or on the web page at `{apiBaseUrl}/join/{deviceCode}`
+   (`/join` alone asks for the code). The tool's own write token cannot
+   confirm this.
 4. Tool polls status until `confirmed`, `expired` or `refused`. A refusal
    carries one of the enum reasons above; a client renders its own plain
    sentence for each rather than showing the wire value, and — for

@@ -465,6 +465,32 @@ test("setup pairs again under the same id when the saved token is rejected", asy
   });
 });
 
+test("setup prints the web confirm link from qrUrl while it waits, then the code for the app", async () => {
+  await sandbox(async ({ home, project, log }) => {
+    withSavedPairing(home);
+    const qrUrl = "https://api.example.test/p/ps-2#the-secret";
+    let polls = 0;
+    await withFetch((url, init) => {
+      if (url.endsWith("/initiatives")) return new Response("", { status: 401 });
+      if (url.endsWith("/v1/tool-pairing-sessions") && init?.method === "POST") {
+        return new Response(JSON.stringify({ pairingSessionId: "ps-2", code: "246810", qrUrl, expiresAt: new Date(Date.now() + 60_000).toISOString() }), { status: 201 });
+      }
+      if (url.endsWith("/ps-2/status")) {
+        polls++;
+        const body = polls === 1 ? { status: "pending" } : { status: "paired", eventWriteToken: "fresh-token" };
+        return new Response(JSON.stringify(body), { status: 200 });
+      }
+      return new Response("", { status: 404 });
+    }, async () => {
+      assert.equal(await runCliAgentSetup(["setup", "--project-dir", project], flat), 0);
+    });
+    const out = log.join("\n");
+    assert.ok(out.includes(`Open this link to confirm: ${qrUrl}`), out);
+    assert.ok(out.includes("Or paste code 246810 in the Ascenda app."), out);
+    assert.ok(!out.includes("Confirm in the Ascenda app"), out);
+  });
+});
+
 test("setup keeps the saved token when the server can't be reached, and says so if the last send was refused", async () => {
   await sandbox(async ({ home, project, log }) => {
     withSavedPairing(home, { lastOutcome: "auth_failed" });

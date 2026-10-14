@@ -10,6 +10,20 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.38
+
+### Confirm in a browser
+
+- **`setup` and `pair` print a link.** Open it, sign in, and the pairing is
+  confirmed. You don't need the Mac app. The 6-digit code still works in the
+  app, and it's printed on the next line.
+- **`join <code>` prints a link too.** It opens a page that shows the study,
+  then asks you to confirm or decline. The app takes the same code.
+- Study mode itself still needs the app. `join` offers Report mode only, as
+  before.
+- Against a server without these pages, like the local dev server, both
+  commands name the app, as they did.
+
 ## v0.1.37
 
 Claude Code plugin users: update to plugin 0.3.0 with

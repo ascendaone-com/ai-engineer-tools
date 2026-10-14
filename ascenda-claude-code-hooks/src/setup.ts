@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import { ascendaHome, createPairingSession, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, describeCollectorVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, pairingConfirmLines, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily, Tone } from "@ascenda-one/tool-kit";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { describeAge, readLastHook, resolveHookNode } from "./hookHealth.js";
@@ -419,7 +419,8 @@ type Identity = {
 /**
  * Reuse an existing pairing when one is already on the machine, otherwise
  * create one. The local dev server auto-confirms; a real backend needs the
- * 6-digit code confirmed in the Ascenda app, so we print it and poll.
+ * pairing confirmed, on its web page or with the 6-digit code in the Ascenda
+ * app, so we print both and poll.
  *
  * Nothing here fails the install. A backend that cannot be reached, a code
  * nobody confirms, an expired session: each leaves a local-only install
@@ -465,7 +466,7 @@ async function resolveIdentity(apiBaseUrl: string, options: Options): Promise<Id
     };
   }
 
-  const outcome = await pollForToken(apiBaseUrl, session.pairingSessionId, session.code, session.expiresAt);
+  const outcome = await pollForToken(apiBaseUrl, session.pairingSessionId, session.code, session.qrUrl, session.expiresAt);
   if ("reason" in outcome) return { toolInstallationId, pairing: "local-only", reason: outcome.reason };
 
   persistEventWriteToken(defaultTokenFilePath(toolInstallationId), outcome.token);
@@ -478,7 +479,7 @@ type PairingOutcome = { token: string } | { reason: string };
 /** Polls that may fail in a row before the wait is abandoned. */
 const POLL_ERROR_TOLERANCE = 3;
 
-async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, expiresAt: string): Promise<PairingOutcome> {
+async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: string, qrUrl: string | undefined, expiresAt: string): Promise<PairingOutcome> {
   const deadline = Math.min(Date.parse(expiresAt) || Date.now() + 300_000, Date.now() + 300_000);
   let announced = false;
   let failures = 0;
@@ -503,7 +504,8 @@ async function pollForToken(apiBaseUrl: string, pairingSessionId: string, code: 
     if (status.status === "paired" && status.eventWriteToken) return { token: status.eventWriteToken };
     if (status.status === "expired" || status.status === "cancelled") return { reason: `pairing ${status.status}` };
     if (!announced) {
-      console.log(`\n  Confirm in the Ascenda app — code ${code}`);
+      console.log("");
+      for (const line of pairingConfirmLines(qrUrl, code)) console.log(`  ${line}`);
       console.log("  Waiting...");
       announced = true;
     }

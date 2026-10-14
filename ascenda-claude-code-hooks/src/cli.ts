@@ -16,6 +16,7 @@ import {
   emitLiveSignal,
   getPairingStatus,
   getString,
+  pairingConfirmLines,
   getNestedString,
   markFailureNotified,
   persistEventWriteToken,
@@ -88,7 +89,8 @@ const MILESTONE_DEBRIEF_INVITE =
  * ~/.ascenda/tokens/), and the manual alternative was raw curl plus a
  * hand-written token file.
  *
- * Prints a 6-digit code to confirm in the Ascenda app, waits, persists the
+ * Prints the link to confirm in a browser and the 6-digit code for the
+ * Ascenda app, waits, persists the
  * write token where every CLI tool reads it, and prints the one export line
  * the hooks and MCP server still need.
  */
@@ -146,11 +148,13 @@ async function runPair(): Promise<void> {
   const session = await createPairingSession(apiBaseUrl, toolInstallationId, toolType, toolType === ASCENDA_TOOL_TYPE ? "Claude Code" : toolType);
   const code = session.deviceCode ?? session.code;
 
-  await writeStdout(
-    `\nPairing code: ${code}\n\n` +
-    `In the Ascenda app: Connections -> Ingest telemetry -> paste the code -> Pair tool.\n` +
-    `Waiting for confirmation (expires ${session.expiresAt})...\n\n`
-  );
+  // Without the web page, the app is the only place to confirm, so the code
+  // leads and the app's menu path follows it.
+  const confirm = pairingConfirmLines(session.qrUrl, code);
+  const instructions = confirm.length > 1
+    ? `${confirm.join("\n")}\n`
+    : `Pairing code: ${code}\n\nIn the Ascenda app: Connections -> Ingest telemetry -> paste the code -> Pair tool.\n`;
+  await writeStdout(`\n${instructions}Waiting for confirmation (expires ${session.expiresAt})...\n\n`);
 
   const deadline = Date.now() + 11 * 60 * 1000;
   while (Date.now() < deadline) {
