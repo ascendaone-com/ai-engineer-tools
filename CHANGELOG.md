@@ -24,6 +24,70 @@ targets, error counts or internal resource names — this repository is public.
 - Against a server without these pages, like the local dev server, both
   commands name the app, as they did.
 
+### History import without the Flow app
+
+- **`ascenda-history-import import --ship` finds your pairing.** It reads
+  `~/.ascenda/credentials.json` and the token the hooks' `setup` or `pair`
+  wrote, so a machine with no Flow app and no exported variables can ship.
+  Variables still win over the files, and the new `--installation-id`,
+  `--token-file` and `--api-base-url` flags win over both.
+- **Tokens get renewed before they expire.** With under 21 days left the
+  importer rotates the token and saves the new one where the hooks read it. An
+  expired token stops the run in the first second with the `pair` command to
+  fix it. Nothing has been read or copied by then.
+- **`schedule install` sets up a recurring import.** It writes a launchd agent
+  on macOS and a systemd user timer on Linux, every 14 days unless you say
+  `--every`. On Windows it prints the `schtasks` line. `schedule status` and
+  `schedule remove` do what they say.
+- Claude Code deletes transcripts after 30 days unless `cleanupPeriodDays` says
+  otherwise, so `schedule install` won't accept an interval the retention
+  can't cover twice. `fix-retention --apply` lifts the limit. So does
+  `--override-retention`.
+- **A refusal for consent now says where to fix it.** The message names the
+  web as well as the Flow app. A store left out of your grant is skipped and
+  named while the other stores keep shipping.
+- Without the Flow app the import prints "no Flow app on this machine, none
+  needed" where it used to say a container was missing.
+
+### One command to take part in a study
+
+- **`participate <code>` sets a machine up for your organisation's study.**
+  Run `npx -y @ascenda-one/history-import participate <code>` with the code
+  your organisation gave you. It finds Claude Code, Codex, Cursor, Windsurf
+  and Gemini CLI, installs each one's hooks for every project and pairs it,
+  joins the study in Report mode, and sends the history already on the
+  machine. No desktop app needed.
+- It tells you up front how many browser confirms it needs: one per agent
+  that isn't paired yet, then one for the study. Each is announced before its
+  code appears.
+- Claude Code deletes transcripts after 30 days. `participate` shows the
+  setting it would change and asks first. `--fix-retention` and
+  `--keep-retention` answer for you.
+- The history is sent only when the study granted importing it. Otherwise
+  the step is skipped, and the summary says why.
+- Run it again to finish a half-done setup. Paired agents stay paired, a
+  study you joined isn't joined twice, and history already sent comes back as
+  already there.
+- The summary at the end lists which agents are collecting, the study and its
+  window, Claude Code's retention before and after, and how many events were
+  accepted or already there.
+
+### History import
+
+- `import --summary-json <file>` writes the closing summary as JSON too.
+- A missing pairing during `import --ship` is reported in the summary, after
+  the stores are read. It used to end the run before the summary printed. An
+  expired token still stops the run before anything is read.
+
+### Local dev server
+
+- Historical events need the history-import consent, which a confirmed join
+  that carries it grants. Start the server with `historicalImportLease: false`
+  to begin without it. It's on by default, so `import --ship --local` works
+  as before.
+- The batch door answers `duplicate` for an `importKey` it has already
+  stored, and returns a result for every event in the batch.
+
 ### History import: compactions and commits
 
 - **Each compaction gets its own row.** `ascenda-history-import` now writes a

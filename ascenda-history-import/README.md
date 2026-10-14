@@ -418,13 +418,107 @@ Still open, and worth knowing before trusting a second run completely:
 ## Usage
 
 ```
+ascenda-history-import participate <code>   # set this machine up for an organisation's study, start to finish
 ascenda-history-import scan            # human-readable inventory
 ascenda-history-import scan --json     # what the app's consent surface renders
 ascenda-history-import fix-retention   # dry-run; --apply to write
 ascenda-history-import import          # Claude Code + Codex + Cursor + VS Code, dry run; --ship to send
 ascenda-history-import import --git    # also read your own commit metadata from repos your sessions ran in; off by default
 ascenda-history-import archive         # the durable copy; --verify / --list / --restore <dir> / --prune
+ascenda-history-import schedule install  # a recurring import --ship; also: remove, status
 ```
+
+### Without the Flow app
+
+The importer runs on its own. Pair the hooks once (`npx @ascenda-one/claude-code-hooks setup`),
+turn on historical import for your account, then:
+
+```
+ascenda-history-import import --ship
+```
+
+`--ship` finds its pairing the way the hooks do. In order: the flags
+`--installation-id`, `--token-file` and `--api-base-url`; the
+`ASCENDA_TOOL_INSTALLATION_ID`, `ASCENDA_EVENT_WRITE_TOKEN(_FILE)` and
+`ASCENDA_API_BASE_URL` variables; then `~/.ascenda/credentials.json` and
+`~/.ascenda/tokens/`. Two paired tools and no way to choose is an error that
+names both.
+
+Event tokens last 30 days. The importer renews one with under 21 days left,
+through the same endpoint and the same token file as the hooks, so there is
+one token store. A token that has already expired can't be renewed; the run
+stops before reading anything and prints the `pair` command. Machines with
+live hooks rarely get there, because the hooks renew on their first event
+after day nine.
+
+There is no handoff file without the Flow app, and the output says so as
+a normal line, not a warning.
+
+### A recurring import
+
+```
+ascenda-history-import schedule install               # every 14 days
+ascenda-history-import schedule install --every 21d   # see the retention guard
+ascenda-history-import schedule status
+ascenda-history-import schedule remove
+```
+
+macOS gets a launchd agent in `~/Library/LaunchAgents`, Linux a systemd user
+timer in `~/.config/systemd/user`. Windows gets the `schtasks` command printed
+and nothing written. Output goes to `~/.ascenda/logs/history-import.log`.
+
+Claude Code deletes transcripts after `cleanupPeriodDays`, 30 unless set. The
+default is 14 days so one run can fail and the next still lands inside the
+window. `install` refuses an interval where the retention doesn't cover two
+runs (so `--every 30d`, or `21d` on the default retention) and says why. Run
+`fix-retention --apply` first, or pass `--override-retention`.
+
+### `participate`: a study from one command
+
+```bash
+npx -y @ascenda-one/history-import participate <code>
+```
+
+For someone with no desktop app, on macOS, Windows or Linux. `<code>` is the
+join code their organisation gave them. It runs four steps and then prints a
+summary:
+
+1. **Agents.** Finds Claude Code, Codex CLI, Cursor, Windsurf and Gemini CLI
+   by their config folders or their commands on `PATH`, and runs each
+   adapter's own `setup --scope user`. Each adapter installs its own bundle as
+   the hook binary, which is why they run as separate `npx` processes, pinned
+   to this release.
+2. **Study.** Joins in Report mode with the first paired agent's token
+   (Claude Code when there is one). The question and the confirm are `join`'s
+   own. A join is remembered in `~/.ascenda/participation.json` and not
+   repeated while its window is open; `--rejoin` repeats it.
+3. **Retention.** Shows the `fix-retention` change and asks. With no
+   terminal and no flag, nothing changes.
+4. **Backfill.** Runs `import --ship` as the agent the join used, but only
+   when the join granted the history import (grant 507). The backend refuses
+   it otherwise. It hands the importer that agent's pairing in the
+   `ASCENDA_TOOL_INSTALLATION_ID`, `ASCENDA_EVENT_WRITE_TOKEN_FILE` and
+   `ASCENDA_API_BASE_URL` variables. Those come ahead of `credentials.json`
+   in the order under "Without the Flow app", so the import ships as that
+   agent even on a machine with several paired tools, and renews its token
+   the same way.
+
+Confirms: one in the browser per agent not yet paired, and one for the
+study. A pairing confirms one installation, and installations can't share a
+token, because renewing one revokes the old. Getting this to a single
+confirm needs the backend to let one pairing carry the study code.
+
+A failed agent doesn't stop the rest, and every step is safe to repeat, so a
+half-finished run is fixed by running it again. The exit code is 0 only when
+every agent found is collecting, the study is joined and the backfill had no
+failures.
+
+From a checkout, `ASCENDA_PARTICIPATE_BUNDLE_ROOT=<repo>` runs the adapters'
+built bundles in place of `npx`. Use a scratch `HOME` and `ASCENDA_HOME`
+with `--local` so nothing touches your own setup.
+
+Cursor and VS Code history is read from macOS paths today, so on Windows and
+Linux the backfill covers Claude Code and Codex.
 
 ### Staging is scaffolding; `archive` is the copy
 

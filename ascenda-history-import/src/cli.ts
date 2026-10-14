@@ -6,7 +6,9 @@
  *   scan --json     same, machine-readable — what the app's consent surface renders
  *   import          snapshot + extract + ship
  *   fix-retention   show the Claude Code retention plan; --apply to write it
+ *   participate     set this machine up for an organisation's study, start to finish — see `participate.ts`
  *   archive         the durable copy — see `archive.ts`
+ *   schedule        install / remove / status of a recurring `import --ship`
  *
  * `archive` flags:
  *   --verify                  re-hash every blob the generation names
@@ -19,8 +21,12 @@
  *
  * `import` flags:
  *   --ship               send the extracted events over the batch wire
+ *   --summary-json <f>   also write the closing summary to <f> as JSON (what `participate` reads)
  *   --keep-staging       leave the run's snapshot on disk (debugging only)
  *   --snapshot-sessions  copy VS Code chat sessions before reading them
+ *   --installation-id <id>, --token-file <path>, --api-base-url <url>
+ *                        ship as this pairing; otherwise the environment, then
+ *                        ~/.ascenda/credentials.json and tokens/
  *
  * Two rules this command is built around, both of them learned the hard way
  * on 25 Aug 2026:
@@ -74,6 +80,18 @@ import {
   verifyArchive
 } from "./archive.js";
 import { loadShipConfig, shipEvents, shippableEvents } from "./ship.js";
+import { ShipConfigError, prepareToken, type ShipConfig } from "./credentials.js";
+import {
+  DEFAULT_INTERVAL_DAYS,
+  checkRetention,
+  defaultScheduleEnv,
+  installSchedule,
+  parseInterval,
+  removeSchedule,
+  scheduleStatus,
+  scheduledCommand
+} from "./schedule.js";
+import { runParticipate } from "./participate.js";
 import type { MetricKey } from "@ascenda-one/tool-contract";
 import type { ShipResult } from "./ship.js";
 import {
@@ -307,7 +325,7 @@ async function runSource(
     process.stdout.write(
       handoffPath
         ? `  handoff: → ${handoffPath}\n\n`
-        : "  handoff: desktop app container not found — skipped\n\n"
+        : "  handoff: no Flow app on this machine, none needed\n\n"
     );
   } else {
     process.stdout.write("\n");
@@ -397,8 +415,16 @@ function writeSummary(input: SummaryInput): void {
     out.write(
       "\n  stopped early: this account has no consent for a retrospective import, so the\n" +
         "  backend refused the whole batch and every remaining event would be refused too.\n" +
-        "  Nothing was stored. Grant it in Flow — Connections > Bring in daily tools — and\n" +
-        "  run this again; the import is idempotent, so nothing here is wasted.\n"
+        "  Nothing was stored. Turn on historical import for this account: in the Flow app\n" +
+        "  under Connections > Bring in daily tools, or on the web where you joined your\n" +
+        "  study. Then run this again; the import is idempotent, so nothing here is wasted.\n"
+    );
+  }
+  if (shipResult.storesNotGranted?.length) {
+    out.write(
+      `\n  not granted: ${shipResult.storesNotGranted.join(", ")}. Historical import is on for this account but\n` +
+        "  doesn't include those stores, so their events were skipped. Add them to the grant\n" +
+        "  (Flow app, or the web where you joined your study) and run this again.\n"
     );
   }
   for (const [reason, n] of Object.entries(shipResult.rejectionReasons)) {
@@ -409,6 +435,27 @@ function writeSummary(input: SummaryInput): void {
       "  note: at least one batch could not be attributed per source — the per-source accept/reject splits above are incomplete.\n"
     );
   }
+}
+
+/**
+ * The closing summary as data, for a caller that runs `import` as one step of
+ * something larger (`participate`). Written on the same paths `writeSummary`
+ * prints on, plus the one where there was nothing to import.
+ */
+export interface ImportSummaryFile {
+  exitCode: number;
+  /** True when no store was present on this machine, so nothing was read or sent. */
+  nothingToImport?: boolean;
+  outcomes: SourceOutcome[];
+  totalExtracted: number;
+  shipResult: ShipResult | null;
+  shipError: string | null;
+}
+
+async function writeSummaryJson(file: string | null, summary: ImportSummaryFile): Promise<void> {
+  if (!file) return;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(summary, null, 2) + "\n", "utf8");
 }
 
 /**
@@ -459,10 +506,49 @@ async function main(): Promise<number> {
       // away the Claude Code and Cursor events already extracted above it.
       const ship = rest.includes("--ship");
       const keepStaging = rest.includes("--keep-staging");
+      const flagValue = (name: string): string | undefined => {
+        const at = rest.indexOf(name);
+        return at >= 0 && rest[at + 1] && !rest[at + 1].startsWith("--") ? rest[at + 1] : undefined;
+      };
       const snapshotSessions = rest.includes("--snapshot-sessions");
       // Off by default: the backend's consent store list has to name `git`
       // before these rows are accepted.
       const withGit = rest.includes("--git");
+      const summaryAt = rest.indexOf("--summary-json");
+      const summaryJson = summaryAt >= 0 ? rest[summaryAt + 1] ?? null : null;
+      // Resolved before anything is read or copied. Two outcomes differ:
+      // - no pairing to ship as is held and reported in the closing summary
+      //   (what `participate` reads), after the extraction still ran;
+      // - a pairing whose token has expired, or that the server refused to
+      //   renew, stops here in the first second, with the pair command.
+      let shipConfig: ShipConfig | null = null;
+      let shipConfigProblem: string | null = null;
+      if (ship) {
+        let loaded: ShipConfig | null = null;
+        try {
+          loaded = loadShipConfig({
+            installationId: flagValue("--installation-id"),
+            tokenFile: flagValue("--token-file"),
+            apiBaseUrl: flagValue("--api-base-url")
+          });
+        } catch (error) {
+          if (!(error instanceof ShipConfigError)) throw error;
+          shipConfigProblem = error.message;
+          process.stderr.write(`${error.message}\n`);
+        }
+        if (loaded) {
+          try {
+            const prepared = await prepareToken(loaded);
+            shipConfig = prepared.config;
+            if (prepared.note) process.stdout.write(`${prepared.note}\n`);
+          } catch (error) {
+            if (!(error instanceof ShipConfigError)) throw error;
+            process.stderr.write(`${error.message}\n`);
+            await writeSummaryJson(summaryJson, { exitCode: 2, outcomes: [], totalExtracted: 0, shipResult: null, shipError: error.message });
+            return 2;
+          }
+        }
+      }
 
       const claudeScan = await safeScan("claude_code", paths.claudeProjectsDirs.join(", "), () =>
         scanClaudeCode(paths)
@@ -482,6 +568,7 @@ async function main(): Promise<number> {
         process.stderr.write(
           `no Claude Code store at ${claudeInventory.rootPath}, no Codex store at ${codexInventory.rootPath}, no Cursor store at ${cursorInventory.rootPath}, and no VS Code store at ${vsCodeInventory.rootPath} — nothing to import\n`
         );
+        await writeSummaryJson(summaryJson, { exitCode: 2, nothingToImport: true, outcomes: [], totalExtracted: 0, shipResult: null, shipError: null });
         return 2;
       }
 
@@ -649,7 +736,7 @@ async function main(): Promise<number> {
             process.stdout.write(
               crossStorePath
                 ? `elapsed across ${crossStoreFile.stores.join(" + ")}: → ${crossStorePath}\n\n`
-                : "elapsed across stores: desktop app container not found — skipped\n\n"
+                : "elapsed across stores: no Flow app on this machine, none needed\n\n"
             );
           } else if (outcomes.some((outcome) => outcome.handoffWritten)) {
             // No union this time, and at least one handoff replaced — so an
@@ -676,9 +763,13 @@ async function main(): Promise<number> {
         let shipResult: Awaited<ReturnType<typeof shipEvents>> | null = null;
         let shipError: string | null = null;
         if (ship) {
-          const config = loadShipConfig();
-          process.stdout.write(`\nshipping to ${config.apiBaseUrl} as ${config.toolInstallationId}…\n`);
           try {
+            // A machine with no pairing is a failed ship the summary names,
+            // not a refusal that skips the summary: it was resolved up front
+            // and held until here.
+            if (!shipConfig) throw new ShipConfigError(shipConfigProblem ?? "no pairing to ship as");
+            const config = shipConfig;
+            process.stdout.write(`\nshipping to ${config.apiBaseUrl} as ${config.toolInstallationId}…\n`);
             shipResult = await shipEvents(allEvents, config, (done, total) => {
               process.stdout.write(`  ${done.toLocaleString("en-US")}/${total.toLocaleString("en-US")}\r`);
             });
@@ -699,7 +790,9 @@ async function main(): Promise<number> {
           shipError
         });
 
-        return exitCodeFor(outcomes, ship, shipResult, shipError);
+        const exitCode = exitCodeFor(outcomes, ship, shipResult, shipError);
+        await writeSummaryJson(summaryJson, { exitCode, outcomes, totalExtracted: allEvents.length, shipResult, shipError });
+        return exitCode;
       } finally {
         // Teardown runs on the success path and on the way out of a throw
         // alike: the failure that started all this left ~20 GB behind
@@ -854,6 +947,8 @@ async function main(): Promise<number> {
       // copy it was asked for.
       return result.unreadable > 0 ? 1 : 0;
     }
+    case "participate":
+      return runParticipate({ argv: rest });
     case "fix-retention": {
       const plan = await planClaudeRetentionFix(paths);
       if (!plan.changeNeeded) {
@@ -875,9 +970,67 @@ async function main(): Promise<number> {
       }
       return 0;
     }
+    case "schedule": {
+      const [action, ...flags] = rest;
+      const env = defaultScheduleEnv();
+      if (action === "install") {
+        const at = flags.indexOf("--every");
+        let everyDays: number;
+        try {
+          everyDays = at >= 0 ? parseInterval(flags[at + 1] ?? "") : DEFAULT_INTERVAL_DAYS;
+        } catch (error) {
+          process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+          return 2;
+        }
+        const verdict = checkRetention(await planClaudeRetentionFix(paths), everyDays);
+        if (!verdict.ok && !flags.includes("--override-retention")) {
+          process.stderr.write(`${verdict.reason}\n`);
+          return 2;
+        }
+        try {
+          loadShipConfig();
+        } catch (error) {
+          // A schedule that can't ship would fail quietly every fortnight.
+          process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+          return 2;
+        }
+        const result = await installSchedule(env, { everyDays, command: scheduledCommand(), pathEnv: process.env.PATH });
+        if (result.printed) {
+          process.stdout.write(`Windows: nothing written. Run this to schedule it:\n\n  ${result.printed}\n`);
+          return 0;
+        }
+        for (const file of result.written) process.stdout.write(`wrote ${file}\n`);
+        process.stdout.write(
+          result.activated
+            ? `scheduled: import --ship every ${everyDays} days\n`
+            : `files written, but the scheduler didn't load them — log out and in, or load them by hand\n`
+        );
+        return result.activated ? 0 : 1;
+      }
+      if (action === "remove") {
+        const { removed } = await removeSchedule(env);
+        process.stdout.write(removed.length ? removed.map((f) => `removed ${f}\n`).join("") : "no schedule installed\n");
+        return 0;
+      }
+      if (action === "status") {
+        const status = await scheduleStatus(env);
+        if (!status.installed) {
+          process.stdout.write("no schedule installed\n");
+          return 0;
+        }
+        process.stdout.write(
+          `installed: every ${status.everyDays ?? "?"} days, ${status.active ? "loaded" : "not loaded"}\n` +
+            status.files.map((f) => `  ${f}\n`).join("") +
+            `  log: ${status.log}\n`
+        );
+        return 0;
+      }
+      process.stderr.write("usage: ascenda-history-import schedule <install [--every 14d] [--override-retention] | remove | status>\n");
+      return 2;
+    }
     default: {
       process.stderr.write(
-        "usage: ascenda-history-import <scan [--json] | import [--ship] [--git] | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
+        "usage: ascenda-history-import <participate <code> | scan [--json] | import [--ship] [--git] | schedule <install|remove|status> | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
       );
       return command === undefined || command === "--help" ? 0 : 2;
     }

@@ -1,0 +1,1 @@
+schtasks /Create /TN "Ascenda history import" /SC DAILY /MO 14 /ST 09:00 /TR "\"C:\Program Files\nodejs\node.exe\" C:\x\cli.js import --ship"

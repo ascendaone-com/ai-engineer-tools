@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Ascenda history import every 14 days
+
+[Timer]
+OnBootSec=1h
+OnUnitActiveSec=14d
+Persistent=true
+
+[Install]
+WantedBy=timers.target

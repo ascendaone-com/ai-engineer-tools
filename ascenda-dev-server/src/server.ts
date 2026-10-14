@@ -96,6 +96,14 @@ export type DevServerOptions = {
    * and `/_dev/org-study-join-sessions/:id/refuse`.
    */
   autoConfirmJoins?: boolean;
+  /**
+   * Start with the history-import consent (grant 507) already active
+   * (default true, so `import --ship --local` works with no join). False
+   * starts without it, the way the real backend does: pairing never grants
+   * it, a confirmed join that carries 507 does, and until then every
+   * historical event is rejected `consent_missing_or_expired`.
+   */
+  historicalImportLease?: boolean;
   log?: (line: string) => void;
 };
 
@@ -107,6 +115,10 @@ export type DevServer = {
     studyJoins: Map<string, StudyJoinSession>;
     events: ReceivedEvent[];
     consentActive: boolean;
+    /** The history-import consent (grant 507). See `historicalImportLease` on the options. */
+    historicalImportLease: boolean;
+    /** `<toolInstallationId>|<importKey>` for every event stored under a key, so a replay answers `duplicate`. */
+    importKeys: Set<string>;
     autoConfirm: boolean;
     autoConfirmJoins: boolean;
     unclassified: number;
@@ -134,6 +146,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     studyJoins: new Map(),
     events: [],
     consentActive: true,
+    historicalImportLease: opts.historicalImportLease ?? true,
+    importKeys: new Set(),
     autoConfirm: opts.autoConfirm ?? true,
     autoConfirmJoins: opts.autoConfirmJoins ?? (opts.autoConfirm ?? true),
     unclassified: 0
@@ -323,6 +337,7 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     // mirroring what Start showed; this mock's "full success" path has
     // nothing that can fail, so its readback is simply everything.
     session.granted = session.grants;
+    grantLeases(session.granted);
     log(`${DIM}${time()}${RESET} \x1b[32mstudy-join confirmed${RESET} ${session.joinSessionId}${state.autoConfirmJoins ? " (auto-confirm)" : ""}`);
   }
 
@@ -369,11 +384,17 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       const landed = session.grants.filter((grant) => (body.grantedCodes ?? []).includes(grant.code));
       // The real backend reports null, not an empty array, when nothing landed before the failure.
       session.granted = landed.length > 0 ? landed : null;
+      grantLeases(landed);
     } else {
       session.granted = null;
     }
     log(`${DIM}${time()}${RESET} \x1b[31mstudy-join refused${RESET} ${session.joinSessionId} (simulated: ${session.refusedReason})`);
     json(res, 200, { status: "refused" });
+  }
+
+  /** A join's grants that this mock gates on. 501 is `consentActive`, which starts on. */
+  function grantLeases(granted: StudyJoinGrant[]): void {
+    if (granted.some((grant) => grant.code === 507)) state.historicalImportLease = true;
   }
 
   function studyJoinStatus(res: http.ServerResponse, id: string): void {
@@ -403,12 +424,29 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     const events = batch ? ((body as { events?: unknown[] }).events ?? []) : [body];
     const results: Array<{ index: number; status: string; reason?: string }> = [];
     let accepted = 0;
+    let duplicate = 0;
 
     events.forEach((raw, index) => {
       const event = raw as AscendaEventPayload;
       if (!event || typeof event !== "object" || !event.eventType || !event.source) {
         results.push({ index, status: "rejected", reason: "malformed" });
         return;
+      }
+      // A historical provenance needs the history-import consent, whatever
+      // scope the event claims, and the backend answers per item.
+      if (HISTORICAL_PROVENANCES.has(String(event.provenance)) && !state.historicalImportLease) {
+        results.push({ index, status: "rejected", reason: "consent_missing_or_expired" });
+        return;
+      }
+      const importKey = event.metadata?.importKey;
+      if (typeof importKey === "string" && importKey) {
+        const key = `${tool.toolInstallationId}|${importKey}`;
+        if (state.importKeys.has(key)) {
+          results.push({ index, status: "duplicate", reason: "already_imported" });
+          duplicate += 1;
+          return;
+        }
+        state.importKeys.add(key);
       }
       const category: WorkloadCategory = EVENT_WORKLOAD_CATEGORY[event.eventType] ?? "unclassified";
       if (category === "unclassified") state.unclassified += 1;
@@ -417,9 +455,12 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       tool.lastSeenAt = received.receivedAt;
       accepted += 1;
       printEvent(received);
+      results.push({ index, status: "accepted" });
     });
 
-    if (batch) return json(res, 200, { accepted, rejected: results.length, results });
+    if (batch) return json(res, 200, { accepted, duplicate, rejected: events.length - accepted - duplicate, results });
+    if (duplicate === 1) return json(res, 200, { status: "duplicate" });
+    if (results[0]?.reason === "consent_missing_or_expired") return json(res, 403, { error: "consent_missing_or_expired" });
     if (accepted === 0) return json(res, 400, { error: "malformed_payload" });
     json(res, 200, { status: "accepted" });
   }
@@ -440,6 +481,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
 
   return { server, state };
 }
+
+const HISTORICAL_PROVENANCES = new Set(["historical_direct", "historical_derived", "historical_unparsed"]);
 
 function time(): string {
   return new Date().toTimeString().slice(0, 8);
