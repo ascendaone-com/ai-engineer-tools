@@ -60,7 +60,9 @@ test("the example settings register the same hooks, each with a timeout", () => 
   const example = read(new URL("../examples/settings.local.json", import.meta.url));
   assert.deepEqual(Object.keys(example.hooks).sort(), [...EVENTS].sort());
   for (const [event, groups] of Object.entries(example.hooks)) {
-    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set 4`);
+    // The launcher setup installs, never npx: npx asks the registry first and
+    // can outlast the timeout. The name also lets status and uninstall find it.
+    assert.equal(groups[0].hooks[0].command, `"$HOME/.ascenda/bin/ascenda-claude-hook" ${event} --hook-set 4`);
     assert.equal(groups[0].hooks[0].timeout, 5, event);
   }
 });

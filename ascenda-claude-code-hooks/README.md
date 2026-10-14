@@ -280,32 +280,40 @@ pair again before the 30 days are up and replace the token in the environment.
 
 ### Register hooks manually
 
-The plugin does this for you — this section is only for the standalone route.
-Merge [`examples/settings.local.json`](./examples/settings.local.json) into
-`.claude/settings.local.json` in a project, or into Claude Code's user settings
-for machine-wide coverage:
+The plugin and `setup` both do this for you. Do it by hand only to put the
+hooks in a file `setup` doesn't write, such as a project's shared
+`.claude/settings.json`.
+
+The commands run the launcher `setup` installs in `~/.ascenda/bin`, so run
+`setup` first. Then move its entries into the file you want, using
+[`examples/settings.local.json`](./examples/settings.local.json):
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionStart", "timeout": 5 }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks UserPromptSubmit", "timeout": 5 }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreToolUse", "timeout": 5 }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUse", "timeout": 5 }] }],
-    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostToolUseFailure", "timeout": 5 }] }],
-    "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PreCompact", "timeout": 5 }] }],
-    "PostCompact": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PostCompact", "timeout": 5 }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Stop", "timeout": 5 }] }],
-    "StopFailure": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks StopFailure", "timeout": 5 }] }],
-    "Notification": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks Notification", "timeout": 5 }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SessionEnd", "timeout": 5 }] }],
-    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStart", "timeout": 5 }] }],
-    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks SubagentStop", "timeout": 5 }] }],
-    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PermissionRequest", "timeout": 5 }] }],
-    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "npx -y @ascenda-one/claude-code-hooks PermissionDenied", "timeout": 5 }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" SessionStart --hook-set 4", "timeout": 5 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" UserPromptSubmit --hook-set 4", "timeout": 5 }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" PreToolUse --hook-set 4", "timeout": 5 }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" PostToolUse --hook-set 4", "timeout": 5 }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" PostToolUseFailure --hook-set 4", "timeout": 5 }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" PreCompact --hook-set 4", "timeout": 5 }] }],
+    "PostCompact": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" PostCompact --hook-set 4", "timeout": 5 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" Stop --hook-set 4", "timeout": 5 }] }],
+    "StopFailure": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" StopFailure --hook-set 4", "timeout": 5 }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" Notification --hook-set 4", "timeout": 5 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" SessionEnd --hook-set 4", "timeout": 5 }] }],
+    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" SubagentStart --hook-set 4", "timeout": 5 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" SubagentStop --hook-set 4", "timeout": 5 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" PermissionRequest --hook-set 4", "timeout": 5 }] }],
+    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "\"$HOME/.ascenda/bin/ascenda-claude-hook\" PermissionDenied --hook-set 4", "timeout": 5 }] }]
   }
 }
 ```
+
+Keep them in one file. Two copies run every event twice, and `status` warns
+when it finds them. `setup --dry-run` prints the exact entries for this
+machine. On Windows there's no launcher, so copy those instead: they name
+Node and the bundle.
 
 Keep the timeouts. Without one Claude Code gives a hook up to 600s, and all
 SessionEnd hooks share 1.5s between them.
