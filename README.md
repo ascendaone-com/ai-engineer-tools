@@ -314,6 +314,15 @@ npx -y @ascenda-one/claude-code-hooks setup     # or codex-, cursor-, gemini-, w
 and prints what it added. Restart the agent afterwards. A plugin install
 upgrades with `claude plugin update ascenda@ascenda-one` instead.
 
+A paired install checks for a newer release once a day. After it has sent
+your events, the background sender fetches the release manifest from GitHub.
+The request carries nothing about you. `status` prints what it found on its
+`latest` line. In Claude Code, the first session after a release starts with
+a one-line note naming the release and the command. Below the oldest
+supported release, the note comes back every session until you update. An
+unpaired install never checks. To turn the check off, set
+`ASCENDA_DISABLE_UPDATE_CHECK=true`.
+
 ## Packages
 
 | Package | Published as | What it does |

@@ -25,6 +25,20 @@ export {
   startBackgroundFlush
 } from "./backgroundDelivery";
 export type { BackgroundFlushOptions } from "./backgroundDelivery";
+export {
+  RELEASE_CHECK_ENV_VAR,
+  RELEASE_MANIFEST_URL,
+  compareReleases,
+  describeReleaseCheck,
+  installedBundleVersion,
+  pendingReleaseNotice,
+  readReleaseCheck,
+  refreshReleaseCheck,
+  releaseCheckPath,
+  releaseStanding,
+  runsFromInstalledBundle
+} from "./releaseCheck";
+export type { ReleaseCheck, ReleaseStanding } from "./releaseCheck";
 export { AscendaEventSender, AscendaSemanticEventError, TOKEN_RENEW_LEAD_MS, buildEventBody, buildEventPayload } from "./eventSender";
 export type { EventIdentity, EventSenderConfig, MappedEvent, MappedSemanticEvent, OutboxDrainReport } from "./eventSender";
 export { toAgentEvent } from "./agentEvent";
