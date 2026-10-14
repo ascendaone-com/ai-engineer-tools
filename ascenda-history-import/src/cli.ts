@@ -6,6 +6,7 @@
  *   scan --json     same, machine-readable — what the app's consent surface renders
  *   import          snapshot + extract + ship
  *   fix-retention   show the Claude Code retention plan; --apply to write it
+ *   participate     set this machine up for an organisation's study, start to finish — see `participate.ts`
  *   archive         the durable copy — see `archive.ts`
  *   schedule        install / remove / status of a recurring `import --ship`
  *
@@ -20,6 +21,7 @@
  *
  * `import` flags:
  *   --ship               send the extracted events over the batch wire
+ *   --summary-json <f>   also write the closing summary to <f> as JSON (what `participate` reads)
  *   --keep-staging       leave the run's snapshot on disk (debugging only)
  *   --snapshot-sessions  copy VS Code chat sessions before reading them
  *   --installation-id <id>, --token-file <path>, --api-base-url <url>
@@ -88,6 +90,7 @@ import {
   scheduleStatus,
   scheduledCommand
 } from "./schedule.js";
+import { runParticipate } from "./participate.js";
 import type { MetricKey } from "@ascenda-one/tool-contract";
 import type { ShipResult } from "./ship.js";
 import {
@@ -429,6 +432,27 @@ function writeSummary(input: SummaryInput): void {
 }
 
 /**
+ * The closing summary as data, for a caller that runs `import` as one step of
+ * something larger (`participate`). Written on the same paths `writeSummary`
+ * prints on, plus the one where there was nothing to import.
+ */
+export interface ImportSummaryFile {
+  exitCode: number;
+  /** True when no store was present on this machine, so nothing was read or sent. */
+  nothingToImport?: boolean;
+  outcomes: SourceOutcome[];
+  totalExtracted: number;
+  shipResult: ShipResult | null;
+  shipError: string | null;
+}
+
+async function writeSummaryJson(file: string | null, summary: ImportSummaryFile): Promise<void> {
+  if (!file) return;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(summary, null, 2) + "\n", "utf8");
+}
+
+/**
  * Non-zero whenever the caller would be wrong to treat this run as a
  * complete import: any source that failed, any transport failure, any
  * rejection, or a ship that landed nothing at all.
@@ -480,27 +504,42 @@ async function main(): Promise<number> {
         const at = rest.indexOf(name);
         return at >= 0 && rest[at + 1] && !rest[at + 1].startsWith("--") ? rest[at + 1] : undefined;
       };
-      // Resolved before anything is read or copied: a run that can't ship
-      // should say so in the first second, not after the extraction.
+      const snapshotSessions = rest.includes("--snapshot-sessions");
+      const summaryAt = rest.indexOf("--summary-json");
+      const summaryJson = summaryAt >= 0 ? rest[summaryAt + 1] ?? null : null;
+      // Resolved before anything is read or copied. Two outcomes differ:
+      // - no pairing to ship as is held and reported in the closing summary
+      //   (what `participate` reads), after the extraction still ran;
+      // - a pairing whose token has expired, or that the server refused to
+      //   renew, stops here in the first second, with the pair command.
       let shipConfig: ShipConfig | null = null;
+      let shipConfigProblem: string | null = null;
       if (ship) {
+        let loaded: ShipConfig | null = null;
         try {
-          const prepared = await prepareToken(
-            loadShipConfig({
-              installationId: flagValue("--installation-id"),
-              tokenFile: flagValue("--token-file"),
-              apiBaseUrl: flagValue("--api-base-url")
-            })
-          );
-          shipConfig = prepared.config;
-          if (prepared.note) process.stdout.write(`${prepared.note}\n`);
+          loaded = loadShipConfig({
+            installationId: flagValue("--installation-id"),
+            tokenFile: flagValue("--token-file"),
+            apiBaseUrl: flagValue("--api-base-url")
+          });
         } catch (error) {
           if (!(error instanceof ShipConfigError)) throw error;
+          shipConfigProblem = error.message;
           process.stderr.write(`${error.message}\n`);
-          return 2;
+        }
+        if (loaded) {
+          try {
+            const prepared = await prepareToken(loaded);
+            shipConfig = prepared.config;
+            if (prepared.note) process.stdout.write(`${prepared.note}\n`);
+          } catch (error) {
+            if (!(error instanceof ShipConfigError)) throw error;
+            process.stderr.write(`${error.message}\n`);
+            await writeSummaryJson(summaryJson, { exitCode: 2, outcomes: [], totalExtracted: 0, shipResult: null, shipError: error.message });
+            return 2;
+          }
         }
       }
-      const snapshotSessions = rest.includes("--snapshot-sessions");
 
       const claudeScan = await safeScan("claude_code", paths.claudeProjectsDirs.join(", "), () =>
         scanClaudeCode(paths)
@@ -520,6 +559,7 @@ async function main(): Promise<number> {
         process.stderr.write(
           `no Claude Code store at ${claudeInventory.rootPath}, no Codex store at ${codexInventory.rootPath}, no Cursor store at ${cursorInventory.rootPath}, and no VS Code store at ${vsCodeInventory.rootPath} — nothing to import\n`
         );
+        await writeSummaryJson(summaryJson, { exitCode: 2, nothingToImport: true, outcomes: [], totalExtracted: 0, shipResult: null, shipError: null });
         return 2;
       }
 
@@ -693,9 +733,13 @@ async function main(): Promise<number> {
         let shipResult: Awaited<ReturnType<typeof shipEvents>> | null = null;
         let shipError: string | null = null;
         if (ship) {
-          const config = shipConfig as ShipConfig;
-          process.stdout.write(`\nshipping to ${config.apiBaseUrl} as ${config.toolInstallationId}…\n`);
           try {
+            // A machine with no pairing is a failed ship the summary names,
+            // not a refusal that skips the summary: it was resolved up front
+            // and held until here.
+            if (!shipConfig) throw new ShipConfigError(shipConfigProblem ?? "no pairing to ship as");
+            const config = shipConfig;
+            process.stdout.write(`\nshipping to ${config.apiBaseUrl} as ${config.toolInstallationId}…\n`);
             shipResult = await shipEvents(allEvents, config, (done, total) => {
               process.stdout.write(`  ${done.toLocaleString("en-US")}/${total.toLocaleString("en-US")}\r`);
             });
@@ -716,7 +760,9 @@ async function main(): Promise<number> {
           shipError
         });
 
-        return exitCodeFor(outcomes, ship, shipResult, shipError);
+        const exitCode = exitCodeFor(outcomes, ship, shipResult, shipError);
+        await writeSummaryJson(summaryJson, { exitCode, outcomes, totalExtracted: allEvents.length, shipResult, shipError });
+        return exitCode;
       } finally {
         // Teardown runs on the success path and on the way out of a throw
         // alike: the failure that started all this left ~20 GB behind
@@ -871,6 +917,8 @@ async function main(): Promise<number> {
       // copy it was asked for.
       return result.unreadable > 0 ? 1 : 0;
     }
+    case "participate":
+      return runParticipate({ argv: rest });
     case "fix-retention": {
       const plan = await planClaudeRetentionFix(paths);
       if (!plan.changeNeeded) {
@@ -952,7 +1000,7 @@ async function main(): Promise<number> {
     }
     default: {
       process.stderr.write(
-        "usage: ascenda-history-import <scan [--json] | import [--ship] | schedule <install|remove|status> | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
+        "usage: ascenda-history-import <participate <code> | scan [--json] | import [--ship] | schedule <install|remove|status> | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
       );
       return command === undefined || command === "--help" ? 0 : 2;
     }

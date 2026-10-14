@@ -47,6 +47,27 @@ export type StudyJoinContext = {
   stderr?: NodeJS.WriteStream;
   /** Test-only: overrides {@link POLL_INTERVAL_MS} so a suite need not wait out a real poll cycle. */
   pollIntervalMs?: number;
+  /**
+   * Called once, with how the join ended, before `runStudyJoin` returns. For
+   * a caller that reports the join alongside other steps (`participate` in
+   * the history importer) and so needs the study, its window and what was
+   * actually granted, not just an exit code.
+   */
+  onOutcome?: (outcome: StudyJoinOutcome) => void;
+};
+
+/**
+ * How a join ended. `granted` is always the list read back from the status
+ * poll, never the start response's, for the reason given where it is read.
+ */
+export type StudyJoinOutcome = {
+  status: "joined" | "not_now" | "no_terminal" | "refused" | "expired" | "failed";
+  /** The preview the start call returned. Absent when the start call itself failed, or never ran. */
+  start?: StudyJoinStartResponse;
+  granted: StudyJoinGrant[];
+  refusedReason?: StudyJoinRefusedReason | null;
+  /** The sentence `join` printed for a refusal or a failure. */
+  message?: string;
 };
 
 const STUDY_JOIN_MODE: StudyJoinMode = "report";
@@ -54,6 +75,7 @@ const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 11 * 60 * 1000;
 
 export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
+  const report = (outcome: StudyJoinOutcome) => ctx.onOutcome?.(outcome);
   const stdin = ctx.stdin ?? process.stdin;
   const stdout = ctx.stdout ?? process.stdout;
   const stderr = ctx.stderr ?? process.stderr;
@@ -64,11 +86,13 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   // pipe is exactly the caller that cannot answer the question that follows.
   if (!stdin.isTTY || !stdout.isTTY) {
     stderr.write("join needs an interactive terminal (stdin and stdout). Run it directly, not from a script or a pipe.\n");
+    report({ status: "no_terminal", granted: [] });
     return 0;
   }
 
   if (!ctx.joinCode) {
     stderr.write("Usage: join <code>\n");
+    report({ status: "failed", granted: [], message: "No join code given." });
     return 1;
   }
 
@@ -77,6 +101,7 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
     start = await startStudyJoin(ctx.apiBaseUrl, ctx.eventWriteToken, ctx.joinCode, STUDY_JOIN_MODE);
   } catch (error) {
     stderr.write(`${describeStartError(error)}\n`);
+    report({ status: "failed", granted: [], message: describeStartError(error) });
     return 1;
   }
 
@@ -85,7 +110,7 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   print(formatWindow(start.windowStartUtc, start.windowEndUtc));
   print("");
   print("Report (30 days) grants:");
-  for (const grant of start.grants) print(`  ${describeGrant(grant)}`);
+  for (const grant of start.grants) print(`  ${describeStudyGrant(grant)}`);
   print("");
   print("Study mode needs the Ascenda app. Open the app to join that way instead.");
   print("");
@@ -97,6 +122,7 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   const answer = await askChoice(stdin, stdout);
   if (!/^(1|report)$/i.test(answer)) {
     print("Not now.");
+    report({ status: "not_now", start, granted: [] });
     return 0;
   }
 
@@ -124,6 +150,7 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
       // is a real answer and ends the wait.
       if (isRetryablePollError(error)) continue;
       stderr.write(`${describeStartError(error)}\n`);
+      report({ status: "failed", start, granted: [], message: describeStartError(error) });
       return 1;
     }
     if (poll.status === "pending") continue;
@@ -136,19 +163,22 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
       if (granted.length === 0) {
         print("");
         print("Nothing was granted. Run join again, or check with your organisation.");
+        report({ status: "refused", start, granted: [], message: "Nothing was granted." });
         return 1;
       }
       print("");
       print("Joined. Granted:");
-      for (const grant of granted) print(`  ${describeGrant(grant)}`);
+      for (const grant of granted) print(`  ${describeStudyGrant(grant)}`);
       print("");
       print("Each of these can be turned off separately, in the app's consent settings.");
       print("The organisation sees group counts, never who joined.");
+      report({ status: "joined", start, granted });
       return 0;
     }
     if (poll.status === "expired") {
       print("");
       print("This code expired before it was confirmed. Run join again for a fresh code.");
+      report({ status: "expired", start, granted: [] });
       return 1;
     }
     // refused
@@ -163,19 +193,22 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
       if (granted.length > 0) {
         print("");
         print("Granted before the failure:");
-        for (const grant of granted) print(`  ${describeGrant(grant)}`);
+        for (const grant of granted) print(`  ${describeStudyGrant(grant)}`);
         print("");
         print("Each of these can be turned off separately, in the app's consent settings.");
       }
       print("Run join again, or check with your organisation.");
+      report({ status: "refused", start, granted, refusedReason: poll.refusedReason, message: describeRefusal(poll.refusedReason) });
       return 1;
     }
     print("");
     print(describeRefusal(poll.refusedReason));
+    report({ status: "refused", start, granted: [], refusedReason: poll.refusedReason, message: describeRefusal(poll.refusedReason) });
     return 1;
   }
   print("");
   print("Timed out waiting for confirmation. Run join again for a fresh code.");
+  report({ status: "expired", start, granted: [] });
   return 1;
 }
 
@@ -244,7 +277,7 @@ const GRANT_SENTENCES: Readonly<Record<number, string>> = {
   507: "Import of the AI-work history already on your machine"
 };
 
-function describeGrant(grant: StudyJoinGrant): string {
+export function describeStudyGrant(grant: StudyJoinGrant): string {
   return GRANT_SENTENCES[grant.code] ?? humanise(grant.name);
 }
 
@@ -258,7 +291,7 @@ const STUDY_KIND_SENTENCES: Readonly<Record<string, string>> = {
   Study90: "a 90-day study"
 };
 
-function describeStudyKind(studyKind: string): string {
+export function describeStudyKind(studyKind: string): string {
   return STUDY_KIND_SENTENCES[studyKind] ?? humanise(studyKind);
 }
 

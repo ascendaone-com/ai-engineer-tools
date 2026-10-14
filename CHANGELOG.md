@@ -49,6 +49,45 @@ targets, error counts or internal resource names — this repository is public.
 - Without the Flow app the import prints "no Flow app on this machine, none
   needed" where it used to say a container was missing.
 
+### One command to take part in a study
+
+- **`participate <code>` sets a machine up for your organisation's study.**
+  Run `npx -y @ascenda-one/history-import participate <code>` with the code
+  your organisation gave you. It finds Claude Code, Codex, Cursor, Windsurf
+  and Gemini CLI, installs each one's hooks for every project and pairs it,
+  joins the study in Report mode, and sends the history already on the
+  machine. No desktop app needed.
+- It tells you up front how many browser confirms it needs: one per agent
+  that isn't paired yet, then one for the study. Each is announced before its
+  code appears.
+- Claude Code deletes transcripts after 30 days. `participate` shows the
+  setting it would change and asks first. `--fix-retention` and
+  `--keep-retention` answer for you.
+- The history is sent only when the study granted importing it. Otherwise
+  the step is skipped, and the summary says why.
+- Run it again to finish a half-done setup. Paired agents stay paired, a
+  study you joined isn't joined twice, and history already sent comes back as
+  already there.
+- The summary at the end lists which agents are collecting, the study and its
+  window, Claude Code's retention before and after, and how many events were
+  accepted or already there.
+
+### History import
+
+- `import --summary-json <file>` writes the closing summary as JSON too.
+- A missing pairing during `import --ship` is reported in the summary, after
+  the stores are read. It used to end the run before the summary printed. An
+  expired token still stops the run before anything is read.
+
+### Local dev server
+
+- Historical events need the history-import consent, which a confirmed join
+  that carries it grants. Start the server with `historicalImportLease: false`
+  to begin without it. It's on by default, so `import --ship --local` works
+  as before.
+- The batch door answers `duplicate` for an `importKey` it has already
+  stored, and returns a result for every event in the batch.
+
 ## v0.1.37
 
 Claude Code plugin users: update to plugin 0.3.0 with
