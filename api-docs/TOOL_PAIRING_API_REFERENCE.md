@@ -410,6 +410,11 @@ Collector version:
   a build from a checkout. It's diagnostic, and nothing is required to read it.
   A collector older than an event type sends nothing for that type. The version
   is how a reader tells that absence from a zero a current collector measured.
+- Beside it, `metadata.collectorPlatform`: the operating system the collector
+  runs on, one of `darwin`, `win32`, `linux`, `wsl` or `other`. `wsl` is Linux
+  running inside Windows, kept apart from `linux` so a Windows machine counts as
+  one. Nothing finer is sent: no OS version, architecture or machine name.
+  Older collectors send nothing, which reads as unknown, not as any platform.
 
 Semantic event rules (the six `*_detected`/`*_declared`/`progress_*` types):
 

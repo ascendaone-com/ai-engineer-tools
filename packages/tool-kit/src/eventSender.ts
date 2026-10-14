@@ -36,6 +36,7 @@ import { TimeProvider, systemTimeProvider } from "./timeProvider";
 import { persistEventWriteToken, readTokenExpiry, readTokenFile } from "./tokenStore";
 import { CollectorState, OutboxDiscardReason, defaultStateFilePath, recordOutboxDiscard, recordSendOutcome } from "./stateStore";
 import { mintIdempotencyKey } from "./payload";
+import { COLLECTOR_PLATFORM } from "./collectorPlatform";
 import { COLLECTOR_VERSION } from "./collectorVersion";
 
 export type MappedEvent = {
@@ -184,11 +185,12 @@ export function buildEventPayload(identity: EventIdentity, mapped: MappedEvent):
 }
 
 /**
- * Every builder in this file stamps the version last, after the caller's
- * metadata, so no mapper can send an event that claims another build.
+ * Every builder in this file stamps the version and platform last, after the
+ * caller's metadata, so no mapper can send an event that claims another build
+ * or another system.
  */
 function withCollectorVersion(metadata: AscendaEventMetadata | undefined): AscendaEventMetadata {
-  return { ...metadata, collectorVersion: COLLECTOR_VERSION };
+  return { ...metadata, collectorVersion: COLLECTOR_VERSION, collectorPlatform: COLLECTOR_PLATFORM };
 }
 
 /**
