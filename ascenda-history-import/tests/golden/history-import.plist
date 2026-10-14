@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>one.ascenda.history-import</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/opt/ascenda/dist/cli.js</string>
+    <string>import</string>
+    <string>--ship</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1209600</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin</string>
+    <key>ASCENDA_HOME</key>
+    <string>/Users/dev/.ascenda</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/dev/.ascenda/logs/history-import.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/dev/.ascenda/logs/history-import.log</string>
+</dict>
+</plist>

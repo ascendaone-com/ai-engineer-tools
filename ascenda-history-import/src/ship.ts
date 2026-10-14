@@ -54,10 +54,8 @@ import {
   deriveBranchHash,
   deriveWorkContext,
   hashWithMachineSalt,
-  readTokenFile,
   recordWorkContext,
   recordWorkContextAlias,
-  defaultTokenFilePath,
   utcOffsetMinutesAt
 } from "@ascenda-one/tool-kit";
 import type { WorkContext } from "@ascenda-one/tool-kit";
@@ -70,32 +68,9 @@ import {
   STORE_SOURCE
 } from "./types.js";
 
-export interface ShipConfig {
-  apiBaseUrl: string;
-  toolInstallationId: string;
-  eventWriteToken: string;
-}
-
-export const DEFAULT_API_BASE_URL = "https://api.ascenda.one";
-
-/** Mirrors tool-kit's loadCliAgentConfig, minus the hook-only pieces. */
-export function loadShipConfig(): ShipConfig {
-  const apiBaseUrl = (process.env.ASCENDA_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
-  const idRaw = process.env.ASCENDA_TOOL_INSTALLATION_ID;
-  if (!idRaw) {
-    throw new Error(
-      "Missing ASCENDA_TOOL_INSTALLATION_ID — the importer ships as the machine's paired tool; pair it first"
-    );
-  }
-  const toolInstallationId = idRaw.trim().includes(":") ? idRaw.trim() : `claude_code:${idRaw.trim()}`;
-  const tokenFilePath =
-    process.env.ASCENDA_EVENT_WRITE_TOKEN_FILE ?? defaultTokenFilePath(toolInstallationId);
-  const eventWriteToken = readTokenFile(tokenFilePath) ?? process.env.ASCENDA_EVENT_WRITE_TOKEN;
-  if (!eventWriteToken) {
-    throw new Error(`No event write token at ${tokenFilePath} (or ASCENDA_EVENT_WRITE_TOKEN)`);
-  }
-  return { apiBaseUrl, toolInstallationId, eventWriteToken };
-}
+export type { ShipConfig } from "./credentials.js";
+export { DEFAULT_API_BASE_URL, loadShipConfig } from "./credentials.js";
+import type { ShipConfig } from "./credentials.js";
 
 /**
  * Per-event ordinals for a batch, positionally aligned with `events`.
@@ -335,6 +310,13 @@ export interface ShipResult {
    * a person their afternoon.
    */
   consentBlocked?: boolean;
+  /**
+   * Stores the backend refused with `consent_source_not_granted`: the lease
+   * exists but doesn't name them. Unlike {@link consentBlocked} this is per
+   * store, so the run skips the rest of that store's events and carries on
+   * with the stores that are granted.
+   */
+  storesNotGranted?: string[];
 
   /**
    * False when at least one batch response could not be attributed back to
@@ -397,10 +379,18 @@ export async function shipEvents(
   // continuously, or the same record would key differently depending on
   // where the batching happened to fall.
   const ordinals = importOrdinals(wireEvents);
+  const notGranted = new Set<string>();
   for (let offset = 0; offset < wireEvents.length; offset += BATCH_SIZE) {
-    const chunk = wireEvents.slice(offset, offset + BATCH_SIZE);
+    const slice = wireEvents.slice(offset, offset + BATCH_SIZE);
+    const keep = slice.map((event) => !notGranted.has(event.store));
+    const chunk = slice.filter((_, i) => keep[i]);
+    if (chunk.length === 0) {
+      onProgress?.(Math.min(offset + BATCH_SIZE, wireEvents.length), wireEvents.length);
+      continue;
+    }
+    const chunkOrdinals = ordinals.slice(offset, offset + BATCH_SIZE).filter((_, i) => keep[i]);
     const payloads = chunk.map((event, i) =>
-      toWirePayload(event, ordinals[offset + i], config.toolInstallationId)
+      toWirePayload(event, chunkOrdinals[i], config.toolInstallationId)
     );
     let response: Response;
     try {
@@ -483,6 +473,17 @@ export async function shipEvents(
       // consent reasons — a mixed batch is a per-event problem (an off-catalog
       // type, a missing importKey) and must keep going so the events that are
       // fine still land.
+      if (attributable) {
+        // A store whose every event in this batch was refused for the grant is
+        // not going to be granted by the next batch either.
+        for (const store of new Set(chunk.map((event) => event.store))) {
+          const mine = items.filter((_, i) => chunk[i].store === store);
+          if (mine.every((item) => item.status === "rejected" && item.reason === "consent_source_not_granted")) {
+            notGranted.add(store);
+            result.storesNotGranted = [...notGranted];
+          }
+        }
+      }
       if (items.length === chunk.length && items.length > 0) {
         const blocked = items.every(
           (item) =>

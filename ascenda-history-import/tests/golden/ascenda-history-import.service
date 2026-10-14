@@ -1,0 +1,9 @@
+[Unit]
+Description=Ascenda history import (ships new AI-usage history)
+
+[Service]
+Type=oneshot
+Environment=ASCENDA_HOME=/Users/dev/.ascenda
+ExecStart=/usr/local/bin/node /opt/ascenda/dist/cli.js import --ship
+StandardOutput=append:/home/dev/.ascenda/logs/history-import.log
+StandardError=append:/home/dev/.ascenda/logs/history-import.log

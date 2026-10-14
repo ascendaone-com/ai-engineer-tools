@@ -423,7 +423,53 @@ ascenda-history-import scan --json     # what the app's consent surface renders
 ascenda-history-import fix-retention   # dry-run; --apply to write
 ascenda-history-import import          # Claude Code + Codex + Cursor + VS Code, dry run; --ship to send
 ascenda-history-import archive         # the durable copy; --verify / --list / --restore <dir> / --prune
+ascenda-history-import schedule install  # a recurring import --ship; also: remove, status
 ```
+
+### Without the Flow app
+
+The importer runs on its own. Pair the hooks once (`npx @ascenda-one/claude-code-hooks setup`),
+turn on historical import for your account, then:
+
+```
+ascenda-history-import import --ship
+```
+
+`--ship` finds its pairing the way the hooks do. In order: the flags
+`--installation-id`, `--token-file` and `--api-base-url`; the
+`ASCENDA_TOOL_INSTALLATION_ID`, `ASCENDA_EVENT_WRITE_TOKEN(_FILE)` and
+`ASCENDA_API_BASE_URL` variables; then `~/.ascenda/credentials.json` and
+`~/.ascenda/tokens/`. Two paired tools and no way to choose is an error that
+names both.
+
+Event tokens last 30 days. The importer renews one with under 21 days left,
+through the same endpoint and the same token file as the hooks, so there is
+one token store. A token that has already expired can't be renewed; the run
+stops before reading anything and prints the `pair` command. Machines with
+live hooks rarely get there, because the hooks renew on their first event
+after day nine.
+
+There is no handoff file without the Flow app, and the output says so as
+a normal line, not a warning.
+
+### A recurring import
+
+```
+ascenda-history-import schedule install               # every 14 days
+ascenda-history-import schedule install --every 21d   # see the retention guard
+ascenda-history-import schedule status
+ascenda-history-import schedule remove
+```
+
+macOS gets a launchd agent in `~/Library/LaunchAgents`, Linux a systemd user
+timer in `~/.config/systemd/user`. Windows gets the `schtasks` command printed
+and nothing written. Output goes to `~/.ascenda/logs/history-import.log`.
+
+Claude Code deletes transcripts after `cleanupPeriodDays`, 30 unless set. The
+default is 14 days so one run can fail and the next still lands inside the
+window. `install` refuses an interval where the retention doesn't cover two
+runs (so `--every 30d`, or `21d` on the default retention) and says why. Run
+`fix-retention --apply` first, or pass `--override-retention`.
 
 ### Staging is scaffolding; `archive` is the copy
 
