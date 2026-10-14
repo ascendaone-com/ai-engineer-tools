@@ -491,6 +491,46 @@ test("setup prints the web confirm link from qrUrl while it waits, then the code
   });
 });
 
+test("a pairing confirmed before the first poll still prints its join notice and link", async () => {
+  // The confirm can land between create and the first status poll: a browser
+  // already on the page answers in milliseconds. The link and the join notice
+  // went out only after a pending poll, so that run printed neither.
+  await sandbox(async ({ home, project, log }) => {
+    withSavedPairing(home);
+    const qrUrl = "https://api.example.test/p/ps-3#the-secret";
+    const previous = process.env.ASCENDA_PAIR_ORG_JOIN_CODE;
+    process.env.ASCENDA_PAIR_ORG_JOIN_CODE = "NORTHVIEW-2026";
+    try {
+      await withFetch((url, init) => {
+        if (url.endsWith("/initiatives")) return new Response("", { status: 401 });
+        if (url.endsWith("/v1/tool-pairing-sessions") && init?.method === "POST") {
+          assert.equal(JSON.parse(init.body).orgJoinCode, "NORTHVIEW-2026");
+          return new Response(JSON.stringify({
+            pairingSessionId: "ps-3", code: "135790", qrUrl, expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            studyJoin: { organisationName: "Northview Health", mode: "report", windowStartUtc: "2026-10-13T00:00:00Z", windowEndUtc: "2026-11-10T00:00:00Z" }
+          }), { status: 201 });
+        }
+        if (url.endsWith("/ps-3/status")) {
+          return new Response(JSON.stringify({
+            status: "paired", eventWriteToken: "fresh-token",
+            studyJoin: { joinSessionId: "js-1", status: "joined", organisationName: "Northview Health", studyKind: "report", mode: "report", windowStartUtc: "2026-10-13T00:00:00Z", windowEndUtc: "2026-11-10T00:00:00Z", granted: [], refusedReason: null }
+          }), { status: 200 });
+        }
+        return new Response("", { status: 404 });
+      }, async () => {
+        assert.equal(await runCliAgentSetup(["setup", "--project-dir", project], flat), 0);
+      });
+    } finally {
+      if (previous === undefined) delete process.env.ASCENDA_PAIR_ORG_JOIN_CODE;
+      else process.env.ASCENDA_PAIR_ORG_JOIN_CODE = previous;
+    }
+    const out = log.join("\n");
+    assert.match(out, /This also joins Northview Health \(/);
+    assert.ok(out.includes(`Open this link to confirm: ${qrUrl}`), out);
+    assert.ok(!out.includes("135790"), "a join-carrying pairing offers no typed code");
+  });
+});
+
 test("setup keeps the saved token when the server can't be reached, and says so if the last send was refused", async () => {
   await sandbox(async ({ home, project, log }) => {
     withSavedPairing(home, { lastOutcome: "auth_failed" });

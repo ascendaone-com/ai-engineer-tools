@@ -19,13 +19,20 @@ export class AscendaApiError extends Error {
 }
 
 /** Tool-side (anonymous): create a pairing session. */
-export async function createPairingSession(apiBaseUrl: string, toolInstallationId: string, toolType: string, displayName: string): Promise<PairingSessionResponse> {
+export async function createPairingSession(
+  apiBaseUrl: string,
+  toolInstallationId: string,
+  toolType: string,
+  displayName: string,
+  /** An organisation's join code, to pair and join in one confirm. Report mode only. */
+  orgJoinCode?: string
+): Promise<PairingSessionResponse> {
   const response = await fetch(`${apiBaseUrl}/v1/tool-pairing-sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ toolInstallationId, toolType, displayName })
+    body: JSON.stringify({ toolInstallationId, toolType, displayName, ...(orgJoinCode ? { orgJoinCode, mode: "report" } : {}) })
   });
-  if (!response.ok) throw new AscendaApiError(response.status, undefined, await response.text());
+  if (!response.ok) throw await apiError(response);
   return (await response.json()) as PairingSessionResponse;
 }
 

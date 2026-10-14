@@ -6,6 +6,13 @@
  * ASCENDA_HOME, so nothing here can touch the machine's own ~/.ascenda,
  * ~/.claude/settings.json or ~/.claude/projects.
  *
+ * The tests from the top down to "one agent's setup failing" pin the
+ * two-step path: the server is started with `pairingCarriesJoin: false`, so
+ * the pairing carries no join and `participate` joins afterwards, which is
+ * what it does against a server that doesn't know the field. The tests
+ * headed "one confirm" use the default server, where the first pairing
+ * carries the join.
+ *
  * Pairing confirms itself (the dev server auto-confirms). The join is left
  * pending where a test needs to refuse it, and the history-import consent
  * starts off, as it does on the real backend, so the only thing that can
@@ -28,7 +35,7 @@ const LINEAGE = path.join(HERE, "fixtures", "claude-store-lineage", "projects");
 const CODE = "NORTHVIEW-2026";
 
 async function startServer(options) {
-  const dev = createDevServer({ historicalImportLease: false, log: () => {}, ...options });
+  const dev = createDevServer({ historicalImportLease: false, pairingCarriesJoin: false, log: () => {}, ...options });
   await new Promise((resolve) => dev.server.listen(0, "127.0.0.1", resolve));
   const { port } = dev.server.address();
   return { dev, base: `http://127.0.0.1:${port}`, close: () => new Promise((resolve) => dev.server.close(resolve)) };
@@ -122,9 +129,12 @@ test("happy path: both agents paired, study joined, retention extended, history 
     const out = term.output();
 
     assert.equal(code, 0, out);
-    assert.match(out, /This needs 3 confirms in your browser: 2 to pair Claude Code, Codex CLI, then one to join the study/);
-    assert.match(out, /Confirm 1 of 3:.*Claude Code/);
-    assert.match(out, /Confirm 2 of 3:.*Codex CLI/);
+    // The count is announced before the server has said whether it takes the
+    // code on a pairing, so it assumes it does; the join step owns up to the extra one.
+    assert.match(out, /This needs 2 confirms in your browser: 2 to pair Claude Code, Codex CLI, the first of them also joining the study/);
+    assert.match(out, /Confirm 1 of 2:.*Claude Code/);
+    assert.match(out, /Confirm 2 of 2:.*Codex CLI/);
+    assert.match(out, /This server didn't take the code on the pairing, so the study is joined separately\./);
     assert.match(out, /Confirm 3 of 3:.*join the study/);
 
     // Both agents paired as their own installations, hooks for every project.
@@ -322,4 +332,203 @@ test("the code is required, and only one", async () => {
   const again = terminal();
   assert.equal(await runParticipate({ argv: ["A", "B"], ...again }), 1);
   assert.match(again.output(), /one code only/);
+});
+
+// ------------------------------------------------------------ one confirm ---
+
+/** What the person does in the browser: opens the link, which confirms the pairing and its join together. */
+function confirmFromLink(dev) {
+  const timer = setInterval(() => {
+    for (const session of dev.state.sessions.values()) {
+      if (session.status !== "pending") continue;
+      void fetch(`${dev.base}/v1/tool-pairing-sessions/${session.pairingSessionId}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer from-the-browser" },
+        body: JSON.stringify({ secret: session.secret })
+      });
+    }
+  }, 20);
+  return () => clearInterval(timer);
+}
+
+/** The person declining on the review page. */
+function declineFromLink(dev) {
+  const timer = setInterval(() => {
+    for (const session of dev.state.sessions.values()) {
+      if (session.status === "pending") void fetch(`${dev.base}/_dev/tool-pairing-sessions/${session.pairingSessionId}/decline`, { method: "POST" });
+    }
+  }, 20);
+  return () => clearInterval(timer);
+}
+
+const carryingServer = (options) => startServer({ pairingCarriesJoin: true, ...options });
+
+test("one confirm: the first agent's pairing joins the study, the second pairs without it", async () => {
+  const server = await carryingServer();
+  server.dev.base = server.base;
+  const home = scratchMachine();
+  const env = useMachine(home);
+  try {
+    const term = terminal();
+    const code = await participate(env, term, [CODE, "--api-base-url", server.base, "--agents", "claude_code,codex"]);
+    const out = term.output();
+
+    assert.equal(code, 0, out);
+    assert.match(out, /This needs 2 confirms in your browser: 2 to pair Claude Code, Codex CLI, the first of them also joining the study\./);
+    assert.match(out, /Confirm 1 of 2: pair Claude Code and join the study using the link below\./);
+    assert.match(out, /Confirm 2 of 2: pair Codex CLI using the link below\./);
+    assert.doesNotMatch(out, /Choice \[Not now\]/, "no separate join question");
+    assert.match(out, /Joined Northview Health with the pairing confirmed above\. No second confirm\./);
+
+    // One join, on the first pairing only. The second pairing carries none.
+    const pairings = [...server.dev.state.sessions.values()];
+    assert.equal(pairings.length, 2);
+    assert.equal(pairings.filter((session) => session.joinSessionId).length, 1);
+    assert.equal(server.dev.state.studyJoins.size, 1);
+
+    const record = readJson(path.join(home, ".ascenda", "participation.json"));
+    assert.equal(record.organisationName, "Northview Health");
+    assert.deepEqual(record.granted.map((grant) => grant.code), [501, 507]);
+    assert.ok(historical(server.dev).length > 0, "the join's 507 let the backfill through");
+    assert.match(out, /Study\s+✓ Northview Health, a 30-day report\n/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("one confirm: confirmed from the link, as a browser would", async () => {
+  const server = await carryingServer({ autoConfirm: false });
+  server.dev.base = server.base;
+  const home = scratchMachine();
+  const env = useMachine(home);
+  const stop = confirmFromLink(server.dev);
+  try {
+    const term = terminal();
+    const code = await participate(env, term, [CODE, "--api-base-url", server.base, "--agents", "claude_code", "--no-backfill"]);
+    const out = term.output();
+
+    assert.equal(code, 0, out);
+    assert.match(out, /This needs one confirm in your browser: one to pair Claude Code, the first of them also joining the study\./);
+    // The link is printed, and the typed code is not offered for a pairing that carries a join.
+    assert.match(out, /This also joins Northview Health \(13 Oct – 10 Nov 2026\)/);
+    assert.match(out, /Open this link to confirm: ascenda:\/\/pair\?session=/);
+    assert.equal(out.match(/Or paste code|Confirm in the Ascenda app — code/g), null);
+    assert.equal(server.dev.state.studyJoins.size, 1);
+    assert.equal(readJson(path.join(home, ".ascenda", "participation.json")).organisationName, "Northview Health");
+  } finally {
+    stop();
+    await server.close();
+  }
+});
+
+test("one confirm: a typed code is turned away for a pairing that carries a join", async () => {
+  const server = await carryingServer({ autoConfirm: false });
+  try {
+    const created = await (await fetch(`${server.base}/v1/tool-pairing-sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toolInstallationId: "claude_code:typed", toolType: "claude_code", displayName: "Claude Code", orgJoinCode: CODE, mode: "report" })
+    })).json();
+    assert.equal(created.studyJoin.organisationName, "Northview Health");
+    const typed = await fetch(`${server.base}/v1/tool-pairing-sessions/confirm-device-code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer app" },
+      body: JSON.stringify({ deviceCode: created.deviceCode })
+    });
+    assert.equal(typed.status, 409);
+    assert.equal((await typed.json()).code, "study_join_needs_review");
+  } finally {
+    await server.close();
+  }
+});
+
+test("one confirm: declining refuses the pairing and the join", async () => {
+  const server = await carryingServer({ autoConfirm: false });
+  server.dev.base = server.base;
+  const home = scratchMachine();
+  const env = useMachine(home);
+  const stop = declineFromLink(server.dev);
+  try {
+    const term = terminal({ retention: "n" });
+    const code = await participate(env, term, [CODE, "--api-base-url", server.base, "--agents", "claude_code"]);
+    const out = term.output();
+
+    assert.equal(code, 1, out);
+    assert.match(out, /not collecting: pairing declined/);
+    assert.match(out, /Study\s+✗ not joined: You declined the join\. Nothing was granted\./);
+    assert.equal(server.dev.state.tools.size, 0, "nothing paired");
+    assert.equal(fs.existsSync(path.join(home, ".ascenda", "participation.json")), false);
+    assert.equal(server.dev.state.studyJoins.size, 1, "and no second join was started behind the decline");
+    assert.equal(historical(server.dev).length, 0);
+  } finally {
+    stop();
+    await server.close();
+  }
+});
+
+test("one confirm: a code the server refuses at create still pairs the agent, and reports why", async () => {
+  const server = await carryingServer();
+  const home = scratchMachine();
+  const env = useMachine(home);
+  try {
+    const term = terminal();
+    const code = await participate(env, term, ["NOT-A-STUDY", "--api-base-url", server.base, "--agents", "claude_code"]);
+    const out = term.output();
+
+    assert.equal(code, 1, out);
+    assert.match(out, /That code is not a study anyone can join\. Check it and try again\. Pairing without the study\./);
+    assert.match(out, /✓ Claude Code\s+collecting/);
+    assert.match(out, /Study\s+✗ not joined: That code is not a study anyone can join/);
+    assert.equal(server.dev.state.tools.size, 1);
+    assert.equal(server.dev.state.studyJoins.size, 0, "no join session was made, here or by a fallback");
+    assert.doesNotMatch(out, /Choice \[Not now\]/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("fallback: a server that returns no studyJoin gets the separate join, with its extra confirm", async () => {
+  const server = await startServer({ pairingCarriesJoin: false });
+  const home = scratchMachine();
+  const env = useMachine(home);
+  try {
+    const term = terminal();
+    const code = await participate(env, term, [CODE, "--api-base-url", server.base, "--agents", "claude_code", "--no-backfill"]);
+    const out = term.output();
+
+    assert.equal(code, 0, out);
+    assert.match(out, /This server didn't take the code on the pairing, so the study is joined separately\./);
+    assert.match(out, /Confirm 2 of 2: join the study/);
+    assert.match(out, /Choice \[Not now\]/);
+    assert.equal(server.dev.state.studyJoins.size, 1);
+    assert.equal([...server.dev.state.sessions.values()].filter((session) => session.joinSessionId).length, 0);
+    assert.equal(readJson(path.join(home, ".ascenda", "participation.json")).organisationName, "Northview Health");
+  } finally {
+    await server.close();
+  }
+});
+
+test("one confirm: a re-run asks for nothing and starts no second join", async () => {
+  const server = await carryingServer();
+  const home = scratchMachine();
+  const env = useMachine(home);
+  try {
+    const argv = [CODE, "--api-base-url", server.base, "--agents", "claude_code,codex"];
+    assert.equal(await participate(env, terminal(), argv), 0);
+    const sessions = server.dev.state.sessions.size;
+    const firstSend = historical(server.dev).length;
+
+    const term = terminal();
+    const code = await participate(env, term, argv);
+    const out = term.output();
+
+    assert.equal(code, 0, out);
+    assert.match(out, /nothing needs confirming/);
+    assert.equal(server.dev.state.sessions.size, sessions, "no second pairing");
+    assert.equal(server.dev.state.studyJoins.size, 1, "no second join");
+    assert.equal(historical(server.dev).length, firstSend);
+    assert.match(out, /Study\s+✓ Northview Health, a 30-day report \(joined earlier\)/);
+  } finally {
+    await server.close();
+  }
 });

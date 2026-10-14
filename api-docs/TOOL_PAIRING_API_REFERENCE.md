@@ -260,6 +260,30 @@ All endpoints are shown as canonical `/v1`.
 - Path: `/v1/tool-pairing-sessions`
 - Auth: none
 
+Optional body fields `orgJoinCode` and `mode: "report"` make the pairing
+carry an organisation study join, so one confirmation pairs the tool and joins
+the study. When the server takes them, the 200 response adds:
+
+```json
+{
+  "studyJoin": {
+    "organisationName": "Northview Health",
+    "mode": "report",
+    "windowStartUtc": "2026-10-13T00:00:00.000Z",
+    "windowEndUtc": "2026-11-10T00:00:00.000Z"
+  }
+}
+```
+
+A response without `studyJoin` means the pairing carries no join; a client
+that wants the study joins it separately. A bad code is refused with the codes
+`org-study-join-sessions` uses: `join_code_not_found`, `no_live_study`,
+`unknown_mode`.
+
+A session that carries a join is confirmed from its link only. Confirming it
+with a typed code returns `409 study_join_needs_review`. Declining refuses
+both the pairing and the join.
+
 ### 2) Confirm pairing (authenticated user)
 
 - `POST /v1/tool-pairing-sessions/{pairingSessionId}/confirm` (secret)
@@ -276,6 +300,11 @@ Auth: user bearer auth
 
 Status semantics:
 
+- For a session that carries a join, the response adds `studyJoin`
+  (`joinSessionId`, `status`, `organisationName`, `studyKind`, `mode`,
+  `windowStartUtc`, `windowEndUtc`, `granted[]`, `refusedReason`) next to
+  `eventWriteToken`. Its `status` can still be `pending` for a moment after
+  the pairing reads `paired`; clients keep polling until it settles.
 - Polling status does not rotate token repeatedly.
 - On first transition to `paired`, response includes `eventWriteToken`.
 - After that, status may return `eventWriteToken: null` while still paired.

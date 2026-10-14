@@ -48,7 +48,10 @@ import {
   ascendaHome,
   colourEnabled,
   defaultTokenFilePath,
+  PAIR_JOIN_OUTCOME_FILE_ENV,
+  PAIR_ORG_JOIN_CODE_ENV,
   describeStudyGrant,
+  describeStudyJoinRefusal,
   describeStudyKind,
   formatWindow,
   readMachineCredentials,
@@ -58,7 +61,7 @@ import {
   tidyHomePath,
   writeAtomically
 } from "@ascenda-one/tool-kit";
-import type { HostCredentials, StudyJoinOutcome } from "@ascenda-one/tool-kit";
+import type { HostCredentials, PairingJoinOutcome, StudyJoinOutcome } from "@ascenda-one/tool-kit";
 import type { StudyJoinGrant } from "@ascenda-one/tool-contract";
 import { applyClaudeRetentionFix, planClaudeRetentionFix } from "./retention.js";
 import type { ClaudeRetentionPlan } from "./retention.js";
@@ -481,29 +484,50 @@ export async function runParticipate(ctx: ParticipateContext): Promise<number> {
   const record = readParticipation();
   const joinRemembered = !options.rejoin && rememberedJoin(record, options);
   const toPair = found.filter((entry) => !pairingOf(entry.agent));
-  const confirms = toPair.length + (joinRemembered ? 0 : 1);
+  // The join rides on the first pairing, but only with a person at a terminal
+  // to open its link. Otherwise it's left to the join step, which says so.
+  const carrier = !joinRemembered && stdin.isTTY && stdout.isTTY ? toPair[0]?.agent : undefined;
+  const confirms = toPair.length + (joinRemembered || carrier ? 0 : 1);
+  const confirmWhat = (agent: ParticipateAgent) => `pair ${agent.displayName}${agent === carrier ? " and join the study" : ""}`;
   print("");
   print(`Found ${found.map((entry) => entry.agent.displayName).join(", ")}.`);
   print(confirms === 0
     ? "Everything here is paired and the study is joined, so nothing needs confirming."
     : `This needs ${confirms === 1 ? "one confirm" : `${confirms} confirms`} in your browser: ${[
-      toPair.length ? `${toPair.length === 1 ? "one" : toPair.length} to pair ${toPair.map((entry) => entry.agent.displayName).join(", ")}` : "",
-      joinRemembered ? "" : "one to join the study"
-    ].filter(Boolean).join(", then ")}. Each is announced below before its code appears.`);
+      toPair.length ? `${toPair.length === 1 ? "one" : toPair.length} to pair ${toPair.map((entry) => entry.agent.displayName).join(", ")}${carrier ? `, the first of them also joining the study` : ""}` : "",
+      joinRemembered || carrier ? "" : "one to join the study"
+    ].filter(Boolean).join(", then ")}. Each is announced below before its link appears.`);
 
   step(1, "Agents");
   let confirmIndex = 0;
   const agents: AgentResult[] = [];
+  let carried: PairingJoinOutcome | undefined;
   for (const { agent, foundAt } of found) {
     const needsConfirm = !pairingOf(agent);
     print("");
     print(`  ${ui.bold(agent.displayName)} ${ui.dim(`(found ${foundAt})`)}`);
-    if (needsConfirm) print(`  ${ui.cyan(`Confirm ${++confirmIndex} of ${confirms}:`)} pair ${agent.displayName} using the code below.`);
+    if (needsConfirm) print(`  ${ui.cyan(`Confirm ${++confirmIndex} of ${confirms}:`)} ${confirmWhat(agent)} using the link below.`);
     const args = ["setup", "--scope", "user", ...(options.apiBaseUrl ? ["--api-base-url", options.apiBaseUrl] : [])];
-    const exit = await runChild(adapterCommand(agent, args), env, stdout);
+    const outcomeDir = agent === carrier ? fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-participate-join-")) : undefined;
+    const outcomeFile = outcomeDir ? path.join(outcomeDir, "pairing-join.json") : undefined;
+    // Set for the carrier, and cleared for every other agent, whatever the caller's environment holds.
+    const childEnv: NodeJS.ProcessEnv = { ...env };
+    delete childEnv[PAIR_ORG_JOIN_CODE_ENV];
+    delete childEnv[PAIR_JOIN_OUTCOME_FILE_ENV];
+    if (outcomeFile) {
+      childEnv[PAIR_ORG_JOIN_CODE_ENV] = options.joinCode;
+      childEnv[PAIR_JOIN_OUTCOME_FILE_ENV] = outcomeFile;
+    }
+    let exit: number;
+    try {
+      exit = await runChild(adapterCommand(agent, args), childEnv, stdout);
+      if (outcomeFile) carried = readPairingJoinOutcome(outcomeFile);
+    } finally {
+      if (outcomeDir) fs.rmSync(outcomeDir, { recursive: true, force: true });
+    }
     const pairing = pairingOf(agent);
     if (exit !== 0) agents.push({ agent, foundAt, state: "failed", detail: `setup exited ${exit}`, pairing });
-    else if (!pairing) agents.push({ agent, foundAt, state: "unpaired", detail: "hooks installed, pairing didn't finish" });
+    else if (!pairing) agents.push({ agent, foundAt, state: "unpaired", detail: carried?.pairing === "cancelled" ? "pairing declined" : "hooks installed, pairing didn't finish" });
     else agents.push({ agent, foundAt, state: "collecting", pairing });
   }
 
@@ -519,11 +543,19 @@ export async function runParticipate(ctx: ParticipateContext): Promise<number> {
     study = { state: "already", record };
     print(`  Already joined ${record.organisationName} with this code ${ui.dim(`(${formatWindow(record.windowStartUtc, record.windowEndUtc)})`)}. Not asking again.`);
     print(ui.dim("  To join again anyway, add --rejoin."));
+  } else if (carried && settledByPairing(carried)) {
+    study = studyFromPairing(carried, options, agents.find((result) => result.agent === carrier)?.pairing?.apiBaseUrl ?? lead?.pairing?.apiBaseUrl ?? "");
+    if (study.state === "not_joined") print(`  Not joined: ${study.reason}`);
+    else {
+      writeParticipation(study.record);
+      print(`  Joined ${study.record.organisationName} with the pairing confirmed above. No second confirm.`);
+    }
   } else if (!lead?.pairing) {
     study = { state: "not_joined", reason: "no agent is paired, and joining needs one", granted: [] };
     print("  Skipped: joining needs a paired agent, and none paired above.");
   } else {
-    print(`  ${ui.cyan(`Confirm ${++confirmIndex} of ${confirms}:`)} join the study, after you answer the question below.`);
+    if (carried?.join === "not_carried") print(ui.dim("  This server didn't take the code on the pairing, so the study is joined separately."));
+    print(`  ${ui.cyan(`Confirm ${++confirmIndex} of ${Math.max(confirms, confirmIndex)}:`)} join the study, after you answer the question below.`);
     let outcome: StudyJoinOutcome | undefined;
     await runStudyJoin({
       apiBaseUrl: lead.pairing.apiBaseUrl,
@@ -586,6 +618,50 @@ export async function runParticipate(ctx: ParticipateContext): Promise<number> {
     retention.state !== "failed" &&
     (backfill.state === "ran" ? backfill.summary.exitCode === 0 : backfill.state !== "failed");
   return ok ? 0 : 1;
+}
+
+function readPairingJoinOutcome(file: string): PairingJoinOutcome | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as PairingJoinOutcome;
+    return parsed && typeof parsed.join === "string" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether the pairing's own outcome answers the study question, so no separate join is needed. */
+function settledByPairing(outcome: PairingJoinOutcome): boolean {
+  return outcome.join === "refused" || outcome.join === "carried";
+}
+
+/** The study result a pairing that carried the join (or was refused at create) tells us. */
+function studyFromPairing(outcome: PairingJoinOutcome, options: ParticipateOptions, apiBaseUrl: string): StudyResult {
+  if (outcome.join === "refused") return { state: "not_joined", reason: outcome.message ?? "the code was refused", granted: [] };
+  const join = outcome.studyJoin;
+  if (!join) {
+    const reason = outcome.pairing === "paired" ? "the join didn't finish" : "the pairing wasn't confirmed, so neither was the join";
+    return { state: "not_joined", reason, granted: [] };
+  }
+  const granted = join.granted ?? [];
+  if (join.status === "confirmed" && granted.length > 0) {
+    return {
+      state: "joined",
+      record: {
+        joinCode: options.joinCode,
+        apiBaseUrl,
+        organisationName: join.organisationName,
+        studyKind: join.studyKind,
+        windowStartUtc: join.windowStartUtc,
+        windowEndUtc: join.windowEndUtc,
+        granted,
+        joinedAt: new Date().toISOString()
+      }
+    };
+  }
+  if (join.status === "confirmed") return { state: "not_joined", reason: "nothing was granted", granted: [] };
+  if (join.status === "refused") return { state: "not_joined", reason: describeStudyJoinRefusal(join.refusedReason), granted };
+  if (join.status === "expired") return { state: "not_joined", reason: "the link expired before it was confirmed", granted: [] };
+  return { state: "not_joined", reason: "the link wasn't confirmed in time", granted: [] };
 }
 
 /** A remembered join for this code whose window hasn't closed. */

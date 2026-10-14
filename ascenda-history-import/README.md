@@ -488,10 +488,13 @@ summary:
    adapter's own `setup --scope user`. Each adapter installs its own bundle as
    the hook binary, which is why they run as separate `npx` processes, pinned
    to this release.
-2. **Study.** Joins in Report mode with the first paired agent's token
-   (Claude Code when there is one). The question and the confirm are `join`'s
-   own. A join is remembered in `~/.ascenda/participation.json` and not
-   repeated while its window is open; `--rejoin` repeats it.
+2. **Study.** Joins in Report mode. The first agent that needs pairing sends
+   your code along with its pairing, so one visit to the link pairs the agent
+   and joins the study. The page shows the organisation, the window and what
+   you'd share, and declining it refuses both. A pairing that carries a join is
+   confirmed from its link only, so no typed code is printed for it. A join is
+   remembered in `~/.ascenda/participation.json` and not repeated while its
+   window is open; `--rejoin` repeats it.
 3. **Retention.** Shows the `fix-retention` change and asks. With no
    terminal and no flag, nothing changes.
 4. **Backfill.** Runs `import --ship` as the agent the join used, but only
@@ -503,10 +506,23 @@ summary:
    agent even on a machine with several paired tools, and renews its token
    the same way.
 
-Confirms: one in the browser per agent not yet paired, and one for the
-study. A pairing confirms one installation, and installations can't share a
-token, because renewing one revokes the old. Getting this to a single
-confirm needs the backend to let one pairing carry the study code.
+Confirms: one in the browser per agent not yet paired, and nothing extra for
+the study. Installations can't share a token, because renewing one revokes the
+old, so each agent still needs its own pairing. The join belongs to you, not
+to an installation, so only the first pairing carries the code. One agent
+takes one confirm. Three take three. A re-run on a paired machine takes none.
+
+If the server doesn't answer a pairing with a `studyJoin` (an older one, or
+the local dev server started with `pairingCarriesJoin: false`), the code
+isn't carried. The agents pair as usual and the study is joined afterwards
+with `join`'s own question and one more confirm. That's decided from the
+response, not from a version. The count printed up front assumes the server
+carries the code, and the join step says when it didn't. Without a terminal
+the code isn't attached at all, and the join step declines as before.
+
+A code the server refuses when the pairing is created (not found, nothing
+live, wrong mode) doesn't stop the pairing. The agent pairs without the study
+and the summary gives the reason.
 
 A failed agent doesn't stop the rest, and every step is safe to repeat, so a
 half-finished run is fixed by running it again. The exit code is 0 only when

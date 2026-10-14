@@ -12,6 +12,37 @@ export type PairingSessionResponse = {
   secret?: string;
   qrUrl: string;
   expiresAt: string;
+  /**
+   * Present only when the create request carried `orgJoinCode` and the server
+   * took it. A server that doesn't know the field leaves it out, and that
+   * absence is how a client tells the pairing carries no join.
+   */
+  studyJoin?: PairingStudyJoinPreview;
+};
+
+/** What the person is about to be asked to join, as the create call echoes it. */
+export type PairingStudyJoinPreview = {
+  organisationName: string;
+  mode: StudyJoinMode;
+  windowStartUtc: string;
+  windowEndUtc: string;
+};
+
+/**
+ * The join riding on a pairing session, read from the pairing status poll.
+ * Same fields as the join session's own status plus what the person agreed
+ * to. Absent when the pairing carries no join.
+ */
+export type PairingStudyJoinStatus = {
+  joinSessionId: string;
+  status: StudyJoinSessionStatus;
+  organisationName: string;
+  studyKind: string;
+  mode: StudyJoinMode;
+  windowStartUtc: string;
+  windowEndUtc: string;
+  granted: StudyJoinGrant[] | null;
+  refusedReason: StudyJoinRefusedReason | null;
 };
 
 export type PairingStatusResponse = {
@@ -19,6 +50,7 @@ export type PairingStatusResponse = {
   toolInstallationId: string | null;
   eventWriteToken: string | null;
   pairedAt: string | null;
+  studyJoin?: PairingStudyJoinStatus;
 };
 
 export type RenewToolTokenResponse = {

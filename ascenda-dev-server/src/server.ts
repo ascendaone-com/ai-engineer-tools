@@ -19,6 +19,8 @@ type Session = {
   status: "pending" | "paired" | "expired" | "cancelled";
   tokenIssued: boolean;
   pairedAt: string | null;
+  /** The study join riding on this pairing, when the create call carried `orgJoinCode`. */
+  joinSessionId?: string;
 };
 
 type Tool = {
@@ -104,6 +106,14 @@ export type DevServerOptions = {
    * historical event is rejected `consent_missing_or_expired`.
    */
   historicalImportLease?: boolean;
+  /**
+   * Take `orgJoinCode` on a pairing session and answer with `studyJoin`
+   * (default true, as the real backend does). False behaves like a server
+   * that has never heard of the field: the code is ignored and the response
+   * carries no `studyJoin`, which is what a client's fallback path is tested
+   * against.
+   */
+  pairingCarriesJoin?: boolean;
   log?: (line: string) => void;
 };
 
@@ -121,6 +131,7 @@ export type DevServer = {
     importKeys: Set<string>;
     autoConfirm: boolean;
     autoConfirmJoins: boolean;
+    pairingCarriesJoin: boolean;
     unclassified: number;
   };
 };
@@ -150,6 +161,7 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     importKeys: new Set(),
     autoConfirm: opts.autoConfirm ?? true,
     autoConfirmJoins: opts.autoConfirmJoins ?? (opts.autoConfirm ?? true),
+    pairingCarriesJoin: opts.pairingCarriesJoin ?? true,
     unclassified: 0
   };
 
@@ -172,6 +184,9 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     if (method === "POST" && confirmMatch) return confirm(req, res, "secret", decodeURIComponent(confirmMatch[1]));
     const statusMatch = path.match(/^\/v1\/tool-pairing-sessions\/([^/]+)\/status$/);
     if (method === "GET" && statusMatch) return status(res, decodeURIComponent(statusMatch[1]));
+
+    const declineMatch = path.match(/^\/_dev\/tool-pairing-sessions\/([^/]+)\/decline$/);
+    if (method === "POST" && declineMatch) return declinePairing(res, decodeURIComponent(declineMatch[1]));
 
     // --- org study join ---
     if (method === "POST" && path === "/v1/org-study-join-sessions") return startStudyJoinRoute(req, res);
@@ -213,9 +228,19 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
   }
 
   async function createSession(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const body = (await readJson(req)) as { toolInstallationId?: string; toolType?: string; displayName?: string | null };
+    const body = (await readJson(req)) as { toolInstallationId?: string; toolType?: string; displayName?: string | null; orgJoinCode?: string; mode?: string };
     if (!body.toolInstallationId || !body.toolType) return json(res, 400, { error: "invalid_request" });
     if (!(ASCENDA_TOOL_TYPES as readonly string[]).includes(body.toolType)) return json(res, 400, { error: "unknown_tool_type" });
+
+    // The same refusals, with the same codes, as the join door.
+    const carriedCode = state.pairingCarriesJoin ? body.orgJoinCode : undefined;
+    let info: (typeof STUDY_JOIN_CODES)[string] | undefined;
+    if (carriedCode) {
+      if (body.mode !== "report") return json(res, 400, { error: "Unsupported join mode", code: "unknown_mode" });
+      if (carriedCode === NO_LIVE_STUDY_CODE) return json(res, 404, { error: "Nothing live to join", code: "no_live_study" });
+      info = STUDY_JOIN_CODES[carriedCode];
+      if (!info) return json(res, 404, { error: "Unknown join code", code: "join_code_not_found" });
+    }
 
     const session: Session = {
       pairingSessionId: crypto.randomUUID(),
@@ -230,7 +255,26 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     };
     state.sessions.set(session.pairingSessionId, session);
     log(`${DIM}${time()}${RESET} pairing session for ${session.toolInstallationId} (code ${session.code})`);
-    if (state.autoConfirm) pair(session);
+    let join: StudyJoinSession | undefined;
+    if (info) {
+      join = {
+        joinSessionId: crypto.randomUUID(),
+        deviceCode: session.code,
+        toolInstallationId: session.toolInstallationId,
+        ...info,
+        status: "pending",
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        refusedReason: null,
+        granted: null
+      };
+      session.joinSessionId = join.joinSessionId;
+      state.studyJoins.set(join.joinSessionId, join);
+      log(`${DIM}${time()}${RESET} pairing carries a join -> ${info.organisationName}`);
+    }
+    if (state.autoConfirm) {
+      pair(session);
+      if (join && state.autoConfirmJoins) confirmStudyJoin(join);
+    }
 
     json(res, 200, {
       pairingSessionId: session.pairingSessionId,
@@ -243,8 +287,24 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       // parser rejects with "Invalid pairing link" — a mock that produces an
       // unusable link is worse than no mock.
       qrUrl: `ascenda://pair?session=${session.pairingSessionId}&secret=${session.secret}`,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      ...(join ? { studyJoin: { organisationName: join.organisationName, mode: "report", windowStartUtc: join.windowStartUtc, windowEndUtc: join.windowEndUtc } } : {})
     });
+  }
+
+  /** Dev-only: the person declining on the review page. Refuses the pairing and the join together. */
+  function declinePairing(res: http.ServerResponse, sessionId: string): void {
+    const session = state.sessions.get(sessionId);
+    if (!session) return json(res, 404, { error: "not_found" });
+    session.status = "cancelled";
+    const join = session.joinSessionId ? state.studyJoins.get(session.joinSessionId) : undefined;
+    if (join) {
+      join.status = "refused";
+      join.refusedReason = "declined";
+      join.granted = null;
+    }
+    log(`${DIM}${time()}${RESET} \x1b[31mpairing declined${RESET} ${session.toolInstallationId}${join ? " (and its join)" : ""}`);
+    json(res, 200, { status: "cancelled" });
   }
 
   function pair(session: Session): void {
@@ -271,20 +331,41 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       ? state.sessions.get(sessionId)
       : [...state.sessions.values()].find((s) => s.code === value || s.secret === value);
     if (!session || (by === "secret" && session.secret !== value)) return json(res, 400, { error: "invalid_code_or_secret" });
+    const join = session.joinSessionId ? state.studyJoins.get(session.joinSessionId) : undefined;
+    // A pairing that carries a join is confirmed from its link, where the
+    // person sees what they are agreeing to. A typed code is turned away.
+    if (join && by !== "secret") return json(res, 409, { error: "study_join_needs_review", code: "study_join_needs_review" });
     if (session.status !== "paired") pair(session);
+    if (join && join.status === "pending") confirmStudyJoin(join);
     json(res, 200, { status: "paired" });
   }
 
   function status(res: http.ServerResponse, sessionId: string): void {
     const session = state.sessions.get(sessionId);
     if (!session) return json(res, 404, { error: "not_found" });
+    const join = session.joinSessionId ? state.studyJoins.get(session.joinSessionId) : undefined;
+    const studyJoin = join
+      ? {
+          studyJoin: {
+            joinSessionId: join.joinSessionId,
+            status: join.status,
+            organisationName: join.organisationName,
+            studyKind: join.studyKind,
+            mode: "report",
+            windowStartUtc: join.windowStartUtc,
+            windowEndUtc: join.windowEndUtc,
+            granted: join.granted,
+            refusedReason: join.status === "refused" ? join.refusedReason : null
+          }
+        }
+      : {};
     if (session.status !== "paired") {
-      return json(res, 200, { status: session.status, toolInstallationId: null, eventWriteToken: null, pairedAt: null });
+      return json(res, 200, { status: session.status, toolInstallationId: null, eventWriteToken: null, pairedAt: null, ...studyJoin });
     }
     // Contract: token only on the first paired poll.
     const token = session.tokenIssued ? null : state.tools.get(session.toolInstallationId)?.token ?? null;
     session.tokenIssued = true;
-    json(res, 200, { status: "paired", toolInstallationId: session.toolInstallationId, eventWriteToken: token, pairedAt: session.pairedAt });
+    json(res, 200, { status: "paired", toolInstallationId: session.toolInstallationId, eventWriteToken: token, pairedAt: session.pairedAt, ...studyJoin });
   }
 
   /**
@@ -353,6 +434,10 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     const body = (await readJson(req)) as { deviceCode?: string };
     const session = [...state.studyJoins.values()].find((s) => s.deviceCode === body.deviceCode);
     if (!session) return json(res, 400, { error: "invalid_or_expired" });
+    // A join riding on a pairing is confirmed with the pairing, from its link.
+    if ([...state.sessions.values()].some((pairing) => pairing.joinSessionId === session.joinSessionId)) {
+      return json(res, 409, { error: "study_join_needs_review", code: "study_join_needs_review" });
+    }
     if (session.status === "pending") confirmStudyJoin(session);
     json(res, 200, { status: session.status, granted: session.granted });
   }

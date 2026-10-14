@@ -311,7 +311,7 @@ const REFUSED_REASON_MESSAGES: Readonly<Record<StudyJoinRefusedReason, string>> 
   not_enrolled: "That study couldn't enrol you, so nothing was granted."
 };
 
-function describeRefusal(refusedReason: StudyJoinRefusedReason | null): string {
+export function describeRefusal(refusedReason: StudyJoinRefusedReason | null): string {
   if (refusedReason && REFUSED_REASON_MESSAGES[refusedReason]) return REFUSED_REASON_MESSAGES[refusedReason];
   // A reason this table has not caught up to yet — never a raw wire value,
   // and never "You declined the join.", which claims a specific cause
