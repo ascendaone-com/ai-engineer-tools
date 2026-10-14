@@ -25,7 +25,7 @@ import {
   AscendaSeverity,
   AscendaTelemetryEventType
 } from "@ascenda-one/tool-contract";
-import { COLLECTOR_VERSION, emitLiveSignal, isAfterHours, mintIdempotencyKey } from "@ascenda-one/tool-kit";
+import { COLLECTOR_PLATFORM, COLLECTOR_VERSION, emitLiveSignal, isAfterHours, mintIdempotencyKey } from "@ascenda-one/tool-kit";
 import { getProjectHash, getWorkspaceHash } from "./privacy";
 
 export type TelemetryServiceOptions = {
@@ -348,7 +348,7 @@ export class TelemetryService implements vscode.Disposable {
       // agent-first IDE is indistinguishable from stock VS Code in the data.
       // Caller-supplied metadata wins: it is the more specific claim. The
       // version doesn't, because no caller knows it better than the build.
-      metadata: { host: getHostDisplayName(), ...metadata, collectorVersion: COLLECTOR_VERSION }
+      metadata: { host: getHostDisplayName(), ...metadata, collectorVersion: COLLECTOR_VERSION, collectorPlatform: COLLECTOR_PLATFORM }
     };
   }
 }

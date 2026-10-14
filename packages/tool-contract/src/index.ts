@@ -733,7 +733,10 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   importSchema: "transport",
   // The version of the Ascenda collector that sent this event. Names the
   // build, and nothing about the work it observed.
-  collectorVersion: "transport"
+  collectorVersion: "transport",
+  // The operating system the collector runs on, from a closed list. Names
+  // the machine's system, and nothing about the work it observed.
+  collectorPlatform: "transport"
 };
 
 export type AscendaEventMetadata = Record<string, string | number | boolean | null | undefined> & {
@@ -1067,6 +1070,15 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * one a current collector measured.
    */
   collectorVersion?: string;
+
+  /**
+   * The operating system the collector runs on: `darwin`, `win32`, `linux`,
+   * `wsl` (Linux inside Windows' subsystem, split out so a Windows machine is
+   * counted as one), or `other`. Set beside `collectorVersion` by the same
+   * builders, after the caller's metadata. Coarse on purpose: no OS version,
+   * architecture or machine name.
+   */
+  collectorPlatform?: "darwin" | "win32" | "linux" | "wsl" | "other";
 };
 
 /**
@@ -1122,7 +1134,8 @@ export const EVENT_METADATA_FIELDS = [
   "importKey",
   "extractionId",
   "importSchema",
-  "collectorVersion"
+  "collectorVersion",
+  "collectorPlatform"
 ] as const;
 
 /**

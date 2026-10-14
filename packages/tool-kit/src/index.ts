@@ -14,6 +14,8 @@ export {
   localHourAt,
 } from "./afterHours";
 export { getString, getNumber, getNested, getNestedString, getNestedNumber, inferOutcome, outcomeForHook, looksLikeCorrection, mintIdempotencyKey } from "./payload";
+export { COLLECTOR_PLATFORM, detectCollectorPlatform } from "./collectorPlatform";
+export type { CollectorPlatform, PlatformProbe } from "./collectorPlatform";
 export { COLLECTOR_VERSION, UNRELEASED_COLLECTOR_VERSION, describeCollectorVersion } from "./collectorVersion";
 export {
   FLUSH_LOCK_FRESH_MS,
