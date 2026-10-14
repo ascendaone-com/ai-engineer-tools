@@ -9,9 +9,10 @@
   "$minCollectorVersion": {
     "means": "Oldest collector release still considered current. Below this, a running installation is out of date.",
     "consumers": [
-      "apps/macos Connections row — states the version alongside 'last seen', without colour or reproach"
+      "apps/macos Connections row — states the version alongside 'last seen', without colour or reproach",
+      "packages/tool-kit/src/releaseCheck.ts — the collectors' background sender reads this floor from the latest release manifest once a day, and a hook below it says so at the start of every session until it's updated"
     ],
-    "not a consumer": "The collectors themselves. A floor built into a bundle is one that bundle always meets, and reading the current floor at runtime would mean status fetching the release manifest over the network. A collector reports its version on every event (metadata.collectorVersion) and in status; comparing it with this floor is left to readers that already hold both.",
+    "how the collectors read it": "Never from the bundle, which always meets its own floor, and never on a hook's path or in status. The detached flusher fetches the latest manifest after it drains; hooks and status only read what it saved. An unpaired install starts no flusher and fetches nothing.",
     "why 0.1.9": "First release whose sends are journalled (~/.ascenda/state). Below it, a failing collector is undiagnosable, which is the floor's whole purpose."
   },
 
