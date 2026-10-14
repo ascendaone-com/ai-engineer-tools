@@ -319,8 +319,11 @@ your events, the background sender fetches the release manifest from GitHub.
 The request carries nothing about you. `status` prints what it found on its
 `latest` line. In Claude Code, the first session after a release starts with
 a one-line note naming the release and the command. Below the oldest
-supported release, the note comes back every session until you update. An
-unpaired install never checks. To turn the check off, set
+supported release, the note comes back every session until you update. A
+plugin install runs its hooks through `npx`, which fetches new releases by
+itself. Its note comes when a release adds hooks the plugin's `hooks.json`
+doesn't register yet, and names `claude plugin update`. An unpaired install
+never checks. To turn the check off, set
 `ASCENDA_DISABLE_UPDATE_CHECK=true`.
 
 ## Packages

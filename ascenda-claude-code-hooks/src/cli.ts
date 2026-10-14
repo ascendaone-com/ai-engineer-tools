@@ -54,6 +54,7 @@ import { isNewSessionStart, mapClaudeEvent, milestoneInviting } from "./mapClaud
 import { credentialsFilePath, readCredentials, selfCommand, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, claudeRuntime, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 import { stampLastHook } from "./hookHealth.js";
+import { pendingPluginHookSetNotice } from "./pluginHookSet.js";
 import { doctorRow, localSignalLines } from "./liveDoctor.js";
 
 const INTENTION_INVITE =
@@ -325,7 +326,7 @@ async function main(): Promise<void> {
 
   // Also a local read: the background sender fetched the release manifest,
   // and this only compares. See releaseCheck.ts in tool-kit.
-  const release = pendingUpdateNotice(hookName, input);
+  const release = pendingUpdateNotice(hookName, input) ?? await pendingPluginNotice(hookName, input);
   if (release) contextParts.push(release.text);
 
   if (contextParts.length > 0) {
@@ -687,6 +688,17 @@ function pendingUpdateNotice(hookName: ClaudeHookEventName, input: ClaudeHookInp
   try {
     if (!runsFromInstalledBundle() || localOnlyInstall()) return undefined;
     return pendingReleaseNotice({ setupCommand: "npx -y @ascenda-one/claude-code-hooks setup", agentName: "Claude Code" });
+  } catch {
+    return undefined;
+  }
+}
+
+/** The plugin's half: its `hooks.json` is behind the code npx runs. See pluginHookSet.ts. */
+async function pendingPluginNotice(hookName: ClaudeHookEventName, input: ClaudeHookInput): Promise<{ text: string; markShown: () => void } | undefined> {
+  if (hookName !== "SessionStart" || !isNewSessionStart(input)) return undefined;
+  try {
+    const { HOOK_SET } = await import("./setup.js");
+    return pendingPluginHookSetNotice({ currentSet: HOOK_SET });
   } catch {
     return undefined;
   }
