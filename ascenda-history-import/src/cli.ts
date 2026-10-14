@@ -7,6 +7,7 @@
  *   import          snapshot + extract + ship
  *   fix-retention   show the Claude Code retention plan; --apply to write it
  *   archive         the durable copy — see `archive.ts`
+ *   schedule        install / remove / status of a recurring `import --ship`
  *
  * `archive` flags:
  *   --verify                  re-hash every blob the generation names
@@ -21,6 +22,9 @@
  *   --ship               send the extracted events over the batch wire
  *   --keep-staging       leave the run's snapshot on disk (debugging only)
  *   --snapshot-sessions  copy VS Code chat sessions before reading them
+ *   --installation-id <id>, --token-file <path>, --api-base-url <url>
+ *                        ship as this pairing; otherwise the environment, then
+ *                        ~/.ascenda/credentials.json and tokens/
  *
  * Two rules this command is built around, both of them learned the hard way
  * on 25 Aug 2026:
@@ -73,6 +77,17 @@ import {
   verifyArchive
 } from "./archive.js";
 import { loadShipConfig, shipEvents, shippableEvents } from "./ship.js";
+import { ShipConfigError, prepareToken, type ShipConfig } from "./credentials.js";
+import {
+  DEFAULT_INTERVAL_DAYS,
+  checkRetention,
+  defaultScheduleEnv,
+  installSchedule,
+  parseInterval,
+  removeSchedule,
+  scheduleStatus,
+  scheduledCommand
+} from "./schedule.js";
 import type { MetricKey } from "@ascenda-one/tool-contract";
 import type { ShipResult } from "./ship.js";
 import {
@@ -304,7 +319,7 @@ async function runSource(
   process.stdout.write(
     handoffPath
       ? `  handoff: → ${handoffPath}\n\n`
-      : "  handoff: desktop app container not found — skipped\n\n"
+      : "  handoff: no Flow app on this machine, none needed\n\n"
   );
 
   outcomes.push({
@@ -391,8 +406,16 @@ function writeSummary(input: SummaryInput): void {
     out.write(
       "\n  stopped early: this account has no consent for a retrospective import, so the\n" +
         "  backend refused the whole batch and every remaining event would be refused too.\n" +
-        "  Nothing was stored. Grant it in Flow — Connections > Bring in daily tools — and\n" +
-        "  run this again; the import is idempotent, so nothing here is wasted.\n"
+        "  Nothing was stored. Turn on historical import for this account: in the Flow app\n" +
+        "  under Connections > Bring in daily tools, or on the web where you joined your\n" +
+        "  study. Then run this again; the import is idempotent, so nothing here is wasted.\n"
+    );
+  }
+  if (shipResult.storesNotGranted?.length) {
+    out.write(
+      `\n  not granted: ${shipResult.storesNotGranted.join(", ")}. Historical import is on for this account but\n` +
+        "  doesn't include those stores, so their events were skipped. Add them to the grant\n" +
+        "  (Flow app, or the web where you joined your study) and run this again.\n"
     );
   }
   for (const [reason, n] of Object.entries(shipResult.rejectionReasons)) {
@@ -453,6 +476,30 @@ async function main(): Promise<number> {
       // away the Claude Code and Cursor events already extracted above it.
       const ship = rest.includes("--ship");
       const keepStaging = rest.includes("--keep-staging");
+      const flagValue = (name: string): string | undefined => {
+        const at = rest.indexOf(name);
+        return at >= 0 && rest[at + 1] && !rest[at + 1].startsWith("--") ? rest[at + 1] : undefined;
+      };
+      // Resolved before anything is read or copied: a run that can't ship
+      // should say so in the first second, not after the extraction.
+      let shipConfig: ShipConfig | null = null;
+      if (ship) {
+        try {
+          const prepared = await prepareToken(
+            loadShipConfig({
+              installationId: flagValue("--installation-id"),
+              tokenFile: flagValue("--token-file"),
+              apiBaseUrl: flagValue("--api-base-url")
+            })
+          );
+          shipConfig = prepared.config;
+          if (prepared.note) process.stdout.write(`${prepared.note}\n`);
+        } catch (error) {
+          if (!(error instanceof ShipConfigError)) throw error;
+          process.stderr.write(`${error.message}\n`);
+          return 2;
+        }
+      }
       const snapshotSessions = rest.includes("--snapshot-sessions");
 
       const claudeScan = await safeScan("claude_code", paths.claudeProjectsDirs.join(", "), () =>
@@ -619,7 +666,7 @@ async function main(): Promise<number> {
             process.stdout.write(
               crossStorePath
                 ? `elapsed across ${crossStoreFile.stores.join(" + ")}: → ${crossStorePath}\n\n`
-                : "elapsed across stores: desktop app container not found — skipped\n\n"
+                : "elapsed across stores: no Flow app on this machine, none needed\n\n"
             );
           } else if (outcomes.some((outcome) => outcome.handoffWritten)) {
             // No union this time, and at least one handoff replaced — so an
@@ -646,7 +693,7 @@ async function main(): Promise<number> {
         let shipResult: Awaited<ReturnType<typeof shipEvents>> | null = null;
         let shipError: string | null = null;
         if (ship) {
-          const config = loadShipConfig();
+          const config = shipConfig as ShipConfig;
           process.stdout.write(`\nshipping to ${config.apiBaseUrl} as ${config.toolInstallationId}…\n`);
           try {
             shipResult = await shipEvents(allEvents, config, (done, total) => {
@@ -845,9 +892,67 @@ async function main(): Promise<number> {
       }
       return 0;
     }
+    case "schedule": {
+      const [action, ...flags] = rest;
+      const env = defaultScheduleEnv();
+      if (action === "install") {
+        const at = flags.indexOf("--every");
+        let everyDays: number;
+        try {
+          everyDays = at >= 0 ? parseInterval(flags[at + 1] ?? "") : DEFAULT_INTERVAL_DAYS;
+        } catch (error) {
+          process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+          return 2;
+        }
+        const verdict = checkRetention(await planClaudeRetentionFix(paths), everyDays);
+        if (!verdict.ok && !flags.includes("--override-retention")) {
+          process.stderr.write(`${verdict.reason}\n`);
+          return 2;
+        }
+        try {
+          loadShipConfig();
+        } catch (error) {
+          // A schedule that can't ship would fail quietly every fortnight.
+          process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+          return 2;
+        }
+        const result = await installSchedule(env, { everyDays, command: scheduledCommand(), pathEnv: process.env.PATH });
+        if (result.printed) {
+          process.stdout.write(`Windows: nothing written. Run this to schedule it:\n\n  ${result.printed}\n`);
+          return 0;
+        }
+        for (const file of result.written) process.stdout.write(`wrote ${file}\n`);
+        process.stdout.write(
+          result.activated
+            ? `scheduled: import --ship every ${everyDays} days\n`
+            : `files written, but the scheduler didn't load them — log out and in, or load them by hand\n`
+        );
+        return result.activated ? 0 : 1;
+      }
+      if (action === "remove") {
+        const { removed } = await removeSchedule(env);
+        process.stdout.write(removed.length ? removed.map((f) => `removed ${f}\n`).join("") : "no schedule installed\n");
+        return 0;
+      }
+      if (action === "status") {
+        const status = await scheduleStatus(env);
+        if (!status.installed) {
+          process.stdout.write("no schedule installed\n");
+          return 0;
+        }
+        process.stdout.write(
+          `installed: every ${status.everyDays ?? "?"} days, ${status.active ? "loaded" : "not loaded"}\n` +
+            status.files.map((f) => `  ${f}\n`).join("") +
+            `  log: ${status.log}\n`
+        );
+        return 0;
+      }
+      process.stderr.write("usage: ascenda-history-import schedule <install [--every 14d] [--override-retention] | remove | status>\n");
+      return 2;
+    }
     default: {
       process.stderr.write(
-        "usage: ascenda-history-import <scan [--json] | import [--ship] | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
+        "usage: ascenda-history-import <scan [--json] | import [--ship] | schedule <install|remove|status> | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
       );
       return command === undefined || command === "--help" ? 0 : 2;
     }

@@ -150,3 +150,33 @@ test("a duplicate re-run is not a wall either", async () => {
     globalThis.fetch = original;
   }
 });
+
+test("a store missing from the grant is skipped while granted stores still ship", async () => {
+  const original = globalThis.fetch;
+  try {
+    const mixed = [
+      ...events(250).map((e) => ({ ...e, store: "cursor" })),
+      ...events(250).map((e, i) => ({ ...e, sessionRef: `claude-${i}`, store: "claude_code" }))
+    ];
+    const sentStores = [];
+    globalThis.fetch = async (_url, init) => {
+      const body = JSON.parse(init.body);
+      sentStores.push(body.events.map((e) => e.source));
+      return batchResponse(
+        body.events.map((e) =>
+          e.source === "cursor_mcp"
+            ? { status: "rejected", reason: "consent_source_not_granted" }
+            : { status: "accepted" }
+        )
+      );
+    };
+    const result = await shipEvents(mixed, CONFIG);
+    assert.deepEqual(result.storesNotGranted, ["cursor"]);
+    assert.equal(result.consentBlocked, undefined);
+    assert.equal(result.accepted, 250);
+    // 200 cursor events tried once; the other 50 are never sent.
+    assert.equal(sentStores.flat().filter((s) => s === "cursor_mcp").length, 200);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

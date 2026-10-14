@@ -24,6 +24,31 @@ targets, error counts or internal resource names — this repository is public.
 - Against a server without these pages, like the local dev server, both
   commands name the app, as they did.
 
+### History import without the Flow app
+
+- **`ascenda-history-import import --ship` finds your pairing.** It reads
+  `~/.ascenda/credentials.json` and the token the hooks' `setup` or `pair`
+  wrote, so a machine with no Flow app and no exported variables can ship.
+  Variables still win over the files, and the new `--installation-id`,
+  `--token-file` and `--api-base-url` flags win over both.
+- **Tokens get renewed before they expire.** With under 21 days left the
+  importer rotates the token and saves the new one where the hooks read it. An
+  expired token stops the run in the first second with the `pair` command to
+  fix it. Nothing has been read or copied by then.
+- **`schedule install` sets up a recurring import.** It writes a launchd agent
+  on macOS and a systemd user timer on Linux, every 14 days unless you say
+  `--every`. On Windows it prints the `schtasks` line. `schedule status` and
+  `schedule remove` do what they say.
+- Claude Code deletes transcripts after 30 days unless `cleanupPeriodDays` says
+  otherwise, so `schedule install` won't accept an interval the retention
+  can't cover twice. `fix-retention --apply` lifts the limit. So does
+  `--override-retention`.
+- **A refusal for consent now says where to fix it.** The message names the
+  web as well as the Flow app. A store left out of your grant is skipped and
+  named while the other stores keep shipping.
+- Without the Flow app the import prints "no Flow app on this machine, none
+  needed" where it used to say a container was missing.
+
 ## v0.1.37
 
 Claude Code plugin users: update to plugin 0.3.0 with
