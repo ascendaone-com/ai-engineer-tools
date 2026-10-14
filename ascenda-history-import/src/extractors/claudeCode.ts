@@ -40,7 +40,7 @@
  *
  * Beyond the prompt/session/after-hours signals, this file also extracts:
  *  - **Compaction** (`system` lines, `subtype: "compact_boundary"`,
- *    `compactMetadata.trigger`): per-session counts, split manual/auto to
+ *    `compactMetadata.trigger`): per-session counts plus one event per boundary, split manual/auto to
  *    match the live hooks' `context_compression_manual`/`_auto` vocabulary
  *    (`ascenda-claude-code-hooks/src/mapClaudeEvent.ts`).
  *  - **Failures**: `toolUseResult` tool-result content items with
@@ -101,10 +101,12 @@
  *    historical_derived.
  *  - `after_hours_ai_session` per session with ≥1 human prompt in the
  *    after-hours window (canonical type), provenance historical_derived.
- *  - `context_compression_manual` / `context_compression_auto` per session
- *    with ≥1 of that trigger (canonical types, aggregate — same "one event
- *    per session, count in the metric" shape as `after_hours_ai_session`, not
- *    one event per compaction).
+ *  - `context_compression_manual` / `context_compression_auto`, one per
+ *    `compact_boundary` line, stamped at that line's own timestamp with
+ *    `compactionCount: 1` and a 1-based `compactionOrdinal` within the
+ *    session. Earlier builds wrote one row per session and trigger at the
+ *    session's last timestamp; see `compactionOrdinal` in the metric registry
+ *    for how a reader tells the two apart.
  *  - `tool_failure` per session with ≥1 failure (canonical type, aggregate,
  *    same shape).
  *  - one `extraction_epoch` for the store's observed window. Local only:
@@ -419,6 +421,9 @@ interface SessionFold {
   compactionCount: number;
   compactionManualCount: number;
   compactionAutoCount: number;
+  /** Each compact_boundary line, in file order, at its own instant. `at` is
+   * null for a line with no readable timestamp. */
+  compactions: { at: string | null; trigger: "manual" | "auto" | null }[];
   toolResultErrorCount: number;
   apiErrorCount: number;
   contextWindowPeakTokens: number;
@@ -514,6 +519,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     compactionCount: 0,
     compactionManualCount: 0,
     compactionAutoCount: 0,
+    compactions: [],
     toolResultErrorCount: 0,
     apiErrorCount: 0,
     contextWindowPeakTokens: 0,
@@ -1099,6 +1105,10 @@ async function foldLinesInto(
             const trigger = (record.compactMetadata as Record<string, unknown> | undefined)?.trigger;
             if (trigger === "manual") fold.compactionManualCount += 1;
             else if (trigger === "auto") fold.compactionAutoCount += 1;
+            fold.compactions.push({
+              at: sniffed.occurredAt,
+              trigger: trigger === "manual" || trigger === "auto" ? trigger : null
+            });
           } else if (record.subtype === "api_error") {
             fold.apiErrorCount += 1;
           }
@@ -1601,33 +1611,23 @@ export async function* extractClaudeCode(
         };
       }
 
-      // Aggregate per session, same shape as after_hours_ai_session above —
-      // never one event per compaction/failure. Canonical event names so
-      // these ride the existing catalog rather than living only inside
-      // create_focus_session's metrics bag.
-      if (fold.compactionManualCount > 0) {
+      // One event per real compaction, at the compact_boundary line's own
+      // instant, so time-to-first-compaction can be read off an imported
+      // session. A line with no readable timestamp is in the counts above and
+      // has no event, like an undated tool call. A boundary whose trigger is
+      // neither manual nor auto keeps its place in the ordinal and ships
+      // nothing: the live vocabulary has no third name for it.
+      for (const [index, compaction] of fold.compactions.entries()) {
+        if (!compaction.at || !compaction.trigger) continue;
         yield {
-          occurredAt: fold.lastTs,
+          occurredAt: compaction.at,
           store: "claude_code",
           sourceVersion: fold.sourceVersion,
           sessionRef: fold.sessionId,
           repoRef: fold.cwd ?? fold.projectSlug,
-          eventKind: "context_compression_manual",
-          metrics: { compactionCount: fold.compactionManualCount },
-          provenance: HISTORICAL_PROVENANCE.derived,
-          extractionId
-        };
-      }
-      if (fold.compactionAutoCount > 0) {
-        yield {
-          occurredAt: fold.lastTs,
-          store: "claude_code",
-          sourceVersion: fold.sourceVersion,
-          sessionRef: fold.sessionId,
-          repoRef: fold.cwd ?? fold.projectSlug,
-          eventKind: "context_compression_auto",
-          metrics: { compactionCount: fold.compactionAutoCount },
-          provenance: HISTORICAL_PROVENANCE.derived,
+          eventKind: compaction.trigger === "manual" ? "context_compression_manual" : "context_compression_auto",
+          metrics: { compactionCount: 1, compactionOrdinal: index + 1 },
+          provenance: HISTORICAL_PROVENANCE.direct,
           extractionId
         };
       }

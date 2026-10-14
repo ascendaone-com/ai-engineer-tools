@@ -153,6 +153,25 @@ export const METRIC_KEYS = {
   queuedPrompts: { family: "counts", readBy: ["backend"], backendAliases: ["queuedPrompts", "queued_prompts"] },
   linesChangedBucket: { family: "edits", readBy: ["backend"], backendAliases: ["linesChangedBucket", "lines_changed_bucket"] },
 
+  gitAction: {
+    family: "git",
+    readBy: ["backend"],
+    backendAliases: ["gitAction", "git_action"],
+    note: "The live hooks set it on a shell event; the git extractor sets it to commit on each commit event it emits."
+  },
+  repoKey: {
+    family: "repo",
+    readBy: ["backend"],
+    backendAliases: ["repoKey", "repo_key"],
+    note: "Same derivation as the live hooks (forgeRepoKey of the github.com remote), so a commit joins a session and a pull request. Absent for other forges, a checkout with no remote, and when repo keys are turned off."
+  },
+  branchKey: {
+    family: "repo",
+    readBy: ["backend"],
+    backendAliases: ["branchKey", "branch_key"],
+    note: "forgeBranchKey of the repository and the branch a commit is reachable from. Absent on the default branch, like the live hooks."
+  },
+
   // ── Read by the local handoff only ──────────────────────────────────────
   activeMinutes: { family: "session", readBy: ["handoff"], unit: "minutes" },
   syntheticPromptLines: {
@@ -375,6 +394,23 @@ export const METRIC_KEYS = {
     readBy: ["backend"],
     backendAliases: ["toolName", "tool_name"],
     note: "Set per ai_tool_call_started event by #43's extractors. Declared diagnostic until 23 Sep 2026 on the belief that nothing resolved it server-side; two backend readers do — one to see a sub-agent dispatch, one composing per-tool metrics. This is the inverse of the mismatch this module was written for: contextUsagePercent was a key nobody read, and a key a reader resolves without being declared drops nothing, so it has no symptom at all. What it costs is that readBy stops being a true census of what the server sees, which is what you consult when deciding what a collector should stop sending. Registered after the fact in the first place: #38 and #43 merged past each other, and the union caught it on the next compile — metaLines all over again."
+  },
+  activity: {
+    family: "git",
+    readBy: ["diagnostic"],
+    note: "Names what an editor_activity row is. The git extractor sends git_commit; the backend cadence reader keys on gitAction, and this is how a person reading the row tells it from an editor event."
+  },
+  isMergeCommit: { family: "git", readBy: ["diagnostic"], note: "True when the commit has more than one parent. A merge commit carries no size figures: they would only restate the commits it merged." },
+  authoredByMe: { family: "git", readBy: ["diagnostic"], note: "Whether the commit's author email matches the git config email on this machine. The extractor emits only commits where it does, so today this is always true; the key exists so a wider read can be told apart." },
+  linesAddedBucket: { family: "git", readBy: ["diagnostic"], note: "Lines added by a commit, in the same buckets as linesChangedBucket." },
+  linesRemovedBucket: { family: "git", readBy: ["diagnostic"], note: "Lines removed by a commit, in the same buckets as linesChangedBucket." },
+  gitReposRead: { family: "reading", readBy: ["diagnostic"], note: "Git extractor epoch: repositories whose history was read." },
+  gitReposSkipped: { family: "reading", readBy: ["diagnostic"], note: "Git extractor epoch: repositories a transcript named that could not be read (deleted, not a repository, git failed)." },
+  gitReposWithoutIdentity: { family: "reading", readBy: ["diagnostic"], note: "Git extractor epoch: repositories with no user.email in git config, so no commit could be called mine and none was emitted." },
+  compactionOrdinal: {
+    family: "context",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: 1-based position of this compaction within its session, counting manual and auto together. Present on per-compaction context_compression_* rows. Older imports wrote one row per session and trigger at the session's last timestamp, with no ordinal and compactionCount set to the session total. Where a session has ordinal rows, a reader should ignore its rows without one."
   },
   toolResultCount: { family: "tools", readBy: ["diagnostic"] },
   toolResultErrorCount: { family: "outcome", readBy: ["diagnostic"] },

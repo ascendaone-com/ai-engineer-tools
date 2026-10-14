@@ -423,6 +423,7 @@ ascenda-history-import scan            # human-readable inventory
 ascenda-history-import scan --json     # what the app's consent surface renders
 ascenda-history-import fix-retention   # dry-run; --apply to write
 ascenda-history-import import          # Claude Code + Codex + Cursor + VS Code, dry run; --ship to send
+ascenda-history-import import --git    # also read your own commit metadata from repos your sessions ran in; off by default
 ascenda-history-import archive         # the durable copy; --verify / --list / --restore <dir> / --prune
 ascenda-history-import schedule install  # a recurring import --ship; also: remove, status
 ```

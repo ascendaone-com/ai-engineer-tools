@@ -66,6 +66,7 @@ import { extractClaudeCode } from "./extractors/claudeCode.js";
 import { CODEX_SNAPSHOT_DIRS, extractCodex } from "./extractors/codex.js";
 import { extractCursor } from "./extractors/cursor.js";
 import { extractVsCode, type VsCodeRoot } from "./extractors/vscode.js";
+import { extractGit } from "./extractors/git.js";
 import {
   archiveSizeBytes,
   archiveStores,
@@ -264,7 +265,7 @@ async function runSource(
   inventory: StoreInventory,
   allEvents: NormalizedHistoricalEvent[],
   extract: (collect: (event: NormalizedHistoricalEvent) => void) => Promise<void>,
-  buildStoreHandoff: (events: NormalizedHistoricalEvent[]) => Parameters<typeof writeHandoff>[0],
+  buildStoreHandoff: ((events: NormalizedHistoricalEvent[]) => Parameters<typeof writeHandoff>[0]) | null,
   scanError: string | null = null,
   crossStore: CrossStoreElapsedPool | null = null
 ): Promise<void> {
@@ -318,12 +319,17 @@ async function runSource(
   // register as a contributor.
   crossStore?.add(store, collectProjectSpans(events));
 
-  const handoffPath = await writeHandoff(buildStoreHandoff(events));
-  process.stdout.write(
-    handoffPath
-      ? `  handoff: → ${handoffPath}\n\n`
-      : "  handoff: no Flow app on this machine, none needed\n\n"
-  );
+  // The git store has no handoff: it is not something the app reads.
+  const handoffPath = buildStoreHandoff ? await writeHandoff(buildStoreHandoff(events)) : null;
+  if (buildStoreHandoff) {
+    process.stdout.write(
+      handoffPath
+        ? `  handoff: → ${handoffPath}\n\n`
+        : "  handoff: no Flow app on this machine, none needed\n\n"
+    );
+  } else {
+    process.stdout.write("\n");
+  }
 
   outcomes.push({
     store,
@@ -505,6 +511,9 @@ async function main(): Promise<number> {
         return at >= 0 && rest[at + 1] && !rest[at + 1].startsWith("--") ? rest[at + 1] : undefined;
       };
       const snapshotSessions = rest.includes("--snapshot-sessions");
+      // Off by default: the backend's consent store list has to name `git`
+      // before these rows are accepted.
+      const withGit = rest.includes("--git");
       const summaryAt = rest.indexOf("--summary-json");
       const summaryJson = summaryAt >= 0 ? rest[summaryAt + 1] ?? null : null;
       // Resolved before anything is read or copied. Two outcomes differ:
@@ -687,6 +696,27 @@ async function main(): Promise<number> {
           const source = roots;
           for await (const event of extractVsCode(source, area.extractionId)) collect(event);
         }, (events) => buildVsCodeHandoff(events, area.extractionId, new Date().toISOString()), vsCodeScan.scanError, crossStore);
+
+        if (withGit) {
+          // Only the repositories the other stores already named. A scan of
+          // the disk for `.git` would be a different, larger disclosure.
+          const repoRefs = new Set<string>();
+          for (const event of allEvents) {
+            if (event.store !== "git" && event.repoRef && path.isAbsolute(event.repoRef)) {
+              repoRefs.add(event.repoRef);
+            }
+          }
+          const gitInventory: StoreInventory = {
+            store: "git",
+            rootPath: `${repoRefs.size} repositories named by the other stores`,
+            present: repoRefs.size > 0,
+            counts: { repos: repoRefs.size },
+            notes: ["only commits whose author email matches your git config; metadata only"]
+          };
+          await runSource(outcomes, "git", gitInventory, allEvents, async (collect) => {
+            for await (const event of extractGit(repoRefs, area.extractionId)) collect(event);
+          }, null, null);
+        }
 
         // The union over every store that handed over spans, written once all
         // of them have run. Null — and so no file — below two contributing
@@ -1000,7 +1030,7 @@ async function main(): Promise<number> {
     }
     default: {
       process.stderr.write(
-        "usage: ascenda-history-import <participate <code> | scan [--json] | import [--ship] | schedule <install|remove|status> | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
+        "usage: ascenda-history-import <participate <code> | scan [--json] | import [--ship] [--git] | schedule <install|remove|status> | fix-retention [--apply] | archive [--verify|--list|--restore <dir>|--prune]>\n"
       );
       return command === undefined || command === "--help" ? 0 : 2;
     }
