@@ -10,7 +10,7 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
-## v0.1.39
+## v0.1.40
 
 ### Git history is your choice, made on the confirm page
 
@@ -35,19 +35,14 @@ targets, error counts or internal resource names — this repository is public.
 - The local dev server offers the box, takes the choice on confirm, reports
   `importStores`, and refuses git history that isn't granted.
 
-## v0.1.38
+## v0.1.39
 
-### Confirm in a browser
+### `setup` always shows its link
 
-- **`setup` and `pair` print a link.** Open it, sign in, and the pairing is
-  confirmed. You don't need the Mac app. The 6-digit code still works in the
-  app, and it's printed on the next line.
-- **`join <code>` prints a link too.** It opens a page that shows the study,
-  then asks you to confirm or decline. The app takes the same code.
-- Study mode itself still needs the app. `join` offers Report mode only, as
-  before.
-- Against a server without these pages, like the local dev server, both
-  commands name the app, as they did.
+- **The link and the study notice print before setup starts waiting.** They
+  used to print only after the first check came back unconfirmed, so a pairing
+  confirmed quickly could finish without ever showing them. Both `participate`
+  and each agent's own `setup` are fixed.
 
 ### One confirm for the first agent in `participate`
 
@@ -69,6 +64,26 @@ targets, error counts or internal resource names — this repository is public.
   the study.
 - The local dev server takes the code on a pairing too, so you can try the
   flow without a backend.
+
+### Which operating system
+
+- Events now include the operating system the collector runs on (`darwin`,
+  `win32`, `linux`, `wsl` or `other`), and nothing more specific. WSL counts
+  as its own value, since it runs on a Windows machine.
+
+## v0.1.38
+
+### Confirm in a browser
+
+- **`setup` and `pair` print a link.** Open it, sign in, and the pairing is
+  confirmed. You don't need the Mac app. The 6-digit code still works in the
+  app, and it's printed on the next line.
+- **`join <code>` prints a link too.** It opens a page that shows the study,
+  then asks you to confirm or decline. The app takes the same code.
+- Study mode itself still needs the app. `join` offers Report mode only, as
+  before.
+- Against a server without these pages, like the local dev server, both
+  commands name the app, as they did.
 
 ### History import without the Flow app
 
