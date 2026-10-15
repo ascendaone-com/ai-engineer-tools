@@ -423,7 +423,7 @@ ascenda-history-import scan            # human-readable inventory
 ascenda-history-import scan --json     # what the app's consent surface renders
 ascenda-history-import fix-retention   # dry-run; --apply to write
 ascenda-history-import import          # Claude Code + Codex + Cursor + VS Code, dry run; --ship to send
-ascenda-history-import import --git    # also read your own commit metadata from repos your sessions ran in; off by default
+ascenda-history-import import --git    # also send your own commit metadata from repos your sessions ran in; needs git on your grant
 ascenda-history-import archive         # the durable copy; --verify / --list / --restore <dir> / --prune
 ascenda-history-import schedule install  # a recurring import --ship; also: remove, status
 ```
@@ -454,6 +454,27 @@ after day nine.
 There is no handoff file without the Flow app, and the output says so as
 a normal line, not a warning.
 
+### Git history
+
+`--git` adds your own commits from the repositories your agent sessions ran
+in. Each one sends its time, a size bucket, the number of files changed and
+whether it's a merge. No messages, paths, names or emails. Only commits whose
+author email matches the repository's `git config user.email` count.
+
+Git is its own box on your history-import grant, and it starts unticked. You
+tick it on the page where you confirm a study join. If it isn't ticked, the
+server refuses those commits with `consent_source_not_granted`. The importer
+then says git wasn't granted, prints the command to join again and tick the
+box, and keeps shipping your other stores:
+
+```
+npx -y @ascenda-one/history-import participate <code> --rejoin
+```
+
+You can take git off later by granting again without it. The server refuses
+new commits from then on. Commits it already took stay until you revoke the
+whole history-import consent.
+
 ### A recurring import
 
 ```
@@ -466,6 +487,13 @@ ascenda-history-import schedule remove
 macOS gets a launchd agent in `~/Library/LaunchAgents`, Linux a systemd user
 timer in `~/.config/systemd/user`. Windows gets the `schtasks` command printed
 and nothing written. Output goes to `~/.ascenda/logs/history-import.log`.
+
+`install` asks the server whether your grant covers git, using the join
+`participate` saved in `~/.ascenda/participation.json`. If it does, the job
+runs `import --ship --git`. If it doesn't, or there's no join to ask about,
+the job leaves git out. The choice is fixed when you install, so after you
+change the grant, run `schedule install` again. `schedule status` says
+whether the installed job includes git.
 
 Claude Code deletes transcripts after `cleanupPeriodDays`, 30 unless set. The
 default is 14 days so one run can fail and the next still lands inside the
@@ -505,6 +533,19 @@ summary:
    in the order under "Without the Flow app", so the import ships as that
    agent even on a machine with several paired tools, and renews its token
    the same way.
+
+   Git goes in only when your grant covers it. Before the confirm link, the
+   output says the page has an unticked git box and what it would send. After
+   the join, `participate` reads `importStores` from the join's status and
+   adds `--git` when that list has `git` in it. This command never ticks the
+   box for you. The summary has a `Git` line that says whether git went in,
+   and why.
+
+   On a re-run, the grant is read again from the server, using the join
+   session saved in `participation.json`, because it can change after the
+   join: you can narrow it, or grant git from somewhere else. If the server
+   can't be reached, the last answer saved in that file is used. A file with
+   neither, from an older release, leaves git out and says it couldn't tell.
 
 Confirms: one in the browser per agent not yet paired, and nothing extra for
 the study. Installations can't share a token, because renewing one revokes the

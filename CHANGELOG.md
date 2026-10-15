@@ -10,6 +10,31 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.40
+
+### Git history is your choice, made on the confirm page
+
+- **The page asks, unticked.** When a study join includes the history
+  import, the confirm page has a box for git history. Before the link,
+  `participate` and `join` print one line saying what it would send: commit
+  times, size buckets, files changed, and whether each commit is a merge. No
+  messages, paths, names or emails.
+- **`participate` follows your answer.** After the join it reads which stores
+  your grant covers and adds `--git` to the backfill only when git is one of
+  them. The summary has a `Git` line that says whether git went in, and why.
+  If you granted git somewhere else first, that counts too.
+- **A re-run asks the server again.** The grant can change after you join, so
+  `participate` reads it fresh each time. If the server can't answer, it uses
+  the last answer saved in `~/.ascenda/participation.json`.
+- **`import --git --ship` without the grant.** The server refuses the
+  commits. The importer says git wasn't granted, prints the command to join
+  again and tick the box, and ships your other stores anyway.
+- **`schedule install` checks once.** The job includes `--git` only if your
+  grant covers git when you install it. Change the grant later and you'll
+  need to run `schedule install` again. `schedule status` shows which.
+- The local dev server offers the box, takes the choice on confirm, reports
+  `importStores`, and refuses git history that isn't granted.
+
 ## v0.1.39
 
 ### `setup` always shows its link

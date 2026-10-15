@@ -6,7 +6,14 @@
  *                 every project, and pair it
  *   2. Study      join the study the code names, in Report mode
  *   3. Retention  offer to stop Claude Code deleting transcripts after 30 days
- *   4. Backfill   import the history already on the machine and send it
+ *   4. Backfill   import the history already on the machine and send it,
+ *                 with git commits only when the grant covers git
+ *
+ * Git is the person's choice on the confirm page, an unticked box. This
+ * command never sends that choice. It reads the result: `importStores` on
+ * the join's status, which follows the account's active grant. A re-run
+ * reads it again from the server, because the grant can change after the
+ * join (narrowed by a re-grant, or widened from somewhere else).
  *
  * Why it lives in the importer: this is the one package whose job already
  * spans every agent, and it owns steps 3 and 4. The hook adapters each own a
@@ -54,6 +61,7 @@ import {
   describeStudyJoinRefusal,
   describeStudyKind,
   formatWindow,
+  getStudyJoinStatus,
   readMachineCredentials,
   readTokenFile,
   runStudyJoin,
@@ -308,13 +316,17 @@ export interface ParticipationRecord {
   windowEndUtc: string;
   granted: StudyJoinGrant[];
   joinedAt: string;
+  /** The join session, so a re-run can read the grant's stores fresh. Absent in records written before it was kept. */
+  joinSessionId?: string;
+  /** The stores the grant covered when last read. A fallback only: see {@link readImportStores}. */
+  importStores?: string[] | null;
 }
 
 export function participationFilePath(): string {
   return path.join(ascendaHome(), "participation.json");
 }
 
-function readParticipation(): ParticipationRecord | undefined {
+export function readParticipation(): ParticipationRecord | undefined {
   try {
     const parsed = JSON.parse(fs.readFileSync(participationFilePath(), "utf8")) as ParticipationRecord;
     return parsed && typeof parsed.joinCode === "string" ? parsed : undefined;
@@ -426,7 +438,15 @@ type AgentResult = {
 
 type StudyResult =
   | { state: "joined" | "already"; record: ParticipationRecord }
-  | { state: "not_joined"; reason: string; granted: StudyJoinGrant[] };
+  | { state: "not_joined"; reason: string; granted: StudyJoinGrant[]; importStores?: string[] | null };
+
+/** Where the granted stores came from, and what they were. */
+export type ImportStoresRead =
+  | { from: "join" | "status" | "record"; stores: string[] | null }
+  | { from: "unknown"; stores: null };
+
+/** Whether git went into the backfill, and the sentence that says why. */
+type GitDecision = { included: boolean; reason: string };
 
 type RetentionResult =
   | { state: "absent" }
@@ -437,9 +457,9 @@ type RetentionResult =
 
 type BackfillResult =
   | { state: "skipped"; reason: string }
-  | { state: "nothing" }
-  | { state: "ran"; summary: ImportSummaryFile; shippedAs: string }
-  | { state: "failed"; reason: string };
+  | { state: "nothing"; git: GitDecision }
+  | { state: "ran"; summary: ImportSummaryFile; shippedAs: string; git: GitDecision }
+  | { state: "failed"; reason: string; git: GitDecision };
 
 export async function runParticipate(ctx: ParticipateContext): Promise<number> {
   const env = ctx.env ?? process.env;
@@ -579,12 +599,14 @@ export async function runParticipate(ctx: ParticipateContext): Promise<number> {
         windowStartUtc: outcome.start.windowStartUtc,
         windowEndUtc: outcome.start.windowEndUtc,
         granted: outcome.granted,
-        joinedAt: new Date().toISOString()
+        joinedAt: new Date().toISOString(),
+        joinSessionId: outcome.start.joinSessionId,
+        importStores: outcome.importStores ?? null
       };
       writeParticipation(joined);
       study = { state: "joined", record: joined };
     } else {
-      study = { state: "not_joined", reason: describeJoinMiss(outcome), granted: outcome?.granted ?? [] };
+      study = { state: "not_joined", reason: describeJoinMiss(outcome), granted: outcome?.granted ?? [], importStores: outcome?.importStores };
     }
   }
 
@@ -606,7 +628,10 @@ export async function runParticipate(ctx: ParticipateContext): Promise<number> {
     backfill = { state: "skipped", reason: "the study didn't grant importing your history, so it would be refused" };
     print("  Skipped: importing your history wasn't granted, so the backend would refuse it.");
   } else {
-    backfill = await runBackfill(lead, importerCommand, env, stdout, print);
+    const stores = await importStoresFor(study, readTokenFile(lead.pairing.tokenFile) ?? "");
+    const git = gitDecision(stores);
+    print(`  Git history: ${git.included ? "" : "not "}included. ${capitalise(git.reason)}.`);
+    backfill = await runBackfill(lead, importerCommand, env, stdout, git);
   }
 
   // ---- summary
@@ -654,12 +679,14 @@ function studyFromPairing(outcome: PairingJoinOutcome, options: ParticipateOptio
         windowStartUtc: join.windowStartUtc,
         windowEndUtc: join.windowEndUtc,
         granted,
-        joinedAt: new Date().toISOString()
+        joinedAt: new Date().toISOString(),
+        joinSessionId: join.joinSessionId,
+        importStores: join.importStores ?? null
       }
     };
   }
   if (join.status === "confirmed") return { state: "not_joined", reason: "nothing was granted", granted: [] };
-  if (join.status === "refused") return { state: "not_joined", reason: describeStudyJoinRefusal(join.refusedReason), granted };
+  if (join.status === "refused") return { state: "not_joined", reason: describeStudyJoinRefusal(join.refusedReason), granted, importStores: join.importStores };
   if (join.status === "expired") return { state: "not_joined", reason: "the link expired before it was confirmed", granted: [] };
   return { state: "not_joined", reason: "the link wasn't confirmed in time", granted: [] };
 }
@@ -734,21 +761,68 @@ async function runRetention(
   }
 }
 
+/**
+ * The stores the history-import grant covers, for this run.
+ *
+ * A join made in this run already read them from its status. A join made
+ * earlier is read again from the server, since the grant may have changed
+ * since; the record's copy is used only when that read fails, and a record
+ * with neither a session nor a copy gives "unknown", which leaves git out.
+ */
+export async function readImportStores(record: ParticipationRecord | undefined, token: string): Promise<ImportStoresRead> {
+  if (record?.joinSessionId) {
+    try {
+      const status = await getStudyJoinStatus(record.apiBaseUrl, token, record.joinSessionId);
+      const stores = status.importStores ?? null;
+      if (!sameStores(stores, record.importStores)) writeParticipation({ ...record, importStores: stores });
+      return { from: "status", stores };
+    } catch {
+      // Fall through to what the record kept.
+    }
+  }
+  if (record && Array.isArray(record.importStores)) return { from: "record", stores: record.importStores };
+  return { from: "unknown", stores: null };
+}
+
+function sameStores(a: string[] | null | undefined, b: string[] | null | undefined): boolean {
+  return JSON.stringify([...(a ?? [])].sort()) === JSON.stringify([...(b ?? [])].sort()) && (a == null) === (b == null);
+}
+
+async function importStoresFor(study: StudyResult, token: string): Promise<ImportStoresRead> {
+  if (study.state === "joined") return { from: "join", stores: study.record.importStores ?? null };
+  if (study.state === "already") return readImportStores(study.record, token);
+  if (study.state !== "not_joined" || study.importStores === undefined) return { from: "unknown", stores: null };
+  return { from: "join", stores: study.importStores };
+}
+
+const GIT_NOT_GRANTED = "your history-import grant doesn't cover git. To add it, run this again with --rejoin and tick the git box on the page";
+
+function gitDecision(read: ImportStoresRead): GitDecision {
+  if (read.stores?.includes("git")) return { included: true, reason: "your history-import grant covers git" };
+  if (read.from === "unknown") return { included: false, reason: "couldn't read which stores your grant covers, so git was left out" };
+  return { included: false, reason: GIT_NOT_GRANTED };
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 async function runBackfill(
   lead: AgentResult & { pairing?: Pairing },
   importerCommand: (args: string[]) => CommandLine,
   env: NodeJS.ProcessEnv,
   stdout: NodeJS.WriteStream,
-  print: (line?: string) => void
+  git: GitDecision
 ): Promise<BackfillResult> {
   const pairing = lead.pairing!;
   const summaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-participate-"));
   const summaryFile = path.join(summaryDir, "import-summary.json");
-  print(`  Sending as ${lead.agent.displayName}'s pairing ${pairing.toolInstallationId}.`);
+  stdout.write(`  Sending as ${lead.agent.displayName}'s pairing ${pairing.toolInstallationId}.\n`);
   try {
     // The importer reads its pairing from these, so it ships as the agent
     // paired above whatever else is set in the environment.
-    const exit = await runChild(importerCommand(["import", "--ship", "--summary-json", summaryFile]), {
+    const args = ["import", "--ship", ...(git.included ? ["--git"] : []), "--summary-json", summaryFile];
+    const exit = await runChild(importerCommand(args), {
       ...env,
       ASCENDA_API_BASE_URL: pairing.apiBaseUrl,
       ASCENDA_TOOL_INSTALLATION_ID: pairing.toolInstallationId,
@@ -758,10 +832,10 @@ async function runBackfill(
     try {
       summary = JSON.parse(fs.readFileSync(summaryFile, "utf8")) as ImportSummaryFile;
     } catch {
-      return { state: "failed", reason: `the import exited ${exit} without a summary` };
+      return { state: "failed", reason: `the import exited ${exit} without a summary`, git };
     }
-    if (summary.nothingToImport) return { state: "nothing" };
-    return { state: "ran", summary, shippedAs: pairing.toolInstallationId };
+    if (summary.nothingToImport) return { state: "nothing", git };
+    return { state: "ran", summary, shippedAs: pairing.toolInstallationId, git };
   } finally {
     fs.rmSync(summaryDir, { recursive: true, force: true });
   }
@@ -838,11 +912,15 @@ function printSummary(input: {
         print(`${pad}  ${n(count)} rejected: ${REJECTION_SENTENCES[reason] ?? reason}`);
       }
       if (ship.consentBlocked) print(`${pad}  stopped early: the account has no consent for a history import, so nothing more was sent`);
+      if (ship.storesNotGranted?.length) print(`${pad}  not granted, so skipped: ${ship.storesNotGranted.join(", ")}`);
       if (ship.httpFailures) print(`${pad}  ${n(ship.httpFailures)} batch(es) failed to send. Run this again to fill the gaps`);
     }
     for (const outcome of summary.outcomes.filter((entry) => entry.status === "failed")) {
       print(`${pad}  ${outcome.store} couldn't be read: ${outcome.error}`);
     }
+  }
+  if (backfill.state !== "skipped") {
+    print(`${label("Git")}${ui.mark(backfill.git.included ? "ok" : "info")} ${backfill.git.included ? "included" : "not included"}: ${backfill.git.reason}`);
   }
 
   print("");
