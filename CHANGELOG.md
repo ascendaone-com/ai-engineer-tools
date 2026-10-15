@@ -10,19 +10,16 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
-## v0.1.38
+## v0.1.39
 
-### Confirm in a browser
+### Events say which operating system sent them
 
-- **`setup` and `pair` print a link.** Open it, sign in, and the pairing is
-  confirmed. You don't need the Mac app. The 6-digit code still works in the
-  app, and it's printed on the next line.
-- **`join <code>` prints a link too.** It opens a page that shows the study,
-  then asks you to confirm or decline. The app takes the same code.
-- Study mode itself still needs the app. `join` offers Report mode only, as
-  before.
-- Against a server without these pages, like the local dev server, both
-  commands name the app, as they did.
+- **Live events now carry `metadata.collectorPlatform`.** It's one of
+  `darwin`, `win32`, `linux`, `wsl` or `other`, beside `collectorVersion`.
+  Every agent's hooks send it, and so does the extension. Rows from
+  `ascenda-history-import` don't have it yet.
+- An agent running inside WSL reports `wsl`, kept apart from `linux`.
+- That's all of it. No OS version, architecture or machine name.
 
 ### One confirm for the first agent in `participate`
 
@@ -44,6 +41,20 @@ targets, error counts or internal resource names — this repository is public.
   the study.
 - The local dev server takes the code on a pairing too, so you can try the
   flow without a backend.
+
+## v0.1.38
+
+### Confirm in a browser
+
+- **`setup` and `pair` print a link.** Open it, sign in, and the pairing is
+  confirmed. You don't need the Mac app. The 6-digit code still works in the
+  app, and it's printed on the next line.
+- **`join <code>` prints a link too.** It opens a page that shows the study,
+  then asks you to confirm or decline. The app takes the same code.
+- Study mode itself still needs the app. `join` offers Report mode only, as
+  before.
+- Against a server without these pages, like the local dev server, both
+  commands name the app, as they did.
 
 ### History import without the Flow app
 
