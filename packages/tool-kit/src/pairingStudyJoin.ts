@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import { pairingConfirmLines } from "./confirmLinks";
-import { formatWindow } from "./studyJoin";
+import { formatWindow, gitOfferLine } from "./studyJoin";
 import { AscendaApiError, createPairingSession, getPairingStatus } from "./http";
 import type { PairingSessionResponse, PairingStatusResponse, PairingStudyJoinStatus } from "@ascenda-one/tool-contract";
 
@@ -85,8 +85,10 @@ export function pairingAttemptLines(attempt: PairingAttempt): string[] {
   const { session } = attempt;
   const join = attempt.carriesJoin ? session.studyJoin : undefined;
   if (!join) return pairingConfirmLines(session.qrUrl, session.code);
+  const gitOffer = gitOfferLine(join.optionalImportStores);
   return [
     `This also joins ${join.organisationName} (${formatWindow(join.windowStartUtc, join.windowEndUtc)}). The page shows what you'd share before you confirm.`,
+    ...(gitOffer ? [gitOffer] : []),
     `Open this link to confirm: ${session.qrUrl}`
   ];
 }

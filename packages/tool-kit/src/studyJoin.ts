@@ -68,7 +68,18 @@ export type StudyJoinOutcome = {
   refusedReason?: StudyJoinRefusedReason | null;
   /** The sentence `join` printed for a refusal or a failure. */
   message?: string;
+  /** `importStores` from the status poll that settled the join: the stores the active history-import grant covers. Null when the server sent none. */
+  importStores?: string[] | null;
 };
+
+/**
+ * The one line said before a confirm whose page offers git. Only what the
+ * page says it sends, so the person reads it before they're in the browser.
+ */
+export function gitOfferLine(optionalImportStores: readonly string[] | undefined): string | undefined {
+  if (!optionalImportStores?.includes("git")) return undefined;
+  return "The page also has an unticked box for git history: commit times, size buckets, files changed and whether each is a merge. No messages, paths, names or emails.";
+}
 
 const STUDY_JOIN_MODE: StudyJoinMode = "report";
 const POLL_INTERVAL_MS = 3000;
@@ -111,6 +122,8 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
   print("");
   print("Report (30 days) grants:");
   for (const grant of start.grants) print(`  ${describeStudyGrant(grant)}`);
+  const gitOffer = gitOfferLine(start.optionalImportStores);
+  if (gitOffer) print(gitOffer);
   print("");
   print("Study mode needs the Ascenda app. Open the app to join that way instead.");
   print("");
@@ -172,7 +185,7 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
       print("");
       print("Each of these can be turned off separately, in the app's consent settings.");
       print("The organisation sees group counts, never who joined.");
-      report({ status: "joined", start, granted });
+      report({ status: "joined", start, granted, importStores: poll.importStores ?? null });
       return 0;
     }
     if (poll.status === "expired") {
@@ -198,7 +211,7 @@ export async function runStudyJoin(ctx: StudyJoinContext): Promise<number> {
         print("Each of these can be turned off separately, in the app's consent settings.");
       }
       print("Run join again, or check with your organisation.");
-      report({ status: "refused", start, granted, refusedReason: poll.refusedReason, message: describeRefusal(poll.refusedReason) });
+      report({ status: "refused", start, granted, refusedReason: poll.refusedReason, message: describeRefusal(poll.refusedReason), importStores: poll.importStores ?? null });
       return 1;
     }
     print("");
