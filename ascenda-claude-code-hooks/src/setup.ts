@@ -457,7 +457,10 @@ async function resolveIdentity(apiBaseUrl: string, options: Options): Promise<Id
 
   let attempt: PairingAttempt;
   try {
-    attempt = await createPairingAttempt(apiBaseUrl, toolInstallationId, ASCENDA_TOOL_TYPE, `Claude Code on ${os.hostname()}`);
+    // The pairing carries the tool's name and nothing else about this
+    // machine. A hostname often holds a person's first name, and the
+    // installation id already tells two installs of one tool apart.
+    attempt = await createPairingAttempt(apiBaseUrl, toolInstallationId, ASCENDA_TOOL_TYPE, "Claude Code");
   } catch (error) {
     return {
       toolInstallationId,
