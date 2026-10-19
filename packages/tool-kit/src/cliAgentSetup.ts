@@ -564,7 +564,10 @@ async function resolveIdentity(apiBaseUrl: string, options: SetupOptions, spec: 
   const toolInstallationId = existingId ?? `${spec.toolType}:${crypto.randomUUID()}`;
   let attempt: PairingAttempt;
   try {
-    attempt = await createPairingAttempt(apiBaseUrl, toolInstallationId, spec.toolType, `${spec.displayName} on ${os.hostname()}`);
+    // The pairing carries the tool's name and nothing else about this
+    // machine. A hostname often holds a person's first name, and the
+    // installation id already tells two installs of one tool apart.
+    attempt = await createPairingAttempt(apiBaseUrl, toolInstallationId, spec.toolType, spec.displayName);
   } catch (error) {
     console.error(`\nCould not reach ${apiBaseUrl} to pair: ${error instanceof Error ? error.message : String(error)}`);
     console.error("Start the local dev server and use --local, or pass --api-base-url for your backend.");
