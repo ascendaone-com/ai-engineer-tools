@@ -1,5 +1,4 @@
 import * as crypto from "crypto";
-import * as os from "os";
 import * as vscode from "vscode";
 import { AscendaApi } from "./ascendaApi";
 import { getHostDisplayName, getToolType } from "./host";
@@ -165,13 +164,13 @@ export class PairingService {
   }
 
   private getDisplayName(): string {
-    // An editor-wide pairing gets an editor-wide name. The old label froze
-    // whichever workspace was open at pairing time ("some-repo on VS
-    // Code"), which misread the scope as per-project — one pairing covers
-    // every project this editor opens — and sent a repository name to the
-    // backend, the exact thing the privacy defaults promise never leaves
-    // the machine. The hostname is machine metadata, not work content, and
-    // is what actually disambiguates pairings across a person's machines.
-    return `${getHostDisplayName()} (${os.hostname()})`;
+    // An editor-wide pairing gets an editor-wide name, and only that. Two
+    // earlier labels each leaked something the privacy defaults promise
+    // stays on the machine: the workspace open at pairing time (a
+    // repository name, and a misreading of the scope, since one pairing
+    // covers every project this editor opens), then the hostname, which
+    // often carries a person's first name. The installation id is what
+    // tells two pairings of the same editor apart; the label needn't.
+    return getHostDisplayName();
   }
 }

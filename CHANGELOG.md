@@ -10,7 +10,7 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
-## v0.1.40
+## v0.1.41
 
 ### Git history is your choice, made on the confirm page
 
@@ -34,6 +34,19 @@ targets, error counts or internal resource names — this repository is public.
   need to run `schedule install` again. `schedule status` shows which.
 - The local dev server offers the box, takes the choice on confirm, reports
   `importStores`, and refuses git history that isn't granted.
+
+## v0.1.40
+
+### Pairing names the tool, not the machine
+
+- **A pairing request carries the tool's name and a random installation id,
+  and nothing else.** It used to add the machine's hostname to the label, and
+  a hostname often holds a person's first name. The installation id is what
+  tells two installs of one tool apart, so the label doesn't need to. This
+  covers every collector: each CLI agent's `setup`, `participate`, and the
+  editor extension's **Ascenda: Connect App**.
+- **Earlier pairings keep the label they were made with** until you pair
+  again. Nothing else about them changes.
 
 ## v0.1.39
 

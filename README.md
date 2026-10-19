@@ -285,6 +285,10 @@ code and a six-digit code, good for a few minutes:
 Confirm it in the Flow app under **Connections → Ingest telemetry**: scan the
 QR, or paste the code. The code carries no personal data.
 
+The pairing request carries the tool's name (`Claude Code`, `VS Code`) and a
+random installation id, nothing about the machine or the person. No hostname,
+no username. The installation id is what tells two installs apart.
+
 **The CLI agents** pair during `setup`, which prints the same kind of code. To
 pair an install made with `--no-pair`, run `setup` again (or, for Claude Code,
 `~/.ascenda/bin/ascenda-claude-hook pair`). It attaches to the installation

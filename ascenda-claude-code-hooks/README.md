@@ -516,6 +516,10 @@ PermissionDenied   -> permission_denied (toolName, autonomyMode), auto mode only
 
 Metadata-only telemetry. Does not send raw prompts, responses, code, file names, repository names, branch names, or terminal output.
 
+Pairing sends the tool's name (`Claude Code`) and a random installation id,
+and nothing about the machine or the person: no hostname, no username, no
+account name. The installation id is what tells two installs apart.
+
 When the agent stops and waits for you, `Notification` records only which kind
 of wait it was — `permission_request`, `input_request`, `idle_prompt` or
 `other`. Claude Code's `notification_type` picks the label, and the
