@@ -230,10 +230,22 @@ The collectors work in two ways, and the first needs no account:
   go to Ascenda, so your sessions appear in Flow over time. The live signal
   keeps working, and `setup --event-log` keeps the local file as well.
 
-Workspace identifiers are hashed with a random salt generated on first run and
-stored only at `~/.ascenda/salt`. It is never sent, so the hashes can't be
-turned back into folder or repository names by anyone holding the telemetry.
-Deleting the file resets the hashes.
+Workspace and project identifiers are hashed with a random salt generated on
+first run and stored only at `~/.ascenda/salt`. It is never sent, so those
+hashes can't be turned back into folder or repository names by anyone holding
+the telemetry. Deleting the file resets them.
+
+The repository and branch keys aren't salted. For a GitHub repository, each
+event carries `repoKey`, a digest of `owner/repo`, and off the default branch a
+`branchKey`. The [GitHub collector](./ascenda-github-collector/) runs in a
+workflow step, where no salt exists, and puts the same keys on pull request
+events, so a session can be
+[matched to its pull request](./packages/agent-events/README.md#matching-a-session-to-a-pull-request).
+Its 8-character project digest is unsalted for the same reason. Anyone holding
+your events can check a guess at a repository or branch name, and for a public
+repository the name is public anyway. The keys are on by default, set only for
+github.com remotes, and off with `setup --no-repo-keys` or
+`ASCENDA_REPO_KEYS=off`.
 
 Metadata only, by default. **Not a medical device:** it measures workload
 patterns for self-awareness, not diagnosis or treatment, and makes no clinical
