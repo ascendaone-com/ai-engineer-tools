@@ -24,6 +24,8 @@
  *   --summary-json <f>   also write the closing summary to <f> as JSON (what `participate` reads)
  *   --keep-staging       leave the run's snapshot on disk (debugging only)
  *   --snapshot-sessions  copy VS Code chat sessions before reading them
+ *   --git                also send commit metadata from the repositories the other
+ *                        stores name. Only when the history-import grant covers git
  *   --installation-id <id>, --token-file <path>, --api-base-url <url>
  *                        ship as this pairing; otherwise the environment, then
  *                        ~/.ascenda/credentials.json and tokens/
@@ -91,7 +93,7 @@ import {
   scheduleStatus,
   scheduledCommand
 } from "./schedule.js";
-import { runParticipate } from "./participate.js";
+import { readImportStores, readParticipation, runParticipate } from "./participate.js";
 import type { MetricKey } from "@ascenda-one/tool-contract";
 import type { ShipResult } from "./ship.js";
 import {
@@ -420,9 +422,17 @@ function writeSummary(input: SummaryInput): void {
         "  study. Then run this again; the import is idempotent, so nothing here is wasted.\n"
     );
   }
-  if (shipResult.storesNotGranted?.length) {
+  const notGranted = (shipResult.storesNotGranted ?? []).filter((store) => store !== "git");
+  if (shipResult.storesNotGranted?.includes("git")) {
     out.write(
-      `\n  not granted: ${shipResult.storesNotGranted.join(", ")}. Historical import is on for this account but\n` +
+      "\n  git wasn't granted, so no commits were sent. The other stores carried on.\n" +
+        "  To grant it, join your study again and tick the git box on the page:\n" +
+        "    npx -y @ascenda-one/history-import participate <code> --rejoin\n"
+    );
+  }
+  if (notGranted.length) {
+    out.write(
+      `\n  not granted: ${notGranted.join(", ")}. Historical import is on for this account but\n` +
         "  doesn't include those stores, so their events were skipped. Add them to the grant\n" +
         "  (Flow app, or the web where you joined your study) and run this again.\n"
     );
@@ -987,14 +997,23 @@ async function main(): Promise<number> {
           process.stderr.write(`${verdict.reason}\n`);
           return 2;
         }
+        let shipConfig: ShipConfig;
         try {
-          loadShipConfig();
+          shipConfig = loadShipConfig();
         } catch (error) {
           // A schedule that can't ship would fail quietly every fortnight.
           process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
           return 2;
         }
-        const result = await installSchedule(env, { everyDays, command: scheduledCommand(), pathEnv: process.env.PATH });
+        // Git rides along only when the grant covers it now. The job keeps
+        // what was decided here, so a later grant change means installing again.
+        const record = readParticipation();
+        const stores = await readImportStores(
+          record && record.apiBaseUrl.replace(/\/$/, "") === shipConfig.apiBaseUrl.replace(/\/$/, "") ? record : undefined,
+          shipConfig.eventWriteToken
+        );
+        const git = stores.stores?.includes("git") ?? false;
+        const result = await installSchedule(env, { everyDays, command: scheduledCommand(undefined, undefined, undefined, { git }), pathEnv: process.env.PATH });
         if (result.printed) {
           process.stdout.write(`Windows: nothing written. Run this to schedule it:\n\n  ${result.printed}\n`);
           return 0;
@@ -1002,8 +1021,15 @@ async function main(): Promise<number> {
         for (const file of result.written) process.stdout.write(`wrote ${file}\n`);
         process.stdout.write(
           result.activated
-            ? `scheduled: import --ship every ${everyDays} days\n`
+            ? `scheduled: import --ship${git ? " --git" : ""} every ${everyDays} days\n`
             : `files written, but the scheduler didn't load them — log out and in, or load them by hand\n`
+        );
+        process.stdout.write(
+          git
+            ? "git history: included, your grant covers it. If you take git off the grant, run schedule install again.\n"
+            : stores.from === "unknown"
+              ? "git history: not included. No study join on this machine says git is granted. Run schedule install again after you grant it.\n"
+              : "git history: not included, your grant doesn't cover it. If you grant it later, run schedule install again.\n"
         );
         return result.activated ? 0 : 1;
       }
@@ -1019,7 +1045,7 @@ async function main(): Promise<number> {
           return 0;
         }
         process.stdout.write(
-          `installed: every ${status.everyDays ?? "?"} days, ${status.active ? "loaded" : "not loaded"}\n` +
+          `installed: every ${status.everyDays ?? "?"} days, ${status.active ? "loaded" : "not loaded"}, ${status.git ? "with" : "without"} git history\n` +
             status.files.map((f) => `  ${f}\n`).join("") +
             `  log: ${status.log}\n`
         );

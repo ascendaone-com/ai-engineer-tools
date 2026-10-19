@@ -26,6 +26,8 @@ export type PairingStudyJoinPreview = {
   mode: StudyJoinMode;
   windowStartUtc: string;
   windowEndUtc: string;
+  /** See {@link StudyJoinStartResponse.optionalImportStores}. */
+  optionalImportStores?: HistoryImportStore[];
 };
 
 /**
@@ -43,6 +45,8 @@ export type PairingStudyJoinStatus = {
   windowEndUtc: string;
   granted: StudyJoinGrant[] | null;
   refusedReason: StudyJoinRefusedReason | null;
+  /** See {@link StudyJoinStatusResponse.importStores}. */
+  importStores?: HistoryImportStore[] | null;
 };
 
 export type PairingStatusResponse = {
@@ -74,6 +78,13 @@ export type StudyJoinMode = "report";
  */
 export type StudyJoinGrant = { code: number; name: string };
 
+/**
+ * A history-import store a grant can name. Only `git` is offered as a
+ * choice today; it ships on the wire as source `code_forge`. Typed as
+ * string too, so a store this list hasn't caught up to still parses.
+ */
+export type HistoryImportStore = "git" | (string & {});
+
 export type StudyJoinStartResponse = {
   joinSessionId: string;
   /** What a person types into the app to confirm. */
@@ -86,6 +97,12 @@ export type StudyJoinStartResponse = {
   windowEndUtc: string;
   /** Every grant Report mode carries, in display order. */
   grants: StudyJoinGrant[];
+  /**
+   * Stores the confirming page offers as an unticked checkbox. Present only
+   * when the history import is part of this join. The person chooses on the
+   * page, which sends `includeGit` with its confirm; a CLI never sends it.
+   */
+  optionalImportStores?: HistoryImportStore[];
 };
 
 export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
@@ -123,6 +140,13 @@ export type StudyJoinStatusResponse = {
   granted: StudyJoinGrant[] | null;
   /** Present only on `refused`; `expired` carries no reason of its own. */
   refusedReason: StudyJoinRefusedReason | null;
+  /**
+   * The stores the person's active history-import grant covers. Contains
+   * `git` if and only if git is granted. It reads the account's grant, not
+   * this session's checkbox, so someone who granted git elsewhere sees it
+   * here too. Null or absent when there is no history-import grant.
+   */
+  importStores?: HistoryImportStore[] | null;
 };
 
 export type ConnectedTool = {
