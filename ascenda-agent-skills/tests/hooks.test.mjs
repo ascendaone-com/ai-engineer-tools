@@ -39,12 +39,12 @@ test("both channels close the session they open", () => {
     assert.ok(hooks[event], `the plugin does not register ${event}`);
     assert.ok(setupHookEvents().includes(event), `setup does not register ${event}`);
   }
-  assert.equal(hooks.SessionEnd[0].hooks[0].command, "npx -y @ascenda-one/claude-code-hooks SessionEnd --hook-set 4");
+  assert.equal(hooks.SessionEnd[0].hooks[0].command, 'node "${CLAUDE_PLUGIN_ROOT}/bin/launch.mjs" claude-code-hooks SessionEnd --hook-set 4');
 });
 
 test("every plugin hook carries a timeout", () => {
-  // Claude Code's default for a command hook is 600s, and each of these
-  // resolves `@ascenda-one/claude-code-hooks` through npx before it runs.
+  // Claude Code's default for a command hook is 600s, and until the
+  // launcher has a bundle on disk each of these goes through npx.
   // Telemetry that cannot finish in a few seconds is not worth a person's
   // turn waiting on it — the same 5s `setup` writes (HOOK_TIMEOUT_SECONDS).
   for (const [event, groups] of Object.entries(hooks)) {
@@ -64,7 +64,7 @@ test("every plugin hook names the hook set `setup` registers", () => {
   const set = source.match(/export const HOOK_SET = (\d+);/);
   assert.ok(set, "HOOK_SET not found in setup.ts");
   for (const [event, groups] of Object.entries(hooks)) {
-    assert.equal(groups[0].hooks[0].command, `npx -y @ascenda-one/claude-code-hooks ${event} --hook-set ${set[1]}`);
+    assert.equal(groups[0].hooks[0].command, `node "\${CLAUDE_PLUGIN_ROOT}/bin/launch.mjs" claude-code-hooks ${event} --hook-set ${set[1]}`);
   }
 });
 
@@ -74,4 +74,17 @@ test("the README counts the lifecycle events the plugin registers", () => {
   const claimed = readme.match(/into all (\w+) lifecycle events/);
   assert.ok(claimed, "the README no longer says how many lifecycle events hooks.json wires");
   assert.equal(claimed[1], words[Object.keys(hooks).length]);
+});
+
+test("the plugin runs its hooks and MCP server through its launcher, never npx", () => {
+  // npx asks the registry before every run, and on a network that hangs
+  // Claude Code kills the hook at its 5s timeout. bin/launch.mjs runs the
+  // copy in ~/.ascenda/plugin and refreshes it in the background.
+  const mcp = JSON.parse(readFileSync(here("../.mcp.json"), "utf8")).mcpServers["ascenda-agent"];
+  assert.deepEqual([mcp.command, ...mcp.args], ["node", "${CLAUDE_PLUGIN_ROOT}/bin/launch.mjs", "agent-mcp"]);
+  for (const [event, groups] of Object.entries(hooks)) {
+    for (const group of groups) {
+      for (const entry of group.hooks) assert.doesNotMatch(entry.command, /\bnpx\b/, `${event} still runs npx`);
+    }
+  }
 });
