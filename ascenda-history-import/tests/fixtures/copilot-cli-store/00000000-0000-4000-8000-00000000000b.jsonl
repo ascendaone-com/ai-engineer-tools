@@ -1,0 +1,13 @@
+{"type":"session.start","data":{"sessionId":"00000000-0000-4000-8000-00000000000b","version":1,"producer":"copilot-agent","copilotVersion":"unknown","startTime":"2025-12-19T00:00:00.000Z","selectedModel":"claude-opus-test"},"id":"00000000-0000-4000-9000-000000000025","timestamp":"2025-12-19T00:00:00.000Z","parentId":null}
+{"type":"session.model_change","data":{"previousModel":"claude-opus-test","newModel":"claude-sonnet-test"},"id":"00000000-0000-4000-9000-000000000026","timestamp":"2025-12-19T00:00:01.000Z","parentId":null}
+{"type":"user.message","data":{"content":"CONTENT-SENTINEL","transformedContent":"CONTENT-SENTINEL","attachments":[]},"id":"00000000-0000-4000-9000-000000000027","timestamp":"2025-12-19T00:00:02.000Z","parentId":null}
+{"type":"assistant.turn_start","data":{"turnId":"0"},"id":"00000000-0000-4000-9000-000000000028","timestamp":"2025-12-19T00:00:03.000Z","parentId":null}
+{"type":"assistant.message","data":{"messageId":"m1","content":"CONTENT-SENTINEL","toolRequests":[]},"id":"00000000-0000-4000-9000-000000000029","timestamp":"2025-12-19T00:00:04.000Z","parentId":null}
+{"type":"tool.execution_start","data":{"toolCallId":"b1","toolName":"edit","arguments":"CONTENT-SENTINEL"},"id":"00000000-0000-4000-9000-000000000030","timestamp":"2025-12-19T00:00:05.000Z","parentId":null}
+{ not json
+{"type":"tool.execution_complete","data":{"toolCallId":"b1","success":true,"result":"CONTENT-SENTINEL","toolTelemetry":{}},"id":"00000000-0000-4000-9000-000000000031","timestamp":"2025-12-19T00:00:06.000Z","parentId":null}
+{"type":"session.truncation","data":{"tokenLimit":1,"preTruncationTokensInMessages":1},"id":"00000000-0000-4000-9000-000000000032","timestamp":"2025-12-19T00:00:07.000Z","parentId":null}
+{"type":"abort","data":{"reason":"user initiated"},"id":"00000000-0000-4000-9000-000000000033","timestamp":"2025-12-19T00:00:08.000Z","parentId":null}
+{"type":"session.resume","data":{"resumeTime":"2025-12-19T00:10:00.000Z","eventCount":9},"id":"00000000-0000-4000-9000-000000000034","timestamp":"2025-12-19T00:10:00.000Z","parentId":null}
+{"type":"user.message","data":{"content":"CONTENT-SENTINEL","attachments":[]},"id":"00000000-0000-4000-9000-000000000035","timestamp":"2025-12-19T00:10:01.000Z","parentId":null}
+{"type":"assistant.message","data":{"messageId":"m2","content":"CONTENT-SENTINEL","toolRequests":[]},"id":"00000000-0000-4000-9000-000000000036","timestamp":"2025-12-19T00:10:02.000Z","parentId":null}

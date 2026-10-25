@@ -136,6 +136,13 @@ export const CODEX_ACTIVE_TIME_QUANTITIES: ActiveTimeQuantityStamp = {
   ...PROJECT_DIGEST_QUANTITIES
 };
 
+/** The Copilot CLI handoff's figures: the same two blocks, for the reason
+ * the Codex stamp gives. */
+export const COPILOT_CLI_ACTIVE_TIME_QUANTITIES: ActiveTimeQuantityStamp = {
+  ...SESSION_SPLIT_QUANTITIES,
+  ...PROJECT_DIGEST_QUANTITIES
+};
+
 /**
  * The cross-store elapsed union's figures — `elapsed/cross-store.json`.
  *

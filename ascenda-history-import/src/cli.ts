@@ -50,7 +50,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { resolveStorePaths } from "./stores.js";
-import { scanAll, scanClaudeCode, scanCodex, scanCursor, scanVsCode } from "./scan.js";
+import { scanAll, scanClaudeCode, scanCodex, scanCopilotCli, scanCursor, scanVsCode } from "./scan.js";
 import { applyClaudeRetentionFix, planClaudeRetentionFix } from "./retention.js";
 import {
   checkSpaceForSnapshot,
@@ -58,12 +58,14 @@ import {
   defaultStagingRoot,
   disposeStagingArea,
   formatBytes,
+  snapshotCopilotSessionState,
   snapshotPath,
   snapshotVsCodeWorkspaceStorage,
   sweepStagingRoot
 } from "./staging.js";
 import { extractClaudeCode } from "./extractors/claudeCode.js";
 import { CODEX_SNAPSHOT_DIRS, extractCodex } from "./extractors/codex.js";
+import { extractCopilotCli } from "./extractors/copilotCli.js";
 import { extractCursor } from "./extractors/cursor.js";
 import { extractVsCode, type VsCodeRoot } from "./extractors/vscode.js";
 import { extractGit } from "./extractors/git.js";
@@ -97,6 +99,7 @@ import type { ShipResult } from "./ship.js";
 import {
   buildHandoff,
   buildCodexHandoff,
+  buildCopilotCliHandoff,
   buildCursorHandoff,
   buildVsCodeHandoff,
   collectProjectSpans,
@@ -497,7 +500,8 @@ async function main(): Promise<number> {
     case "import": {
       // Evaporation order: Claude Code first (its 30-day rolling purge is
       // deleting a day of baseline per day this hasn't run), then Codex (no
-      // purge observed; the same transcript shape, and cheap), then Cursor
+      // purge observed; the same transcript shape, and cheap), then Copilot
+      // CLI (no purge observed, small JSONL logs), then Cursor
       // (no purge observed, but the richest per-message structure), then VS
       // Code (stable, ~9-month baseline). Each store is independently optional AND
       // independently fallible — a machine missing any of them, or a store
@@ -554,19 +558,21 @@ async function main(): Promise<number> {
         scanClaudeCode(paths)
       );
       const codexScan = await safeScan("codex", paths.codexSessions, () => scanCodex(paths));
+      const copilotScan = await safeScan("copilot_cli", paths.copilotSessionState, () => scanCopilotCli(paths));
       const cursorScan = await safeScan("cursor", paths.cursorStateDb, () => scanCursor(paths));
       const vsCodeScan = await safeScan("vscode", paths.vscodeHistory, () => scanVsCode(paths));
       const claudeInventory = claudeScan.inventory;
       const codexInventory = codexScan.inventory;
+      const copilotInventory = copilotScan.inventory;
       const cursorInventory = cursorScan.inventory;
       const vsCodeInventory = vsCodeScan.inventory;
-      const scans = [claudeScan, codexScan, cursorScan, vsCodeScan];
+      const scans = [claudeScan, codexScan, copilotScan, cursorScan, vsCodeScan];
       const anyScanFailed = scans.some((r) => r.scanError !== null);
       // "Nothing to import" and "we could not look" are different answers, and
       // only the first of them is a clean exit.
       if (scans.every((r) => !r.inventory.present) && !anyScanFailed) {
         process.stderr.write(
-          `no Claude Code store at ${claudeInventory.rootPath}, no Codex store at ${codexInventory.rootPath}, no Cursor store at ${cursorInventory.rootPath}, and no VS Code store at ${vsCodeInventory.rootPath} — nothing to import\n`
+          `no Claude Code store at ${claudeInventory.rootPath}, no Codex store at ${codexInventory.rootPath}, no Copilot CLI store at ${copilotInventory.rootPath}, no Cursor store at ${cursorInventory.rootPath}, and no VS Code store at ${vsCodeInventory.rootPath} — nothing to import\n`
         );
         await writeSummaryJson(summaryJson, { exitCode: 2, nothingToImport: true, outcomes: [], totalExtracted: 0, shipResult: null, shipError: null });
         return 2;
@@ -592,6 +598,9 @@ async function main(): Promise<number> {
       if (vsCodeInventory.present) willCopy.push(...paths.vscodeVariants.map((v) => v.history));
       // Both Codex roots, measured — whichever of them is absent measures 0.
       if (codexInventory.present) willCopy.push(paths.codexSessions, paths.codexArchivedSessions);
+      // Measured whole, though only the logs are copied: an over-estimate,
+      // which is the safe side of a space check.
+      if (copilotInventory.present) willCopy.push(paths.copilotSessionState);
       if (snapshotSessions && vsCodeInventory.present) {
         willCopy.push(...paths.vscodeVariants.map((v) => v.workspaceStorage));
       }
@@ -654,6 +663,16 @@ async function main(): Promise<number> {
           }
           for await (const event of extractCodex(codexSnapshotRoot, area.extractionId)) collect(event);
         }, (events) => buildCodexHandoff(events, area.extractionId, new Date().toISOString()), codexScan.scanError, crossStore);
+
+        await runSource(outcomes, "copilot_cli", copilotInventory, allEvents, async (collect) => {
+          // Only the logs and workspace files; see snapshotCopilotSessionState.
+          const copilotSnapshotRoot = await snapshotCopilotSessionState(
+            area,
+            paths.copilotSessionState,
+            path.join("copilot_cli", "session-state")
+          );
+          for await (const event of extractCopilotCli(copilotSnapshotRoot, area.extractionId)) collect(event);
+        }, (events) => buildCopilotCliHandoff(events, area.extractionId, new Date().toISOString()), copilotScan.scanError, crossStore);
 
         await runSource(outcomes, "cursor", cursorInventory, allEvents, async (collect) => {
           const cursorSnapshotRoot = path.join(area.root, "cursor");
