@@ -382,7 +382,28 @@ export const METRIC_KEYS = {
   duplicateChatSessions: {
     family: "reading",
     readBy: ["diagnostic"],
-    note: "VS Code only: chat sessions seen in more than one place (a transferred session also in a workspace). Counted once."
+    note: "VS Code only: chat sessions seen in more than one place (a transferred session also in a workspace). Counted once. Copilot CLI uses it for a session written both as a directory and as an older flat file."
+  },
+  clientName: {
+    family: "session",
+    readBy: ["diagnostic"],
+    note: "Copilot CLI only: workspace.yaml's client_name, one constant word naming what started the CLI (vscode, vscode-agent-host). Absent on sessions written before the field existed, which were the standalone CLI."
+  },
+  totalApiDurationMs: {
+    family: "session",
+    readBy: ["diagnostic"],
+    unit: "milliseconds",
+    note: "Copilot CLI only: session.shutdown.totalApiDurationMs, the time the session spent waiting on model calls. Absent where the session has no shutdown event."
+  },
+  selectedModel: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "Copilot CLI only: the model the person chose at session start (session.start.selectedModel), which is auto when they let the router pick. primaryModel is the model that served the session, so the two differ exactly when the router chose."
+  },
+  selectedModelClass: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "Copilot CLI only: classifyModelClass of selectedModel, so a session whose person picked auto reads router:auto beside the served model's class."
   },
   sessionsStartedFromBubble: {
     family: "reading",

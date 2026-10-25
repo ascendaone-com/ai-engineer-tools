@@ -39,6 +39,7 @@ import { LOCAL_TIMEZONE, SessionDaySlice, localDayKey } from "./daySlice.js";
 import {
   CLAUDE_CODE_ACTIVE_TIME_QUANTITIES,
   CODEX_ACTIVE_TIME_QUANTITIES,
+  COPILOT_CLI_ACTIVE_TIME_QUANTITIES,
   type ActiveTimeQuantityStamp
 } from "./handoffActiveTime.js";
 import { DEFAULT_ACTIVE_GAP_MS, minutesOf, type ActiveSpan, type HandsOnBoundary } from "./activeSplit.js";
@@ -635,6 +636,67 @@ export interface CodexHandoffFile {
   projects: HandoffProjectDigest[];
 }
 
+/**
+ * Copilot CLI's handoff session. Codex's shape, because the two stores read
+ * alike: an agent log with prompts, tool calls and a gap-split timeline. It
+ * has no context-window figures (the log records none per request) and adds
+ * the shutdown's line counts, which only a session that shut down cleanly
+ * has. A session with no `session.shutdown` has null there, not 0.
+ */
+export interface CopilotCliHandoffSession {
+  /** Per-local-day slices, oldest first; see {@link HandoffSession.days}. */
+  days: SessionDaySlice[];
+  at: string;
+  startedAt: string | null;
+  sessionRef: string | null;
+  projectLabel: string | null;
+  /** The wire's `projectHash`; same field, same derivation as Claude Code's. */
+  projectHash: string | null;
+  promptCount: number;
+  durationBucket: string;
+  afterHoursPrompts: number;
+  /** The model that served most of the session's messages and tool calls. */
+  primaryModel: string | null;
+  activeMinutes: number;
+  /** The two halves of `activeMinutes`; see {@link HandoffSession.handsOnMinutes}. */
+  handsOnMinutes: number;
+  agentSupervisingMinutes: number;
+  /** Supervising minutes by band, from `permission.requested`'s posture.
+   * Time before the session's first request is `unknown`. */
+  autonomySplit: Partial<Record<AutonomyBand, number>>;
+  /** `session.compaction_complete` events that succeeded. */
+  compactionCount: number;
+  /** `tool.execution_complete` events with `success: false`. */
+  toolFailureCount: number;
+  /** `tool.execution_start` events, one per call id. */
+  toolCallCount: number;
+  /** From `session.shutdown.codeChanges`. Null where the session has no
+   * shutdown, which is not the same as no lines changed. */
+  linesAdded: number | null;
+  linesRemoved: number | null;
+  provenance: string;
+}
+
+export interface CopilotCliHandoffFile {
+  schema: number;
+  extractionId: string;
+  generatedAt: string;
+  /** The gap rule the figures were cut by; see {@link CodexHandoffFile.activeGapMinutes}. */
+  activeGapMinutes: number;
+  /** See {@link CodexHandoffFile.handsOnBoundary}. */
+  handsOnBoundary: HandsOnBoundary;
+  /** See {@link CodexHandoffFile.activeTimeQuantities}. */
+  activeTimeQuantities: ActiveTimeQuantityStamp;
+  /** IANA zone the day slices were cut in; see {@link HandoffFile.timezone}. */
+  timezone: string | null;
+  store: string;
+  windowOldest: string | null;
+  windowNewest: string | null;
+  sessions: CopilotCliHandoffSession[];
+  /** Per-project rollup of the split, same digest as Claude Code's. */
+  projects: HandoffProjectDigest[];
+}
+
 /** Cursor's handoff session — a distinct shape from Claude Code's, because
  * Cursor's unique signals (lines added/removed, human-vs-AI edit
  * attribution, post-edit lint state) don't exist on the Claude side and
@@ -1156,6 +1218,70 @@ export function buildCodexHandoff(
   };
 }
 
+export function buildCopilotCliHandoff(
+  events: NormalizedHistoricalEvent[],
+  extractionId: string,
+  generatedAt: string
+): CopilotCliHandoffFile {
+  const sessions: CopilotCliHandoffSession[] = [];
+  // Collected by the same helper the cross-store pool reads, as the Codex
+  // handoff does, so this store's union and the cross-store one agree.
+  const projectSpans = collectProjectSpans(events);
+  let windowOldest: string | null = null;
+  let windowNewest: string | null = null;
+
+  for (const event of events) {
+    if (event.eventKind === "extraction_epoch") {
+      const oldest = event.metrics.windowOldest;
+      const newest = event.metrics.windowNewest;
+      if (typeof oldest === "string") windowOldest = oldest;
+      if (typeof newest === "string") windowNewest = newest;
+      continue;
+    }
+    if (event.eventKind !== "create_focus_session") continue;
+    sessions.push({
+      at: event.occurredAt,
+      startedAt: typeof event.metrics.sessionStartedAt === "string" ? event.metrics.sessionStartedAt : null,
+      sessionRef: event.sessionRef,
+      projectLabel: projectLabelOf(event.repoRef),
+      projectHash: projectHashOf(event.repoRef),
+      promptCount: Number(event.metrics.promptCount ?? 0),
+      durationBucket: String(event.metrics.durationBucket ?? "unknown"),
+      afterHoursPrompts: Number(event.metrics.afterHoursPrompts ?? 0),
+      primaryModel:
+        typeof event.metrics.primaryModel === "string" ? event.metrics.primaryModel : null,
+      activeMinutes: Number(event.metrics.activeMinutes ?? 0),
+      handsOnMinutes: Number(event.metrics.handsOnMinutes ?? 0),
+      agentSupervisingMinutes: Number(event.metrics.agentSupervisingMinutes ?? 0),
+      autonomySplit: event.autonomySplit ?? {},
+      compactionCount: Number(event.metrics.compactionCount ?? 0),
+      toolFailureCount: Number(event.metrics.toolFailureCount ?? 0),
+      toolCallCount: Number(event.metrics.toolCallCount ?? 0),
+      linesAdded: typeof event.metrics.linesAdded === "number" ? event.metrics.linesAdded : null,
+      linesRemoved: typeof event.metrics.linesRemoved === "number" ? event.metrics.linesRemoved : null,
+      days: event.dayBreakdown ?? [],
+      provenance: event.provenance
+    });
+  }
+  sessions.sort((a, b) => a.at.localeCompare(b.at));
+
+  return {
+    schema: HANDOFF_SCHEMA,
+    extractionId,
+    generatedAt,
+    timezone: LOCAL_TIMEZONE,
+    activeGapMinutes: DEFAULT_ACTIVE_GAP_MS / 60_000,
+    // Not classified past the prompt line yet, as with Codex.
+    handsOnBoundary: "nearest_line",
+    activeTimeQuantities: COPILOT_CLI_ACTIVE_TIME_QUANTITIES,
+    store: "copilot_cli",
+    windowOldest,
+    windowNewest,
+    sessions,
+    projects: buildProjectDigests(sessions, projectSpans)
+  };
+}
+
 export function buildCursorHandoff(
   events: NormalizedHistoricalEvent[],
   extractionId: string,
@@ -1292,7 +1418,7 @@ export function buildVsCodeHandoff(
  * change: which directory answers the question.
  */
 export async function writeHandoff(
-  handoff: HandoffFile | CodexHandoffFile | CursorHandoffFile | VsCodeHandoffFile,
+  handoff: HandoffFile | CodexHandoffFile | CopilotCliHandoffFile | CursorHandoffFile | VsCodeHandoffFile,
   home: string = os.homedir()
 ): Promise<string | null> {
   if (!(await appIsInstalled(home))) return null;

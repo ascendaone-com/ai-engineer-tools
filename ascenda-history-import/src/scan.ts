@@ -154,6 +154,51 @@ export async function scanCodex(paths: StorePaths): Promise<StoreInventory> {
   return inv;
 }
 
+/**
+ * Copilot CLI's session-state: one directory per session with its
+ * `events.jsonl`, and the older flat `<id>.jsonl` files beside them. Counts
+ * logs, bytes and mtimes; no log is opened.
+ */
+export async function scanCopilotCli(paths: StorePaths): Promise<StoreInventory> {
+  const inv: StoreInventory = {
+    store: "copilot_cli",
+    rootPath: paths.copilotSessionState,
+    present: false,
+    counts: {},
+    notes: []
+  };
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(paths.copilotSessionState, { withFileTypes: true });
+  } catch {
+    return inv;
+  }
+  const window = new Window();
+  let sessionLogs = 0;
+  let flatLogs = 0;
+  let bytes = 0;
+  for (const entry of entries) {
+    const full = path.join(paths.copilotSessionState, entry.name);
+    const log = entry.isDirectory() && !entry.name.startsWith(".") ? path.join(full, "events.jsonl") : null;
+    const target = log ?? (entry.isFile() && entry.name.endsWith(".jsonl") ? full : null);
+    if (!target) continue;
+    const st = await statOrNull(target);
+    if (!st) continue;
+    if (log) sessionLogs += 1;
+    else flatLogs += 1;
+    bytes += st.size;
+    window.see(st.mtime);
+  }
+  inv.present = true;
+  inv.counts = { sessionLogs, flatLogs, bytes };
+  inv.oldest = window.oldest?.toISOString();
+  inv.newest = window.newest?.toISOString();
+  // No retentionRisk: logs from December 2025 sit beside this month's on the
+  // one machine looked at. An observation, not a guarantee.
+  inv.notes.push("no purge observed on session logs; a session in both shapes is read once");
+  return inv;
+}
+
 export async function scanCursor(paths: StorePaths): Promise<StoreInventory> {
   const inv: StoreInventory = {
     store: "cursor",
@@ -305,6 +350,7 @@ export async function scanAll(paths: StorePaths): Promise<StoreInventory[]> {
   return [
     await scanClaudeCode(paths),
     await scanCodex(paths),
+    await scanCopilotCli(paths),
     await scanCursor(paths),
     await scanVsCode(paths),
     await scanGit(paths)

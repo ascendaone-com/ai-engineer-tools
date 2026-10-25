@@ -24,7 +24,7 @@ import type {
  * its rollouts are the same shape as Claude Code's transcripts and cost
  * nothing to read — no purge has been observed on them, so its place here is
  * about cheapness, not measured risk. */
-export const HISTORY_STORES = ["claude_code", "codex", "cursor", "vscode", "git"] as const;
+export const HISTORY_STORES = ["claude_code", "codex", "copilot_cli", "cursor", "vscode", "git"] as const;
 export type HistoryStore = (typeof HISTORY_STORES)[number];
 
 /** How each store's events identify on the existing telemetry wire. */
@@ -34,6 +34,9 @@ export const STORE_SOURCE: Record<HistoryStore, AscendaTelemetrySource> = {
   // with `metadata.host: "codex"` (see STORE_HOST), and the import follows
   // them so a historical Codex row and a live one are the same population.
   codex: "cli_agent",
+  // Same rule, and the host the live Copilot CLI hooks will send. Not
+  // `copilot_otel`: that source is held for an OpenTelemetry route.
+  copilot_cli: "cli_agent",
   cursor: "cursor_mcp",
   vscode: "vscode_extension",
   git: "code_forge"
@@ -47,7 +50,8 @@ export const STORE_SOURCE: Record<HistoryStore, AscendaTelemetrySource> = {
  * hooks established. Stores whose source already names the tool carry none.
  */
 export const STORE_HOST: Partial<Record<HistoryStore, string>> = {
-  codex: "codex"
+  codex: "codex",
+  copilot_cli: "copilot_cli"
 };
 
 /**
