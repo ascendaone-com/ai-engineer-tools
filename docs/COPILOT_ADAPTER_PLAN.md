@@ -218,10 +218,13 @@ can read them: they're how the 126 failures above were found.
 
 ## Also: VS Code chat sessions
 
-Built in #200. The existing `chatSessions` fold reads every recent session correctly. It
-skips fields the newer requests carry: `promptTokens`, `completionTokens`,
-`copilotCredits`, `modelConfiguration`, and the per-request timings
-(`elapsedMs`, `result.timings`). Today every tool call takes its request's
-timestamp; the timings would place each call at its own time. That's a
-small change to
-`src/extractors/vscode.ts`, separate from this plan's two packages.
+Built in #200, in `src/extractors/vscode.ts`. The `chatSessions` fold now
+reads the fields newer Copilot requests carry:
+
+- `completionTokens`, summed as output tokens.
+- `promptTokens`, as the largest prompt. It's one prompt's size, not
+  cumulative input, so input tokens stay off.
+- `copilotCredits`, `modelConfiguration` and `modeInfo.kind`.
+
+Tool calls named by a request's `toolCallRounds` take that round's time.
+The rest keep the request's.
