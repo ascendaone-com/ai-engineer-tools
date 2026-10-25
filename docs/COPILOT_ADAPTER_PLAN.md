@@ -6,10 +6,18 @@ Copilot CLI, and VS Code's chat. VS Code's chat history is already read by
 `src/extractors/vscode.ts`). This plan covers the rest: a hooks adapter for
 live events, and an extractor for the CLI's own session log.
 
-Status: **planned, nothing built.** Unlike the other plans here, this one is
-written against a real store. One CLI session from October 2026 and six
-older ones, back to March, were read on a developer machine, and where they disagree with
-GitHub's published hook reference, the observed shape is recorded below.
+Status:
+
+- **CLI extractor: built** (#199). A dry run against a real store read eight
+  sessions back to March.
+- **VS Code chat fields: built** (#200).
+- **Hooks adapter: built, not merged** (#198). It waits on the runtime check
+  under "Where hooks reach a session from".
+
+Unlike the other plans here, this one is written against a real store. One
+CLI session from October 2026 and six older ones were read on a developer
+machine. Where they disagree with GitHub's published hook reference, the
+observed shape is recorded below.
 
 ## Order of work
 
@@ -210,7 +218,7 @@ can read them: they're how the 126 failures above were found.
 
 ## Also: VS Code chat sessions
 
-The existing `chatSessions` fold reads every recent session correctly. It
+Built in #200. The existing `chatSessions` fold reads every recent session correctly. It
 skips fields the newer requests carry: `promptTokens`, `completionTokens`,
 `copilotCredits`, `modelConfiguration`, and the per-request timings
 (`elapsedMs`, `result.timings`). Today every tool call takes its request's
