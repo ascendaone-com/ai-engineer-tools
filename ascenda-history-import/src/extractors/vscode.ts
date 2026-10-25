@@ -41,11 +41,31 @@
  *    parts rather than ids inflated the total by roughly 40% — an error that
  *    would have arrived on the demand rail looking exactly like real work.
  *
- *    A serialized invocation carries no instant of its own, so its event
- *    borrows the enclosing request's `timestamp` — the nearest thing the
- *    store records to when the call happened, and the reason these events
- *    ship as `historical_derived` while Claude Code's and Cursor's, read off
- *    a record of the call itself, ship as `historical_direct`.
+ *    A serialized invocation carries no instant of its own. Since Feb 2026
+ *    the request's `result.metadata.toolCallRounds[]` does: one entry per
+ *    model round, with a `timestamp` and the `toolCalls[].id` that round
+ *    issued: the part's `toolCallId` with `__vscode-<n>` appended. A call
+ *    found there takes its round's instant and ships as
+ *    `historical_direct`, like Claude Code's and Cursor's. Only `timestamp`
+ *    and `toolCalls[].id` are read; every other field on a round (the
+ *    model's text, its thinking, the call's arguments) is content. A call no round names, such as the
+ *    `manage_todo_list` parts VS Code adds itself, or any call in an older
+ *    session, borrows the enclosing request's `timestamp` and ships as
+ *    `historical_derived`.
+ *
+ *    **Tokens.** Requests from Jun 2026 carry `promptTokens`,
+ *    `completionTokens` and `copilotCredits`. The last two are per-request
+ *    totals and are summed into `outputTokens` and `copilotCredits`.
+ *    `promptTokens` is a different measurement. It's the size of one
+ *    prompt: it matches the last round's own `promptTokens` and sits near
+ *    the same figure whether the request ran one round or twenty. Summed, it
+ *    would ship under `inputTokens` as something Codex's cumulative input
+ *    isn't, so it goes to `contextWindowPeakTokens` as the session's largest
+ *    prompt and `inputTokens` is left off. `promptTokenDetails` holds
+ *    percentages of that one prompt by category and isn't read.
+ *    `modelConfiguration` (Oct 2026) gives `contextSize`, the window, and
+ *    `reasoningEffort`. `modeInfo.kind` says whether a request ran in agent,
+ *    ask or edit mode.
  *
  *    Chats with no folder open are not under any workspace. VS Code keeps
  *    them in `globalStorage/emptyWindowChatSessions/` and, for sessions it
@@ -78,14 +98,17 @@
  *    metrics — same content-free shape claudeCode.ts uses for human
  *    prompts), provenance historical_direct.
  *  - `create_focus_session` per Copilot chat session: request count,
- *    model mix, after-hours count, cancellation/error counts, duration —
+ *    model mix, after-hours count, cancellation/error counts, duration,
+ *    and where the requests recorded them output tokens, largest prompt,
+ *    window, credits, reasoning effort and mode —
  *    provenance historical_derived.
  *  - `after_hours_ai_session` / `tool_failure` per session with ≥1 of that
  *    signal (canonical types, aggregate — same shape claudeCode.ts uses).
  *  - `ai_tool_call_started` per DISTINCT `toolCallId` in a session — the one
  *    per-record emission here, because the demand rail counts rows of this
  *    type and reads no aggregate. Provenance historical_derived: the instant
- *    is the enclosing request's, borrowed.
+ *    is the issuing round's where one names the call (direct), or the
+ *    enclosing request's, borrowed (derived).
  *  - one `extraction_epoch` (local only — filtered before the wire) for
  *    the store's observed window, folding
  *    in unparsed/malformed counts from both sub-stores so a partial import
@@ -336,9 +359,23 @@ interface ChatSessionFold {
    * Tool calls keyed by `toolCallId`, so the many serialized parts recording
    * one call collapse to one entry. Insertion order is first-seen order, and
    * the recorded instant is the FIRST request that carried the call — these
-   * become `ai_tool_call_started`, and a call starts once.
+   * become `ai_tool_call_started`, and a call starts once. `timed` is true
+   * when the instant is the issuing round's own rather than the request's.
    */
-  toolCalls: Map<string, { at: string; name: string }>;
+  toolCalls: Map<string, { at: string; name: string; timed: boolean }>;
+  /** Sum of `completionTokens` over the requests that recorded it, and
+   * whether any did. */
+  outputTokens: number;
+  outputTokensSeen: boolean;
+  /** Largest `promptTokens` any request recorded, 0 when none did. */
+  promptTokensPeak: number;
+  copilotCredits: number;
+  copilotCreditsSeen: boolean;
+  /** Largest `modelConfiguration.contextSize`, 0 when none recorded. */
+  contextWindowTokens: number;
+  reasoningEfforts: Map<string, number>;
+  /** `modeInfo.kind` per request: agent, ask or edit. */
+  modes: Map<string, number>;
 }
 
 /**
@@ -370,6 +407,49 @@ export function toolInvocationsOf(request: Record<string, unknown>): { id: strin
     });
   }
   return calls;
+}
+
+const ROUND_CALL_ID_SUFFIX = /__vscode-\d+$/;
+
+/**
+ * When each round of one request issued its calls, keyed by the parts'
+ * `toolCallId`, in epoch ms. Read from `result.metadata.toolCallRounds[]`,
+ * which holds the round's text, thinking and call arguments beside these two
+ * fields: only a round's `timestamp` and its calls' `id` are touched. A round
+ * names a call as `<toolCallId>__vscode-<n>`, so the suffix is dropped before
+ * matching. A round with no usable timestamp names no call. The first round
+ * to name an id keeps it.
+ */
+export function toolCallRoundTimesOf(request: Record<string, unknown>): Map<string, number> {
+  const times = new Map<string, number>();
+  const result = request.result;
+  if (typeof result !== "object" || result === null) return times;
+  const metadata = (result as Record<string, unknown>).metadata;
+  if (typeof metadata !== "object" || metadata === null) return times;
+  const rounds = (metadata as Record<string, unknown>).toolCallRounds;
+  if (!Array.isArray(rounds)) return times;
+  for (const round of rounds) {
+    if (typeof round !== "object" || round === null) continue;
+    const entry = round as Record<string, unknown>;
+    if (typeof entry.timestamp !== "number" || !Number.isFinite(entry.timestamp)) continue;
+    if (!Array.isArray(entry.toolCalls)) continue;
+    for (const call of entry.toolCalls) {
+      if (typeof call !== "object" || call === null) continue;
+      const id = (call as Record<string, unknown>).id;
+      if (typeof id !== "string") continue;
+      const toolCallId = id.replace(ROUND_CALL_ID_SUFFIX, "");
+      if (toolCallId.length > 0 && !times.has(toolCallId)) times.set(toolCallId, entry.timestamp);
+    }
+  }
+  return times;
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function countInto(map: Map<string, number>, key: unknown): void {
+  if (typeof key === "string" && key.length > 0) map.set(key, (map.get(key) ?? 0) + 1);
 }
 
 interface ChatSessionsResult {
@@ -505,12 +585,13 @@ export function parseJsonlChatSession(raw: string): JsonlParse {
   return { record, malformedLines };
 }
 
-function topModel(models: Map<string, number>): string | null {
+/** The most frequent key, first-seen on a tie. */
+function topOf(counts: Map<string, number>): string | null {
   let best: string | null = null;
   let bestCount = 0;
-  for (const [model, count] of models) {
+  for (const [key, count] of counts) {
     if (count > bestCount) {
-      best = model;
+      best = key;
       bestCount = count;
     }
   }
@@ -591,7 +672,15 @@ async function readChatSessionFile(
       errorCount: 0,
       models: new Map(),
       requestTimestamps: [],
-      toolCalls: new Map()
+      toolCalls: new Map(),
+      outputTokens: 0,
+      outputTokensSeen: false,
+      promptTokensPeak: 0,
+      copilotCredits: 0,
+      copilotCreditsSeen: false,
+      contextWindowTokens: 0,
+      reasoningEfforts: new Map(),
+      modes: new Map()
     };
 
     for (const r of requests) {
@@ -612,10 +701,38 @@ async function readChatSessionFile(
       if (typeof req.modelId === "string") {
         fold.models.set(req.modelId, (fold.models.get(req.modelId) ?? 0) + 1);
       }
+      const completionTokens = finiteNumber(req.completionTokens);
+      if (completionTokens !== null) {
+        fold.outputTokens += completionTokens;
+        fold.outputTokensSeen = true;
+      }
+      const promptTokens = finiteNumber(req.promptTokens);
+      if (promptTokens !== null && promptTokens > fold.promptTokensPeak) fold.promptTokensPeak = promptTokens;
+      const credits = finiteNumber(req.copilotCredits);
+      if (credits !== null) {
+        fold.copilotCredits += credits;
+        fold.copilotCreditsSeen = true;
+      }
+      const modelConfiguration = req.modelConfiguration as Record<string, unknown> | undefined;
+      if (typeof modelConfiguration === "object" && modelConfiguration !== null) {
+        const contextSize = finiteNumber(modelConfiguration.contextSize);
+        if (contextSize !== null && contextSize > fold.contextWindowTokens) fold.contextWindowTokens = contextSize;
+        countInto(fold.reasoningEfforts, modelConfiguration.reasoningEffort);
+      }
+      const modeInfo = req.modeInfo as Record<string, unknown> | undefined;
+      if (typeof modeInfo === "object" && modeInfo !== null) countInto(fold.modes, modeInfo.kind);
       // First-seen wins: a later part for the same id is the same call
       // recorded again, not a second call.
+      const roundTimes = toolCallRoundTimesOf(req);
       for (const call of toolInvocationsOf(req)) {
-        if (!fold.toolCalls.has(call.id)) fold.toolCalls.set(call.id, { at: iso, name: call.name });
+        if (fold.toolCalls.has(call.id)) continue;
+        const roundTs = roundTimes.get(call.id);
+        fold.toolCalls.set(
+          call.id,
+          roundTs === undefined
+            ? { at: iso, name: call.name, timed: false }
+            : { at: new Date(roundTs).toISOString(), name: call.name, timed: true }
+        );
       }
     }
 
@@ -847,8 +964,8 @@ export async function* extractVsCode(
     }
 
     // The rail counts rows of this type; the metric below is for the local
-    // handoff. Derived, not direct: the instant is the request's, borrowed —
-    // a serialized invocation records no time of its own.
+    // handoff. Direct when the issuing round dated the call, derived when the
+    // instant is the request's, borrowed.
     for (const call of fold.toolCalls.values()) {
       yield {
         occurredAt: call.at,
@@ -858,7 +975,7 @@ export async function* extractVsCode(
         repoRef: fold.workspaceRoot,
         eventKind: "ai_tool_call_started",
         metrics: { toolName: call.name },
-        provenance: HISTORICAL_PROVENANCE.derived,
+        provenance: call.timed ? HISTORICAL_PROVENANCE.direct : HISTORICAL_PROVENANCE.derived,
         extractionId
       };
     }
@@ -873,8 +990,28 @@ export async function* extractVsCode(
       modelCount: fold.models.size,
       sessionStartedAt: fold.firstTs
     };
-    const primaryModel = topModel(fold.models);
+    const primaryModel = topOf(fold.models);
     if (primaryModel) sessionMetrics.primaryModel = primaryModel;
+    // Each figure only where some request recorded it, never 0 for unmeasured.
+    // There is no `inputTokens`: see the module doc for why `promptTokens`
+    // isn't one. The flag is set when the session recorded no token figure.
+    if (fold.outputTokensSeen) sessionMetrics.outputTokens = fold.outputTokens;
+    if (fold.promptTokensPeak > 0) sessionMetrics.contextWindowPeakTokens = fold.promptTokensPeak;
+    if (!fold.outputTokensSeen && fold.promptTokensPeak === 0) sessionMetrics.tokensNotCollected = true;
+    // The ratio only against a window the store named, as Codex does.
+    if (fold.contextWindowTokens > 0) {
+      sessionMetrics.contextWindowTokens = fold.contextWindowTokens;
+      if (fold.promptTokensPeak > 0) {
+        sessionMetrics.contextWindowPeakPct =
+          Math.round((fold.promptTokensPeak / fold.contextWindowTokens) * 1000) / 1000;
+      }
+    }
+    // Five places: the store writes floats like 10.778660000000001.
+    if (fold.copilotCreditsSeen) sessionMetrics.copilotCredits = Math.round(fold.copilotCredits * 1e5) / 1e5;
+    const reasoningEffort = topOf(fold.reasoningEfforts);
+    if (reasoningEffort) sessionMetrics.reasoningEffort = reasoningEffort;
+    const mode = topOf(fold.modes);
+    if (mode) sessionMetrics.mode = mode;
     if (Number.isFinite(durationMs) && durationMs >= 0) {
       sessionMetrics.sessionMinutes = Math.round(durationMs / 60_000);
       const bucket = bucketDurationMs(durationMs);

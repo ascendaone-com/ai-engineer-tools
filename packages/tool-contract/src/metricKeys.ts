@@ -252,7 +252,7 @@ export const METRIC_KEYS = {
     family: "context",
     readBy: ["handoff"],
     unit: "tokens",
-    note: "Codex only: the model_context_window the rollout itself recorded — the real denominator its contextWindowPeakPct was computed against. Claude Code records no window and its ratio assumes 200k; absent here means the store never said."
+    note: "Codex: the model_context_window the rollout itself recorded — the real denominator its contextWindowPeakPct was computed against. VS Code: the largest modelConfiguration.contextSize a Copilot request recorded. Claude Code records no window and its ratio assumes 200k; absent here means the store never said."
   },
   date: { family: "clock", readBy: ["handoff"] },
   errorCount: { family: "outcome", readBy: ["handoff"] },
@@ -368,6 +368,17 @@ export const METRIC_KEYS = {
     readBy: ["diagnostic"],
     unit: "lines",
     note: "Claude Code only: user lines written by the Agent SDK or a headless run (entrypoint sdk-*). Nobody typed them, so promptCount leaves them out. Counted once per line across the store."
+  },
+  copilotCredits: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "Copilot credits",
+    note: "VS Code only: the sum of each Copilot request's copilotCredits, rounded to five decimal places. Absent where no request recorded the figure, which Copilot builds before Jun 2026 don't."
+  },
+  reasoningEffort: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "VS Code only: the modelConfiguration.reasoningEffort most of a Copilot session's requests ran with. Absent where no request recorded a model configuration."
   },
   tokensNotCollected: {
     family: "context",
