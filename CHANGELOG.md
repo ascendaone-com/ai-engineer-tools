@@ -10,6 +10,23 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.41
+
+### A hooks adapter for GitHub Copilot CLI
+
+- **`npx @ascenda-one/copilot-hooks setup` registers ten Copilot CLI hooks**
+  in `~/.copilot/hooks/ascenda.json`: prompts, tool calls, file writes and
+  edits, test and build runs, compaction, subagents and turn ends. Copilot
+  loads every file in that folder, so setup owns this one. It writes it
+  whole, and `uninstall` deletes it. `$COPILOT_HOME` moves it, and
+  `--scope project` writes `.github/hooks/ascenda.json` instead.
+- **Batched tool calls count one by one.** Copilot sends a batch of tool
+  requests in one `preToolUse`, and each gets its own event.
+- **Still open: which Copilot runtimes load the file.** The standalone CLI,
+  the CLI under VS Code's agent host and VS Code's own chat haven't been
+  checked on a clean machine. Until they are, the README doesn't list Copilot
+  as covered.
+
 ## v0.1.40
 
 ### Pairing names the tool, not the machine
