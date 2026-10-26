@@ -1,8 +1,11 @@
-# Emission Criteria — v1
+# Emission Criteria — v1.1
 
 The versioned trigger conditions for each of the six semantic event types. "Versioned" is load-bearing: emission depends on a model remembering to apply these criteria, and that behaviour drifts across model and skill revisions. Every emitted event carries this document's version as `skillVersion`, so a downstream change in emission rate is attributable to a version bump rather than mistaken for a change in the work itself.
 
-**Current version: `1.0.0`.** Bump on any change to a threshold or a criterion below — not on wording-only edits to this file.
+**Current version: `1.1.0`.** Bump on any change to a threshold or a criterion below — not on wording-only edits to this file.
+
+- `1.1.0` — an intention can carry a second line, `roomFor`. Drift is measured against both lines, and work toward `roomFor` never emits `goal_drift_detected`.
+- `1.0.0` — the six events and their first thresholds.
 
 Every criterion below is written to be checked against **observable interaction facts** (attempt counts, elapsed time, what the user actually said), never against a read of the user's mood, effort, or competence. If a criterion can only be satisfied by guessing how someone feels, it is not one of these six events.
 
@@ -23,15 +26,21 @@ Every criterion below is written to be checked against **observable interaction 
 
 ## `goal_drift_detected`
 
-**Fires when:** a session has a declared intention (from `session_intention_declared`, or one already visible via the Flow app's `get_plans` tool as a `kind: "intention"` row — it rides the plans scope, not the work-demand one, because it is a sentence the person wrote) and the actual work has moved somewhere else **without an explicit decision to do so**.
+**Fires when:** a session has a declared intention (from `session_intention_declared`, or one already visible via the Flow app's `get_plans` tool as a `kind: "intention"` row — it rides the plans scope, not the work-demand one, because it is a sentence the person wrote) and the actual work has moved outside it **without an explicit decision to do so**.
 
+An intention can have two lines. The `get_plans` intention row carries the first as `text` and, when the person filled it in, an optional second as `roomFor`, verbatim. `roomFor` is the line the app labels "If there's room": scope the person permitted in advance. Work toward it is part of the intention, not a move away from it.
+
+- **Drift means outside both lines.** Fire only when the work has left `text` and `roomFor` alike. Work toward `roomFor` is never drift and never emits this event, whether or not the first line looks done.
+- **Early is a question, not an event.** If the work turns to `roomFor` while the first line still looks open, you may ask the usual question (*"deliberate, or did it drift?"*) **at most once a session**. Asking emits nothing. A yes to deliberately switching is `scope_change_declared`, as below; anything else, carry on without emitting.
+- **One line behaves as before.** No `roomFor` on the row, or an older app that doesn't send the field, and everything in this section reads as if it named `text` alone.
+- **Whether a line landed is never yours to know.** The app keeps landings off `get_plans` on purpose. "Still looks open" is your read of the work in this conversation, and it goes no further than that one question.
 - This is evidence for a question, never a conclusion. Before emitting, you should already be planning to ask the user something like *"this looks like it's moved from [declared intention] into [what's happening now] — deliberate, or did it drift?"* The event and the question are a pair; emitting without intending to ask is half the job.
 - If the user has already said "yes, I'm deliberately switching to X" — that is `scope_change_declared`, not this. This event is specifically the *unasked* or *unconfirmed* case.
-- No declared intention exists yet → this event cannot fire. There is nothing to have drifted from (dark-flow-gap-analysis §1, Layer 1: the intention is the reference point everything else needs).
+- No declared intention exists yet → this event cannot fire. There is nothing to have drifted from (dark-flow-gap-analysis §1, Layer 1: the intention is the reference point everything else needs). A `roomFor` with no `text` is not an intention either, and never invent one from it.
 
 **Evidence to attach:**
 - `evidenceFlags.originalGoalRetained` — `false`.
-- `evidenceCounts.unrelatedFilesOrTasksTouched` — a rough count, if it's meaningfully more than the declared scope implied.
+- `evidenceCounts.unrelatedFilesOrTasksTouched` — a rough count, if it's meaningfully more than the declared scope (both lines) implied.
 
 ## `scope_change_declared`
 
@@ -55,7 +64,7 @@ Every criterion below is written to be checked against **observable interaction 
 
 ### What `session_intention_declared` / `scope_change_declared` are not
 
-Neither event transmits the actual sentence the user said. The schema has no free-text field, by design (see the tool's own docs: nothing here should ever carry raw content). These two events are **timing markers** — "a declaration happened, roughly now" — useful for aggregate frequency/timing, not for reconstructing what was said.
+Neither event transmits the actual sentence the user said, and neither does any other event here: not `text`, not `roomFor`. The schema has no free-text field, by design (see the tool's own docs: nothing here should ever carry raw content). These two events are **timing markers** — "a declaration happened, roughly now" — useful for aggregate frequency/timing, not for reconstructing what was said.
 
 **The authoritative record of what the user actually intended lives in the Flow app itself**, captured through its own local ask-slot surface (macOS: the session-intention card; mobile: the equivalent capture), which the user fills in directly — never relayed through this pipe. If you elicit an intention in conversation, the honest move is to invite the user to also confirm it in the Flow app if it's open, not to treat your emission of this marker as having recorded it anywhere durable.
 

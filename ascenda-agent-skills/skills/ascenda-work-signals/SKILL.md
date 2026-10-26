@@ -19,7 +19,7 @@ Full trigger conditions, thresholds, and required evidence fields: **[docs/EMISS
 | Event | What it reports |
 |---|---|
 | `approach_churn_detected` | Three-plus different approaches to the same problem, none resolving it |
-| `goal_drift_detected` | Work has moved away from a declared intention, unconfirmed |
+| `goal_drift_detected` | Work has moved outside a declared intention (both lines, if it has two), unconfirmed |
 | `scope_change_declared` | The user just confirmed a deliberate scope change |
 | `session_intention_declared` | The user stated what this session is meant to accomplish |
 | `progress_stalled` | An extended stretch with no verification pass, commit, or resolution |
@@ -30,6 +30,8 @@ Full trigger conditions, thresholds, and required evidence fields: **[docs/EMISS
 1. **Report the pattern, not a diagnosis.** Never write, think toward, or let an emission imply a sentence like "the user is frustrated/tired/struggling." If the only way to justify an emission is by guessing how someone feels, don't emit. Cross-check anything you're about to say against [`copy/banned-vocabulary.txt`](../../copy/banned-vocabulary.txt) — if your reasoning uses one of those phrases, stop and rephrase around an observable fact instead.
 
 2. **Evidence for a question, not a verdict — especially for drift.** `goal_drift_detected` exists to set up *"this looks like it's moved from X into Y — deliberate, or did it drift?"*, asked to the user, in the conversation. Emitting the event without asking the question is doing half the job; the app answering the question on the user's behalf (by inferring an answer from the emission alone) is exactly the failure mode this skill exists to prevent.
+
+   An intention from the Flow app's `get_plans` can have a second line, `roomFor`: what the person said they'd take on if there's room. That's scope they permitted in advance. Work toward it is never drift and never emits `goal_drift_detected`. If the work turns there while the first line still looks open, you may ask the same question once a session, and asking emits nothing; a yes is `scope_change_declared`. With no `roomFor`, nothing changes. Whether either line landed is never on `get_plans`, so don't go looking for it.
 
 3. **Never transmit content.** The tool's schema has no field for raw text and will reject anything that isn't a bare identifier or a hash — but don't rely on the schema to catch a mistake. Never put a task description, a code snippet, a file name, or anything the user said into `evidenceCounts`/`evidenceFlags` keys or `taskFingerprint`. Counts and booleans only. If you compute a `taskFingerprint`, it must be a hash you generated locally, never the task text itself.
 
@@ -42,7 +44,7 @@ Full trigger conditions, thresholds, and required evidence fields: **[docs/EMISS
 ```json
 {
   "eventType": "goal_drift_detected",
-  "skillVersion": "1.0.0",
+  "skillVersion": "1.1.0",
   "windowMinutes": 18,
   "evidenceFlags": { "originalGoalRetained": false },
   "evidenceCounts": { "unrelatedFilesOrTasksTouched": 3 }
