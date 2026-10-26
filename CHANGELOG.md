@@ -15,7 +15,7 @@ targets, error counts or internal resource names — this repository is public.
 ### An intention can have a second line
 
 - **Work signals read both lines of the day's intention.** The Flow app's
-  morning card can now hold an "If there's room" line beside the main one,
+  morning card can now hold an "And if there's time" line beside the main one,
   and its local `get_plans` tool passes it to the agent as `roomFor`. The
   work-signals skill treats that line as scope you allowed in advance. Moving
   onto it isn't drift, so it never reports `goal_drift_detected`.
