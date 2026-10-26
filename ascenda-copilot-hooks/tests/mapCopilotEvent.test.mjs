@@ -104,3 +104,18 @@ test("unregistered hooks map to nothing", () => {
     assert.deepEqual(mapCopilotEvent(hook, { prompt: "x", toolName: "bash" }), [], hook);
   }
 });
+
+test("inside a subagent: prompt and stop map to nothing, everything else carries subagentId", () => {
+  assert.deepEqual(mapCopilotEvent("userPromptSubmitted", { prompt: "that is wrong" }, undefined, "call_x"), []);
+  assert.deepEqual(mapCopilotEvent("agentStop", {}, 90 * 60000, "call_x"), []);
+  const [started] = mapCopilotEvent("preToolUse", { toolCalls: [{ name: "bash" }] }, undefined, "call_x");
+  assert.equal(started.metadata.subagentId, "call_x");
+  assert.equal(started.metadata.host, "copilot_cli");
+});
+
+test("subagentStart and subagentStop name the subagent by its agentId, never its name", () => {
+  const event = one("subagentStart", { sessionId: "s", agentId: "call_x", agentName: "execution-subagent", parentAgentId: "s" });
+  assert.equal(event.metadata.subagentId, "call_x");
+  assert.ok(!JSON.stringify(event).includes("execution"));
+  assert.equal(one("subagentStop", { agentId: "not an id!" }).metadata.subagentId, undefined);
+});

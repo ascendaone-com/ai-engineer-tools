@@ -41,10 +41,10 @@ export const SETUP: CliAgentSetupSpec = {
   binaryName: "ascenda-copilot-hook",
   hookEvents: HOOK_EVENTS,
   restartHint: "Start a new Copilot CLI session to load the hooks.",
-  // The git action or milestone a shell command reached, and nothing else
-  // beyond the shared set: Copilot's hooks name no model, no posture and no
-  // context figure.
-  sends: ["git", "turns", "forge"],
+  // The git action or milestone a shell command reached, and which subagent
+  // did the work, beyond the shared set: Copilot's hooks name no model, no
+  // posture and no context figure.
+  sends: ["git", "turns", "forge", "subagents"],
   settings: {
     settingsPath: (scope, projectDir) =>
       scope === "user" ? path.join(copilotHome(), "hooks", HOOKS_FILE) : path.join(projectDir, ".github", "hooks", HOOKS_FILE),

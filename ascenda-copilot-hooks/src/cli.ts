@@ -4,6 +4,7 @@ import { mapCopilotEvent } from "./mapCopilotEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { HOOK_EVENTS, SETUP } from "./setup.js";
 import { recordSessionHook } from "./sessionRecord.js";
+import { attributeHook } from "./subagents.js";
 import { ASCENDA_TOOL_TYPE, COPILOT_HOST, CopilotHookEventName, CopilotHookInput } from "./types.js";
 
 /**
@@ -36,7 +37,13 @@ async function main(): Promise<void> {
   }
   const input = await readJsonFromStdin();
 
-  const sessionId = typeof input.sessionId === "string" ? input.sessionId : undefined;
+  // Inside a subagent, `sessionId` is the subagent's id. Its hooks are filed
+  // under the parent session, marked with the subagent's id. See subagents.ts.
+  const { sessionId, subagentId } = attributeHook(hookName, input);
+  // The subagent's own prompt and stop bracket the parent agent's task, not a
+  // person's turn, so they leave the parent's turn state alone.
+  const opensTurn = hookName === "userPromptSubmitted" && !subagentId;
+  const closesTurn = hookName === "agentStop" && !subagentId;
 
   let turnDurationMs: number | undefined;
   // That this agent ran a hook at all, for `status` and `doctor`, and which
@@ -47,18 +54,18 @@ async function main(): Promise<void> {
   // and the rest read it back. `sessionStart` can arrive after the first
   // prompt, so it reads like any other hook and resets nothing. Read before
   // `agentStop` consumes the state.
-  const promptId = hookName === "userPromptSubmitted"
+  const promptId = opensTurn
     ? recordTurnStart(COPILOT_HOST, sessionId)
     : readTurnPromptId(COPILOT_HOST, sessionId);
-  if (hookName === "agentStop") turnDurationMs = consumeTurnDurationMs(COPILOT_HOST, sessionId);
+  if (closesTurn) turnDurationMs = consumeTurnDurationMs(COPILOT_HOST, sessionId);
 
   // Where the work happened, for the repository and branch keys.
   const workDir = typeof input.cwd === "string" ? input.cwd : undefined;
 
   // The local live bus, before the cloud send. See `emitLive` below.
-  await emitLive(hookName, input, sessionId);
+  await emitLive(hookName, input, sessionId, subagentId);
 
-  await deliverHookEvents(mapCopilotEvent(hookName, input, turnDurationMs), {
+  await deliverHookEvents(mapCopilotEvent(hookName, input, turnDurationMs, subagentId), {
     toolType: ASCENDA_TOOL_TYPE,
     host: COPILOT_HOST,
     setupCommand: `npx ${SETUP.packageName} setup`,
@@ -78,7 +85,10 @@ async function main(): Promise<void> {
  * abandons a write after 50ms and swallows every error; the try/catch is
  * belt-and-braces.
  */
-async function emitLive(hookName: CopilotHookEventName, input: CopilotHookInput, sessionId: string | undefined): Promise<void> {
+async function emitLive(hookName: CopilotHookEventName, input: CopilotHookInput, sessionId: string | undefined, subagentId: string | undefined): Promise<void> {
+  // A subagent's prompt and stop would open and close the parent's turn on
+  // the gauge. Its tool calls still beat under the parent.
+  if (subagentId && (hookName === "userPromptSubmitted" || hookName === "agentStop")) return;
   const body = liveSignalFor(hookName, input);
   if (!body) return;
   try {

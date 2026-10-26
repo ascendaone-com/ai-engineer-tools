@@ -144,8 +144,10 @@ const ADAPTERS = [
       ["postToolUse", { toolName: "bash", toolArgs: { command: "git commit -m x" }, toolResult: { resultType: "success" } }],
       ["postToolUse", { toolName: "create", toolArgs: {}, toolResult: { resultType: "success" } }],
       ["preCompact", {}],
+      ["subagentStart", { agentId: "call_x" }],
+      ["preToolUse", { toolCalls: [{ id: "c2", name: "view", args: {} }] }, undefined, "call_x"],
       ["agentStop", {}, 120000]
-    ].flatMap(([hook, input, turnMs]) => withForgeKeys(withPromptId(mapCopilotEvent(hook, input, turnMs), MINTED), FORGE_CWD))
+    ].flatMap(([hook, input, turnMs, subagentId]) => withForgeKeys(withPromptId(mapCopilotEvent(hook, input, turnMs, subagentId), MINTED), FORGE_CWD))
   },
   {
     spec: WINDSURF,

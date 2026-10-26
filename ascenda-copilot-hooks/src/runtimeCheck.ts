@@ -5,6 +5,7 @@ import { doctorRow, tidyHomePath } from "@ascenda-one/tool-kit";
 import type { TerminalStyle, Tone } from "@ascenda-one/tool-kit";
 import { copilotHome } from "./home.js";
 import { readSessionRecord } from "./sessionRecord.js";
+import { readSubagentParents } from "./subagents.js";
 import type { SessionRecord } from "./sessionRecord.js";
 
 /**
@@ -19,14 +20,20 @@ import type { SessionRecord } from "./sessionRecord.js";
  *    failure that names our binary is ours, and any other is another hook's.
  *
  * What is read, and nothing more: lines containing `"hook.start"`,
- * `"hook.end"` or `"session.start"` are parsed; of those, the type, the hook
- * type, `success`, whether `error.message` contains our binary name, and the
- * session id. A hook's `input` (the payload, prompt included) is never
- * touched. From `workspace.yaml`, the `client_name` line alone; its `name` is
+ * `"hook.end"`, `"session.start"` or `"subagent.started"` are parsed; of
+ * those, the type, the hook type, `success`, whether `error.message` contains
+ * our binary name, the session id, and a subagent's id (`subagent.started`'s
+ * `toolCallId`, a `subagentStart` hook input's `agentId`). No other field of
+ * a hook's `input` (the payload, prompt included) is touched. From `workspace.yaml`, the `client_name` line alone; its `name` is
  * the session's first prompt. No message or path from either file is printed.
  *
+ * A subagent's hooks arrive under its own id. Our hook files them under the
+ * parent, and an older record that didn't is folded in here, using the
+ * subagent ids the parent's log names and our own pairings.
+ *
  * VS Code's own chat doesn't write to `session-state`, so a session in our
- * record that the CLI has no directory for is reported as likely VS Code chat.
+ * record that the CLI has no directory for, and that no log names as a
+ * subagent, is reported as likely VS Code chat.
  */
 
 export const RUNTIME_WINDOW_DAYS = 7;
@@ -46,6 +53,8 @@ export interface CopilotSessionScan {
   oursFailed: number;
   /** Failures that don't. */
   othersFailed: number;
+  /** Subagent ids this session's log names. */
+  subagentIds: string[];
 }
 
 export interface ScanOptions {
@@ -88,9 +97,10 @@ export function scanCopilotSessions(options: ScanOptions): CopilotSessionScan[] 
 }
 
 function scanSession(dirName: string, text: string, clientName: string | null, hooks: Set<string>, binaryName: string): CopilotSessionScan {
-  const scan: CopilotSessionScan = { sessionId: dirName, clientName, hookRuns: 0, succeeded: 0, oursFailed: 0, othersFailed: 0 };
+  const scan: CopilotSessionScan = { sessionId: dirName, clientName, hookRuns: 0, succeeded: 0, oursFailed: 0, othersFailed: 0, subagentIds: [] };
+  const subagents = new Set<string>();
   for (const line of text.split("\n")) {
-    if (!line.includes('"hook.start"') && !line.includes('"hook.end"') && !line.includes('"session.start"')) continue;
+    if (!line.includes('"hook.start"') && !line.includes('"hook.end"') && !line.includes('"session.start"') && !line.includes('"subagent.started"')) continue;
     let event: { type?: unknown; data?: unknown };
     try {
       event = JSON.parse(line);
@@ -103,6 +113,14 @@ function scanSession(dirName: string, text: string, clientName: string | null, h
       if (typeof data.sessionId === "string" && data.sessionId) scan.sessionId = data.sessionId;
       continue;
     }
+    if (event.type === "subagent.started") {
+      if (isId(data.toolCallId)) subagents.add(data.toolCallId);
+      continue;
+    }
+    if (event.type === "hook.start" && data.hookType === "subagentStart") {
+      const agentId = data.input && typeof data.input === "object" ? (data.input as Record<string, unknown>).agentId : undefined;
+      if (isId(agentId)) subagents.add(agentId);
+    }
     if (typeof data.hookType !== "string" || !hooks.has(data.hookType)) continue;
     if (event.type === "hook.start") {
       scan.hookRuns++;
@@ -112,7 +130,12 @@ function scanSession(dirName: string, text: string, clientName: string | null, h
       else scan.othersFailed++;
     }
   }
+  scan.subagentIds = [...subagents];
   return scan;
+}
+
+function isId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 }
 
 /** Whether a failure's message names our binary. The message itself goes no further. */
@@ -146,6 +169,8 @@ export interface RuntimeLinesOptions extends ScanOptions {
   /** The user-level hooks file, named when a runtime ran none of ours. */
   hooksFile: string;
   record?: SessionRecord;
+  /** Our subagent pairings, agent id to session id. Read from disk when absent. */
+  subagentParents?: Record<string, string>;
 }
 
 export function copilotRuntimeLines(options: RuntimeLinesOptions): string[] {
@@ -154,7 +179,9 @@ export function copilotRuntimeLines(options: RuntimeLinesOptions): string[] {
   const windowDays = options.windowDays ?? RUNTIME_WINDOW_DAYS;
   const root = options.root ?? path.join(copilotHome(), "session-state");
   const scans = scanCopilotSessions({ ...options, root, now, windowDays });
-  const record = options.record ?? readSessionRecord();
+  const parents: Record<string, string> = { ...(options.subagentParents ?? readSubagentParents()) };
+  for (const scan of scans) for (const id of scan.subagentIds) parents[id] ??= scan.sessionId;
+  const record = foldSubagents(options.record ?? readSessionRecord(), parents);
   const since = now - windowDays * DAY_MS;
   const lines = [`  ${ui.bold("Copilot runtimes")}  ${ui.dim(`last ${windowDays} days`)}`];
 
@@ -187,7 +214,7 @@ export function copilotRuntimeLines(options: RuntimeLinesOptions): string[] {
 
   const scanned = new Set(scans.map((scan) => scan.sessionId));
   const outside = Object.entries(record).filter(([id, entry]) =>
-    !scanned.has(id) && Date.parse(entry.lastAt) >= since && !fs.existsSync(path.join(root, id)));
+    !scanned.has(id) && !parents[id] && Date.parse(entry.lastAt) >= since && !fs.existsSync(path.join(root, id)));
   if (outside.length) {
     lines.push(doctorRow(ui, "info", "outside the CLI", `${plural(outside.length, "session")} our hook saw that the CLI's log doesn't have, likely VS Code chat`));
   }
@@ -196,6 +223,20 @@ export function copilotRuntimeLines(options: RuntimeLinesOptions): string[] {
     lines.push(doctorRow(ui, "info", "no sessions", `None in the last ${windowDays} days. Run a short Copilot session, then run doctor again.`));
   }
   return lines;
+}
+
+/** The record with each subagent's entry merged into its session's. */
+function foldSubagents(record: SessionRecord, parents: Record<string, string>): SessionRecord {
+  const folded: SessionRecord = {};
+  for (const [id, entry] of Object.entries(record)) {
+    const into = parents[id] ?? id;
+    const target = folded[into] ?? { firstAt: entry.firstAt, lastAt: entry.lastAt, events: {} };
+    if (entry.firstAt < target.firstAt) target.firstAt = entry.firstAt;
+    if (entry.lastAt > target.lastAt) target.lastAt = entry.lastAt;
+    for (const [hook, count] of Object.entries(entry.events)) target.events[hook] = (target.events[hook] ?? 0) + count;
+    folded[into] = target;
+  }
+  return folded;
 }
 
 function plural(count: number, noun: string): string {

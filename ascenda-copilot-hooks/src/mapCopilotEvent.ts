@@ -7,6 +7,7 @@ import {
   looksLikeCorrection
 } from "@ascenda-one/tool-kit";
 import type { AscendaEventMetadata } from "@ascenda-one/tool-contract";
+import { payloadId } from "./subagents.js";
 import { COPILOT_HOST, CommandOutcome, CopilotHookEventName, CopilotHookInput, MappedCopilotEvent } from "./types.js";
 
 /**
@@ -19,7 +20,18 @@ import { COPILOT_HOST, CommandOutcome, CopilotHookEventName, CopilotHookInput, M
  * `timestamp` is epoch milliseconds. No mapping reads `timestamp`, since a
  * hook runs at the moment it describes.
  */
-export function mapCopilotEvent(hookName: CopilotHookEventName, input: CopilotHookInput, turnDurationMs?: number): MappedCopilotEvent[] {
+export function mapCopilotEvent(hookName: CopilotHookEventName, input: CopilotHookInput, turnDurationMs?: number, subagentId?: string): MappedCopilotEvent[] {
+  if (subagentId) {
+    // Inside a subagent, the prompt is the parent agent's task text and the
+    // stop ends that task. Neither is a person's prompt or turn. Everything
+    // else is the subagent's work, marked as such.
+    if (hookName === "userPromptSubmitted" || hookName === "agentStop") return [];
+    return mapEvent(hookName, input, turnDurationMs).map((event) => ({ ...event, metadata: { ...event.metadata, subagentId } }));
+  }
+  return mapEvent(hookName, input, turnDurationMs);
+}
+
+function mapEvent(hookName: CopilotHookEventName, input: CopilotHookInput, turnDurationMs?: number): MappedCopilotEvent[] {
   switch (hookName) {
     case "sessionStart": return [{ eventType: "create_focus_session", severity: "low", metadata: withHost({ activity: "session_started" }) }];
     case "sessionEnd": return [{ eventType: "recovery_offline_period", severity: "low", metadata: withHost({ activity: "session_ended" }) }];
@@ -29,14 +41,24 @@ export function mapCopilotEvent(hookName: CopilotHookEventName, input: CopilotHo
     case "postToolUse": return mapAfterTool(input, outcomeOf(input));
     case "postToolUseFailure": return mapAfterTool(input, "failure");
     case "preCompact": return mapPreCompact(input);
-    case "subagentStart": return [{ eventType: "subagent_started", severity: "low", metadata: withHost({}) }];
-    case "subagentStop": return [{ eventType: "subagent_stopped", severity: "low", metadata: withHost({}) }];
+    case "subagentStart": return [{ eventType: "subagent_started", severity: "low", metadata: withHost(subagentOf(input)) }];
+    case "subagentStop": return [{ eventType: "subagent_stopped", severity: "low", metadata: withHost(subagentOf(input)) }];
 
     // userPromptTransformed repeats the prompt hook, and permissionRequest,
     // notification and errorOccurred have no catalog counterpart. None of
     // them is registered.
     default: return [];
   }
+}
+
+/**
+ * The subagent a start or stop is about: its `agentId`, which every hook
+ * inside it sends as `sessionId`. The agent's name isn't sent; the subagent
+ * classes in the catalog are Claude Code's.
+ */
+function subagentOf(input: CopilotHookInput): AscendaEventMetadata {
+  const subagentId = payloadId(input, "agentId");
+  return subagentId ? { subagentId } : {};
 }
 
 function mapPrompt(input: CopilotHookInput): MappedCopilotEvent[] {

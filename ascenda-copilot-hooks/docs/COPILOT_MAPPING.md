@@ -80,6 +80,45 @@ The Windows shell tool hasn't been seen, so it maps as an ordinary tool.
 - **No model, tokens or permission posture** in any hook. The history import
   reads model and tokens from the session log.
 
+## Subagents
+
+Inside a subagent, Copilot sends the subagent's id as `sessionId`. That id is
+the parent's tool-call id for the subagent call (`call_…`). The hooks of a VS
+Code agent-host session with one subagent arrived in this order, ids only:
+
+```
+userPromptSubmitted   sessionId=<S>
+sessionStart          sessionId=<S>
+preToolUse            sessionId=<S>
+postToolUse           sessionId=<S>
+subagentStart         sessionId=<S>  agentId=call_X  agentType/agentName  parentAgentId=<S>
+userPromptSubmitted   sessionId=call_X  agentId=call_X  agentType  parentAgentId=<S>
+preToolUse            sessionId=call_X            (no agentId, no parentAgentId)
+postToolUse           sessionId=call_X            (no agentId, no parentAgentId)
+agentStop             sessionId=call_X  agentId=call_X  parentAgentId=<S>
+subagentStop          sessionId=<S>  agentId=call_X  parentAgentId=<S>
+postToolUse           sessionId=<S>   (the parent's call that ran the subagent)
+agentStop             sessionId=<S>
+sessionEnd            sessionId=<S>
+```
+
+`subagentStart` always comes first, under the real session id. The hook keeps
+`agentId → sessionId` in `~/.ascenda/state/copilot_cli-subagents.json` (the
+latest 200, mode 0600, never sent). Then:
+
+- A hook whose `sessionId` is a known agent id, or that carries a
+  `parentAgentId` other than its own session, is a subagent hook. Its events
+  go under the parent session and carry `subagentId`, the field the Claude
+  Code adapter uses for the same thing.
+- The subagent's `userPromptSubmitted` is the parent agent's task text and its
+  `agentStop` ends that task. Neither sends anything, and neither touches the
+  parent's turn state, so the parent's turn keeps its start and prompt id.
+- Its tool calls map as the parent's do.
+- `subagent_started` and `subagent_stopped` carry the `agentId` as
+  `subagentId`. The agent's name isn't sent.
+- Without a pairing (setup ran mid-session) a `call_…` id with no
+  `parentAgentId` is filed as it arrives. It isn't guessed into a parent.
+
 ## Settings file
 
 Copilot CLI loads every `*.json` in `~/.copilot/hooks/` (or

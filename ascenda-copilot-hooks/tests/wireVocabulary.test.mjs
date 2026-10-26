@@ -44,7 +44,7 @@ const FIXTURES = [
   ["postToolUse", post("view", {}, "rejected")],
   ["preCompact", {}],
   ["preCompact", { trigger: "manual" }],
-  ["subagentStart", {}],
+  ["subagentStart", { agentId: "call_x" }],
   ["subagentStop", {}],
   ["agentStop", {}, 120000],
   ["agentStop", {}, 45 * 60000],
