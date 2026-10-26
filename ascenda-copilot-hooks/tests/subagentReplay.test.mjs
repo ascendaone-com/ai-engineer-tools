@@ -13,8 +13,8 @@ import { copilotRuntimeLines } from "../dist/runtimeCheck.js";
 // sequence seen in a VS Code agent-host session with one subagent, ids only.
 
 const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli.js");
-const S = "8f15a44f-0000-4000-8000-00000000000a";
-const X = "call_PsZfAYl0000000000000000";
+const S = "00000000-0000-4000-8000-0000000000f1";
+const X = "call_000000000000000000000001";
 const plain = { bold: (t) => t, dim: (t) => t, green: (t) => t, yellow: (t) => t, red: (t) => t, cyan: (t) => t, mark: (tone) => ({ ok: "✓", warn: "!", bad: "✗", info: "·" })[tone], tone: (_, t) => t, enabled: false };
 
 const SEQUENCE = [
