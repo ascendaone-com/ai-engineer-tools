@@ -28,7 +28,7 @@ Every criterion below is written to be checked against **observable interaction 
 
 **Fires when:** a session has a declared intention (from `session_intention_declared`, or one already visible via the Flow app's `get_plans` tool as a `kind: "intention"` row — it rides the plans scope, not the work-demand one, because it is a sentence the person wrote) and the actual work has moved outside it **without an explicit decision to do so**.
 
-An intention can have two lines. The `get_plans` intention row carries the first as `text` and, when the person filled it in, an optional second as `roomFor`, verbatim. `roomFor` is the line the app labels "If there's room": scope the person permitted in advance. Work toward it is part of the intention, not a move away from it.
+An intention can have two lines. The `get_plans` intention row carries the first as `text` and, when the person filled it in, an optional second as `roomFor`, verbatim. `roomFor` is the person's optional second line, what they'd take on if there's room: scope permitted in advance. The key is absent, never empty, when there is no second line. Work toward it is part of the intention, not a move away from it.
 
 - **Drift means outside both lines.** Fire only when the work has left `text` and `roomFor` alike. Work toward `roomFor` is never drift and never emits this event, whether or not the first line looks done.
 - **Early is a question, not an event.** If the work turns to `roomFor` while the first line still looks open, you may ask the usual question (*"deliberate, or did it drift?"*) **at most once a session**. Asking emits nothing. A yes to deliberately switching is `scope_change_declared`, as below; anything else, carry on without emitting.

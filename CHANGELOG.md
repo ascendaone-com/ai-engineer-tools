@@ -26,7 +26,7 @@ targets, error counts or internal resource names — this repository is public.
   declared scope change, same as before.
 - **One line works exactly as it did.** An intention without a second line,
   or an app version that doesn't send one, gets the same behaviour as today.
-  Neither line's text ever leaves your machine, and the agent never learns
+  No work signal carries either line's text, and the agent never learns
   whether a line landed.
 - Every work signal now carries `skillVersion` `1.1.0`.
 
