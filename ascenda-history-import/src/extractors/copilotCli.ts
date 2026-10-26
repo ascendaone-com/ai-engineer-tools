@@ -15,7 +15,10 @@
  *  - `session.model_change`: `newModel`. Older builds name the model only
  *    here and at start, never on a message.
  *  - `session.auto_mode_resolved`: `chosenModel`, the model the router picked.
- *  - `user.message`: counted. `content` and `transformedContent` are never read.
+ *  - `user.message`: counted, and `source`. A subagent's task arrives as a
+ *    `user.message` whose `source` is `agent-…`: the parent agent wrote it,
+ *    so it counts as a subagent prompt, not a person's. `content` and
+ *    `transformedContent` are never read.
  *  - `assistant.message`: `model`. `content`, `reasoningText` and
  *    `encryptedContent` are never read.
  *  - `tool.execution_start`: `toolCallId`, `toolName`, `model`,
@@ -66,7 +69,7 @@
  * `tokensNotCollected` says so.
  *
  * Emission (aggregate before shipping):
- *  - `ai_prompt_submitted` per `user.message`, historical_direct.
+ *  - `ai_prompt_submitted` per person's `user.message`, historical_direct.
  *  - `ai_tool_call_started` per `tool.execution_start`, deduplicated on
  *    `toolCallId`, historical_direct.
  *  - `create_focus_session` per session, historical_derived.
@@ -288,6 +291,7 @@ interface SessionFold {
   humanPrompts: number;
   afterHoursPrompts: number;
   humanPromptTimestamps: (string | null)[];
+  subagentPrompts: number;
   assistantTurns: number;
   toolCallIds: Set<string>;
   toolCallCount: number;
@@ -320,6 +324,7 @@ function newFold(sessionId: string): SessionFold {
     humanPrompts: 0,
     afterHoursPrompts: 0,
     humanPromptTimestamps: [],
+    subagentPrompts: 0,
     assistantTurns: 0,
     toolCallIds: new Set(),
     toolCallCount: 0,
@@ -353,6 +358,11 @@ function sessionStartOf(lines: string[]): Record<string, unknown> | null {
  * `version` it knows. */
 export function isReadableCopilotLog(start: Record<string, unknown> | null): boolean {
   return start !== null && typeof start.version === "number" && KNOWN_COPILOT_LOG_VERSIONS.has(start.version);
+}
+
+/** A `user.message` the parent agent wrote to start a subagent: `source` is `agent-…`. */
+export function isSubagentTask(data: Record<string, unknown>): boolean {
+  return typeof data.source === "string" && data.source.startsWith("agent-");
 }
 
 function voteModel(fold: SessionFold, model: string | null): void {
@@ -410,6 +420,10 @@ function foldLines(fold: SessionFold, lines: string[]): void {
           break;
         }
         case "user.message": {
+          if (isSubagentTask(data)) {
+            fold.subagentPrompts += 1;
+            break;
+          }
           fold.humanPrompts += 1;
           if (occurredAt && isOutsideBusinessHours(new Date(occurredAt))) fold.afterHoursPrompts += 1;
           fold.humanPromptTimestamps.push(occurredAt);
@@ -640,6 +654,7 @@ export async function* extractCopilotCli(
     const split = splitActiveTime(fold.timelinePoints, { activeGapMs: ACTIVE_GAP_MS });
     const metrics: NormalizedHistoricalEvent["metrics"] = {
       promptCount: fold.humanPrompts,
+      subagentPrompts: fold.subagentPrompts,
       assistantTurns: fold.assistantTurns,
       toolCallCount: fold.toolCallCount,
       subagentToolCallCount: fold.subagentToolCallCount,
