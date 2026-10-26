@@ -1,7 +1,10 @@
-import * as os from "os";
 import * as path from "path";
 import type { CliAgentSetupSpec } from "@ascenda-one/tool-kit";
+import { copilotHome } from "./home.js";
+import { copilotRuntimeLines } from "./runtimeCheck.js";
 import { ASCENDA_TOOL_TYPE, COPILOT_HOST } from "./types.js";
+
+export { copilotHome };
 
 /**
  * The hooks that map to a catalog event. Left out:
@@ -30,16 +33,6 @@ const HOOK_TIMEOUT_SECONDS = 5;
 /** The file setup owns. Copilot loads every `*.json` in its hooks directory. */
 const HOOKS_FILE = "ascenda.json";
 
-/**
- * Where Copilot CLI keeps its user-level files: `$COPILOT_HOME` when it is
- * set, otherwise `~/.copilot`. A repository's `.github/hooks` folder is not
- * affected by it.
- */
-export function copilotHome(): string {
-  const configured = process.env.COPILOT_HOME?.trim();
-  return configured ? path.resolve(configured) : path.join(os.homedir(), ".copilot");
-}
-
 export const SETUP: CliAgentSetupSpec = {
   host: COPILOT_HOST,
   displayName: "GitHub Copilot CLI",
@@ -64,5 +57,8 @@ export const SETUP: CliAgentSetupSpec = {
       const bash = entry && typeof entry === "object" ? (entry as { bash?: unknown }).bash : undefined;
       return typeof bash === "string" ? bash : undefined;
     }
-  }
+  },
+  // Which Copilot runtimes ran our hook, from our own per-session record
+  // beside Copilot's session logs. See runtimeCheck.ts.
+  doctorExtras: (ui) => copilotRuntimeLines({ ui, hookEvents: HOOK_EVENTS, binaryName: "ascenda-copilot-hook", hooksFile: path.join(copilotHome(), "hooks", HOOKS_FILE) })
 };

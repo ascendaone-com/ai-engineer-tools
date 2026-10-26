@@ -2,7 +2,8 @@
 import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCopilotEvent } from "./mapCopilotEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
-import { SETUP } from "./setup.js";
+import { HOOK_EVENTS, SETUP } from "./setup.js";
+import { recordSessionHook } from "./sessionRecord.js";
 import { ASCENDA_TOOL_TYPE, COPILOT_HOST, CopilotHookEventName, CopilotHookInput } from "./types.js";
 
 /**
@@ -38,8 +39,10 @@ async function main(): Promise<void> {
   const sessionId = typeof input.sessionId === "string" ? input.sessionId : undefined;
 
   let turnDurationMs: number | undefined;
-  // That this agent ran a hook at all, for `status` and `doctor`.
+  // That this agent ran a hook at all, for `status` and `doctor`, and which
+  // session it ran in, for doctor's runtime check (sessionRecord.ts).
   stampLastHook(COPILOT_HOST, hookName);
+  recordSessionHook(sessionId, hookName, HOOK_EVENTS);
   // No hook names the prompt a turn answers, so the prompt hook mints an id
   // and the rest read it back. `sessionStart` can arrive after the first
   // prompt, so it reads like any other hook and resets nothing. Read before

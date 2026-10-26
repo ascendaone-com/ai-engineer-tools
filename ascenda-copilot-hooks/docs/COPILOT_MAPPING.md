@@ -88,6 +88,45 @@ file there, `ascenda.json`, writes it whole and deletes it on uninstall. It
 doesn't merge into or back up anyone else's file. See
 [examples/hooks.json](../examples/hooks.json).
 
+## Which runtimes ran the hook (`doctor`)
+
+`ascenda-copilot-hook doctor` answers which Copilot runtimes ran our hook in
+the last 7 days, and whether it worked. One short session is enough.
+
+Two sources, joined on the session id:
+
+- **Our record.** Each hook run adds one to a count in
+  `~/.ascenda/state/copilot_cli-sessions.json`, keyed by the payload's
+  `sessionId`: `{ firstAt, lastAt, events: { <hook>: count } }`, the 50 most
+  recent sessions, mode 0600. Nothing else from the payload goes in it, and
+  it's never sent anywhere. A session in this file is the only evidence that
+  our hook ran there.
+- **Copilot's session logs.** Every CLI session logs each hook run in
+  `session-state/<id>/events.jsonl` as `hook.start` and `hook.end`, without
+  the command. Doctor reads only lines containing `"hook.start"`,
+  `"hook.end"` or `"session.start"`, and of those only the type, hook type,
+  `success`, the session id and whether `error.message` contains
+  `ascenda-copilot-hook`. A hook's `input` is never read. From
+  `workspace.yaml` it reads the `client_name` line alone: the file's `name`
+  is the session's first prompt.
+
+```
+  Copilot runtimes  last 7 days
+  ✓ vscode-agent-host    2 sessions, ours ran in 2 (41 runs, 0 failed) · the CLI logged 43 hook runs
+  ! standalone           1 session, ours ran in 0. Is ~/.copilot/hooks/ascenda.json loaded? · the CLI logged 0 hook runs
+  · other hooks          14 failures from another hook, not ours
+  · outside the CLI      1 session our hook saw that the CLI's log doesn't have, likely VS Code chat
+```
+
+- The runtime is `client_name`: `vscode-agent-host` when VS Code ran the
+  CLI, and `standalone` when it's absent.
+- A failure whose message names our binary is ours. Any other failure on a
+  hook we register is another hook's: C# Dev Kit's VS Code plugin is a known
+  case, failing with exit 126. Neither message is printed.
+- VS Code's own chat doesn't write to `session-state`, so a session in our
+  record with no CLI directory is reported as likely VS Code chat. The
+  evidence goes no further.
+
 ## Local live bus (not telemetry)
 
 Alongside the cloud send, the adapter writes a one-line JSON signal to the

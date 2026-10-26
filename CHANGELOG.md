@@ -26,6 +26,10 @@ targets, error counts or internal resource names — this repository is public.
   the CLI under VS Code's agent host and VS Code's own chat haven't been
   checked on a clean machine. Until they are, the README doesn't list Copilot
   as covered.
+- **`doctor` shows which runtimes ran the hook.** After one short Copilot
+  session it lists each runtime from the last 7 days, whether our hook ran
+  there and whether it failed. It reads hook counts and outcomes from
+  Copilot's session logs, never a prompt.
 
 ## v0.1.40
 

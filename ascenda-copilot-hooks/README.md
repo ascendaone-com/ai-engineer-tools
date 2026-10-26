@@ -51,6 +51,18 @@ Open. The CLI's documentation says it reads `~/.copilot/hooks/` and
 
 Until they are, the repository README doesn't list Copilot as covered.
 
+`doctor` answers it from one short session. It joins a local per-session
+record our hook keeps with Copilot CLI's own session logs, and prints which
+runtimes ran our hook in the last 7 days and whether it failed:
+
+```bash
+~/.ascenda/bin/ascenda-copilot-hook doctor
+```
+
+It reads only hook counts and outcomes from those logs, never a prompt or a
+hook's input. [docs/COPILOT_MAPPING.md](docs/COPILOT_MAPPING.md) lists
+exactly what it reads.
+
 ## Configure
 
 Nothing is required after `setup`. A hook resolves its identity from, in

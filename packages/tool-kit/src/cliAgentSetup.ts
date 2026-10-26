@@ -141,6 +141,12 @@ export type CliAgentSetupSpec = {
     /** What to do about an untrusted or stale hook, e.g. `Open /hooks in Codex and approve the Ascenda hooks.` */
     fix: string;
   };
+  /**
+   * A section of `doctor` only this adapter can write, placed after the live
+   * signal and before the account. Absent for adapters with nothing to add.
+   * A throw is reported on one line and doesn't stop `doctor`.
+   */
+  doctorExtras?: (ui: TerminalStyle) => string[];
 };
 
 export type SetupScope = "project" | "user";
@@ -1045,6 +1051,14 @@ async function runDoctor(options: SetupOptions, spec: CliAgentSetupSpec): Promis
   if (spec.trust) {
     const found = trustDoctorLines(spec, options.projectDir, ui);
     if (found.length) lines.push("", ...found);
+  }
+  if (spec.doctorExtras) {
+    try {
+      const extra = spec.doctorExtras(ui);
+      if (extra.length) lines.push("", ...extra);
+    } catch (error) {
+      lines.push("", `  ${spec.displayName} checks could not run: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   lines.push("", ...accountLines(ui, spec));
   const localOnly = isLocalOnlyHostInstall(spec.host, (id) => readTokenFile(defaultTokenFilePath(id)) !== undefined);

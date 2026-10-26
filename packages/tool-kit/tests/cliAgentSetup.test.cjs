@@ -800,3 +800,26 @@ test("an owned project install is deleted, not edited, when setup moves to user 
     assert.equal(fs.existsSync(`${projectFile}.ascenda-backup`), false);
   });
 });
+
+test("doctor places an adapter's own section before the account, and a throw costs one line", { skip: process.platform === "win32" }, async () => {
+  const previousSocket = process.env.ASCENDA_LIVE_BUS_SOCKET;
+  process.env.ASCENDA_LIVE_BUS_SOCKET = path.join(os.tmpdir(), `ascenda-none-${process.pid}.sock`);
+  try {
+    await sandbox(async ({ home, project, log }) => {
+      const spec = { ...scopedSpec(path.join(home, "user")), doctorExtras: () => ["  Extra section"] };
+      assert.equal(await runCliAgentSetup(["doctor", "--project-dir", project], spec), 0);
+      const out = log.join("\n");
+      assert.ok(out.indexOf("Live signal") < out.indexOf("Extra section"));
+      assert.ok(out.indexOf("Extra section") < out.indexOf("Account sync"));
+
+      log.length = 0;
+      const broken = { ...spec, doctorExtras: () => { throw new Error("boom"); } };
+      assert.equal(await runCliAgentSetup(["doctor", "--project-dir", project], broken), 0);
+      assert.match(log.join("\n"), /checks could not run: boom/);
+      assert.match(log.join("\n"), /Account sync/);
+    });
+  } finally {
+    if (previousSocket === undefined) delete process.env.ASCENDA_LIVE_BUS_SOCKET;
+    else process.env.ASCENDA_LIVE_BUS_SOCKET = previousSocket;
+  }
+});
