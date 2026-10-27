@@ -15,7 +15,7 @@ import { initiativesStatusLines } from "./initiatives";
 import { replaceSettingsFile } from "./settingsFile";
 import { renderSetupDisclosure } from "./setupDisclosure";
 import type { DisclosureFamily } from "./setupDisclosure";
-import { describeAge, hookRunnerCommand, hookRunnerPaths, installHookRunner, readLastHook, removeHookRunner, resolveHookNode, tidyHomePath } from "./hookRunner";
+import { describeAge, hookRunnerCommand, hookRunnerPaths, installHookRunner, readLastHook, removeHookRunner, resolveHookNode, tidyHomePath, writeAtomically } from "./hookRunner";
 import { liveSignalDoctorLines } from "./liveSignalDoctor";
 import type { HookRegistration } from "./liveSignalDoctor";
 import { defaultStateFilePath, readCollectorState } from "./stateStore";
@@ -50,6 +50,14 @@ export type HookSettingsFormat = {
   scaffold?: Record<string, unknown>;
   /** The element registered under `hooks[event]` for our command. */
   entry: (command: string, event: string) => Record<string, unknown>;
+  /**
+   * The file at `settingsPath` is ours alone (Copilot, which loads every
+   * `*.json` in its hooks directory). Setup writes it whole from `scaffold`
+   * and our entries, uninstall deletes it, and nothing in it is merged or
+   * backed up: a backup beside it would be one more file in a directory the
+   * agent reads.
+   */
+  owned?: true;
 } & (
   | {
       /**
@@ -133,6 +141,12 @@ export type CliAgentSetupSpec = {
     /** What to do about an untrusted or stale hook, e.g. `Open /hooks in Codex and approve the Ascenda hooks.` */
     fix: string;
   };
+  /**
+   * A section of `doctor` only this adapter can write, placed after the live
+   * signal and before the account. Absent for adapters with nothing to add.
+   * A throw is reported on one line and doesn't stop `doctor`.
+   */
+  doctorExtras?: (ui: TerminalStyle) => string[];
 };
 
 export type SetupScope = "project" | "user";
@@ -317,7 +331,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
     if (options.dryRun) {
       row("info", "moved", `would remove the copy in ${tidyHomePath(otherFile, os.homedir())}, so each event runs once`);
     } else if (removeOurHookEntries(otherFile, spec)) {
-      row("ok", "moved", `removed the copy in ${tidyHomePath(otherFile, os.homedir())}, so each event runs once ${ui.dim("(backup beside it)")}`);
+      row("ok", "moved", `removed the copy in ${tidyHomePath(otherFile, os.homedir())}, so each event runs once${spec.settings.owned ? "" : ` ${ui.dim("(backup beside it)")}`}`);
     } else {
       row("warn", "note", `${tidyHomePath(otherFile, os.homedir())} registers these hooks too, so each event runs twice.`);
       detail("", `Remove the ${spec.binaryName} entries from one of the two files.`);
@@ -664,7 +678,8 @@ function installBinary(spec: CliAgentSetupSpec, dryRun: boolean): string {
 type HookSettings = { hooks?: Record<string, unknown[]> } & Record<string, unknown>;
 
 /**
- * Merge our hooks into the agent's settings file, preserving everything else.
+ * Merge our hooks into the agent's settings file, preserving everything else,
+ * or write the whole file when it is ours (`owned`).
  * Returns true when the file changed, false when it was already current, null
  * on error. Exported so an adapter's tests can prove its format lands in the
  * shape its agent reads.
@@ -673,7 +688,7 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
   let settings: HookSettings = { ...(spec.settings.scaffold ?? {}) };
   const exists = fs.existsSync(settingsFile);
 
-  if (exists) {
+  if (exists && !spec.settings.owned) {
     const raw = fs.readFileSync(settingsFile, "utf8").trim();
     if (raw) {
       try {
@@ -688,7 +703,7 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
   }
 
   const command = hookCommand(binary, spec);
-  const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
+  const hooks: Record<string, unknown[]> = spec.settings.owned ? {} : { ...(settings.hooks ?? {}) };
 
   for (const event of spec.hookEvents) {
     hooks[event] = placeOurEntry(hooks[event] ?? [], spec.settings.entry(command, event), spec);
@@ -700,6 +715,12 @@ export function writeHookSettings(settingsFile: string, binary: string, spec: Cl
 
   if (dryRun) {
     console.log(`\n--- ${settingsFile} (dry run) ---\n${serialised}`);
+    return true;
+  }
+
+  if (spec.settings.owned) {
+    fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+    writeAtomically(settingsFile, serialised, 0o644);
     return true;
   }
 
@@ -1031,6 +1052,14 @@ async function runDoctor(options: SetupOptions, spec: CliAgentSetupSpec): Promis
     const found = trustDoctorLines(spec, options.projectDir, ui);
     if (found.length) lines.push("", ...found);
   }
+  if (spec.doctorExtras) {
+    try {
+      const extra = spec.doctorExtras(ui);
+      if (extra.length) lines.push("", ...extra);
+    } catch (error) {
+      lines.push("", `  ${spec.displayName} checks could not run: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   lines.push("", ...accountLines(ui, spec));
   const localOnly = isLocalOnlyHostInstall(spec.host, (id) => readTokenFile(defaultTokenFilePath(id)) !== undefined);
   lines.push("", `  ${ui.bold("Local events")}  ${describeEventLog(resolveEventLog({ localOnly }), `npx ${spec.packageName} setup`)}`);
@@ -1093,6 +1122,10 @@ function accountLines(ui: TerminalStyle, spec: CliAgentSetupSpec): string[] {
  */
 function removeOurHookEntries(settingsFile: string, spec: CliAgentSetupSpec): boolean {
   if (!fs.existsSync(settingsFile)) return true;
+  if (spec.settings.owned) {
+    fs.rmSync(settingsFile, { force: true });
+    return true;
+  }
   try {
     const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as HookSettings;
     const hooks: Record<string, unknown[]> = { ...(settings.hooks ?? {}) };
@@ -1118,7 +1151,7 @@ function uninstall(options: SetupOptions, spec: CliAgentSetupSpec): number {
       console.error(`could not parse ${settingsFile} — remove the ascenda hook entries by hand`);
       return 1;
     }
-    console.log(`hooks removed from ${settingsFile}`);
+    console.log(spec.settings.owned ? `removed ${settingsFile}` : `hooks removed from ${settingsFile}`);
   }
 
   for (const file of removeHookRunner(spec.binaryName)) {

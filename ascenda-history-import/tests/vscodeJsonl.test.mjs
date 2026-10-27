@@ -203,3 +203,45 @@ test("a delta against a path the header never had is dropped, not conjured", asy
   assert.equal(session.metrics.requestCount, 1, "a stray delta must not invent requests");
   assert.equal(session.metrics.canceledCount, 0);
 });
+
+test("token figures and round instants set by later deltas land on their request", async () => {
+  const { root, wsDir } = await makeSnapshot();
+  const T1 = new Date(2026, 9, 7, 10, 0, 0).getTime();
+  const T2 = new Date(2026, 9, 7, 10, 2, 0).getTime();
+  await writeWorkspaceFolder(wsDir, "hash-i", REPO_A);
+  // VS Code writes the request first and sets its figures once the response
+  // completes. The header request predates the fields and keeps none.
+  await writeSessionFile(
+    wsDir,
+    "hash-i",
+    "late.jsonl",
+    jsonlSession({ version: 3, sessionId: "late", requests: [req(T1)] }, [
+      { kind: 2, k: ["requests"], v: [req(T2, { response: [], modeInfo: { kind: "ask" } })] },
+      {
+        kind: 2,
+        k: ["requests", 1, "response"],
+        v: [{ kind: "toolInvocationSerialized", toolCallId: "call-1", toolId: "copilot_readFile" }]
+      },
+      { kind: 1, k: ["requests", 1, "completionTokens"], v: 400 },
+      { kind: 1, k: ["requests", 1, "promptTokens"], v: 12000 },
+      { kind: 1, k: ["requests", 1, "copilotCredits"], v: 1.5 },
+      {
+        kind: 1,
+        k: ["requests", 1, "result"],
+        v: { timings: { totalElapsed: 6000 }, metadata: { toolCallRounds: [{ timestamp: T2 + 2500, toolCalls: [{ id: "call-1__vscode-1700000000000" }] }] } }
+      }
+    ])
+  );
+
+  const events = await collect(root);
+  const session = events.find((e) => e.eventKind === "create_focus_session");
+  assert.equal(session.metrics.outputTokens, 400);
+  assert.equal(session.metrics.contextWindowPeakTokens, 12000);
+  assert.equal(session.metrics.copilotCredits, 1.5);
+  assert.equal(session.metrics.mode, "ask");
+  assert.equal(session.metrics.contextWindowTokens, undefined, "no modelConfiguration, no window");
+
+  const [call] = events.filter((e) => e.eventKind === "ai_tool_call_started");
+  assert.equal(call.occurredAt, new Date(T2 + 2500).toISOString());
+  assert.equal(call.provenance, "historical_direct");
+});

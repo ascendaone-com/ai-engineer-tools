@@ -1,7 +1,8 @@
 # @ascenda-one/history-import
 
 Retrospective AI-usage import: extracts the baseline that already exists on
-an engineer's machine — Claude Code transcripts, Codex CLI rollouts, Cursor's
+an engineer's machine — Claude Code transcripts, Codex CLI rollouts, Copilot
+CLI session logs, Cursor's
 conversation store, VS Code local history and Copilot sessions, git — and
 ships it as provenance-classed historical events on the existing telemetry
 wire.
@@ -23,12 +24,13 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 1. **Evaporation order.** Claude Code first — its 30-day rolling purge is
    deleting a day of baseline per day. Then Codex (no purge observed on its
    rollouts; it sits second because it is the same transcript shape and
-   costs nothing to read, not because of measured risk), then Cursor, then
-   VS Code, then git.
+   costs nothing to read, not because of measured risk), then Copilot CLI,
+   then Cursor, then VS Code, then git.
 2. **Copy, then parse.** Extraction only ever reads a staged snapshot
    (`src/staging.ts`), never live files. SQLite snapshots carry their `-wal`.
 3. **Sniff per record, dispatch on the self-labelled version** (`version` on
-   Claude lines, `cli_version` on a Codex rollout's `session_meta`, `_v` on
+   Claude lines, `cli_version` on a Codex rollout's `session_meta`, `version`
+   on a Copilot CLI log's `session.start` (1 is the only one seen), `_v` on
    Cursor records, `version: 1` in VS Code entries).
    Unknown shapes become `historical_unparsed` — raw retained in staging,
    nothing inferred. Fixture tests per known (tool, version) pair.
@@ -59,11 +61,12 @@ command (same pattern as hooks pairing) and this CLI does the reading.
 | `archive` (durable content-addressed copy, dedup, verify, restore, prune) | **implemented; exercised against a real multi-GB store** |
 | **Claude Code extractor** (human-prompt/tool-result split, session folds incl. recursive subagent transcripts and older flat `agent-*.jsonl` ones, SDK-written prompts counted apart from typed ones, cache-write and advisor tokens, after-hours, compaction, tool failures, context-window peak, human-corrected edits, correction cadence, gap-split active minutes, epoch marker) | **implemented; exercised end to end against the ingest API** |
 | **Codex extractor** (`~/.codex/sessions` and `archived_sessions` rollouts: `user_message` prompts, per-turn model mix, issued tool calls, tool and runtime failures, cumulative tokens (left off for rollouts that predate them), context peak against the window the rollout itself records, compaction items, long turns, gap-split active minutes, epoch marker) | **implemented; fixture-tested and run against a developer machine's rollouts** |
+| **Copilot CLI extractor** (`~/.copilot/session-state` logs, both the per-session directory and the older flat `<id>.jsonl`: `user.message` prompts counted and never read, one `ai_tool_call_started` per call id, failures from `success: false`, the model that served each message beside the one the person picked (`auto` reads `router:auto`), tokens and line counts from `session.shutdown` (left off when a session never shut down), posture from `permission.requested`, `client_name`, gap-split active minutes, epoch marker) | **implemented; fixture-tested and run against a developer machine's sessions** |
 | **Active-time split** (hands-on vs agent-supervising, per session, per local day and per project digest; autonomy bands off the transcript's own `permissionMode`) | **implemented; exercised against a real store** |
 | **Tool-call counting, all four stores** (`tool_use` items / tool-call `response_item`s / `toolFormerData` / `toolInvocationSerialized`, one `ai_tool_call_started` per call) | **implemented; exercised end to end against all four stores on a developer machine** |
 | **Batch shipper** (`POST /v1/tool-events/batch`, salted hashes, stable importKey) | **implemented; exercised end to end against the ingest API** |
 | **Cursor extractor** (composerHeaders + bubble aggregation via SQL-side `json_extract`, prompt text never parsed into the process, subagent-composer folding, sessions started at their first message, tokens left off when the build recorded none, epoch marker) | **implemented; exercised end to end against the ingest API** |
-| **VS Code extractor** (Timeline-history Chat-Edit day×workspace aggregation, Copilot chatSessions folding (including chats with no folder open, and Insiders and VSCodium installs), workspace identity via `workspace.json` longest-prefix match, epoch marker) | **implemented; exercised end to end against the ingest API** |
+| **VS Code extractor** (Timeline-history Chat-Edit day×workspace aggregation, Copilot chatSessions folding (including chats with no folder open, and Insiders and VSCodium installs; output tokens, largest prompt, credits, reasoning effort and mode where a request recorded them; tool calls dated by the round that issued them), workspace identity via `workspace.json` longest-prefix match, epoch marker) | **implemented; exercised end to end against the ingest API** |
 | `import [--ship]` end to end | **implemented; exercised end to end against all three stores, dry run and `--ship`, on a developer machine** |
 | git extractor | stub — throws with a pointer |
 | zsh `EXTENDED_HISTORY` apply | snippet only |
@@ -334,6 +337,12 @@ across 120 real stores it appears on 6.7% of `user` lines and on no
 boundaries and carried forward between them, and supervising minutes are banded
 by it through `autonomyBand`. Time before the first declaration lands in
 `unknown` and is never folded into a neighbouring band.
+
+Copilot CLI writes posture on `permission.requested` instead, as `agentMode`
+and `permissionMode`. `permissionMode: "manual"` asks before every tool and
+bands as supervised; `agentMode: "plan"` bands as planning. Any other pair
+keeps the CLI's words and lands in `unknown` until someone has seen what it
+does.
 
 The band map rides in the local handoff only (`autonomySplit`), never on the
 wire: banding is a reader's vocabulary derived from the stored token at query

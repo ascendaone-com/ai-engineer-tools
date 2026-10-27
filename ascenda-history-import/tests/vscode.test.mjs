@@ -279,6 +279,135 @@ test("extractVsCode folds Copilot chat sessions: prompts, session metrics, after
   }
 });
 
+test("extractVsCode reads tokens, credits, model configuration and mode where a request recorded them", async () => {
+  const { root, wsDir } = await makeSnapshot();
+  try {
+    const T1 = new Date(2026, 9, 6, 10, 0, 0).getTime();
+    const T2 = new Date(2026, 9, 6, 10, 5, 0).getTime();
+    const T3 = new Date(2026, 9, 6, 11, 0, 0).getTime();
+    const part = (toolCallId, toolId) => ({
+      kind: "toolInvocationSerialized",
+      toolCallId,
+      toolId,
+      invocationMessage: "SECRET_ARGUMENT_MARKER"
+    });
+    // A round holds the model's text, its thinking and each call's arguments
+    // beside the two fields the extractor reads.
+    const round = (timestamp, ids) => ({
+      response: "SECRET_RESPONSE_MARKER",
+      thinking: { text: "SECRET_THINKING_MARKER", tokens: 7 },
+      // A round names a call by the part's id plus a suffix.
+      toolCalls: ids.map((id) => ({ id: `${id}__vscode-1700000000000`, name: "read_file", arguments: "SECRET_ARGUMENT_MARKER" })),
+      timestamp
+    });
+
+    await writeWorkspaceFolder(wsDir, "hash-t", REPO_A);
+    await writeChatSession(wsDir, "hash-t", "with-fields.json", {
+      version: 3,
+      sessionId: "with-fields",
+      requests: [
+        {
+          timestamp: T1,
+          modelId: "copilot/gpt-5",
+          message: { text: "SECRET_PROMPT_MARKER" },
+          promptTokens: 30000,
+          completionTokens: 700,
+          promptTokenDetails: [{ category: "System", label: "System Instructions", percentageOfPrompt: 30 }],
+          copilotCredits: 10.10001,
+          modelConfiguration: { reasoningEffort: "medium", contextSize: 200000 },
+          elapsedMs: 9000,
+          responseTimestamp: T1,
+          modeInfo: { kind: "agent" },
+          agent: { id: "github.copilot.editsAgent" },
+          // call-b is issued by the second round. call-todo is a part VS Code
+          // adds itself, and no round names it.
+          response: [part("call-a", "copilot_readFile"), part("call-b", "copilot_readFile"), part("call-todo", "manage_todo_list")],
+          result: {
+            timings: { firstProgress: 2000, totalElapsed: 10000 },
+            metadata: { toolCallRounds: [round(T1 + 4000, ["call-a"]), round(T1 + 7000, ["call-b"]), round(T1 + 9000, [])] }
+          }
+        },
+        {
+          timestamp: T2,
+          modelId: "copilot/gpt-5",
+          message: { text: "second" },
+          promptTokens: 50000,
+          completionTokens: 1300,
+          copilotCredits: 0.2,
+          modeInfo: { kind: "agent" },
+          // call-a again: the same call recorded in a later request keeps its
+          // first instant.
+          response: [part("call-a", "copilot_readFile"), part("call-c", "run_in_terminal")],
+          result: { metadata: { toolCallRounds: [round(T2 + 3000, ["call-c"])] } }
+        }
+      ]
+    });
+    // An older request: none of the new fields, and no rounds to date its call.
+    await writeChatSession(wsDir, "hash-t", "without-fields.json", {
+      version: 3,
+      sessionId: "without-fields",
+      requests: [
+        {
+          timestamp: T3,
+          modelId: "copilot/gpt-5",
+          message: { text: "older" },
+          response: [part("call-old", "copilot_readFile")]
+        }
+      ]
+    });
+
+    const events = [];
+    for await (const e of extractVsCode(root, "test-extraction")) events.push(e);
+    const sessionOf = (ref) =>
+      events.find((e) => e.eventKind === "create_focus_session" && e.sessionRef === ref);
+    const callsOf = (ref) =>
+      events.filter((e) => e.eventKind === "ai_tool_call_started" && e.sessionRef === ref);
+
+    const s = sessionOf("with-fields").metrics;
+    assert.equal(s.outputTokens, 2000);
+    assert.equal(s.contextWindowPeakTokens, 50000, "promptTokens is one prompt's size, so the largest, not the sum");
+    assert.equal(s.inputTokens, undefined, "promptTokens is not cumulative input");
+    assert.equal(s.tokensNotCollected, undefined);
+    assert.equal(s.copilotCredits, 10.30001);
+    assert.equal(s.contextWindowTokens, 200000);
+    assert.equal(s.contextWindowPeakPct, 0.25);
+    assert.equal(s.reasoningEffort, "medium");
+    assert.equal(s.mode, "agent");
+    assert.equal(s.toolCallCount, 4);
+
+    const calls = callsOf("with-fields");
+    const at = (name, ms) => calls.find((c) => c.occurredAt === new Date(ms).toISOString() && c.metrics.toolName === name);
+    assert.equal(calls.length, 4);
+    assert.equal(at("copilot_readFile", T1 + 4000)?.provenance, "historical_direct");
+    assert.equal(at("copilot_readFile", T1 + 7000)?.provenance, "historical_direct");
+    assert.equal(at("run_in_terminal", T2 + 3000)?.provenance, "historical_direct");
+    assert.equal(at("manage_todo_list", T1)?.provenance, "historical_derived", "a call no round names borrows the request's instant");
+
+    const old = sessionOf("without-fields").metrics;
+    assert.equal(old.tokensNotCollected, true);
+    for (const key of ["inputTokens", "outputTokens", "contextWindowPeakTokens", "contextWindowTokens", "contextWindowPeakPct", "copilotCredits", "reasoningEffort", "mode"]) {
+      assert.equal(old[key], undefined, `${key} must be absent, not 0, on a request that never recorded it`);
+    }
+    const [oldCall] = callsOf("without-fields");
+    assert.equal(oldCall.occurredAt, new Date(T3).toISOString());
+    assert.equal(oldCall.provenance, "historical_derived");
+
+    const payload = toWirePayload(sessionOf("with-fields"), 0, "claude_code:test-install");
+    assert.equal(payload.metadata.outputTokens, 2000);
+    assert.equal(payload.metadata.copilotCredits, 10.30001);
+    assert.equal(payload.metadata.mode, "agent");
+
+    for (const e of events) {
+      const values = JSON.stringify(e.metrics);
+      for (const marker of ["SECRET_PROMPT_MARKER", "SECRET_RESPONSE_MARKER", "SECRET_THINKING_MARKER", "SECRET_ARGUMENT_MARKER"]) {
+        assert.ok(!values.includes(marker), `content leaked into metrics: ${values}`);
+      }
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("extractVsCode treats an unrecognised chat-session version as unparsed", async () => {
   const { root, wsDir } = await makeSnapshot();
   try {

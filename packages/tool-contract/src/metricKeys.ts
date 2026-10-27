@@ -252,7 +252,7 @@ export const METRIC_KEYS = {
     family: "context",
     readBy: ["handoff"],
     unit: "tokens",
-    note: "Codex only: the model_context_window the rollout itself recorded — the real denominator its contextWindowPeakPct was computed against. Claude Code records no window and its ratio assumes 200k; absent here means the store never said."
+    note: "Codex: the model_context_window the rollout itself recorded — the real denominator its contextWindowPeakPct was computed against. VS Code: the largest modelConfiguration.contextSize a Copilot request recorded. Claude Code records no window and its ratio assumes 200k; absent here means the store never said."
   },
   date: { family: "clock", readBy: ["handoff"] },
   errorCount: { family: "outcome", readBy: ["handoff"] },
@@ -369,6 +369,17 @@ export const METRIC_KEYS = {
     unit: "lines",
     note: "Claude Code only: user lines written by the Agent SDK or a headless run (entrypoint sdk-*). Nobody typed them, so promptCount leaves them out. Counted once per line across the store."
   },
+  copilotCredits: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "Copilot credits",
+    note: "VS Code only: the sum of each Copilot request's copilotCredits, rounded to five decimal places. Absent where no request recorded the figure, which Copilot builds before Jun 2026 don't."
+  },
+  reasoningEffort: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "VS Code only: the modelConfiguration.reasoningEffort most of a Copilot session's requests ran with. Absent where no request recorded a model configuration."
+  },
   tokensNotCollected: {
     family: "context",
     readBy: ["diagnostic"],
@@ -382,7 +393,28 @@ export const METRIC_KEYS = {
   duplicateChatSessions: {
     family: "reading",
     readBy: ["diagnostic"],
-    note: "VS Code only: chat sessions seen in more than one place (a transferred session also in a workspace). Counted once."
+    note: "VS Code only: chat sessions seen in more than one place (a transferred session also in a workspace). Counted once. Copilot CLI uses it for a session written both as a directory and as an older flat file."
+  },
+  clientName: {
+    family: "session",
+    readBy: ["diagnostic"],
+    note: "Copilot CLI only: workspace.yaml's client_name, one constant word naming what started the CLI (vscode, vscode-agent-host). Absent on sessions written before the field existed, which were the standalone CLI."
+  },
+  totalApiDurationMs: {
+    family: "session",
+    readBy: ["diagnostic"],
+    unit: "milliseconds",
+    note: "Copilot CLI only: session.shutdown.totalApiDurationMs, the time the session spent waiting on model calls. Absent where the session has no shutdown event."
+  },
+  selectedModel: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "Copilot CLI only: the model the person chose at session start (session.start.selectedModel), which is auto when they let the router pick. primaryModel is the model that served the session, so the two differ exactly when the router chose."
+  },
+  selectedModelClass: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "Copilot CLI only: classifyModelClass of selectedModel, so a session whose person picked auto reads router:auto beside the served model's class."
   },
   sessionsStartedFromBubble: {
     family: "reading",

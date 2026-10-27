@@ -57,6 +57,7 @@ const AGENT_NAMES = {
   codex: "Codex",
   cursor: "Cursor",
   gemini_cli: "Gemini CLI",
+  copilot_cli: "Copilot CLI",
   windsurf: "Windsurf",
   vscode_extension: "VS Code"
 };

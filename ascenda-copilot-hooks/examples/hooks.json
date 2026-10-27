@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook sessionStart", "timeoutSec": 5 }],
+    "sessionEnd": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook sessionEnd", "timeoutSec": 5 }],
+    "userPromptSubmitted": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook userPromptSubmitted", "timeoutSec": 5 }],
+    "preToolUse": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook preToolUse", "timeoutSec": 5 }],
+    "postToolUse": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook postToolUse", "timeoutSec": 5 }],
+    "postToolUseFailure": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook postToolUseFailure", "timeoutSec": 5 }],
+    "preCompact": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook preCompact", "timeoutSec": 5 }],
+    "subagentStart": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook subagentStart", "timeoutSec": 5 }],
+    "subagentStop": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook subagentStop", "timeoutSec": 5 }],
+    "agentStop": [{ "type": "command", "bash": "~/.ascenda/bin/ascenda-copilot-hook agentStop", "timeoutSec": 5 }]
+  }
+}

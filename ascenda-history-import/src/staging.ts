@@ -152,6 +152,49 @@ export async function snapshotVsCodeWorkspaceStorage(
   return dest;
 }
 
+/**
+ * Surgical snapshot of Copilot CLI's `~/.copilot/session-state`: per session
+ * directory only `events.jsonl` and `workspace.yaml`, plus the older flat
+ * `<id>.jsonl` files at the top. Each directory also holds `checkpoints/`,
+ * `files/`, `research/`, `plan.md` and a `session.db`, which are the agent's
+ * working copies and notes. The extractor reads none of them, so none of
+ * them is copied.
+ */
+export async function snapshotCopilotSessionState(
+  area: StagingArea,
+  sourceRoot: string,
+  label: string
+): Promise<string> {
+  const dest = path.join(area.root, label);
+  await fs.mkdir(dest, { recursive: true });
+
+  let entries: import("node:fs").Dirent[] = [];
+  try {
+    entries = await fs.readdir(sourceRoot, { withFileTypes: true });
+  } catch {
+    return dest; // No session-state on this machine: an empty snapshot, not an error.
+  }
+
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      await fs.copyFile(path.join(sourceRoot, entry.name), path.join(dest, entry.name), CLONE);
+      continue;
+    }
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    for (const file of ["events.jsonl", "workspace.yaml"]) {
+      try {
+        await fs.mkdir(path.join(dest, entry.name), { recursive: true });
+        await fs.copyFile(path.join(sourceRoot, entry.name, file), path.join(dest, entry.name, file), CLONE);
+      } catch {
+        // Not every session directory has both: an older session whose log
+        // is the flat file beside it has only workspace.yaml here.
+      }
+    }
+  }
+
+  return dest;
+}
+
 
 /* ------------------------------------------------------------------------ *
  * Teardown

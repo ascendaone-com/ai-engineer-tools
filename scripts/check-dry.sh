@@ -16,6 +16,7 @@ consumer_dirs=(
   ascenda-cursor-hooks/src
   ascenda-windsurf-hooks/src
   ascenda-gemini-hooks/src
+  ascenda-copilot-hooks/src
   ascenda-agent-mcp/src
   ascenda-pairing-sim/src
   ascenda-dev-server/src

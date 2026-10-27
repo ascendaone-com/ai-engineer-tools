@@ -230,10 +230,22 @@ The collectors work in two ways, and the first needs no account:
   go to Ascenda, so your sessions appear in Flow over time. The live signal
   keeps working, and `setup --event-log` keeps the local file as well.
 
-Workspace identifiers are hashed with a random salt generated on first run and
-stored only at `~/.ascenda/salt`. It is never sent, so the hashes can't be
-turned back into folder or repository names by anyone holding the telemetry.
-Deleting the file resets the hashes.
+Workspace and project identifiers are hashed with a random salt generated on
+first run and stored only at `~/.ascenda/salt`. It is never sent, so those
+hashes can't be turned back into folder or repository names by anyone holding
+the telemetry. Deleting the file resets them.
+
+The repository and branch keys aren't salted. For a GitHub repository, each
+event carries `repoKey`, a digest of `owner/repo`, and off the default branch a
+`branchKey`. The [GitHub collector](./ascenda-github-collector/) runs in a
+workflow step, where no salt exists, and puts the same keys on pull request
+events, so a session can be
+[matched to its pull request](./packages/agent-events/README.md#matching-a-session-to-a-pull-request).
+Its 8-character project digest is unsalted for the same reason. Anyone holding
+your events can check a guess at a repository or branch name, and for a public
+repository the name is public anyway. The keys are on by default, set only for
+github.com remotes, and off with `setup --no-repo-keys` or
+`ASCENDA_REPO_KEYS=off`.
 
 Metadata only, by default. **Not a medical device:** it measures workload
 patterns for self-awareness, not diagnosis or treatment, and makes no clinical
@@ -327,6 +339,7 @@ upgrades with `claude plugin update ascenda@ascenda-one` instead.
 | [ascenda-cursor-hooks](./ascenda-cursor-hooks/) | `@ascenda-one/cursor-hooks` (npm) | Cursor agent hooks |
 | [ascenda-windsurf-hooks](./ascenda-windsurf-hooks/) | `@ascenda-one/windsurf-hooks` (npm) | Windsurf Cascade hooks; the gaps in Windsurf's hook set are documented, not filled in |
 | [ascenda-gemini-hooks](./ascenda-gemini-hooks/) | `@ascenda-one/gemini-hooks` (npm) | Gemini CLI hooks; the per-inference hooks are deliberately left unregistered |
+| [ascenda-copilot-hooks](./ascenda-copilot-hooks/) | `@ascenda-one/copilot-hooks` (npm) | GitHub Copilot CLI hooks. Which Copilot runtimes load the hooks file hasn't been checked yet |
 | [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/) | `ascenda-one.ascenda` (VS Code Marketplace and Open VSX) | The editor extension for VS Code and Cursor: editor activity, terminal classification, sessions |
 | [ascenda-agent-skills](./ascenda-agent-skills/) | `ascenda@ascenda-one` (Claude Code plugin) | The plugin: the work-signals skill, the hooks and the MCP server in one install, plus the Cursor rule |
 | [ascenda-agent-mcp](./ascenda-agent-mcp/) | `@ascenda-one/agent-mcp` (npm) | MCP server exposing `ascenda_emit_work_signal`, for patterns only the agent can see |

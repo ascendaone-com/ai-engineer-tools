@@ -12,6 +12,25 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.41
 
+### A hooks adapter for GitHub Copilot CLI
+
+- **`npx @ascenda-one/copilot-hooks setup` registers ten Copilot CLI hooks**
+  in `~/.copilot/hooks/ascenda.json`: prompts, tool calls, file writes and
+  edits, test and build runs, compaction, subagents and turn ends. Copilot
+  loads every file in that folder, so setup owns this one. It writes it
+  whole, and `uninstall` deletes it. `$COPILOT_HOME` moves it, and
+  `--scope project` writes `.github/hooks/ascenda.json` instead.
+- **Batched tool calls count one by one.** Copilot sends a batch of tool
+  requests in one `preToolUse`, and each gets its own event.
+- **Still open: which Copilot runtimes load the file.** The standalone CLI,
+  the CLI under VS Code's agent host and VS Code's own chat haven't been
+  checked on a clean machine. Until they are, the README doesn't list Copilot
+  as covered.
+- **`doctor` shows which runtimes ran the hook.** After one short Copilot
+  session it lists each runtime from the last 7 days, whether our hook ran
+  there and whether it failed. It reads hook counts and outcomes from
+  Copilot's session logs, never a prompt.
+
 ### Git history is your choice, made on the confirm page
 
 - **The page asks, unticked.** When a study join includes the history

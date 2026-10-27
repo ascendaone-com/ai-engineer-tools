@@ -31,6 +31,10 @@ export interface StorePaths {
   /** `~/.codex/archived_sessions` — rollouts the user archived from the
    * resume picker, same shape, moved rather than deleted. */
   codexArchivedSessions: string;
+  /** `~/.copilot/session-state` — Copilot CLI's session logs. One directory
+   * per session holding `events.jsonl` and `workspace.yaml`; older builds
+   * left a flat `<id>.jsonl` beside the directories instead. */
+  copilotSessionState: string;
   /** Cursor's global SQLite KV — conversations and bubbles. WAL mode: never
    * open read-write; copy db+wal, or read with `immutable=1`. */
   cursorStateDb: string;
@@ -121,6 +125,7 @@ export function resolveStorePaths(
     codexRoot,
     codexSessions: path.join(codexRoot, "sessions"),
     codexArchivedSessions: path.join(codexRoot, "archived_sessions"),
+    copilotSessionState: path.join(home, ".copilot", "session-state"),
     cursorStateDb: path.join(appSupport, "Cursor", "User", "globalStorage", "state.vscdb"),
     cursorSearchDb: path.join(
       appSupport,

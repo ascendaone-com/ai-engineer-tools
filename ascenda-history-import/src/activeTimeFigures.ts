@@ -37,6 +37,10 @@ export const ACTIVE_TIME_FIGURES: Readonly<Record<string, AscendaActiveTimeQuant
   "CodexHandoffSession.handsOnMinutes": "hands_on",
   "CodexHandoffSession.agentSupervisingMinutes": "supervising",
 
+  "CopilotCliHandoffSession.activeMinutes": "coverage",
+  "CopilotCliHandoffSession.handsOnMinutes": "hands_on",
+  "CopilotCliHandoffSession.agentSupervisingMinutes": "supervising",
+
   // Summed over sessions, from the sessions' own minute figures. Sessions
   // overlap, so these routinely exceed the wall clock of the period they
   // describe, which is why they are agent-hours and not time.
@@ -85,6 +89,7 @@ export const ACTIVE_TIME_FIGURES: Readonly<Record<string, AscendaActiveTimeQuant
 export const NOT_ACTIVE_TIME_FIGURES: Readonly<Record<string, string>> = {
   "HandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
   "CodexHandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
+  "CopilotCliHandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
   "CrossStoreElapsedFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure"
 };
 
