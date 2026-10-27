@@ -721,3 +721,105 @@ test("the first backup is kept, so install then uninstall leaves the original be
     assert.equal(fs.readFileSync(`${file}.ascenda-backup`, "utf8"), original);
   });
 });
+
+// An owned file (Copilot's `hooks/ascenda.json`) is written whole and deleted
+// on uninstall. The agent loads every `*.json` beside it, so nothing of ours
+// may be left there: no merge with what was in the file, no backup.
+
+function ownedSpec(userDir) {
+  return {
+    ...flat,
+    host: "owned", binaryName: "ascenda-owned-hook",
+    settings: {
+      settingsPath: (scope, dir) => scope === "user" ? path.join(userDir, "hooks", "ascenda.json") : path.join(dir, ".owned", "hooks", "ascenda.json"),
+      scaffold: { version: 1 },
+      owned: true,
+      entry: (command, event) => ({ type: "command", bash: `${command} ${event}`, timeoutSec: 5 }),
+      commandOf: (entry) => entry?.bash
+    }
+  };
+}
+
+test("an owned file is written whole from the scaffold and our entries, with no backup", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-owned-"));
+  const spec = ownedSpec(dir);
+  const file = spec.settings.settingsPath("user", dir);
+  // Whatever was there before, a stale event included, is replaced.
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ version: 1, theme: "dark", hooks: { gone: [{ bash: "/x/ascenda-owned-hook gone" }] } }));
+
+  assert.equal(writeHookSettings(file, "/x/ascenda-owned-hook", spec, false), true);
+  const settings = read(file);
+  assert.deepEqual(Object.keys(settings).sort(), ["hooks", "version"]);
+  assert.deepEqual(Object.keys(settings.hooks).sort(), ["start", "stop"]);
+  assert.equal(settings.hooks.stop.length, 1);
+  assert.equal(settings.hooks.stop[0].type, "command");
+  assert.equal(settings.hooks.stop[0].timeoutSec, 5);
+  assert.match(settings.hooks.stop[0].bash, /ascenda-owned-hook"? stop$/);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ["ascenda.json"], "no backup in a directory the agent loads");
+  assert.equal(writeHookSettings(file, "/x/ascenda-owned-hook", spec, false), false, "a current file reads as current");
+});
+
+test("an owned file that isn't valid JSON is ours to replace", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-owned-"));
+  const spec = ownedSpec(dir);
+  const file = spec.settings.settingsPath("user", dir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "{ torn");
+  assert.equal(writeHookSettings(file, "/x/ascenda-owned-hook", spec, false), true);
+  assert.equal(read(file).hooks.start.length, 1);
+});
+
+test("setup --no-pair writes an owned file, status counts it, and uninstall deletes it", { skip: process.platform === "win32" }, async () => {
+  await sandbox(async ({ home, project, log }) => {
+    const spec = ownedSpec(path.join(home, "user"));
+    const file = spec.settings.settingsPath("user", project);
+    assert.equal(await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], spec), 0);
+    assert.equal(read(file).hooks.start.length, 1);
+
+    log.length = 0;
+    await runCliAgentSetup(["status", "--project-dir", project], spec);
+    assert.match(log.join("\n"), /2\/2 registered in/);
+
+    assert.equal(await runCliAgentSetup(["uninstall", "--project-dir", project], spec), 0);
+    assert.equal(fs.existsSync(file), false, "the file is gone");
+    assert.deepEqual(fs.readdirSync(path.dirname(file)), [], "and nothing was left beside it");
+  });
+});
+
+test("an owned project install is deleted, not edited, when setup moves to user scope", { skip: process.platform === "win32" }, async () => {
+  await sandbox(async ({ home, project }) => {
+    const spec = ownedSpec(path.join(home, "user"));
+    assert.equal(await runCliAgentSetup(["setup", "--no-pair", "--scope", "project", "--project-dir", project], spec), 0);
+    const projectFile = spec.settings.settingsPath("project", project);
+    assert.ok(fs.existsSync(projectFile));
+
+    assert.equal(await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], spec), 0);
+    assert.ok(fs.existsSync(spec.settings.settingsPath("user", project)));
+    assert.equal(fs.existsSync(projectFile), false);
+    assert.equal(fs.existsSync(`${projectFile}.ascenda-backup`), false);
+  });
+});
+
+test("doctor places an adapter's own section before the account, and a throw costs one line", { skip: process.platform === "win32" }, async () => {
+  const previousSocket = process.env.ASCENDA_LIVE_BUS_SOCKET;
+  process.env.ASCENDA_LIVE_BUS_SOCKET = path.join(os.tmpdir(), `ascenda-none-${process.pid}.sock`);
+  try {
+    await sandbox(async ({ home, project, log }) => {
+      const spec = { ...scopedSpec(path.join(home, "user")), doctorExtras: () => ["  Extra section"] };
+      assert.equal(await runCliAgentSetup(["doctor", "--project-dir", project], spec), 0);
+      const out = log.join("\n");
+      assert.ok(out.indexOf("Live signal") < out.indexOf("Extra section"));
+      assert.ok(out.indexOf("Extra section") < out.indexOf("Account sync"));
+
+      log.length = 0;
+      const broken = { ...spec, doctorExtras: () => { throw new Error("boom"); } };
+      assert.equal(await runCliAgentSetup(["doctor", "--project-dir", project], broken), 0);
+      assert.match(log.join("\n"), /checks could not run: boom/);
+      assert.match(log.join("\n"), /Account sync/);
+    });
+  } finally {
+    if (previousSocket === undefined) delete process.env.ASCENDA_LIVE_BUS_SOCKET;
+    else process.env.ASCENDA_LIVE_BUS_SOCKET = previousSocket;
+  }
+});

@@ -22,6 +22,7 @@ export const RELEASE_PACKAGES = [
   { dir: "ascenda-cursor-hooks", name: "ascenda-cursor-hooks", kind: "cli", npm: "@ascenda-one/cursor-hooks" },
   { dir: "ascenda-windsurf-hooks", name: "ascenda-windsurf-hooks", kind: "cli", npm: "@ascenda-one/windsurf-hooks" },
   { dir: "ascenda-gemini-hooks", name: "ascenda-gemini-hooks", kind: "cli", npm: "@ascenda-one/gemini-hooks" },
+  { dir: "ascenda-copilot-hooks", name: "ascenda-copilot-hooks", kind: "cli", npm: "@ascenda-one/copilot-hooks" },
   { dir: "ascenda-agent-mcp", name: "ascenda-agent-mcp", kind: "cli", npm: "@ascenda-one/agent-mcp" },
   { dir: "ascenda-github-collector", name: "ascenda-github-collector", kind: "cli", npm: "@ascenda-one/github-collector" },
   { dir: "ascenda-history-import", name: "ascenda-history-import", kind: "cli", npm: "@ascenda-one/history-import" },

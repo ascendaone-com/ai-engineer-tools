@@ -339,6 +339,7 @@ upgrades with `claude plugin update ascenda@ascenda-one` instead.
 | [ascenda-cursor-hooks](./ascenda-cursor-hooks/) | `@ascenda-one/cursor-hooks` (npm) | Cursor agent hooks |
 | [ascenda-windsurf-hooks](./ascenda-windsurf-hooks/) | `@ascenda-one/windsurf-hooks` (npm) | Windsurf Cascade hooks; the gaps in Windsurf's hook set are documented, not filled in |
 | [ascenda-gemini-hooks](./ascenda-gemini-hooks/) | `@ascenda-one/gemini-hooks` (npm) | Gemini CLI hooks; the per-inference hooks are deliberately left unregistered |
+| [ascenda-copilot-hooks](./ascenda-copilot-hooks/) | `@ascenda-one/copilot-hooks` (npm) | GitHub Copilot CLI hooks. Which Copilot runtimes load the hooks file hasn't been checked yet |
 | [ascenda-vscode-extension-telemetry](./ascenda-vscode-extension-telemetry/) | `ascenda-one.ascenda` (VS Code Marketplace and Open VSX) | The editor extension for VS Code and Cursor: editor activity, terminal classification, sessions |
 | [ascenda-agent-skills](./ascenda-agent-skills/) | `ascenda@ascenda-one` (Claude Code plugin) | The plugin: the work-signals skill, the hooks and the MCP server in one install, plus the Cursor rule |
 | [ascenda-agent-mcp](./ascenda-agent-mcp/) | `@ascenda-one/agent-mcp` (npm) | MCP server exposing `ascenda_emit_work_signal`, for patterns only the agent can see |

@@ -2,7 +2,7 @@
 #
 # Replay a representative hook payload for every supported agent through its
 # real adapter CLI, so each mapper is exercised end to end without installing
-# five agents.
+# six agents.
 #
 #   ./scripts/replay-agent-hooks.sh              every agent
 #   ./scripts/replay-agent-hooks.sh cursor       one agent
@@ -86,6 +86,18 @@ if want gemini; then
   fire gemini AfterTool    '{"hook_event_name":"AfterTool","session_id":"gm-1","tool_name":"write_file","tool_response":{"exitCode":0}}'
   fire gemini PreCompress  '{"hook_event_name":"PreCompress","session_id":"gm-1"}'
   fire gemini AfterModel   '{"hook_event_name":"AfterModel","session_id":"gm-1","llm_response":{}}'
+fi
+
+if want copilot; then
+  echo "copilot..."
+  fire copilot userPromptSubmitted '{"sessionId":"cp-1","cwd":"/tmp","prompt":"that is wrong, try again","timestamp":1761000000000}'
+  fire copilot sessionStart        '{"sessionId":"cp-1","cwd":"/tmp","source":"new","timestamp":1761000000000}'
+  fire copilot preToolUse          '{"sessionId":"cp-1","cwd":"/tmp","toolCalls":[{"id":"c1","name":"view","args":{}},{"id":"c2","name":"bash","args":{}}]}'
+  fire copilot postToolUse         '{"sessionId":"cp-1","cwd":"/tmp","toolName":"bash","toolArgs":{"command":"npm test"},"toolResult":{"resultType":"success"}}'
+  fire copilot postToolUseFailure  '{"sessionId":"cp-1","cwd":"/tmp","toolName":"bash","toolArgs":{"command":"npm run lint"}}'
+  fire copilot postToolUse         '{"sessionId":"cp-1","cwd":"/tmp","toolName":"edit","toolArgs":{},"toolResult":{"resultType":"success"}}'
+  fire copilot preCompact          '{"sessionId":"cp-1","cwd":"/tmp"}'
+  fire copilot agentStop           '{"sessionId":"cp-1","cwd":"/tmp","stopReason":"end_turn"}'
 fi
 
 echo

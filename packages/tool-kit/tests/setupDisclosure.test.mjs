@@ -38,11 +38,13 @@ const { mapClaudeEvent } = await import(`${R}ascenda-claude-code-hooks/dist/mapC
 const { mapCodexEvent } = await import(`${R}ascenda-codex-hooks/dist/mapCodexEvent.js`);
 const { mapCursorEvent } = await import(`${R}ascenda-cursor-hooks/dist/mapCursorEvent.js`);
 const { mapGeminiEvent } = await import(`${R}ascenda-gemini-hooks/dist/mapGeminiEvent.js`);
+const { mapCopilotEvent } = await import(`${R}ascenda-copilot-hooks/dist/mapCopilotEvent.js`);
 const { mapWindsurfEvent } = await import(`${R}ascenda-windsurf-hooks/dist/mapWindsurfEvent.js`);
 
 const { SETUP: CODEX } = await import(`${R}ascenda-codex-hooks/dist/setup.js`);
 const { SETUP: CURSOR } = await import(`${R}ascenda-cursor-hooks/dist/setup.js`);
 const { SETUP: GEMINI } = await import(`${R}ascenda-gemini-hooks/dist/setup.js`);
+const { SETUP: COPILOT } = await import(`${R}ascenda-copilot-hooks/dist/setup.js`);
 const { SETUP: WINDSURF } = await import(`${R}ascenda-windsurf-hooks/dist/setup.js`);
 
 const CWD = process.cwd();
@@ -131,6 +133,21 @@ const ADAPTERS = [
       ["PreCompress", {}],
       ["AfterAgent", { prompt: "x" }, 120000]
     ].flatMap(([hook, input, turnMs]) => withForgeKeys(withPromptId(mapGeminiEvent(hook, { hook_event_name: hook, ...input }, turnMs), MINTED), FORGE_CWD))
+  },
+  {
+    spec: COPILOT,
+    emit: () => [
+      ["sessionStart", {}],
+      ["userPromptSubmitted", { prompt: "that is wrong, try again" }],
+      ["preToolUse", { toolCalls: [{ id: "c1", name: "bash", args: { command: "npm test" } }] }],
+      ["postToolUse", { toolName: "bash", toolArgs: { command: "npm test" }, toolResult: { resultType: "success" } }],
+      ["postToolUse", { toolName: "bash", toolArgs: { command: "git commit -m x" }, toolResult: { resultType: "success" } }],
+      ["postToolUse", { toolName: "create", toolArgs: {}, toolResult: { resultType: "success" } }],
+      ["preCompact", {}],
+      ["subagentStart", { agentId: "call_x" }],
+      ["preToolUse", { toolCalls: [{ id: "c2", name: "view", args: {} }] }, undefined, "call_x"],
+      ["agentStop", {}, 120000]
+    ].flatMap(([hook, input, turnMs, subagentId]) => withForgeKeys(withPromptId(mapCopilotEvent(hook, input, turnMs, subagentId), MINTED), FORGE_CWD))
   },
   {
     spec: WINDSURF,
