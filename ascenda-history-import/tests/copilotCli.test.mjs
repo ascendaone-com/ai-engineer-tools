@@ -9,7 +9,8 @@
  *
  *  - `…0a`: a current build, directory shape, `selectedModel: "auto"`,
  *    a shutdown with tokens and line counts, hooks, a repeated call id, a
- *    subagent call, a compaction and an event type nobody has classified.
+ *    subagent call and the task message that started it, a compaction and an
+ *    event type nobody has classified.
  *  - `…0b`: an older build, flat file beside a directory holding only
  *    `workspace.yaml`, models only from `selectedModel` and `model_change`,
  *    one malformed line, no shutdown.
@@ -75,7 +76,9 @@ test("current build: counts, model, tokens, lines, posture and workspace", async
   assert.equal(session.repoRef, "/work/repo-a", "git_root from workspace.yaml");
   assert.equal(m.gitBranch, "main");
   assert.equal(m.clientName, "vscode-agent-host");
+  // The subagent's task message is the parent agent's, not a person's.
   assert.equal(m.promptCount, 2);
+  assert.equal(m.subagentPrompts, 1);
   assert.equal(m.assistantTurns, 2);
   // c1, c2 (once, though started twice) and c3, the subagent's.
   assert.equal(m.toolCallCount, 3);
@@ -118,8 +121,8 @@ test("current build: counts, model, tokens, lines, posture and workspace", async
 test("hooks put no instant on the timeline", async () => {
   const events = await extractAll();
   const session = sessionOf(events, A);
-  // 24 lines, 2 of them hooks: 22 instants, every one dated.
-  assert.equal(session.metrics.activeSplitInstants, 22);
+  // 25 lines, 2 of them hooks: 23 instants, every one dated.
+  assert.equal(session.metrics.activeSplitInstants, 23);
   assert.equal(session.metrics.activeSplitUndatedLines, 0);
 });
 
