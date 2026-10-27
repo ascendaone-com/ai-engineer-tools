@@ -84,6 +84,99 @@ A few rules every adapter keeps:
   fine in v0. Renaming or removing a field has to be listed in the release
   notes, so call it out in your PR.
 
+## Reporting where your agent keeps its history
+
+[ascenda-history-import](./ascenda-history-import/) reads past sessions from
+Claude Code, Codex, Cursor and GitHub Copilot. We've mapped where about twenty
+other coding agents keep their history, using their docs, their source and
+other people's readers. None of that map has been checked on a real machine.
+
+If you use one of the tools below, ten minutes in a terminal tells us whether
+we got it right. We need the shape of the store. We don't need what's in it.
+
+### What to send
+
+- The tool's name and version, and your OS.
+- Whether the path in the table exists. If it's somewhere else, where.
+- The schema or key list, from the commands below.
+- Rough counts: how many sessions, how many lines or rows.
+
+### What to leave out
+
+No prompts, no code, no transcripts, no file contents. Write your home folder
+as `~` in any path.
+
+Read the output before you paste it. Some stores use file paths or IDs as JSON
+keys, and those would show up in a key list. Delete those lines.
+
+### Commands
+
+For a SQLite file, list the tables and their columns. This prints no rows:
+
+```bash
+sqlite3 "PATH/TO/store.db" .schema
+```
+
+For a JSON file, list every key path with the values stripped:
+
+```bash
+jq -r '[paths | map(if type == "number" then "[]" else . end) | join(".")] | unique[]' "PATH/TO/session.json"
+```
+
+For a JSONL file, the same across every line:
+
+```bash
+jq -rn '[inputs | paths | map(if type == "number" then "[]" else . end) | join(".")] | unique[]' "PATH/TO/events.jsonl"
+```
+
+If the lines have a type field, a count of each type helps too. Swap `.kind`
+for whatever the field is called:
+
+```bash
+jq -rn '[inputs | .kind] | group_by(.) | map("\(.[0]) \(length)")[]' "PATH/TO/events.jsonl"
+```
+
+### The tools
+
+Ordered roughly by how much a report would help. Paths are for macOS.
+
+| Tool | Where we think history lives | What we most want to know |
+| --- | --- | --- |
+| Goose | `~/.local/share/goose/sessions/sessions.db` | The `schema_version` value, and whether forked sessions show up as full copies |
+| Cline 4.x | `~/.cline/data/db/sessions.db` and `~/.cline/data/sessions/<id>/` | Whether pre-4.0 tasks are still in VS Code's `globalStorage/saoudrizwan.claude-dev/` beside the new store |
+| Kilo Code 7.x | `~/.local/share/kilo/kilo.db` | Schema, and whether migrated sessions have `ses_migrated_` IDs |
+| OpenCode, or Tabnine's OpenCode plugin | Kilo's layout, and `~/.tabnine/opencode` for Tabnine | Whether the schema matches Kilo's |
+| Zed | `~/Library/Application Support/Zed/threads/threads.db` | Schema, and which file holds the `sidebar_threads` table |
+| Junie CLI | `~/.junie/sessions/index.jsonl` and `session-*/events.jsonl` | Key list for `events.jsonl`, and where prompt text sits |
+| Trae CLI 2.x | `~/.trae/cli/sessions/YYYY/MM/DD/rollout-*.jsonl` | Record types, and whether they match Codex's rollouts |
+| Devin CLI | `~/.local/share/devin/cli/sessions.db` and `transcripts/` | Schema. Nobody official has documented it |
+| Kiro, IDE or CLI | `~/.kiro/sessions/`, or `~/Library/Application Support/kiro-cli/data.sqlite3` on older CLIs | Are current sessions plain files or SQLite? The docs and the readers disagree |
+| Warp | `~/Library/Group Containers/2BBY89MBSN.dev.warp/Library/Application Support/dev.warp.Warp-Stable/warp.sqlite` | Schema, and the path on Warp Preview |
+| Amp | `~/.local/share/amp/threads/T-*.json` | Does the current CLI still write these files? Do threads started on the web get one? |
+| Augment CLI | `~/.augment/sessions/<id>.json` | Key list |
+| JetBrains AI Assistant | `~/Library/Application Support/JetBrains/<Product><version>/workspace/*.xml` and `aia-task-history/*.events` | Whether `.events` files start with `AUI_EVENTS_V1`, and your IDE version |
+| Continue | `~/.continue/sessions/` | Key list, if you still have history from before the project stopped |
+| Roo Code | VS Code `globalStorage/rooveterinaryinc.roo-cline/tasks/` | Whether `tasks/_index.json` exists |
+| Aider | `.aider.chat.history.md` and `.aider.input.history` in each repo | Whether you've turned on `--analytics-log` or `--llm-history-file` |
+
+On Linux, swap `~/Library/Application Support/` for `~/.config/`. On Windows,
+use `%APPDATA%`. If the tool runs inside Cursor, Windsurf or VSCodium, its
+`globalStorage` folder sits under that editor's directory, not under `Code`.
+
+### Cloud agents
+
+Jules, Devin, the GitHub Copilot coding agent and Codex cloud don't keep
+history on your machine. Each has an API of some kind. If you use one, tell us
+your plan tier and whether its session or log endpoint answers for you. Never
+send an API key or token.
+
+### Sending it
+
+Open a [new integration proposal](https://github.com/ascendaone-com/ai-engineer-tools/issues/new?template=new-integration.yml)
+and pick "Reading history the tool stores on disk". One tool per issue keeps
+the threads readable. A store that doesn't match the table is the most useful
+report you can send.
+
 ## This repository is public
 
 Everything you commit is readable by anyone, including commit messages and
