@@ -10,6 +10,26 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.41
+
+### An intention can have a second line
+
+- **Work signals read both lines of the day's intention.** The Flow app's
+  morning card can now hold an "And if there's time" line beside the main one,
+  and its local `get_plans` tool passes it to the agent as `roomFor`. The
+  work-signals skill treats that line as scope you allowed in advance. Moving
+  onto it isn't drift, so it never reports `goal_drift_detected`.
+- **Drift means outside both lines.** That's the only time the event fires.
+- **Starting the second line early gets one question at most.** If the agent
+  sees you turn to it before the first looks done, it may ask whether that's
+  deliberate, once a session. The question sends nothing. Saying yes is a
+  declared scope change, same as before.
+- **One line works exactly as it did.** An intention without a second line,
+  or an app version that doesn't send one, gets the same behaviour as today.
+  No work signal carries either line's text, and the agent never learns
+  whether a line landed.
+- Every work signal now carries `skillVersion` `1.1.0`.
+
 ## v0.1.40
 
 ### Pairing names the tool, not the machine
