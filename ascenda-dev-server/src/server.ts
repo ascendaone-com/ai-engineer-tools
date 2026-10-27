@@ -53,6 +53,8 @@ type StudyJoinSession = {
    * makes rather than mirroring what Start showed.
    */
   granted: StudyJoinGrant[] | null;
+  /** Stores the confirm page offers as an unticked box. `git` whenever the join carries the history import. */
+  optionalImportStores: string[];
 };
 
 /** A join code the mock recognises but treats as having nothing live to join — the same answer a department-scoped study gives a CLI join, which carries no department. */
@@ -67,7 +69,7 @@ const NO_LIVE_STUDY_CODE = "DEPT-ONLY-2026";
  * `join` renders its own plain sentence per grant `code`, so changing the
  * `name` spelling here proves nothing about what a person actually sees.
  */
-const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "deviceCode" | "toolInstallationId" | "status" | "expiresAt" | "refusedReason" | "granted">>> = {
+const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "deviceCode" | "toolInstallationId" | "status" | "expiresAt" | "refusedReason" | "granted" | "optionalImportStores">>> = {
   "NORTHVIEW-2026": {
     organisationName: "Northview Health",
     // The backend's own internal kind name, not display text — `join`
@@ -114,6 +116,18 @@ export type DevServerOptions = {
    * against.
    */
   pairingCarriesJoin?: boolean;
+  /**
+   * The account's history-import grant already covers git (default false),
+   * as it does for someone who ticked the box on an earlier join.
+   */
+  gitGranted?: boolean;
+  /**
+   * Whether the person ticks the git box on the confirm page (default
+   * false: it starts unticked). Applies to confirms that don't say, which
+   * includes every auto-confirm. A confirm whose body carries `includeGit`
+   * uses that instead.
+   */
+  tickGit?: boolean;
   log?: (line: string) => void;
 };
 
@@ -132,6 +146,9 @@ export type DevServer = {
     autoConfirm: boolean;
     autoConfirmJoins: boolean;
     pairingCarriesJoin: boolean;
+    /** Whether the history-import grant covers git. Ingest refuses `code_forge` history without it. */
+    gitGranted: boolean;
+    tickGit: boolean;
     unclassified: number;
   };
 };
@@ -162,6 +179,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     autoConfirm: opts.autoConfirm ?? true,
     autoConfirmJoins: opts.autoConfirmJoins ?? (opts.autoConfirm ?? true),
     pairingCarriesJoin: opts.pairingCarriesJoin ?? true,
+    gitGranted: opts.gitGranted ?? false,
+    tickGit: opts.tickGit ?? false,
     unclassified: 0
   };
 
@@ -223,6 +242,13 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       log(`${DIM}${time()}${RESET} consent ${state.consentActive ? "\x1b[32mactive" : "\x1b[31mexpired"}${RESET} (simulated)`);
       return json(res, 200, { consentActive: state.consentActive });
     }
+    // A re-grant from the web, with or without git.
+    if (method === "POST" && path === "/_dev/import-stores") {
+      const body = (await readJson(req)) as { git?: boolean };
+      state.gitGranted = Boolean(body.git);
+      log(`${DIM}${time()}${RESET} history-import grant ${state.gitGranted ? "covers" : "doesn't cover"} git (simulated)`);
+      return json(res, 200, { importStores: importStores() });
+    }
 
     json(res, 404, { error: "not_found", detail: `${method} ${path}` });
   }
@@ -265,7 +291,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
         status: "pending",
         expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
         refusedReason: null,
-        granted: null
+        granted: null,
+        optionalImportStores: offeredStores(info.grants)
       };
       session.joinSessionId = join.joinSessionId;
       state.studyJoins.set(join.joinSessionId, join);
@@ -288,7 +315,17 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       // unusable link is worse than no mock.
       qrUrl: `ascenda://pair?session=${session.pairingSessionId}&secret=${session.secret}`,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-      ...(join ? { studyJoin: { organisationName: join.organisationName, mode: "report", windowStartUtc: join.windowStartUtc, windowEndUtc: join.windowEndUtc } } : {})
+      ...(join
+        ? {
+            studyJoin: {
+              organisationName: join.organisationName,
+              mode: "report",
+              windowStartUtc: join.windowStartUtc,
+              windowEndUtc: join.windowEndUtc,
+              ...(join.optionalImportStores.length ? { optionalImportStores: join.optionalImportStores } : {})
+            }
+          }
+        : {})
     });
   }
 
@@ -325,7 +362,7 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
 
   async function confirm(req: http.IncomingMessage, res: http.ServerResponse, by: "deviceCode" | "code" | "secret", sessionId?: string): Promise<void> {
     if (!req.headers.authorization) return json(res, 401, { error: "unauthorized" });
-    const body = (await readJson(req)) as Record<string, string>;
+    const body = (await readJson(req)) as Record<string, string> & { includeGit?: boolean };
     const value = body[by];
     const session = sessionId
       ? state.sessions.get(sessionId)
@@ -336,7 +373,7 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     // person sees what they are agreeing to. A typed code is turned away.
     if (join && by !== "secret") return json(res, 409, { error: "study_join_needs_review", code: "study_join_needs_review" });
     if (session.status !== "paired") pair(session);
-    if (join && join.status === "pending") confirmStudyJoin(join);
+    if (join && join.status === "pending") confirmStudyJoin(join, body.includeGit);
     json(res, 200, { status: "paired" });
   }
 
@@ -355,7 +392,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
             windowStartUtc: join.windowStartUtc,
             windowEndUtc: join.windowEndUtc,
             granted: join.granted,
-            refusedReason: join.status === "refused" ? join.refusedReason : null
+            refusedReason: join.status === "refused" ? join.refusedReason : null,
+            importStores: joinImportStores(join)
           }
         }
       : {};
@@ -394,7 +432,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       status: "pending",
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       refusedReason: null,
-      granted: null
+      granted: null,
+      optionalImportStores: offeredStores(info.grants)
     };
     state.studyJoins.set(session.joinSessionId, session);
     log(`${DIM}${time()}${RESET} study-join session for ${tool.toolInstallationId} -> ${info.organisationName} (code ${session.deviceCode})`);
@@ -408,17 +447,20 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       studyKind: session.studyKind,
       windowStartUtc: session.windowStartUtc,
       windowEndUtc: session.windowEndUtc,
-      grants: session.grants
+      grants: session.grants,
+      ...(session.optionalImportStores.length ? { optionalImportStores: session.optionalImportStores } : {})
     });
   }
 
-  function confirmStudyJoin(session: StudyJoinSession): void {
+  /** `includeGit` is the page's checkbox. Unsaid, it's whatever `tickGit` is. */
+  function confirmStudyJoin(session: StudyJoinSession, includeGit?: boolean): void {
     session.status = "confirmed";
     // The real backend reads back what actually landed rather than
     // mirroring what Start showed; this mock's "full success" path has
     // nothing that can fail, so its readback is simply everything.
     session.granted = session.grants;
     grantLeases(session.granted);
+    if ((includeGit ?? state.tickGit) && session.optionalImportStores.includes("git")) state.gitGranted = true;
     log(`${DIM}${time()}${RESET} \x1b[32mstudy-join confirmed${RESET} ${session.joinSessionId}${state.autoConfirmJoins ? " (auto-confirm)" : ""}`);
   }
 
@@ -431,15 +473,15 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
    */
   async function confirmStudyJoinRoute(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     if (!req.headers.authorization) return json(res, 401, { error: "unauthorized" });
-    const body = (await readJson(req)) as { deviceCode?: string };
+    const body = (await readJson(req)) as { deviceCode?: string; includeGit?: boolean };
     const session = [...state.studyJoins.values()].find((s) => s.deviceCode === body.deviceCode);
     if (!session) return json(res, 400, { error: "invalid_or_expired" });
     // A join riding on a pairing is confirmed with the pairing, from its link.
     if ([...state.sessions.values()].some((pairing) => pairing.joinSessionId === session.joinSessionId)) {
       return json(res, 409, { error: "study_join_needs_review", code: "study_join_needs_review" });
     }
-    if (session.status === "pending") confirmStudyJoin(session);
-    json(res, 200, { status: session.status, granted: session.granted });
+    if (session.status === "pending") confirmStudyJoin(session, body.includeGit);
+    json(res, 200, { status: session.status, granted: session.granted, refusedReason: session.status === "refused" ? session.refusedReason : null, importStores: joinImportStores(session) });
   }
 
   /**
@@ -477,6 +519,17 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     json(res, 200, { status: "refused" });
   }
 
+  /** The stores the account's history-import grant covers, or null without one. Read live, as the real status is. */
+  function importStores(): string[] | null {
+    if (!state.historicalImportLease) return null;
+    return ["claude_code", "codex", "cursor", "vscode", ...(state.gitGranted ? ["git"] : [])];
+  }
+
+  /** A join session reports the grant once it has settled with one. */
+  function joinImportStores(session: StudyJoinSession): string[] | null {
+    return session.granted ? importStores() : null;
+  }
+
   /** A join's grants that this mock gates on. 501 is `consentActive`, which starts on. */
   function grantLeases(granted: StudyJoinGrant[]): void {
     if (granted.some((grant) => grant.code === 507)) state.historicalImportLease = true;
@@ -491,7 +544,8 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
     json(res, 200, {
       status: session.status,
       granted: session.granted,
-      refusedReason: session.status === "refused" ? session.refusedReason : null
+      refusedReason: session.status === "refused" ? session.refusedReason : null,
+      importStores: joinImportStores(session)
     });
   }
 
@@ -521,6 +575,11 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
       // scope the event claims, and the backend answers per item.
       if (HISTORICAL_PROVENANCES.has(String(event.provenance)) && !state.historicalImportLease) {
         results.push({ index, status: "rejected", reason: "consent_missing_or_expired" });
+        return;
+      }
+      // Git history is its own store on the grant, off unless the person ticked it.
+      if (HISTORICAL_PROVENANCES.has(String(event.provenance)) && event.source === "code_forge" && !state.gitGranted) {
+        results.push({ index, status: "rejected", reason: "consent_source_not_granted" });
         return;
       }
       const importKey = event.metadata?.importKey;
@@ -568,6 +627,11 @@ export function createDevServer(opts: DevServerOptions = {}): DevServer {
 }
 
 const HISTORICAL_PROVENANCES = new Set(["historical_direct", "historical_derived", "historical_unparsed"]);
+
+/** What the confirm page offers to add. Only a join that carries the history import (507) offers git. */
+function offeredStores(grants: StudyJoinGrant[]): string[] {
+  return grants.some((grant) => grant.code === 507) ? ["git"] : [];
+}
 
 function time(): string {
   return new Date().toTimeString().slice(0, 8);

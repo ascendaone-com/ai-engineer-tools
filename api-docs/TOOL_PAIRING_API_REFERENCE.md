@@ -270,10 +270,14 @@ the study. When the server takes them, the 200 response adds:
     "organisationName": "Northview Health",
     "mode": "report",
     "windowStartUtc": "2026-10-13T00:00:00.000Z",
-    "windowEndUtc": "2026-11-10T00:00:00.000Z"
+    "windowEndUtc": "2026-11-10T00:00:00.000Z",
+    "optionalImportStores": ["git"]
   }
 }
 ```
+
+`optionalImportStores` is there only when the join includes the history
+import. See "Optional import stores" below.
 
 A response without `studyJoin` means the pairing carries no join; a client
 that wants the study joins it separately. A bad code is refused with the codes
@@ -302,7 +306,8 @@ Status semantics:
 
 - For a session that carries a join, the response adds `studyJoin`
   (`joinSessionId`, `status`, `organisationName`, `studyKind`, `mode`,
-  `windowStartUtc`, `windowEndUtc`, `granted[]`, `refusedReason`) next to
+  `windowStartUtc`, `windowEndUtc`, `granted[]`, `refusedReason`,
+  `importStores`) next to
   `eventWriteToken`. Its `status` can still be `pending` for a moment after
   the pairing reads `paired`; clients keep polling until it settles.
 - Polling status does not rotate token repeatedly.
@@ -699,6 +704,8 @@ export type StudyJoinStartResponse = {
   windowStartUtc: string;
   windowEndUtc: string;
   grants: StudyJoinGrant[];
+  /** Offered as an unticked box on the confirm page. Only when the join includes the history import. */
+  optionalImportStores?: string[];
 };
 
 export type StudyJoinSessionStatus = "pending" | "confirmed" | "expired" | "refused";
@@ -729,6 +736,8 @@ export type StudyJoinStatusResponse = {
   granted: StudyJoinGrant[] | null;
   /** Present only on `refused`; `expired` carries no reason of its own. */
   refusedReason: StudyJoinRefusedReason | null;
+  /** The stores the person's active history-import grant covers. Has `git` if and only if git is granted. */
+  importStores?: string[] | null;
 };
 ```
 
@@ -798,6 +807,26 @@ No auth required — the session id itself is the only thing this answers to,
 the same as pairing's own status poll, and it says nothing about who the
 session is for until confirmed. 200: `StudyJoinStatusResponse`. 404
 `{ "error": "unknown_session" }` for an unknown session.
+
+### Optional import stores
+
+Git history is an optional part of the history-import grant.
+
+- **Offer.** `optionalImportStores: ["git"]` comes back on Start, on the
+  pairing create response's `studyJoin`, and on the join preview, only when
+  the history import is part of the join. The confirm page shows it as an
+  unticked checkbox.
+- **Choice.** The page sends `includeGit: boolean` (default false) with its
+  confirm. A CLI never sends it.
+- **Result.** `importStores` on the join's status, and on `studyJoin` in the
+  pairing status, lists the stores the person's active grant covers. It has
+  `git` if and only if git is granted. It follows the account's grant, not the
+  session's checkbox, so a person who granted git elsewhere sees it on this
+  session too, and a later re-grant without git removes it.
+- **Ingest.** Store `git` is wire source `code_forge`. A historical
+  `code_forge` event without git on the grant is rejected per item with
+  `consent_source_not_granted`. Events already accepted stay until the whole
+  history-import consent is revoked.
 
 ### What the CLI never does
 

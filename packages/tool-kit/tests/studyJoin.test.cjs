@@ -248,6 +248,39 @@ test("choosing Report polls until confirmed, then prints every granted item and 
   }
 });
 
+test("a page that offers git says so before the question, and the outcome carries importStores", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([
+    startHandler({ ...START_RESPONSE, optionalImportStores: ["git"] }),
+    statusHandler({ status: "confirmed", granted: START_RESPONSE.grants, refusedReason: null, importStores: ["claude_code", "git"] })
+  ]);
+  let outcome;
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout, pollIntervalMs: 5, onOutcome: (result) => { outcome = result; } });
+    await waitFor(output, "Choice [Not now]");
+    assert.match(output(), /unticked box for git history: commit times, size buckets, files changed and whether each is a merge\. No messages, paths, names or emails\./);
+    stdin.write("1\n");
+    assert.equal(await done, 0);
+    assert.deepEqual(outcome.importStores, ["claude_code", "git"]);
+  } finally {
+    restore();
+  }
+});
+
+test("no git offer, no git line", async () => {
+  const { stdin, stdout, output } = ttyPair();
+  const { restore } = mockFetch([startHandler()]);
+  try {
+    const done = runStudyJoin({ apiBaseUrl: "http://mock", eventWriteToken: "tok", displayName: "Test", joinCode: "CODE", stdin, stdout });
+    await waitFor(output, "Choice [Not now]");
+    stdin.write("\n");
+    await done;
+    assert.doesNotMatch(output(), /git history/);
+  } finally {
+    restore();
+  }
+});
+
 test("an https API base prints the web confirm link first, then the app", async () => {
   const { stdin, stdout, output } = ttyPair();
   const { restore } = mockFetch([
