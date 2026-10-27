@@ -31,6 +31,14 @@ targets, error counts or internal resource names — this repository is public.
   there and whether it failed. It reads hook counts and outcomes from
   Copilot's session logs, never a prompt.
 
+### Fixes
+
+- **A lost token gets reported even with the event log on.** When a paired
+  install's token file is gone, the hook writes the event to your log and
+  prints `Missing ASCENDA_EVENT_WRITE_TOKEN`. With `ASCENDA_EVENT_LOG_FILE`
+  or `setup --event-log` set, it used to write the log and say nothing.
+  Every adapter does this now.
+
 ## v0.1.40
 
 ### Pairing names the tool, not the machine

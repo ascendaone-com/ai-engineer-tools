@@ -282,9 +282,17 @@ test("a pairing that lost its token is still an outage, not a quiet install", ()
   delete credentials.installedAt;
   fs.writeFileSync(file, `${JSON.stringify(credentials, null, 2)}\n`);
 
-  const result = run(m, ["PreToolUse"], { input: JSON.stringify({ session_id: "s1", cwd: m.project, tool_name: "Bash", tool_input: { command: "npm test" } }) });
+  const input = JSON.stringify({ session_id: "s1", cwd: m.project, tool_name: "Bash", tool_input: { command: "npm test" } });
+  const result = run(m, ["PreToolUse"], { input, env: { ASCENDA_EVENT_LOG_FILE: "" } });
   assert.equal(result.status, 0, "and it still never breaks the turn");
   assert.match(result.stderr, /Missing ASCENDA_EVENT_WRITE_TOKEN/);
+
+  // With a log on, the event lands there and the outage is still reported.
+  const log = path.join(m.root, "events.jsonl");
+  const logged = run(m, ["PreToolUse"], { input, env: { ASCENDA_EVENT_LOG_FILE: log } });
+  assert.equal(logged.status, 0);
+  assert.match(logged.stderr, /Missing ASCENDA_EVENT_WRITE_TOKEN/, "a log is a copy, not a reason to go quiet");
+  assert.ok(fs.readFileSync(log, "utf8").trim(), "the event is in the log");
   m.cleanup();
 });
 
