@@ -270,6 +270,9 @@ export async function deliverHookEvents(events: MappedEvent[], options: HookDeli
     const logFile = resolveEventLogPath();
     if (!logFile) throw error;
     logUnsent(logFile, events, options);
+    // Keeping a copy doesn't make a lost token less lost. An id with no token
+    // still reports. A machine with no id and a log is running on the log alone.
+    if (!(error instanceof MissingInstallationIdError)) throw error;
     return;
   }
 

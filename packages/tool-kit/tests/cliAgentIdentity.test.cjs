@@ -178,6 +178,22 @@ test("a delivery with no resolvable id is journalled as skipped_no_installation_
   });
 });
 
+test("a pairing that lost its token still rejects with a log on, and the event is in the log", async () => {
+  await isolated(async (home) => {
+    // A paired install's credentials, minus the token file.
+    writeHostCredentials("cursor", { toolInstallationId: `cli_agent:${UUID_A}`, pairedAt: new Date().toISOString() });
+    const event = { eventType: "ai_tool_call_started", severity: "low", metadata: { host: "cursor", toolName: "Shell" } };
+    process.env.ASCENDA_EVENT_LOG_FILE = path.join(home, "events.jsonl");
+
+    await assert.rejects(
+      () => deliverHookEvents([event], { toolType: "cli_agent", host: "cursor", source: "cli_agent" }),
+      /Missing ASCENDA_EVENT_WRITE_TOKEN/
+    );
+    const logged = JSON.parse(fs.readFileSync(process.env.ASCENDA_EVENT_LOG_FILE, "utf8").trim());
+    assert.equal(logged.delivery, "not_sent");
+  });
+});
+
 test("an install that was asked not to pair delivers nothing, journals nothing, and keeps a local log", async () => {
   await isolated(async (home) => {
     // What `setup --no-pair` leaves behind: an id, the flag, no token.
