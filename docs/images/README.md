@@ -33,7 +33,8 @@ a branch preview will show a broken image until then. That is expected.
 | `cli-doctor-problem.png` | `doctor` naming a problem (hooks not registered) and its fix. **Generated** | root README |
 | `waterline-paired.gif` | The Waterline screen saver with Ascenda Flow paired, the water falling as agent work winds down. Made from the recording on ascendaflow.com/waterline at 2× speed, 800px wide, 12 fps | root README, Built with these collectors |
 | `flow-hud.gif` | The Flow HUD while agents work: 82 seconds of screen captures at about 8× speed, 414×414 (a 207-point window at 2×) | root README, Built with these collectors |
-| `weekly-poster-example.png` | Slides 1 to 3 of the example week on me.ascendaflow.com/try (the word, why this word, four numbers), 9:16, captured from the live page at 2× with headless Chromium and set side by side | root README, One way to use these events |
+| `weekly-poster-example.png` | Slides 1 to 3 of the example week on me.ascendaflow.com/try (the word, why this word, four numbers), 9:16, captured from the live page at 2× with headless Chromium and set side by side | root README, Beyond the collectors |
+| `flow-walkthrough.jpg` | Poster frame for the Flow walkthrough video, which stays on ascendaflow.com (136 MB, too large for the repo). The first screen: imported history as a daily activity chart. 1600×900 | root README, Beyond the collectors |
 
 ## Generated terminal shots
 
