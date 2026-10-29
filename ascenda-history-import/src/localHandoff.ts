@@ -34,6 +34,7 @@
  * metrics-only rule as the wire, minus the hashing that only exists to
  * keep paths from reaching a server.
  */
+import type { SubagentReceipt } from "./subagentReceipts.js";
 import { ascendaHome, deriveWorkContext, type AutonomyBand } from "@ascenda-one/tool-kit";
 import { LOCAL_TIMEZONE, SessionDaySlice, localDayKey } from "./daySlice.js";
 import {
@@ -235,6 +236,13 @@ export interface HandoffSession {
   /** Subagent (Task-tool) transcripts folded into this session, so a session
    * that leaned on subagents doesn't look identical to one that didn't. */
   subagentTranscripts: number;
+  /** One receipt per subagent transcript: class, duration, tool calls and
+   * failures, the size of what the parent got back, and whether the main
+   * thread re-touched the subagent's files within ten minutes of its return.
+   * Metrics only. Additive, so the schema number does not move: absent on a
+   * handoff written before it existed (not collected), `[]` where a session
+   * had no subagents. Claude Code only. See `subagentReceipts.ts`. */
+  subagentReceipts?: SubagentReceipt[];
   /** `historical_direct` | `historical_derived` — the app renders derived
    * entries as inferred, never as something the user recorded. */
   provenance: string;
@@ -1096,6 +1104,7 @@ export function buildHandoff(
       toolCallCount: Number(event.metrics.toolCallCount ?? 0),
       subagentToolCallCount: Number(event.metrics.subagentToolCallCount ?? 0),
       subagentTranscripts: Number(event.metrics.subagentTranscripts ?? 0),
+      subagentReceipts: event.subagentReceipts ?? [],
       days: event.dayBreakdown ?? [],
       provenance: event.provenance
     });

@@ -90,7 +90,9 @@ export const NOT_ACTIVE_TIME_FIGURES: Readonly<Record<string, string>> = {
   "HandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
   "CodexHandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
   "CopilotCliHandoffFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
-  "CrossStoreElapsedFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure"
+  "CrossStoreElapsedFile.activeGapMinutes": "the gap rule these figures were cut by, not a figure",
+  "SubagentReceipt.activeMinutes":
+    "one subagent's own gap-rule minutes, run inside its parent's window and so already part of the session's agent-supervising time; a receipt's own measurement, never to be summed into or against a session figure"
 };
 
 /** The quantity a figure reports, or undefined when it is not registered. */

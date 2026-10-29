@@ -119,6 +119,15 @@ import * as path from "node:path";
 import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
+import {
+  buildReceipt,
+  newParentRecord,
+  newSidechainTally,
+  receiptToolResultsOf,
+  receiptToolUsesOf,
+  type ParentRecord,
+  type SidechainTally
+} from "../subagentReceipts.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 import {
   DEFAULT_ACTIVE_GAP_MS,
@@ -428,6 +437,10 @@ interface SessionFold {
   apiErrorCount: number;
   contextWindowPeakTokens: number;
   userModifiedEditCount: number;
+  /** What the main thread did that a subagent receipt compares against, and
+   * one tally per subagent transcript folded in. See `subagentReceipts.ts`. */
+  parentRecord: ParentRecord;
+  sidechainTallies: SidechainTally[];
   linesChangedTotal: number;
   abandonedPromptCount: number;
   toolCallCount: number;
@@ -524,6 +537,8 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     apiErrorCount: 0,
     contextWindowPeakTokens: 0,
     userModifiedEditCount: 0,
+    parentRecord: newParentRecord(),
+    sidechainTallies: [],
     linesChangedTotal: 0,
     abandonedPromptCount: 0,
     toolCallCount: 0,
@@ -799,6 +814,28 @@ async function foldLinesInto(
   // person cut short. Per file, because a subagent's turns are not the
   // person's to interrupt and its transcript is never stepped.
   let turnRunning = false;
+  // One tally per subagent transcript, for its receipt. The sibling
+  // `.meta.json` names the agent's type and the parent's tool_use id; a
+  // missing or unreadable one leaves both to the parent's own lines.
+  const tally = opts.isSidechain ? newSidechainTally() : null;
+  if (tally) {
+    fold.sidechainTallies.push(tally);
+    // `agent-<id>.jsonl`: the id the parent's tool_result carries.
+    const stem = path.basename(filePath, ".jsonl");
+    if (stem.startsWith("agent-")) tally.agentId = stem.slice("agent-".length);
+    try {
+      const meta = JSON.parse(await fs.readFile(filePath.replace(/\.jsonl$/, ".meta.json"), "utf8")) as Record<string, unknown>;
+      if (typeof meta.agentType === "string") tally.metaType = meta.agentType;
+      if (typeof meta.toolUseId === "string") tally.toolUseId = meta.toolUseId;
+    } catch {
+      // No sidecar: fine.
+    }
+  }
+  const lineMs = (iso: string | null): number | null => {
+    if (!iso) return null;
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? ms : null;
+  };
   try {
     for await (const line of handle.readLines({ encoding: "utf8" })) {
       const sniffed = sniffClaudeLine(line);
@@ -844,6 +881,10 @@ async function foldLinesInto(
       // no-op or a mistake.
       if (owned && !opts.isSidechain && sniffed.sessionId && fold.sessionId !== sniffed.sessionId) {
         fold.sessionId = sniffed.sessionId;
+      }
+      if (tally && owned) {
+        const ms = lineMs(sniffed.occurredAt);
+        if (ms !== null) tally.times.push(ms);
       }
       if (sniffed.sourceVersion) fold.sourceVersion = sniffed.sourceVersion;
       // The session's window, from its own lines only. `firstTs` is what
@@ -912,12 +953,24 @@ async function foldLinesInto(
               fold.interruptedRunTimestamps.push(sniffed.occurredAt);
             }
           }
-          if (owned && isToolFailureLine(record)) fold.toolResultErrorCount += 1;
+          if (owned && isToolFailureLine(record)) {
+            fold.toolResultErrorCount += 1;
+            if (tally) tally.toolFailures += 1;
+          }
           if (isToolResultUserLine(record)) {
             // A tool round-trip completing is the agent's work landing.
             agentOutputHere = true;
             if (!owned) break;
             fold.toolResults += 1;
+            if (!opts.isSidechain) {
+              const at = lineMs(sniffed.occurredAt);
+              for (const r of receiptToolResultsOf(record)) {
+                // The first result for a call is its return.
+                if (!fold.parentRecord.results.has(r.id)) {
+                  fold.parentRecord.results.set(r.id, { at, chars: r.chars, agentId: r.agentId, background: r.background });
+                }
+              }
+            }
             const tur = record.toolUseResult;
             if (tur && typeof tur === "object" && !Array.isArray(tur)) {
               const turRecord = tur as Record<string, unknown>;
@@ -1030,6 +1083,16 @@ async function foldLinesInto(
           // instant to exist at all.
           const toolNames = toolUseNamesOf(record);
           if (toolNames.length > 0) {
+            const at = lineMs(sniffed.occurredAt);
+            for (const use of receiptToolUsesOf(record)) {
+              if (tally) {
+                if (use.editHash) tally.editHashes.add(use.editHash);
+              } else {
+                if (use.editHash && at !== null) fold.parentRecord.edits.push({ at, hash: use.editHash });
+                if (use.id && (use.name === "Task" || use.name === "Agent")) fold.parentRecord.spawns.set(use.id, use.subagentType);
+              }
+            }
+            if (tally) tally.toolCalls += toolNames.length;
             if (opts.isSidechain) fold.subagentToolCallCount += toolNames.length;
             else fold.toolCallCount += toolNames.length;
             if (sniffed.occurredAt) {
@@ -1590,6 +1653,10 @@ export async function* extractClaudeCode(
         // Local-only, consumed by `buildHandoff` and never written anywhere;
         // see `NormalizedHistoricalEvent.activeSpans`.
         activeSpans: activeSpansOf(fold),
+        // Local-only, like `dayBreakdown`; see `subagentReceipts.ts`. Always
+        // present on this store, empty for a session with no subagents, so a
+        // reader can tell none from not collected.
+        subagentReceipts: fold.sidechainTallies.map((t) => buildReceipt(t, fold.parentRecord)),
         autonomySplit: Object.fromEntries(
           Object.entries(split.supervisingMsByBand).map(([band, ms]) => [band, minutesOf(ms)])
         ),
