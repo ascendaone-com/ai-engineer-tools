@@ -50,12 +50,36 @@ test("it names the tool, and stays quiet when the tool is absent", () => {
   assert.match(skill, /don't mention Ascenda/i);
 });
 
-test("it names exactly the two triggers the tool accepts", () => {
-  assert.match(skill, /`approach_churn_detected`/);
-  assert.match(skill, /`session_compacted`/);
-  // Churn shares its threshold with the work-signals event of the same name.
+test("it names exactly the five triggers the tool accepts", () => {
+  const triggers = [
+    "large_accepted_change",
+    "approach_churn_detected",
+    "progress_stalled",
+    "goal_drift_detected",
+    "session_compacted",
+  ];
+  for (const trigger of triggers) {
+    assert.match(skill, new RegExp("\\| `" + trigger + "` \\|"), trigger);
+  }
+  const rows = (skill.match(/^\| `[a-z_]+` \|/gm) ?? []).filter(
+    (row) => row !== "| `trigger` |"
+  );
+  assert.equal(rows.length, triggers.length);
+  // Churn, a stall and drift share thresholds with work-signals events.
   assert.match(skill, /three or more materially different approaches/i);
+  assert.match(skill, /About twenty minutes/);
+  assert.match(skill, /No stated goal, no drift/);
+  assert.match(skill, /200 or more lines/);
   assert.match(skill, /more than two hours/);
+});
+
+test("when several hold, it names one, in a set order", () => {
+  assert.match(skill, /When more than one holds/);
+  assert.match(skill, /churn before a stall/);
+});
+
+test("drift is one question, not two, when both skills are loaded", () => {
+  assert.match(skill, /one question about the drift, not two/);
 });
 
 test("a refusal means silence, for every reason the tool can give", () => {
@@ -68,11 +92,12 @@ test("a refusal means silence, for every reason the tool can give", () => {
   ]) {
     assert.match(skill, new RegExp("`" + reason + "`"), reason);
   }
-  assert.match(skill, /Do not call the tool again in the same session/);
+  assert.match(skill, /Ask once per pattern/);
+  assert.match(skill, /Do not call the tool again for the same pattern/);
 });
 
 test("it offers once per session, at a boundary, and drops a decline", () => {
-  assert.match(skill, /One offer per session, across both patterns/);
+  assert.match(skill, /One offer per session, across every pattern/);
   assert.match(skill, /boundary the work produced/);
   assert.match(skill, /never because time has passed/);
   assert.match(skill, /drop it/);
