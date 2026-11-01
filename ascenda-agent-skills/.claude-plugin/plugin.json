@@ -1,8 +1,8 @@
 {
   "name": "ascenda",
   "displayName": "Ascenda",
-  "version": "0.2.2",
-  "description": "Cognitive performance and AI-work telemetry for Claude Code — a passive work-signals skill, two read skills over the Flow app's local MCP server (today's work-demand context, and the Reveal of the imported history), a metadata-only MCP reporting tool, and lifecycle hooks, all reading from the same Ascenda pairing.",
+  "version": "0.3.0",
+  "description": "Cognitive performance and AI-work telemetry for Claude Code — a passive work-signals skill, three skills over the Flow app's local MCP server (today's work-demand context, the Reveal of the imported history, and one in-session change offered only when the app allows it), a metadata-only MCP reporting tool, and lifecycle hooks, all reading from the same Ascenda pairing.",
   "author": {
     "name": "Ascenda One",
     "url": "https://ascenda.one"
