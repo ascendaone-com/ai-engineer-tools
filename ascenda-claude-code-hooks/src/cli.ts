@@ -405,6 +405,9 @@ async function main(): Promise<void> {
     for (const event of mappedEvents) {
       logUnsent(logFile, event, workContext, getString(input, ["session_id", "sessionId"]) ?? null);
     }
+    // Keeping a copy doesn't make a lost token less lost. An id with no token
+    // still reports. A machine with no id and a log is running on the log alone.
+    if (!unpaired && !(error instanceof MissingInstallationIdError)) throw error;
     return;
   }
 
