@@ -187,3 +187,41 @@ test("status on an unknown session is not_found, not a crash", async () => {
     (error) => error instanceof AscendaApiError && error.status === 404
   );
 });
+
+test("git: offered unticked on start, chosen on confirm, reported in importStores, and enforced at ingest", async () => {
+  // Its own server: the git grant is account-wide state the tests above shouldn't see.
+  const dev = createDevServer({ autoConfirm: true, autoConfirmJoins: false, historicalImportLease: false, log: silent });
+  await new Promise((resolve) => dev.server.listen(0, resolve));
+  const url = `http://localhost:${dev.server.address().port}`;
+  try {
+    const session = await createPairingSession(url, "claude_code:git-offer", "claude_code", "Git Offer Test");
+    const tool = (await getPairingStatus(url, session.pairingSessionId)).eventWriteToken;
+    const confirm = (deviceCode, includeGit) =>
+      fetch(`${url}/v1/org-study-join-sessions/confirm-device-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer person" },
+        body: JSON.stringify({ deviceCode, ...(includeGit === undefined ? {} : { includeGit }) })
+      });
+    const commit = { eventType: "editor_activity", source: "code_forge", provenance: "historical_direct", severity: "info", occurredAt: "2026-10-01T09:00:00.000Z", metadata: { importKey: "c1" } };
+    const ship = async () => (await (await fetch(`${url}/v1/tool-events/batch`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tool}` }, body: JSON.stringify({ events: [commit] }) })).json()).results[0];
+
+    const first = await startStudyJoin(url, tool, "NORTHVIEW-2026", "report");
+    assert.deepEqual(first.optionalImportStores, ["git"]);
+    assert.equal((await getStudyJoinStatus(url, tool, first.joinSessionId)).importStores, null, "nothing granted while pending");
+
+    // Left unticked: the import is granted, git isn't, and ingest says so.
+    await confirm(first.deviceCode);
+    const without = await getStudyJoinStatus(url, tool, first.joinSessionId);
+    assert.ok(Array.isArray(without.importStores) && !without.importStores.includes("git"));
+    assert.deepEqual(await ship(), { index: 0, status: "rejected", reason: "consent_source_not_granted" });
+
+    // Ticked on a second join: the grant is the account's, so the first session reads it too.
+    const second = await startStudyJoin(url, tool, "NORTHVIEW-2026", "report");
+    await confirm(second.deviceCode, true);
+    assert.ok((await getStudyJoinStatus(url, tool, second.joinSessionId)).importStores.includes("git"));
+    assert.ok((await getStudyJoinStatus(url, tool, first.joinSessionId)).importStores.includes("git"));
+    assert.equal((await ship()).status, "accepted");
+  } finally {
+    dev.server.close();
+  }
+});

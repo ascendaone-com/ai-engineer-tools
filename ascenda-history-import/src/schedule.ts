@@ -84,20 +84,25 @@ export interface ScheduledCommand {
  * What the job runs. A global or local install runs the same file this process
  * is running, under the same node. A copy in npx's cache can be swept at any
  * time, so that case runs through `npx` instead and fetches on demand.
+ *
+ * `git` adds `--git`. It's decided once, at install, from the grant as it
+ * stood then: a later change to the grant needs `schedule install` again.
  */
 export function scheduledCommand(
   entry: string = process.argv[1] ?? "",
   node: string = process.execPath,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  options: { git?: boolean } = {}
 ): ScheduledCommand {
+  const importArgs = ["import", "--ship", ...(options.git ? ["--git"] : [])];
   const pinned: Record<string, string> = {};
   if (env.ASCENDA_HOME) pinned.ASCENDA_HOME = env.ASCENDA_HOME;
   if (env.ASCENDA_API_BASE_URL) pinned.ASCENDA_API_BASE_URL = env.ASCENDA_API_BASE_URL;
   const inNpxCache = entry.split(path.sep).includes("_npx");
   if (inNpxCache || !entry) {
-    return { argv: [path.join(path.dirname(node), "npx"), "-y", "@ascenda-one/history-import", "import", "--ship"], env: pinned };
+    return { argv: [path.join(path.dirname(node), "npx"), "-y", "@ascenda-one/history-import", ...importArgs], env: pinned };
   }
-  return { argv: [node, entry, "import", "--ship"], env: pinned };
+  return { argv: [node, entry, ...importArgs], env: pinned };
 }
 
 const xml = (value: string): string =>
@@ -269,6 +274,8 @@ export interface ScheduleStatus {
   installed: boolean;
   files: string[];
   everyDays: number | null;
+  /** Whether the installed job sends git history. */
+  git: boolean;
   active: boolean | null;
   log: string;
 }
@@ -284,10 +291,12 @@ export async function scheduleStatus(env: ScheduleEnv): Promise<ScheduleStatus> 
       // absent
     }
   }
-  if (present.length === 0) return { installed: false, files: [], everyDays: null, active: null, log };
+  if (present.length === 0) return { installed: false, files: [], everyDays: null, git: false, active: null, log };
 
   let everyDays: number | null = null;
   const text = await fs.readFile(present.find((f) => f.endsWith(".plist") || f.endsWith(".timer")) ?? present[0], "utf8");
+  const commandFile = present.find((f) => f.endsWith(".plist") || f.endsWith(".service"));
+  const git = commandFile ? /(<string>|\s)--git(<\/string>|\s|$)/m.test(await fs.readFile(commandFile, "utf8")) : false;
   const seconds = /<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/.exec(text);
   const timer = /OnUnitActiveSec=(\d+)d/.exec(text);
   if (seconds) everyDays = Number(seconds[1]) / 86400;
@@ -297,5 +306,5 @@ export async function scheduleStatus(env: ScheduleEnv): Promise<ScheduleStatus> 
     env.platform === "darwin"
       ? await env.run(["launchctl", "print", `gui/${env.uid}/${LAUNCHD_LABEL}`])
       : await env.run(["systemctl", "--user", "is-active", `${SYSTEMD_UNIT}.timer`]);
-  return { installed: true, files: present, everyDays, active: probe.code === 0, log };
+  return { installed: true, files: present, everyDays, git, active: probe.code === 0, log };
 }
