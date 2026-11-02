@@ -54,6 +54,26 @@ targets, error counts or internal resource names — this repository is public.
   there and whether it failed. It reads hook counts and outcomes from
   Copilot's session logs, never a prompt.
 
+### The agent asks Flow before offering one change in a session
+
+- **A fourth skill in the Claude Code plugin, `ascenda-in-session-moves`.**
+  When the agent has just seen one of five patterns in the session, it asks
+  the Flow app on your own Mac whether it may offer the change that answers
+  it. The patterns: three or more different approaches to one problem with
+  none working, the work drifting from the goal you stated, about twenty
+  minutes with no passing run or commit, a change of 200 or more lines just
+  accepted, and a session past two hours whose context has compacted.
+- **Flow decides.** It says no when you've asked for nothing to be offered,
+  when it's already asking you something today, or when you set that change
+  aside. Otherwise it hands back one change and its question. The agent says
+  what it counted in the session, quotes your own figures as Flow gives them,
+  and asks the question once, at the next stopping point. A no, or carrying
+  on, ends it for the session.
+- Nothing about the offer or your answer is stored or sent. Needs the Flow
+  app with `get_in_session_move` on its local server and an agent paired with
+  the *Demand & workload* scope. Without either, the skill is silent.
+- Plugin installs update with `claude plugin update ascenda@ascenda-one`.
+
 ### Fixes
 
 - **A lost token gets reported even with the event log on.** When a paired
