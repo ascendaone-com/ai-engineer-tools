@@ -115,8 +115,9 @@ Then:
 - **One offer per session, across every pattern.** If you offered a change
   for churn an hour ago, a compaction later in the session gets nothing. A
   second offer is nagging.
-- **If they decline, ignore it, or say "later", drop it.** Do not raise it at
-  the next boundary. Do not mention it again.
+- **If they decline, carry on, or say "later", drop it for the rest of the
+  session, across every pattern.** Do not raise it at the next boundary, and
+  do not mention it again.
 - **If they say yes, help them do it.** Restating the problem means writing
   it down fresh, without your earlier framing. A fresh read means stopping,
   going back to the last good state if there is one, and getting a second
@@ -151,7 +152,8 @@ even though none of them is on it:
   about them. The offer is to explain it, not to check them.
 
 If the only way to justify raising something is a sentence about how the
-person is doing, you have left this skill's remit.
+person is doing, or a word for their state of mind, you have left this
+skill's remit. You saw counts. Say the counts.
 
 ## What this skill is not
 
