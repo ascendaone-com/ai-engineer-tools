@@ -10,6 +10,30 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.42
+
+### Git housekeeping stops counting as rework
+
+The hooks tag each git command an agent runs, and three tags (`revert`,
+`reset_hard`, `restore`) mean work was thrown away. Several everyday commands
+were getting one of them by mistake.
+
+- **Redirects are ignored.** `git checkout -q main 2>/dev/null` and
+  `git checkout dev 2>&1 | tail -1` are branch switches. The `2>/dev/null`
+  used to be read as a file path, which made both of them a `restore`.
+- **Picking a side of a conflict is fine.** `git checkout --ours <path>`,
+  `--theirs`, and the same flags on `git restore` resolve a merge.
+- **Porting a file from another branch is fine.** `git checkout main -- <path>`
+  and `git restore --source origin/main <path>` bring a file across. Taking
+  it from `HEAD` or an ancestor, as in `git checkout HEAD~1 -- <path>`, is
+  still an undo and still counts.
+- **Unchanged:** `git checkout -- <path>`, `git restore <path>` and
+  `git reset --hard`. A hard reset to `origin/<branch>` counts too, since the
+  command alone can't show whether there was local work to lose.
+
+Hooks installed with `setup` don't update themselves. Run your tool's
+`setup` again to pick this up.
+
 ## v0.1.41
 
 ### Git history is your choice, made on the confirm page
