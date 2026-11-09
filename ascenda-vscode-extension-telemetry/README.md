@@ -3,7 +3,7 @@
 Privacy-first extension for pairing a local developer tool installation with the Ascenda mobile app and sending AI workload telemetry events. One extension, one package identity (`ascenda-one.ascenda`) published to both the VS Code Marketplace and Open VSX — Cursor installs the same VSIX from Open VSX. The host is detected at runtime (`packages/ide-extension-core/src/host.ts`); there is no separate Cursor build.
 
 Part of [ai-engineer-tools](../). For what these measurements do and do not
-establish, see [What this measures](../#what-this-measures).
+establish, see [What this measures](../docs/PRIVACY.md#what-this-measures).
 
 ## What it measures
 
@@ -23,7 +23,7 @@ measurement of it:
 switches are not task switches. They are the observable traces those things
 leave in an editor. Whether the traces track the underlying construct is the
 open question — see
-[What this measures](../#what-this-measures).
+[What this measures](../docs/PRIVACY.md#what-this-measures).
 
 Check-ins, meeting load and personal baselines live in the Ascenda app and
 backend. This extension doesn't touch them.
@@ -160,7 +160,7 @@ the [MCP server](../ascenda-agent-mcp/) — hold their own installation, paired
 against the same account with one command
 (`npx -y @ascenda-one/claude-code-hooks pair`); this extension's token stays
 in the editor's private secret storage and is not shared with them. See the
-[repo README](../#pairing).
+[pairing guide](../docs/PAIRING.md).
 
 ## Settings
 
