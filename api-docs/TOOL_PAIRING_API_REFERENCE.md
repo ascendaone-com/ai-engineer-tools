@@ -450,6 +450,15 @@ Collector version:
   one. Nothing finer is sent: no OS version, architecture or machine name.
   Older collectors send nothing, which reads as unknown, not as any platform.
 
+Prompt size:
+
+- `ai_prompt_submitted` from the hook collectors (Claude Code, Codex, Cursor,
+  Gemini CLI, Windsurf and Copilot CLI) carries `metadata.promptSizeBucket`:
+  `s` (up to 280 characters), `m` (up to 2,000), `l` (up to 8,000) or `xl`.
+  The collector works it out and drops the text. Neither the prompt nor its
+  length is sent. The key is optional: older collectors, and payloads with no
+  prompt, send none, which reads as unknown, not as small.
+
 Semantic event rules (the six `*_detected`/`*_declared`/`progress_*` types):
 
 - `consentScope` must be `"semantic_work_signals"` — a lease on `ide_telemetry` alone does not cover these.

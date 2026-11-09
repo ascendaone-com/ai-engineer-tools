@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as net from "net";
 import * as os from "os";
 import * as path from "path";
+import type { PromptSizeBucket } from "@ascenda-one/tool-contract";
 import { isHookSet } from "./hookSet";
 import { holdForSaver } from "./saverHandoff";
 
@@ -34,8 +35,12 @@ import { holdForSaver } from "./saverHandoff";
 /** Abandon a write that hasn't completed this fast. Cosmetic data is not worth a stall. */
 const WRITE_TIMEOUT_MS = 50;
 
-/** Coarse size of the work a prompt kicked off — drives the waterline's attack height. */
-export type PromptSizeBucket = "s" | "m" | "l" | "xl";
+/**
+ * Coarse size of the work a prompt kicked off — drives the waterline's attack
+ * height. Declared in the contract, because `ai_prompt_submitted` carries the
+ * same letter as `promptSizeBucket`.
+ */
+export type { PromptSizeBucket };
 
 /**
  * The lifecycle moments the waterline reacts to.
@@ -320,6 +325,15 @@ export function bucketPromptSize(text: string | undefined): PromptSizeBucket {
   if (length <= 2000) return "m";
   if (length <= 8000) return "l";
   return "xl";
+}
+
+/**
+ * The `promptSizeBucket` metadata for an `ai_prompt_submitted` event: the
+ * same letter the live bus carries as `sizeBucket`, or nothing when the
+ * payload had no prompt. Spread into the event's metadata.
+ */
+export function promptSizeMetadata(text: string | undefined): { promptSizeBucket?: PromptSizeBucket } {
+  return text === undefined ? {} : { promptSizeBucket: bucketPromptSize(text) };
 }
 
 /**

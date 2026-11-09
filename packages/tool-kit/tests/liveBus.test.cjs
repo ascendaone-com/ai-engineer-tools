@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
-const { emitLiveSignal, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates } = require("../out/index.js");
+const { emitLiveSignal, bucketPromptSize, promptSizeMetadata, liveBusSocketPath, liveBusSocketCandidates } = require("../out/index.js");
 
 const sockPath = () =>
   path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-live-")), "live.sock");
@@ -372,4 +372,11 @@ test("install provenance goes out only with its ratified types", async () => {
     server.close();
     delete process.env.ASCENDA_LIVE_BUS_SOCKET;
   }
+});
+
+test("promptSizeMetadata carries the bus bucket under promptSizeBucket, and nothing without a prompt", () => {
+  assert.deepEqual(promptSizeMetadata("hi"), { promptSizeBucket: "s" });
+  assert.deepEqual(promptSizeMetadata("x".repeat(2001)), { promptSizeBucket: "l" });
+  assert.deepEqual(promptSizeMetadata(""), { promptSizeBucket: "s" }, "an empty prompt is still a prompt");
+  assert.deepEqual(promptSizeMetadata(undefined), {});
 });
