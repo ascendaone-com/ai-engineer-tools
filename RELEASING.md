@@ -97,9 +97,12 @@ Consequences worth knowing:
   channel's only artifact and is never an npm tarball. The tag path does not
   stamp its version — it tracks `plugin.json`, not the release.
 - Validate before merging: `claude plugin validate ./ascenda-agent-skills --strict`.
-- The plugin's hooks and MCP server invoke the **published npm packages** via
-  `npx`, so a plugin change that depends on new CLI behaviour needs the npm
-  release to land *first*.
+- The plugin's hooks and MCP server run the **published npm packages**
+  through `bin/launch.mjs`. It runs a copy in `~/.ascenda/plugin` and fetches
+  `latest` in the background once a day (`npx -y <package> plugin-sync`), so
+  a release reaches plugin users within a day. Until the first copy lands it
+  runs `npx -y <package>` directly. A plugin change that depends on new CLI
+  behaviour still needs the npm release to land *first*.
 
 ### Extension identity: one, not two
 
