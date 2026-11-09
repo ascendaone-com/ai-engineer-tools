@@ -33,6 +33,19 @@ A Claude Code session and a Codex session side by side, read by
 hook payloads were replayed through the real collectors, so you can run the
 same thing. Install any agent's hooks with `--no-pair` and you get this file.
 
+## One way to use these events
+
+Pair an agent with [me.ascendaflow.com](https://me.ascendaflow.com/?source=github)
+and a poster of your week with AI agents arrives every Monday: the word that
+sums the week up, and the counts behind it. It's free. The poster is drawn
+from the events above, so no prompts or source code are collected. To see one
+first, [play with an example week](https://me.ascendaflow.com/try?source=github).
+Nothing to install, and no account.
+
+<a href="https://me.ascendaflow.com/try?source=github"><img src="https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/weekly-poster-example.png" width="720" alt="Three slides from an example weekly poster: the word Dispatch for week 45, the four days more sessions handed work to subagents than usual, and the week in four numbers"></a>
+
+<sub>The example week from me.ascendaflow.com/try.</sub>
+
 ## Why these collectors
 
 Every coding agent reports its work differently. Different hooks, different
@@ -55,37 +68,42 @@ problems you don't want.
 What these events do and don't tell you is set out in
 [What this measures](#what-this-measures).
 
-## Three ways to use it
+## Four ways to use it
 
 | You want to | Start with |
 | --- | --- |
-| Build your own analytics across the team | The collectors, then [Collecting from a team](./docs/TEAM_COLLECTION.md) |
-| See how you work with your agents | [Ascenda Flow](https://www.ascendaflow.com/?source=github), free for individual engineers |
+| Get a poster of your week with agents every Monday | Connect an agent at [me.ascendaflow.com](https://me.ascendaflow.com/?source=github). Free, in the browser |
+| See how you work with your agents, starting from the history already on your Mac | [Ascenda Flow](https://www.ascendaflow.com/download?source=github), a free Mac app that also makes your boarding pass |
+| Build your own analytics across the team | The collectors with `--no-pair`, then [Collecting from a team](./docs/TEAM_COLLECTION.md). No account |
 | Compare your team with other AI-native teams | The [Founding Benchmark](https://www.ascendaflow.com/benchmark?source=github) |
+
+The collectors record events and stop there. The poster comes from
+me.ascendaflow.com and the boarding pass from the Flow app, both built on the
+same events.
 
 Counts tell you what happened. Whether a busy week was a good one, whether a
 change helped, and how you compare with other teams takes each person's own
 read of their days, and other teams to compare with. That's what Flow and the
 benchmark add.
 
-**Waterline** is the quickest way to see the collectors working: a free macOS
-screen saver that turns Claude Code, Codex and Cursor activity into a water
-level. It runs on your Mac, with no account.
+**Ascenda Flow** is a free macOS app that shows how you work with your agents:
+how many you run at once, when your best work happens, and what gets in the
+way. It starts from the history Claude Code, Cursor and Codex already keep on
+your Mac, and draws your boarding pass from it, one bar for each day you
+worked. Flow is closed source and isn't part of this repo.
+[Download Flow](https://www.ascendaflow.com/download?source=github)
+
+<img src="https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/flow-hud.gif" width="207" alt="The Flow HUD: a colour field labelled Activated, Clear, Strained and Drained, with a frame that fills as agents work">
+
+<sub>Flow's HUD while agents work, about 8× speed.</sub>
+
+**Waterline** is a free macOS screen saver that turns Claude Code, Codex and
+Cursor activity into a water level. It runs on your Mac, with no account.
 [See Waterline](https://www.ascendaflow.com/waterline?source=github)
 
 <img src="https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/waterline-paired.gif" width="640" alt="The Waterline screen saver: a clock over dark water whose level moves with agent activity">
 
 <sub>Waterline with Ascenda Flow paired, at double speed. Flow gives the water its colour.</sub>
-
-**Ascenda Flow** is a macOS app that shows how you work with your agents: how
-many you run at once, when your best work happens, and what gets in the way.
-It starts from the history Claude Code, Cursor and Codex already keep on your
-Mac. Free for individual engineers, with invitations going out by email.
-[Get early access](https://www.ascendaflow.com/?source=github)
-
-<img src="https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/flow-hud.gif" width="207" alt="The Flow HUD: a colour field labelled Activated, Clear, Strained and Drained, with a frame that fills as agents work">
-
-<sub>Flow's HUD while agents work, about 8× speed.</sub>
 
 **The Founding Benchmark** studies how small AI-native teams work with agents:
 concurrency, who carries the review load, steering and rework. We're inviting
@@ -111,7 +129,7 @@ If you've set `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, setup writes there.
 Add `--no-pair` to install without an account. `setup` then installs the hooks
 and stops. The live signal and the local event log work, and nothing is sent.
 
-![setup --no-pair finishing with "Ready. The screen saver and the Ascenda app's live view work now."](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/cli-setup-no-pair.png)
+![setup --no-pair finishing with "Ready. The screen saver and Ascenda Flow's live view work now."](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/cli-setup-no-pair.png)
 
 What `setup` does, for every agent:
 
@@ -124,8 +142,10 @@ What `setup` does, for every agent:
   fnm, volta, asdf, mise). Hooks keep working when the agent starts from the
   Dock or an IDE without your shell's PATH. On Windows the hook runs the Node
   that ran `setup` directly.
-- **Pairs,** unless you passed `--no-pair`: it prints a 6-digit code to confirm
-  in the Flow app under **Connections → Ingest telemetry**.
+- **Pairs,** unless you passed `--no-pair`: it prints a 6-digit code. Confirm
+  it in the Flow app under **Connections → Ingest telemetry**, or at
+  [me.ascendaflow.com/connect](https://me.ascendaflow.com/connect?source=github)
+  for the weekly poster.
 
 Nothing goes in your shell profile. Then restart the agent:
 
@@ -227,7 +247,7 @@ The collectors work in two ways, and the first needs no account:
   `~/.ascenda/events.jsonl` and send a live signal to a socket on your Mac,
   which Waterline and the Flow app read. Nothing leaves the machine.
 - **With your Ascenda account.** [Pair](#pairing) a tool once and its events
-  go to Ascenda, so your sessions appear in Flow over time. The live signal
+  go to Ascenda, so your sessions appear in Flow and on your weekly poster. The live signal
   keeps working, and `setup --event-log` keeps the local file as well.
 
 Workspace and project identifiers are hashed with a random salt generated on
@@ -287,21 +307,28 @@ Forks and commercial products built on these collectors are welcome under
 ## Pairing
 
 Pairing links one tool installation to your Ascenda account. Each tool pairs
-on its own, and each pairing can be revoked on its own in the Flow app.
+on its own, and each pairing can be revoked on its own, in the Flow app or on
+[me.ascendaflow.com/connect](https://me.ascendaflow.com/connect?source=github).
+The code works in either place:
+
+- **Ascenda Flow,** the Mac app, under **Connections → Ingest telemetry**.
+- **[me.ascendaflow.com/connect](https://me.ascendaflow.com/connect?source=github),**
+  if you signed up for the weekly poster and have no app.
 
 **The editor extension** pairs with **Ascenda: Connect App**, which shows a QR
 code and a six-digit code, good for a few minutes:
 
 ![The Ascenda pairing panel in VS Code, showing a QR code and a six-digit pairing code](https://raw.githubusercontent.com/ascendaone-com/ai-engineer-tools/main/docs/images/vscode-pairing-code.png)
 
-Confirm it in the Flow app under **Connections → Ingest telemetry**: scan the
-QR, or paste the code. The code carries no personal data.
+Scan the QR with your phone, or enter the code in Flow or on
+me.ascendaflow.com/connect. The code carries no personal data.
 
 The pairing request carries the tool's name (`Claude Code`, `VS Code`) and a
 random installation id, nothing about the machine or the person. No hostname,
 no username. The installation id is what tells two installs apart.
 
-**The CLI agents** pair during `setup`, which prints the same kind of code. To
+**The CLI agents** pair during `setup`, which prints a link to confirm in a
+browser and the same kind of code, with both places it works. To
 pair an install made with `--no-pair`, run `setup` again (or, for Claude Code,
 `~/.ascenda/bin/ascenda-claude-hook pair`). It attaches to the installation
 already on file, so the hooks you have keep their identity.

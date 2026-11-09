@@ -5,8 +5,15 @@
  *
  * Only an https link is printed. A backend without the web pages hands out
  * the `ascenda://pair` scheme instead, and the local dev server serves no
- * pages at all, so either one falls back to naming the app.
+ * pages at all, so either one falls back to the code alone.
+ *
+ * The code has two homes: the Ascenda Flow app, and the connect page on
+ * me.ascendaflow.com, where someone who signed up for the weekly poster
+ * has no app to type it into. Both are always named.
  */
+
+/** Where a weekly-poster account confirms a pairing code. */
+export const WEEKLY_POSTER_CONNECT_URL = "https://me.ascendaflow.com/connect";
 
 /** `qrUrl` when it's a web page a browser can open, otherwise `undefined`. */
 export function pairingConfirmUrl(qrUrl: string | undefined | null): string | undefined {
@@ -20,8 +27,9 @@ export function pairingConfirmUrl(qrUrl: string | undefined | null): string | un
  */
 export function pairingConfirmLines(qrUrl: string | undefined | null, code: string): string[] {
   const url = pairingConfirmUrl(qrUrl);
-  if (!url) return [`Confirm in the Ascenda app — code ${code}`];
-  return [`Open this link to confirm: ${url}`, `Or paste code ${code} in the Ascenda app.`];
+  const where = ["  Ascenda Flow, under Connections → Ingest telemetry", `  ${WEEKLY_POSTER_CONNECT_URL}, for the weekly poster`];
+  if (!url) return [`Confirm code ${code} in either place:`, ...where];
+  return [`Open this link to confirm: ${url}`, `Or enter code ${code} in either place:`, ...where];
 }
 
 /** `{apiBaseUrl}/join/{deviceCode}`, or `undefined` when the base isn't https. */

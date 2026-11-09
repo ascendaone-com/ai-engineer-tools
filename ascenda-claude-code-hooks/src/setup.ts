@@ -267,7 +267,7 @@ export async function runSetup(argv: string[]): Promise<number> {
   const next = (label: string, value: string) => console.log(`  ${ui.bold(label.padEnd(6))} ${value}`);
   console.log("");
   if (chosenLocal) {
-    console.log(`${ui.mark("ok")} ${ui.bold("Ready.")} The screen saver and the Ascenda app's live view work now.`);
+    console.log(`${ui.mark("ok")} ${ui.bold("Ready.")} The screen saver and Ascenda Flow's live view work now.`);
     console.log("  They run on this machine and need no account or pairing.");
     if (eventLog.path) console.log(`  Every event is also written to ${tidyHome(eventLog.path)}, for you or any tool to read.`);
   } else if (unpaired) {
@@ -283,9 +283,9 @@ export async function runSetup(argv: string[]): Promise<number> {
 
   if (chosenLocal) {
     console.log("");
-    console.log(ui.dim("  Pairing sends the details below to Ascenda's servers, under the account the"));
-    console.log(ui.dim("  Ascenda app is signed in to when you confirm the code, so your sessions appear"));
-    console.log(ui.dim("  in the app. Until you pair, nothing leaves this machine."));
+    console.log(ui.dim("  Pairing sends the details below to Ascenda's servers, under the account you"));
+    console.log(ui.dim("  confirm the code with, in Ascenda Flow or at me.ascendaflow.com."));
+    console.log(ui.dim("  Until you pair, nothing leaves this machine."));
     console.log("");
     console.log(ui.dim(renderSetupDisclosure({ sends: SENDS, displayName: "Claude Code" }).split("\n").map((line) => `  ${line}`).join("\n")));
   }
