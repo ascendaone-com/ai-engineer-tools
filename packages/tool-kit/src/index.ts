@@ -167,7 +167,7 @@ export type { InitiativeCopy, InitiativesStatusContext } from "./initiatives";
 export { NOTICED_PURPOSES, renderStudyNotices, runStudyObjection, studyNoticeStatus } from "./studyNotices";
 export type { NoticedPurpose, StudyNoticesStatus, StudyNoticesStatusContext, StudyObjectionContext } from "./studyNotices";
 export { describeRefusal as describeStudyJoinRefusal, describeStudyKind, describeStudyGrant, formatWindow, gitOfferLine, runStudyJoin } from "./studyJoin";
-export { pairingConfirmLines, pairingConfirmUrl, studyJoinConfirmUrl } from "./confirmLinks";
+export { WEEKLY_POSTER_CONNECT_URL, pairingConfirmLines, pairingConfirmUrl, studyJoinConfirmUrl } from "./confirmLinks";
 export {
   PAIR_JOIN_OUTCOME_FILE_ENV,
   PAIR_ORG_JOIN_CODE_ENV,

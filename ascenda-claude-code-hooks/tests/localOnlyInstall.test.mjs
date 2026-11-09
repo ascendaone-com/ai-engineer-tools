@@ -93,7 +93,7 @@ test("--no-pair installs the hooks and records an installation with no pairing",
   assert.equal(result.status, 0, result.stderr);
   // Asked for, so it reads as finished: someone who wanted only the screen
   // saver has to be told it works, not that something is inactive.
-  assert.match(result.stdout, /Ready\. The screen saver and the Ascenda app's live view work now\./);
+  assert.match(result.stdout, /Ready\. The screen saver and Ascenda Flow's live view work now\./);
   assert.match(result.stdout, /need no account or pairing/);
   assert.match(result.stdout, /pairing\s+none, as asked \(--no-pair\)/);
   assert.doesNotMatch(result.stdout, /Installed, not paired/);

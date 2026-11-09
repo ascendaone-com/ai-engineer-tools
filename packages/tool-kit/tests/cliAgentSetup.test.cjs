@@ -486,8 +486,8 @@ test("setup prints the web confirm link from qrUrl while it waits, then the code
     });
     const out = log.join("\n");
     assert.ok(out.includes(`Open this link to confirm: ${qrUrl}`), out);
-    assert.ok(out.includes("Or paste code 246810 in the Ascenda app."), out);
-    assert.ok(!out.includes("Confirm in the Ascenda app"), out);
+    assert.ok(out.includes("Or enter code 246810 in either place:"), out);
+    assert.ok(out.includes("https://me.ascendaflow.com/connect, for the weekly poster"), out);
   });
 });
 
@@ -641,7 +641,7 @@ test("--no-pair says where pairing would send data: a server, not a local accoun
     await runCliAgentSetup(["setup", "--no-pair", "--project-dir", project], flat);
     const out = log.join("\n");
     assert.match(out, /Pairing sends the details below to Ascenda's servers/);
-    assert.match(out, /signed in to when you confirm the code/);
+    assert.match(out, /confirm the code with, in Ascenda Flow or at me\.ascendaflow\.com\./);
     assert.match(out, /Until you pair, nothing leaves this machine\./);
     assert.doesNotMatch(out, /this Mac|your Ascenda account/);
   });
