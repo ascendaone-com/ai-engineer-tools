@@ -110,3 +110,15 @@ test("postToolUse: a commit with no reported success carries no gitAction", () =
   assert.equal(events[0].metadata.outcome, "unknown");
   assert.equal(events[0].metadata.gitAction, undefined);
 });
+
+test("beforeSubmitPrompt: the prompt's size bucket rides along, never its text, and is omitted with no prompt", () => {
+  const [short] = mapCursorEvent("beforeSubmitPrompt", { prompt: "add a retry" });
+  assert.equal(short.eventType, "ai_prompt_submitted");
+  assert.equal(short.metadata.promptSizeBucket, "s");
+  const long = mapCursorEvent("beforeSubmitPrompt", { prompt: "x".repeat(9000) });
+  assert.equal(long[0].metadata.promptSizeBucket, "xl");
+  assert.ok(!JSON.stringify(long).includes("xxxx"), "prompt text must never reach the payload");
+  const [bare] = mapCursorEvent("beforeSubmitPrompt", {});
+  assert.equal(bare.eventType, "ai_prompt_submitted");
+  assert.equal("promptSizeBucket" in bare.metadata, false);
+});

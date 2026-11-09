@@ -1,4 +1,4 @@
-import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd, deriveForgeKeysForCwd } from "@ascenda-one/tool-kit";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, deriveBranchHashForCwd, deriveForgeKeysForCwd, promptSizeMetadata } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason, SubagentClass } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent, claudeRuntime } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
@@ -279,7 +279,7 @@ function mapUserPromptSubmit(input: ClaudeHookInput): MappedAscendaEvent[] {
   const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]]);
   if (isTaskNotificationPrompt(prompt) || isBashModePrompt(prompt)) return [];
   const autonomy = autonomyModeMetadata(input);
-  const events: MappedAscendaEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: { promptClass: "unknown", ...autonomy } }];
+  const events: MappedAscendaEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: { promptClass: "unknown", ...promptSizeMetadata(prompt), ...autonomy } }];
   if (looksLikeCorrection(prompt)) {
     events.push({ eventType: "ai_correction_prompt", severity: "medium", metadata: { reason: "repeated_reprompting", trigger: "inferred", ...autonomy } });
   }

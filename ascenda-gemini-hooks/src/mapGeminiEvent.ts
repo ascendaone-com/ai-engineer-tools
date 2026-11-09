@@ -6,7 +6,8 @@ import {
   getString,
   inferOutcome,
   isVerificationCommand,
-  looksLikeCorrection
+  looksLikeCorrection,
+  promptSizeMetadata
 } from "@ascenda-one/tool-kit";
 import type { AscendaEventMetadata } from "@ascenda-one/tool-contract";
 import { GEMINI_HOST, GeminiHookEventName, GeminiHookInput, MappedGeminiEvent } from "./types.js";
@@ -36,7 +37,7 @@ export function mapGeminiEvent(hookName: GeminiHookEventName, input: GeminiHookI
 
 function mapBeforeAgent(input: GeminiHookInput): MappedGeminiEvent[] {
   const prompt = getString(input, ["prompt"]);
-  const events: MappedGeminiEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown" }) }];
+  const events: MappedGeminiEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown", ...promptSizeMetadata(prompt) }) }];
   if (looksLikeCorrection(prompt)) {
     events.push({ eventType: "ai_correction_prompt", severity: "medium", metadata: withHost({ reason: "repeated_reprompting", trigger: "inferred" }) });
   }

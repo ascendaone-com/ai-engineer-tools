@@ -4,7 +4,8 @@ import {
   getNested,
   getNestedString,
   isVerificationCommand,
-  looksLikeCorrection
+  looksLikeCorrection,
+  promptSizeMetadata
 } from "@ascenda-one/tool-kit";
 import type { AscendaEventMetadata, CommandClass } from "@ascenda-one/tool-contract";
 import { MappedWindsurfEvent, WINDSURF_HOST, WindsurfHookEventName, WindsurfHookInput } from "./types.js";
@@ -42,7 +43,7 @@ export function mapWindsurfEvent(hookName: WindsurfHookEventName, input: Windsur
 
 function mapUserPrompt(input: WindsurfHookInput): MappedWindsurfEvent[] {
   const prompt = getNestedString(input, [["tool_info", "user_prompt"]]);
-  const events: MappedWindsurfEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown" }) }];
+  const events: MappedWindsurfEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown", ...promptSizeMetadata(prompt) }) }];
   if (looksLikeCorrection(prompt)) {
     events.push({ eventType: "ai_correction_prompt", severity: "medium", metadata: withHost({ reason: "repeated_reprompting", trigger: "inferred" }) });
   }

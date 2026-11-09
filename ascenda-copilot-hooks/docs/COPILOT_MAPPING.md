@@ -29,6 +29,8 @@ Every event carries `metadata.host = "copilot_cli"` and rides `source: "cli_agen
 | `agentStop` | turn ≥ 30m | `agent_loop_long` | medium / high |
 | `agentStop` | every turn, after the above | `ai_turn_completed` | low |
 
+`ai_prompt_submitted` carries `metadata.promptSizeBucket` (`s`, `m`, `l` or `xl`), the same letter the live bus gets as `sizeBucket`. Never the text or its length. Left off when the payload has no prompt.
+
 A successful `bash` call that commits, pushes or reverts carries `gitAction`
 on its `ai_tool_call_completed`, as on every other adapter.
 
