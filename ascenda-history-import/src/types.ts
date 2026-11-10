@@ -1,3 +1,4 @@
+import type { SubagentReceipt } from "./subagentReceipts.js";
 import type { SessionDaySlice } from "./daySlice.js";
 import type { ActiveSpan } from "./activeSplit.js";
 import type { AutonomyBand } from "@ascenda-one/tool-kit";
@@ -188,6 +189,15 @@ export interface NormalizedHistoricalEvent {
    * unioned, the second contributes nothing to one.
    */
   activeSpans?: ActiveSpan[];
+  /**
+   * One receipt per subagent transcript folded into the session: class,
+   * duration, tool calls and failures, the size of the result the parent got
+   * back, and whether the main thread re-touched the subagent's files soon
+   * after. Metrics only; local-only on the same terms as `dayBreakdown`. See
+   * `subagentReceipts.ts`. Claude Code only; absent elsewhere, empty where
+   * there were no subagents.
+   */
+  subagentReceipts?: SubagentReceipt[];
   /**
    * Agent-supervising minutes by autonomy band — how much latitude the agent
    * had while it was working, for the part of active time the person did not
