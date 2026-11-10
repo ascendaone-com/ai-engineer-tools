@@ -12,6 +12,23 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.43
 
+### The effort setting, beside the model
+
+- **Claude Code hooks send the effort level.** The session's opening event
+  carries `effortLevel`, the word Claude Code reported (`medium`, `high`,
+  `xhigh`), and `effortClass`, its bucket. Switch with `/effort` partway
+  through and the next event carries the new level. Unchanged levels aren't
+  repeated.
+- **The history import reads it too.** Claude Code and Codex sessions get
+  `primaryEffort`, the level most of the session ran at, and the import adds
+  `effortClass` beside it. The desktop app also gets `effortChanges`, each
+  switch in order. That list stays on your machine.
+- Older Claude Code transcripts don't record effort. Those sessions carry no
+  level at all, which means unknown. It doesn't mean `medium`.
+- Effort counts as part of the model setting. The setup disclosure's model
+  line now mentions it, and no new consent is needed.
+- Codex hooks don't report effort, so live Codex events don't carry it yet.
+
 ### Git housekeeping stops counting as rework
 
 The hooks tag each git command an agent runs, and three tags (`revert`,

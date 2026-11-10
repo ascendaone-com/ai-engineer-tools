@@ -5,6 +5,7 @@ export { shellCommandFacts } from "./shellFacts";
 export { autonomyBand } from "./autonomyBand";
 export type { AutonomyBand } from "./autonomyBand";
 export { classifyModelClass } from "./modelClassifier";
+export { classifyEffortClass } from "./effortClassifier";
 export { bucketLinesChanged, bucketDurationMs } from "./buckets";
 export {
   isAfterHours,
@@ -85,6 +86,7 @@ export {
 } from "./credentials";
 export type { HostCredentials, MachineCredentials } from "./credentials";
 export { consumeTurnDurationMs, readTurnPromptId, recordTurnStart } from "./turnState";
+export { clearSentEffortLevel, readSentEffortLevel, recordSentEffortLevel } from "./effortState";
 export {
   EVENT_TOKEN_TTL_MS,
   ascendaHome,

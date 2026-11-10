@@ -80,7 +80,8 @@ const HOOK_MARKER = "ascenda-claude-hook";
  * What this adapter sends beyond the families every collector sends.
  *
  * Claude Code is the richest emitter in the repo, and each of these is a key
- * its mapper actually writes: `modelId`/`modelClass` on SessionStart, the
+ * its mapper actually writes: `modelId`/`modelClass` on SessionStart and
+ * `effortLevel`/`effortClass` there and on each change, the
  * `autonomyMode` posture on most events, `gitAction` and `milestoneKind` off a
  * recognised bash command, `linesChangedBucket` and `userModified` on a file
  * write, `interruptionKind` on a Notification, and `subagentId` and

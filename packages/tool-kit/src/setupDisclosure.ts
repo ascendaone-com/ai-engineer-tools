@@ -55,7 +55,7 @@ export const FAMILY_SENTENCES: Readonly<Record<DisclosureFamily, string>> = {
   outcome: "whether a call succeeded, failed, or was interrupted",
   clock: "your machine's offset from UTC, so an evening is read as an evening",
   repo: "your project and branch as digests computed on this machine — never the names themselves",
-  model: "which model served the session, by name and by tier",
+  model: "which model served the session, by name and by tier, and the effort level it was set to where your agent records one",
   posture: "the permission posture your agent was working under — asking each time, accepting edits, and so on",
   git: "that a commit, push or revert happened, and when a pull request opened or merged",
   edits: "roughly how much a file changed, as a bucket, and whether you edited it after the agent wrote it",

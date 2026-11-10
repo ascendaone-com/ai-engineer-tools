@@ -181,6 +181,7 @@ the part of that gap the live payloads can actually answer.
 | --- | --- | --- | --- |
 | `autonomyMode` | `permission_mode` | `ai_file_*`, `ai_tool_call_*`, `compile_error`, `editor_verification_activity`, `ai_prompt_submitted`, `ai_correction_prompt`, `agent_loop_long`, `ai_turn_completed` | per event |
 | `modelClass` + `modelId` | `model` (optional) | `create_focus_session` | per session |
+| `effortLevel` + `effortClass` | `effort.level` | `create_focus_session`, then the first mapped event after a change | per session, plus each change |
 | `userModified` | `tool_response.userModified` | `ai_file_edit`, `ai_file_write` | per write |
 
 Measured wire cost: 29 B on a tool-call, prompt or stop row; 31 B on a session
@@ -340,6 +341,31 @@ and while Codex payloads do carry an active model slug on every hook, that
 adapter does not read it yet (see
 [CODEX_MAPPING.md](../../ascenda-codex-hooks/docs/CODEX_MAPPING.md#still-on-the-wire-and-not-read)).
 So this must never be promised as a cross-collector field.
+
+### `effortLevel` + `effortClass`: how hard it was asked to think
+
+`low` | `medium` | `high` | `xhigh` | `max` | `unknown`
+
+Claude Code puts `effort: { level }` on every hook payload (see the captured
+fixtures in `examples/`). `effortLevel` is that string, trimmed. `effortClass`
+is its bucket, from `classifyEffortClass` in tool-kit, the same function the
+importer uses on `primaryEffort`. A level outside the table reads `unknown` and
+keeps its raw string, so a new setting is never dropped.
+
+Sent on the session's `create_focus_session`, then again on the first mapped
+event whose payload level differs from the last one sent for that session. A
+session switched from `medium` to `high` with `/effort` sends exactly two
+values. The last-sent level lives in `~/.ascenda/state/claude-effort-<session>`
+and `SessionEnd` removes it. A hook that maps to no event can't carry a change,
+so it goes out on the next one that does.
+
+Both keys or neither. No effort on the payload means no keys, and a reader
+treats that as unknown, never as `medium`: Claude Code builds before the field
+existed don't write it.
+
+It shares the `model` disclosure family, so the pairing sentence covers it.
+Fast mode and extended thinking are the same kind of setting and aren't sent
+yet.
 
 ### `userModified` — the human correction signal
 

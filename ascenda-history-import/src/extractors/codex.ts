@@ -109,6 +109,7 @@ import { bucketDurationMs, isOutsideBusinessHours } from "@ascenda-one/tool-kit"
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
+import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
 import { DEFAULT_ACTIVE_GAP_MS, activeSpans, minutesOf, splitActiveTime, type ActiveInstant } from "../activeSplit.js";
 
 const execFileAsync = promisify(execFile);
@@ -374,6 +375,8 @@ interface SessionFold {
   models: Map<string, number>;
   lastModel: string | null;
   modelSwitchCount: number;
+  /** `turn_context.effort` on the session's own turns. See effortFold.ts. */
+  effort: EffortTrack;
   compactedItems: number;
   contextCompactedEvents: number;
   toolResultErrorCount: number;
@@ -413,6 +416,7 @@ function newFold(sessionId: string): SessionFold {
     models: new Map(),
     lastModel: null,
     modelSwitchCount: 0,
+    effort: newEffortTrack(),
     compactedItems: 0,
     contextCompactedEvents: 0,
     toolResultErrorCount: 0,
@@ -675,6 +679,9 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
             fold.lastModel = model;
           }
         }
+        // The session's own turns only: a subagent thread runs at its own
+        // setting, and its turns would vote in someone else's primary.
+        if (!sub) foldEffort(fold.effort, payload.effort, sniffed.occurredAt);
         break;
       }
       case "compacted": {
@@ -1083,6 +1090,9 @@ export async function* extractCodex(
     sessionMetrics.sessionStartedAt = fold.firstTs;
     const primaryModel = topModel(fold.models);
     if (primaryModel) sessionMetrics.primaryModel = primaryModel;
+    const primaryEffort = primaryEffortOf(fold.effort);
+    if (primaryEffort) sessionMetrics.primaryEffort = primaryEffort;
+    const effortChanges = effortChangesOf(fold.effort);
     if (fold.gitBranch) sessionMetrics.gitBranch = fold.gitBranch;
     yield {
       occurredAt: fold.lastTs,
@@ -1102,6 +1112,7 @@ export async function* extractCodex(
       autonomySplit: Object.fromEntries(
         Object.entries(split.supervisingMsByBand).map(([band, ms]) => [band, minutesOf(ms)])
       ),
+      ...(effortChanges.length > 0 ? { effortChanges } : {}),
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId
     };
