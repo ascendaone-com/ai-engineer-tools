@@ -411,7 +411,7 @@ async function main(): Promise<void> {
   // that can fail.
   await emitLive(hookName, input);
 
-  // The effort level rides on the session's first event and again only when
+  // The effort level rides on the first event that carries it and again only when
   // it changes, so the mapper is told what this session last sent. Recorded
   // as soon as the batch is mapped: from here the events are delivered,
   // queued or logged, and a value counts as sent in all three.

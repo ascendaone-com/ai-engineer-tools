@@ -181,7 +181,7 @@ the part of that gap the live payloads can actually answer.
 | --- | --- | --- | --- |
 | `autonomyMode` | `permission_mode` | `ai_file_*`, `ai_tool_call_*`, `compile_error`, `editor_verification_activity`, `ai_prompt_submitted`, `ai_correction_prompt`, `agent_loop_long`, `ai_turn_completed` | per event |
 | `modelClass` + `modelId` | `model` (optional) | `create_focus_session` | per session |
-| `effortLevel` + `effortClass` | `effort.level` | `create_focus_session`, then the first mapped event after a change | per session, plus each change |
+| `effortLevel` + `effortClass` | `effort.level` | the first mapped event whose payload has it, then the first after a change | per session, plus each change |
 | `userModified` | `tool_response.userModified` | `ai_file_edit`, `ai_file_write` | per write |
 
 Measured wire cost: 29 B on a tool-call, prompt or stop row; 31 B on a session
@@ -346,14 +346,19 @@ So this must never be promised as a cross-collector field.
 
 `low` | `medium` | `high` | `xhigh` | `max` | `unknown`
 
-Claude Code puts `effort: { level }` on every hook payload (see the captured
-fixtures in `examples/`). `effortLevel` is that string, trimmed. `effortClass`
+Claude Code puts `effort: { level }` on tool and turn payloads (`PreToolUse`,
+`PostToolUse`, `PostToolUseFailure`, `Stop`; see the captured fixtures in
+`examples/`). A headless run of Claude Code 2.1.316 left it off `SessionStart`,
+`UserPromptSubmit` and `SessionEnd`. `effortLevel` is that string, trimmed. `effortClass`
 is its bucket, from `classifyEffortClass` in tool-kit, the same function the
 importer uses on `primaryEffort`. A level outside the table reads `unknown` and
 keeps its raw string, so a new setting is never dropped.
 
-Sent on the session's `create_focus_session`, then again on the first mapped
-event whose payload level differs from the last one sent for that session. A
+Sent on the first mapped event whose payload carries a level, which is
+usually `ai_tool_call_started` and not `create_focus_session`, then again on
+the first mapped event whose level differs from the last one sent for that
+session. A reader that wants a session's level should take the first value it
+sees, not look for it on the session-open event. A
 session switched from `medium` to `high` with `/effort` sends exactly two
 values. The last-sent level lives in `~/.ascenda/state/claude-effort-<session>`
 and `SessionEnd` removes it. A hook that maps to no event can't carry a change,

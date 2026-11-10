@@ -57,10 +57,12 @@ export type ClaudeMapOptions = {
 };
 
 /**
- * Puts `effortLevel` and `effortClass` on the first mapped event when the
- * session opens, and again when the level differs from the last one sent.
- * Claude Code carries `effort.level` on every hook payload, so without the
- * comparison the same word would ride on every tool call.
+ * Puts `effortLevel` and `effortClass` on the first mapped event whose payload
+ * reports a level, and again when the level differs from the last one sent.
+ * Claude Code carries `effort.level` on every tool and turn payload, so without
+ * the comparison the same word would ride on every tool call. It leaves it off
+ * `SessionStart` and `UserPromptSubmit`, so the first value usually lands on
+ * the first tool call.
  *
  * `SessionStart` always sends: a resumed session may have changed level while
  * no hook was watching, and the opening value is the one a reader keys on.

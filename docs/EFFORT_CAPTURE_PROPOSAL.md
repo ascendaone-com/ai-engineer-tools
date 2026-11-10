@@ -31,7 +31,7 @@ hard it was asked to think.
 - **The history importer** folds a session-level `primaryModel` out of Claude
   Code, Codex, Cursor and VS Code stores.
 - **Effort is on the wire and dropped.** Claude Code puts
-  `"effort": {"level": "high"}` on every hook payload (see
+  `"effort": {"level": "high"}` on tool and turn hook payloads (see
   `ascenda-claude-code-hooks/examples/`). Claude Code transcript lines carry a
   top-level `"effort": "high"`. Codex writes `effort` on each `turn_context`
   line. No mapper or extractor reads any of them.

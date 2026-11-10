@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { mapClaudeEvent, sentEffortLevel } from "../dist/mapClaudeEvent.js";
 
-// Claude Code puts `effort: { level }` on every hook payload (see the captured
-// fixtures in examples/). The mapper sends it on the session's opening event
-// and again only when it changes, so a session that moves from medium to high
+// Claude Code puts `effort: { level }` on tool and turn payloads (see the
+// captured fixtures in examples/). The mapper sends it on the first event that
+// carries it and again only when it changes, so a session that moves from medium to high
 // shows exactly two values.
 
 const examples = new URL("../examples/", import.meta.url);
