@@ -14,11 +14,12 @@ targets, error counts or internal resource names — this repository is public.
 
 ### The effort setting, beside the model
 
-- **Claude Code hooks send the effort level.** The session's opening event
-  carries `effortLevel`, the word Claude Code reported (`medium`, `high`,
-  `xhigh`), and `effortClass`, its bucket. Switch with `/effort` partway
-  through and the next event carries the new level. Unchanged levels aren't
-  repeated.
+- **Claude Code hooks send the effort level.** The first event that reports
+  it carries `effortLevel`, the word Claude Code reported (`medium`, `high`,
+  `xhigh`), and `effortClass`, its bucket. That's usually the first tool call:
+  Claude Code leaves effort off session start and prompts. Switch with
+  `/effort` partway through and the next event carries the new level.
+  Unchanged levels aren't repeated.
 - **The history import reads it too.** Claude Code and Codex sessions get
   `primaryEffort`, the level most of the session ran at, and the import adds
   `effortClass` beside it. The desktop app also gets `effortChanges`, each

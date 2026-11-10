@@ -999,10 +999,11 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   /**
    * The effort level exactly as the agent reported it, trimmed: `low`,
    * `medium`, `high`, `xhigh`, and whatever ships next. Claude Code puts it on
-   * every hook payload as `effort.level`.
+   * tool and turn hook payloads as `effort.level`, not on session start.
    *
-   * Sent on `create_focus_session` at session open, and again on the next
-   * mapped event after the level changes, so a session that moves from
+   * Sent on the first mapped event that carries a level, usually
+   * `ai_tool_call_started`, and again on the next mapped event after the level
+   * changes, so a session that moves from
    * `medium` to `high` sends two values. Never on every event: the last level
    * sent for a session is kept in the hook state directory and compared.
    *
