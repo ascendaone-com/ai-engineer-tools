@@ -28,11 +28,16 @@ const UUID_B = "9f8e7d6c-5b4a-4c3d-8e2f-1a0b9c8d7e6f";
 const ENV_KEYS = ["ASCENDA_TOOL_INSTALLATION_ID", "ASCENDA_EVENT_WRITE_TOKEN", "ASCENDA_EVENT_WRITE_TOKEN_FILE", "ASCENDA_EVENT_LOG_FILE", "ASCENDA_API_BASE_URL"];
 
 async function isolated(run) {
-  const saved = Object.fromEntries([...ENV_KEYS, "ASCENDA_HOME", "ASCENDA_STATE_DIR", "HOME"].map((k) => [k, process.env[k]]));
+  const saved = Object.fromEntries([...ENV_KEYS, "ASCENDA_HOME", "ASCENDA_STATE_DIR", "ASCENDA_HOOK_DELIVERY", "HOME"].map((k) => [k, process.env[k]]));
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-identity-"));
   process.env.ASCENDA_HOME = home;
   process.env.HOME = home;
   process.env.ASCENDA_STATE_DIR = path.join(home, "state");
+  // A queued send starts a flusher as `node <argv[1]> __flush-outbox`, and
+  // here argv[1] is this file: the child runs every test again, reaches a
+  // paired send, and starts the next one. Each run has its own home, so the
+  // flush lock never stops it. Inline keeps the send in this process.
+  process.env.ASCENDA_HOOK_DELIVERY = "inline";
   for (const key of ENV_KEYS) delete process.env[key];
   try {
     // Awaited, so an async body runs inside the isolation rather than after it.
