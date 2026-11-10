@@ -141,3 +141,63 @@ test("classifyGitAction: switching branches and dry runs lose nothing", () => {
 test("isReworkGitAction: the new restore forms count as rework", () => {
   assert.equal(isReworkGitAction(classifyGitAction("git clean -fd")), true);
 });
+
+test("classifyGitAction: a redirect is not a path", () => {
+  // Agents silence or tail git all the time. Each of these is a branch
+  // switch; read with the redirect as a word, they were restores.
+  assert.equal(classifyGitAction("git checkout -q main 2>/dev/null"), undefined);
+  assert.equal(classifyGitAction("git checkout dev 2>&1 | tail -1"), undefined);
+  assert.equal(classifyGitAction("git checkout main > /tmp/out.txt"), undefined);
+  assert.equal(classifyGitAction("git checkout main >>log 2>&1"), undefined);
+  assert.equal(classifyGitAction("git checkout main </dev/null"), undefined);
+  // A redirect doesn't hide a real discard either.
+  assert.equal(classifyGitAction("git checkout -- src/a.ts 2>/dev/null"), "restore");
+  assert.equal(classifyGitAction("git restore src/a.ts 2>&1 | tail -1"), "restore");
+  assert.equal(classifyGitAction("git reset --hard HEAD~1 >/dev/null 2>&1"), "reset_hard");
+});
+
+test("classifyGitAction: picking a side of a conflict is not rework", () => {
+  assert.equal(classifyGitAction("git checkout --ours pubspec.lock"), undefined);
+  assert.equal(classifyGitAction("git checkout --theirs -- src/a.ts"), undefined);
+  assert.equal(classifyGitAction("git restore --theirs src/a.ts"), undefined);
+});
+
+test("classifyGitAction: taking a file from another ref is a port", () => {
+  assert.equal(classifyGitAction("git checkout main -- pubspec.yaml"), undefined);
+  assert.equal(classifyGitAction("git checkout origin/dev -- src/a.ts src/b.ts"), undefined);
+  assert.equal(classifyGitAction("git checkout feature/x src/a.ts"), undefined);
+  assert.equal(classifyGitAction("git checkout @{u} -- src/a.ts"), undefined);
+  assert.equal(classifyGitAction("git restore --source main src/a.ts"), undefined);
+  assert.equal(classifyGitAction("git restore --source=origin/main src/a.ts"), undefined);
+  assert.equal(classifyGitAction("git restore -s dev src/a.ts"), undefined);
+});
+
+test("classifyGitAction: taking a file from HEAD or behind it is still an undo", () => {
+  assert.equal(classifyGitAction("git checkout HEAD -- src/a.ts"), "restore");
+  assert.equal(classifyGitAction("git checkout HEAD~1 -- src/a.ts"), "restore");
+  assert.equal(classifyGitAction("git checkout @ -- src/a.ts"), "restore");
+  assert.equal(classifyGitAction("git checkout src/a.ts src/b.ts"), "restore");
+  assert.equal(classifyGitAction("git restore --source HEAD~2 src/a.ts"), "restore");
+  assert.equal(classifyGitAction("git restore --source=HEAD src/a.ts"), "restore");
+});
+
+test("classifyGitAction: the plain discards still count", () => {
+  assert.equal(classifyGitAction("git checkout -- src/a.ts"), "restore");
+  assert.equal(classifyGitAction("git restore src/a.ts"), "restore");
+  assert.equal(classifyGitAction("git reset --hard HEAD~1"), "reset_hard");
+});
+
+test("classifyGitAction: a hard reset to the upstream still counts", () => {
+  // Often a worktree sync after a fetch, but the command alone can't say
+  // whether there was local work to lose. Left as rework on purpose.
+  assert.equal(classifyGitAction("git fetch origin && git reset --hard origin/main"), "reset_hard");
+  assert.equal(classifyGitAction("git reset --hard origin/feature/x"), "reset_hard");
+});
+
+test("classifyGitAction: lockfiles and generated files are not special", () => {
+  // Discarding a regenerated lockfile is housekeeping more often than not,
+  // but the classifier doesn't know which files a project generates.
+  assert.equal(classifyGitAction("git checkout -- pubspec.lock"), "restore");
+  assert.equal(classifyGitAction("git checkout package-lock.json"), "restore");
+  assert.equal(classifyGitAction("git restore lib/models/user.g.dart"), "restore");
+});
