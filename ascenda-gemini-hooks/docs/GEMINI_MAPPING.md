@@ -23,6 +23,8 @@ Hooks are enabled by default in Gemini CLI v0.26.0+.
 | `AfterAgent` | turn ≥ 30m | `agent_loop_long` | medium / high |
 | `AfterAgent` | every turn, after the above | `ai_turn_completed` | low |
 
+`ai_prompt_submitted` carries `metadata.promptSizeBucket` (`s`, `m`, `l` or `xl`), the same letter the live bus gets as `sizeBucket`. Never the text or its length. Left off when the payload has no prompt.
+
 ## Deliberately unmapped
 
 `BeforeModel`, `AfterModel` and `BeforeToolSelection` fire on **every LLM round

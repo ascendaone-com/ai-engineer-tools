@@ -27,6 +27,8 @@ Codex rides the canonical `cli_agent` toolType/source (the registry has no codex
 | SessionEnd | `recovery_offline_period` (`activity: session_ended`, plus `sessionEndReason` when Codex sends one) | neutral |
 | SubagentStart / SubagentStop | *(skipped — no catalog event)* | — |
 
+`ai_prompt_submitted` carries `metadata.promptSizeBucket` (`s`, `m`, `l` or `xl`), the same letter the live bus gets as `sizeBucket`. Never the text or its length. Left off when the payload has no prompt.
+
 ## `autonomyMode` — the permission posture, mirrored
 
 Codex hook payloads carry `permission_mode`, and this adapter reads it. Source

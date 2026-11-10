@@ -7,7 +7,8 @@ import {
   getString,
   inferOutcome,
   isVerificationCommand,
-  looksLikeCorrection
+  looksLikeCorrection,
+  promptSizeMetadata
 } from "@ascenda-one/tool-kit";
 import type { AscendaEventMetadata } from "@ascenda-one/tool-contract";
 import { CURSOR_HOST, CursorHookEventName, CursorHookInput, MappedCursorEvent } from "./types.js";
@@ -39,7 +40,7 @@ export function mapCursorEvent(hookName: CursorHookEventName, input: CursorHookI
 
 function mapPrompt(input: CursorHookInput): MappedCursorEvent[] {
   const prompt = getString(input, ["prompt"]);
-  const events: MappedCursorEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown" }) }];
+  const events: MappedCursorEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown", ...promptSizeMetadata(prompt) }) }];
   if (looksLikeCorrection(prompt)) {
     events.push({ eventType: "ai_correction_prompt", severity: "medium", metadata: withHost({ reason: "repeated_reprompting", trigger: "inferred" }) });
   }

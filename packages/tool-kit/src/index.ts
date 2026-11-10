@@ -128,7 +128,11 @@ export {
 } from "./forgeProject";
 export { REPO_KEYS_ENV_VAR, deriveForgeKeysForCwd, repoKeysEnabled } from "./forgeKeys";
 export type { ForgeKeys } from "./forgeKeys";
-export { emitLiveSignal, deliverLine, bucketPromptSize, liveBusSocketPath, liveBusSocketCandidates, LIVE_BUS_BACKGROUND_TRUST_MS } from "./liveBus";
+export { runSquadronJoin, leaseEnd, generateCallsign, normaliseBookingReference, callsignProblem, describeGate, describeSquadronRefusal, SQUADRON_AIRCRAFT, SQUADRON_COLOURS } from "./squadronJoin";
+export type { SquadronJoinContext } from "./squadronJoin";
+export { previewJoinCode, startSquadronJoin } from "./http";
+export type { JoinCodePreview, SquadronJoinStatus } from "./http";
+export { emitLiveSignal, deliverLine, bucketPromptSize, promptSizeMetadata, liveBusSocketPath, liveBusSocketCandidates, LIVE_BUS_BACKGROUND_TRUST_MS } from "./liveBus";
 export { holdForSaver, heldForSaver, probeSocket, readSaverStatuses, saverContainerDir, saverReplayPath, saverStatusDir, saverSupportDir, SAVER_REPLAY_WINDOW_MS } from "./saverHandoff";
 export type { SaverStatus, SaverStatusReading, SocketState } from "./saverHandoff";
 export { colourEnabled, terminalStyle } from "./terminalStyle";

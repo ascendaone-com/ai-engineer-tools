@@ -85,3 +85,15 @@ test("post_run_command: an unknown-outcome commit or issue close carries no gitA
   const close = mapWindsurfEvent("post_run_command", { tool_info: { command_line: "gh issue close 9" } });
   assert.equal(close[0].metadata.milestoneKind, undefined);
 });
+
+test("pre_user_prompt: the prompt's size bucket rides along, never its text, and is omitted with no prompt", () => {
+  const [short] = mapWindsurfEvent("pre_user_prompt", { tool_info: { user_prompt: "add a retry" } });
+  assert.equal(short.eventType, "ai_prompt_submitted");
+  assert.equal(short.metadata.promptSizeBucket, "s");
+  const long = mapWindsurfEvent("pre_user_prompt", { tool_info: { user_prompt: "x".repeat(9000) } });
+  assert.equal(long[0].metadata.promptSizeBucket, "xl");
+  assert.ok(!JSON.stringify(long).includes("xxxx"), "prompt text must never reach the payload");
+  const [bare] = mapWindsurfEvent("pre_user_prompt", {});
+  assert.equal(bare.eventType, "ai_prompt_submitted");
+  assert.equal("promptSizeBucket" in bare.metadata, false);
+});

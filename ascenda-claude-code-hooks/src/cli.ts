@@ -34,6 +34,7 @@ import {
   OUTBOX_DRAIN_ENV_VAR,
   renderSetupDisclosure,
   runStudyJoin,
+  runSquadronJoin,
   runStudyObjection
 } from "@ascenda-one/tool-kit";
 import { HOOK_DELIVERY_ENV_VAR, OUTBOX_FLUSH_COMMAND, hookDeliveryInline, runOutboxFlush, startBackgroundFlush, terminalStyle } from "@ascenda-one/tool-kit";
@@ -216,6 +217,53 @@ async function runJoin(argv: string[]): Promise<number> {
 }
 
 /**
+ * `squadron <booking reference> [--callsign <name>] [--aircraft <type>] [--colour <colour>]`:
+ * take a seat in a Squadron sortie. The flow is shared; see `runSquadronJoin`
+ * in tool-kit's `squadronJoin.ts`. A sortie is fed by this collector's
+ * telemetry, so an unpaired machine pairs first, in the same run.
+ */
+async function runSquadron(argv: string[]): Promise<number> {
+  const reference = argv[0];
+  if (!reference || reference.startsWith("-")) {
+    process.stderr.write("Usage: ascenda-claude-hook squadron <booking reference> [--callsign <name>] [--aircraft <type>] [--colour <colour>]\n");
+    return 1;
+  }
+  const flag = (name: string): string | undefined => {
+    const index = argv.indexOf(name);
+    return index === -1 ? undefined : argv[index + 1];
+  };
+
+  let config: { apiBaseUrl: string; eventWriteToken: string };
+  try {
+    config = loadConfigFromEnv();
+  } catch {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      process.stderr.write("squadron needs an interactive terminal (stdin and stdout). Run it directly, not from a script or a pipe.\n");
+      return 0;
+    }
+    await writeStdout("This machine isn't paired yet. A sortie reads its activity from the paired collector, so pair first.\n");
+    await runPair();
+    if (process.exitCode) return Number(process.exitCode);
+    try {
+      config = loadConfigFromEnv();
+    } catch (error) {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+  }
+
+  return runSquadronJoin({
+    apiBaseUrl: config.apiBaseUrl,
+    eventWriteToken: config.eventWriteToken,
+    displayName: "Claude Code",
+    bookingReference: reference,
+    callsign: flag("--callsign"),
+    aircraft: flag("--aircraft"),
+    colour: flag("--colour") ?? flag("--color")
+  });
+}
+
+/**
  * `object <purpose> [--undo]` — object to being counted for one purpose your
  * organisation counts unless you object, or withdraw that. Shared with every
  * other CLI agent; see `runStudyObjection` in tool-kit's `studyNotices.ts`.
@@ -249,7 +297,7 @@ async function main(): Promise<void> {
   const command = process.argv[2];
   if (!command) {
     throw new Error(
-      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | object | doctor | setup | status | uninstall | plugin-sync"
+      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | squadron | object | doctor | setup | status | uninstall | plugin-sync"
     );
   }
 
@@ -262,6 +310,10 @@ async function main(): Promise<void> {
   }
   if (command === "join") {
     setupExitCode = await runJoin(process.argv.slice(3));
+    return;
+  }
+  if (command === "squadron") {
+    setupExitCode = await runSquadron(process.argv.slice(3));
     return;
   }
   if (command === "object") {
@@ -292,7 +344,7 @@ async function main(): Promise<void> {
   }
   if (!isClaudeHookEventName(command)) {
     throw new Error(
-      `Unknown command "${command}". Expected a Claude Code hook name, "pair", "join", "object", "doctor", "setup", "status" or "uninstall".`
+      `Unknown command "${command}". Expected a Claude Code hook name, "pair", "join", "squadron", "object", "doctor", "setup", "status" or "uninstall".`
     );
   }
   const hookName: ClaudeHookEventName = command;

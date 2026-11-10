@@ -148,6 +148,21 @@ test("UserPromptSubmit: plain prompt -> single creation event", () => {
   assert.equal(events[0].severity, "low");
 });
 
+test("UserPromptSubmit: the prompt's size bucket rides along, never its text or length", () => {
+  const short = mapClaudeEvent("UserPromptSubmit", { prompt: "add a login page" });
+  assert.equal(short[0].metadata.promptSizeBucket, "s");
+  const pasted = "x".repeat(9000);
+  const long = mapClaudeEvent("UserPromptSubmit", { prompt: pasted });
+  assert.equal(long[0].metadata.promptSizeBucket, "xl");
+  assert.ok(!JSON.stringify(long).includes("9000") && !JSON.stringify(long).includes("xxxx"));
+  // Read from the same spellings as the live bus.
+  assert.equal(mapClaudeEvent("UserPromptSubmit", { payload: { message: "y".repeat(500) } })[0].metadata.promptSizeBucket, "m");
+  // No prompt in the payload: the event still goes, without the key.
+  const bare = mapClaudeEvent("UserPromptSubmit", {});
+  assert.equal(bare[0].eventType, "ai_prompt_submitted");
+  assert.equal("promptSizeBucket" in bare[0].metadata, false);
+});
+
 test("UserPromptSubmit: correction prompt adds supervision event, no raw text", () => {
   const events = mapClaudeEvent("UserPromptSubmit", { prompt: "no, that's still wrong - try again" });
   assert.equal(events.length, 2);

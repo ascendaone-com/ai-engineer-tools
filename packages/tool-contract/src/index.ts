@@ -443,6 +443,8 @@ export type AscendaSeverity = "low" | "medium" | "high" | "critical";
 export type AscendaPrivacyMode = "metadata_only" | "content_opt_in";
 export type DurationBucket = "0-1m" | "1-5m" | "5-10m" | "10-30m" | "30-60m" | "60m+";
 export type LinesChangedBucket = "0" | "1-10" | "10-50" | "50-200" | "200+";
+/** A prompt's length in four rough steps: up to 280 characters, 2,000, 8,000, and longer. */
+export type PromptSizeBucket = "s" | "m" | "l" | "xl";
 export type CommandClass = "test" | "lint" | "typecheck" | "build" | "run" | "git" | "install" | "unknown";
 export type CommandOutcome = "success" | "failure" | "cancelled" | "unknown";
 
@@ -759,6 +761,9 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   outcome: "outcome",
   trigger: "outcome",
   promptClass: "counts",
+  // One letter for how long the prompt was, worked out on this machine.
+  // Never the text or its length.
+  promptSizeBucket: "counts",
   reason: "outcome",
   afterHours: "clock",
   activity: "counts",
@@ -997,6 +1002,17 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   outcome?: CommandOutcome;
   trigger?: "manual" | "auto" | "inferred";
   promptClass?: PromptClass;
+
+  /**
+   * How long the prompt was, as one of four letters from tool-kit's
+   * `bucketPromptSize`: `s` up to 280 characters, `m` up to 2,000, `l` up to
+   * 8,000, `xl` beyond. Set on `ai_prompt_submitted` by the hook adapters that
+   * can see the prompt, from the same bucketer as the live bus `sizeBucket`,
+   * so the server can tell a one-line nudge from a pasted spec. The text and
+   * its exact length never leave the hook process. Omitted when the payload
+   * carried no prompt.
+   */
+  promptSizeBucket?: PromptSizeBucket;
   reason?: "context_limit" | "repeated_reprompting" | "tool_failure" | "test_failure" | "manual_interrupt" | "after_hours" | "long_session" | "unknown";
   afterHours?: boolean;
   activity?: string;
@@ -1172,6 +1188,7 @@ export const EVENT_METADATA_FIELDS = [
   "outcome",
   "trigger",
   "promptClass",
+  "promptSizeBucket",
   "reason",
   "afterHours",
   "activity",

@@ -119,3 +119,15 @@ test("subagentStart and subagentStop name the subagent by its agentId, never its
   assert.ok(!JSON.stringify(event).includes("execution"));
   assert.equal(one("subagentStop", { agentId: "not an id!" }).metadata.subagentId, undefined);
 });
+
+test("userPromptSubmitted: the prompt's size bucket rides along, never its text, and is omitted with no prompt", () => {
+  const [short] = mapCopilotEvent("userPromptSubmitted", { prompt: "add a retry" });
+  assert.equal(short.eventType, "ai_prompt_submitted");
+  assert.equal(short.metadata.promptSizeBucket, "s");
+  const long = mapCopilotEvent("userPromptSubmitted", { prompt: "x".repeat(9000) });
+  assert.equal(long[0].metadata.promptSizeBucket, "xl");
+  assert.ok(!JSON.stringify(long).includes("xxxx"), "prompt text must never reach the payload");
+  const [bare] = mapCopilotEvent("userPromptSubmitted", {});
+  assert.equal(bare.eventType, "ai_prompt_submitted");
+  assert.equal("promptSizeBucket" in bare.metadata, false);
+});

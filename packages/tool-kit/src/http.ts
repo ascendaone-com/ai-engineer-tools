@@ -64,6 +64,96 @@ export async function startStudyJoin(apiBaseUrl: string, eventWriteToken: string
   return (await response.json()) as StudyJoinStartResponse;
 }
 
+/**
+ * The anonymous booking-reference preview the app already reads,
+ * `GET /api/share/join/{code}`. For a Squadron sortie it carries `jam`: the
+ * gate's public facts and the aircraft and colour lists, never callsigns.
+ */
+export type JoinCodePreview = {
+  labId?: string;
+  labName?: string;
+  labRole?: string;
+  joinCode?: string;
+  jam?: {
+    name?: string;
+    mission?: string;
+    status?: "pending" | "live" | "ended" | "abandoned";
+    isLocked?: boolean;
+    acceptsJoins?: boolean;
+    minParticipants?: number;
+    activeParticipants?: number;
+    durationMinutes?: number;
+    quorumDeadline?: string;
+    aircraft?: string[];
+    colours?: string[];
+  };
+};
+
+export async function previewJoinCode(apiBaseUrl: string, joinCode: string): Promise<JoinCodePreview> {
+  const response = await fetch(`${apiBaseUrl}/api/share/join/${encodeURIComponent(joinCode)}`, {
+    method: "GET",
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as JoinCodePreview;
+}
+
+/**
+ * Start a seat in a Squadron sortie at the CLI door: the org study join
+ * session, with the booking reference as `joinCode` and the callsign,
+ * aircraft and colour beside it as suggestions for the confirm page. `mode` is
+ * `jam`; the door also takes `report` or none. The response is the study
+ * join's plus `kind` and `jam`, and the status poll is the study join's.
+ */
+export async function startSquadronJoin(
+  apiBaseUrl: string,
+  eventWriteToken: string,
+  seat: { joinCode: string; handle: string; aircraft?: string; colour?: string }
+): Promise<Pick<StudyJoinStartResponse, "joinSessionId" | "deviceCode" | "expiresAt"> & { kind?: string }> {
+  const response = await fetch(`${apiBaseUrl}/v1/org-study-join-sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
+    body: JSON.stringify({
+      joinCode: seat.joinCode,
+      mode: "jam",
+      handle: seat.handle,
+      ...(seat.aircraft ? { aircraft: seat.aircraft } : {}),
+      ...(seat.colour ? { colour: seat.colour } : {})
+    })
+  });
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as StudyJoinStartResponse & { kind?: string };
+}
+
+/**
+ * A study join status for a squadron: `kind: "jam"`, no `granted` on success
+ * (a sortie grants no consent), and a `jam` object whose `jamId` and
+ * `participantId` appear once the session is confirmed.
+ */
+export type SquadronJoinStatus = Omit<StudyJoinStatusResponse, "refusedReason" | "granted"> & {
+  kind?: string;
+  granted?: StudyJoinStatusResponse["granted"];
+  refusedReason?: string | null;
+  endUtc?: string;
+  jam?: {
+    name?: string;
+    jamId?: string;
+    participantId?: string;
+    handle?: string;
+    aircraft?: string;
+    colour?: string;
+    startedAt?: string;
+    quorumDeadline?: string;
+    durationMinutes?: number;
+    status?: "pending" | "live" | "ended" | "abandoned";
+    alreadyJoined?: boolean;
+    minParticipants?: number;
+    activeParticipants?: number;
+    expiresAt?: string;
+    endUtc?: string;
+  };
+};
+
 /** Poll a study join session until it is `confirmed`, `expired` or `refused`. */
 export async function getStudyJoinStatus(apiBaseUrl: string, eventWriteToken: string, joinSessionId: string): Promise<StudyJoinStatusResponse> {
   const response = await fetch(`${apiBaseUrl}/v1/org-study-join-sessions/${encodeURIComponent(joinSessionId)}/status`, {

@@ -8,7 +8,8 @@ import {
   inferOutcome,
   isVerificationCommand,
   looksLikeCorrection,
-  shellCommandFacts
+  shellCommandFacts,
+  promptSizeMetadata
 } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason } from "@ascenda-one/tool-contract";
 import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from "./types.js";
@@ -100,9 +101,9 @@ function mapSessionEnd(input: CodexHookInput): MappedCodexEvent[] {
 }
 
 function mapUserPromptSubmit(input: CodexHookInput): MappedCodexEvent[] {
-  const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"]]);
+  const prompt = getString(input, ["prompt", "userPrompt", "message"]) ?? getNestedString(input, [["payload", "prompt"], ["payload", "message"]]);
   const autonomy = autonomyModeMetadata(input);
-  const events: MappedCodexEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown", ...autonomy }) }];
+  const events: MappedCodexEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown", ...promptSizeMetadata(prompt), ...autonomy }) }];
   if (looksLikeCorrection(prompt)) {
     events.push({ eventType: "ai_correction_prompt", severity: "medium", metadata: withHost({ reason: "repeated_reprompting", trigger: "inferred", ...autonomy }) });
   }

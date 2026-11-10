@@ -25,7 +25,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { createDevServer } from "../../ascenda-dev-server/dist/server.js";
+import { createDevServer, NORTHVIEW_WINDOW } from "../../ascenda-dev-server/dist/server.js";
+import { formatWindow } from "@ascenda-one/tool-kit";
+
+const WINDOW = formatWindow(NORTHVIEW_WINDOW.windowStartUtc, NORTHVIEW_WINDOW.windowEndUtc);
 import { runParticipate } from "../dist/participate.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -161,7 +164,7 @@ test("happy path: both agents paired, study joined, retention extended, history 
     assert.match(out, /Agents\s+✓ Claude Code\s+collecting/);
     assert.match(out, /✓ Codex CLI\s+collecting/);
     assert.match(out, /Study\s+✓ Northview Health, a 30-day report/);
-    assert.match(out, /window 13 Oct – 10 Nov 2026/);
+    assert.ok(out.includes(`window ${WINDOW}`), out);
     assert.match(out, /Retention\s+✓ 30 days \(default\) → 3650 days/);
     assert.match(out, new RegExp(`Backfill\\s+✓ ${sent.length} events sent: ${sent.length} accepted, 0 already there, 0 rejected`));
   } finally {
@@ -410,7 +413,7 @@ test("one confirm: confirmed from the link, as a browser would", async () => {
     assert.equal(code, 0, out);
     assert.match(out, /This needs one confirm in your browser: one to pair Claude Code, the first of them also joining the study\./);
     // The link is printed, and the typed code is not offered for a pairing that carries a join.
-    assert.match(out, /This also joins Northview Health \(13 Oct – 10 Nov 2026\)/);
+    assert.ok(out.includes(`This also joins Northview Health (${WINDOW})`), out);
     assert.match(out, /Open this link to confirm: ascenda:\/\/pair\?session=/);
     assert.equal(out.match(/Or paste code|Confirm in the Ascenda app — code/g), null);
     assert.equal(server.dev.state.studyJoins.size, 1);

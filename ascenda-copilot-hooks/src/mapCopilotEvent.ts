@@ -4,7 +4,8 @@ import {
   shellCommandFacts,
   getString,
   isVerificationCommand,
-  looksLikeCorrection
+  looksLikeCorrection,
+  promptSizeMetadata
 } from "@ascenda-one/tool-kit";
 import type { AscendaEventMetadata } from "@ascenda-one/tool-contract";
 import { payloadId } from "./subagents.js";
@@ -63,7 +64,7 @@ function subagentOf(input: CopilotHookInput): AscendaEventMetadata {
 
 function mapPrompt(input: CopilotHookInput): MappedCopilotEvent[] {
   const prompt = getString(input, ["prompt"]);
-  const events: MappedCopilotEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown" }) }];
+  const events: MappedCopilotEvent[] = [{ eventType: "ai_prompt_submitted", severity: "low", metadata: withHost({ promptClass: "unknown", ...promptSizeMetadata(prompt) }) }];
   if (looksLikeCorrection(prompt)) {
     events.push({ eventType: "ai_correction_prompt", severity: "medium", metadata: withHost({ reason: "repeated_reprompting", trigger: "inferred" }) });
   }

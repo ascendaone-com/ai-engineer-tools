@@ -21,6 +21,7 @@ const RESERVED_METADATA_KEYS = new Set([
   "outcome",
   "trigger",
   "promptClass",
+  "promptSizeBucket",
   "reason",
   "afterHours",
   "activity",

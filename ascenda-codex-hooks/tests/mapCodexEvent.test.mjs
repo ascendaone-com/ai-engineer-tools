@@ -19,6 +19,13 @@ test("UserPromptSubmit: prompt and correction inference, no raw text leaves", ()
   assert.ok(!JSON.stringify(corr).includes("redo it"), "prompt text must never leave the mapper");
 });
 
+test("UserPromptSubmit: the prompt's size bucket rides along, and is omitted with no prompt", () => {
+  assert.equal(mapCodexEvent("UserPromptSubmit", { prompt: "add pagination" })[0].metadata.promptSizeBucket, "s");
+  assert.equal(mapCodexEvent("UserPromptSubmit", { prompt: "x".repeat(3000) })[0].metadata.promptSizeBucket, "l");
+  assert.equal(mapCodexEvent("UserPromptSubmit", { payload: { message: "x".repeat(500) } })[0].metadata.promptSizeBucket, "m");
+  assert.equal("promptSizeBucket" in mapCodexEvent("UserPromptSubmit", {})[0].metadata, false);
+});
+
 test("every mapped event carries host=codex metadata", () => {
   const events = mapCodexEvent("PreToolUse", { tool_name: "Bash" });
   assert.equal(events[0].metadata.host, "codex");

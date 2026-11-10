@@ -376,6 +376,10 @@ be typechecked against.
 
 At `"200+"` this is the "substantial accepted change" boundary the Ascenda app's confidence self-report triggers on — the bucket *is* the boundary marker; there's nothing further to emit, since the write already happened.
 
+## Prompt size (`promptSizeBucket`)
+
+`UserPromptSubmit` puts `metadata.promptSizeBucket` on `ai_prompt_submitted`: `"s"` up to 280 characters, `"m"` up to 2,000, `"l"` up to 8,000, `"xl"` beyond. It's the same letter the live bus gets as `sizeBucket`, from the same `bucketPromptSize` (`@ascenda-one/tool-kit`), so the server can size a prompt without the local socket. The text is read to measure it and then dropped. When the payload has no prompt the key is left off.
+
 ## SessionStart context injection
 
 Separately from telemetry, `SessionStart` (on `startup`/`resume` only — `clear`/`compact` are mid-session resets, not new sessions) writes a `hookSpecificOutput.additionalContext` JSON payload to **stdout**, inviting the agent to ask what the session should accomplish. This is the only hook in this package that writes anything to stdout; every other hook stays silent.
