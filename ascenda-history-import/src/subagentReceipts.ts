@@ -58,6 +58,9 @@ export interface SidechainTally {
   /** `agentType` from the sibling `.meta.json`, when there is one. */
   metaType: string | null;
   toolUseId: string | null;
+  /** Lines this session owns. A resumed session's copy of its parent's
+   * transcript owns none, and gets no receipt: the parent has it. */
+  ownedLines: number;
   times: number[];
   toolCalls: number;
   toolFailures: number;
@@ -69,6 +72,7 @@ export function newSidechainTally(): SidechainTally {
     agentId: null,
     metaType: null,
     toolUseId: null,
+    ownedLines: 0,
     times: [],
     toolCalls: 0,
     toolFailures: 0,

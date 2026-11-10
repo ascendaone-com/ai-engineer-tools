@@ -153,6 +153,19 @@ test("several subagents: custom names never surface, re-touch outside the window
   for (const leak of ["my-secret-agent", "secret", "/r/", "a.ts"]) assert.ok(!text.includes(leak), leak);
 });
 
+test("a resumed session's copy of its parent's subagent gets no receipt; the parent keeps its one", async () => {
+  const S3 = "33333333-0000-4000-8000-000000000000";
+  const s = await sessions({
+    ...FILES,
+    [`${S3}.jsonl`]: [user(S3, "11:00:00"), asst(S3, "11:01:00", [])],
+    // Byte-identical to the parent's, lines still naming S1.
+    [`${S3}/subagents/agent-A.jsonl`]: FILES[`${S1}/subagents/agent-A.jsonl`],
+    [`${S3}/subagents/agent-A.meta.json`]: FILES[`${S1}/subagents/agent-A.meta.json`]
+  });
+  assert.deepEqual(s.get(S3).subagentReceipts, []);
+  assert.equal(s.get(S1).subagentReceipts.length, 1);
+});
+
 test("the handoff carries the receipts and the schema does not move", async () => {
   const dir = await store(FILES);
   const events = await collect(extractClaudeCode(dir, "e1"));

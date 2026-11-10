@@ -883,6 +883,7 @@ async function foldLinesInto(
         fold.sessionId = sniffed.sessionId;
       }
       if (tally && owned) {
+        tally.ownedLines += 1;
         const ms = lineMs(sniffed.occurredAt);
         if (ms !== null) tally.times.push(ms);
       }
@@ -1656,7 +1657,7 @@ export async function* extractClaudeCode(
         // Local-only, like `dayBreakdown`; see `subagentReceipts.ts`. Always
         // present on this store, empty for a session with no subagents, so a
         // reader can tell none from not collected.
-        subagentReceipts: fold.sidechainTallies.map((t) => buildReceipt(t, fold.parentRecord)),
+        subagentReceipts: fold.sidechainTallies.filter((t) => t.ownedLines > 0).map((t) => buildReceipt(t, fold.parentRecord)),
         autonomySplit: Object.fromEntries(
           Object.entries(split.supervisingMsByBand).map(([band, ms]) => [band, minutesOf(ms)])
         ),
