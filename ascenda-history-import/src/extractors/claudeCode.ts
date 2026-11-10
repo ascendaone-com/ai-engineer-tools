@@ -129,6 +129,7 @@ import {
   type SidechainTally
 } from "../subagentReceipts.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
+import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
 import {
   DEFAULT_ACTIVE_GAP_MS,
   activeSpans,
@@ -427,6 +428,8 @@ interface SessionFold {
   models: Map<string, number>;
   lastMainModel: string | null;
   modelSwitchCount: number;
+  /** The `effort` on each owned main-thread API message. See effortFold.ts. */
+  effort: EffortTrack;
   compactionCount: number;
   compactionManualCount: number;
   compactionAutoCount: number;
@@ -529,6 +532,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     models: new Map(),
     lastMainModel: null,
     modelSwitchCount: 0,
+    effort: newEffortTrack(),
     compactionCount: 0,
     compactionManualCount: 0,
     compactionAutoCount: 0,
@@ -1121,6 +1125,12 @@ async function foldLinesInto(
             }
             fold.lastMainModel = foldedModel;
           }
+          // Once per API message, and only where a model ran, like the model
+          // mix: a `<synthetic>` notice isn't a turn at any effort. Claude
+          // Code writes the setting as a top-level string on each assistant
+          // line; builds before it existed write nothing, and those sessions
+          // fold to no effort at all.
+          if (foldedModel) foldEffort(fold.effort, record.effort, sniffed.occurredAt);
           // Deliberately NOT gated on `foldedModel`. The model figures are a
           // vocabulary and `<synthetic>` is not in it; the token figures are
           // arithmetic, and a notice's `usage` block is all zeros, so adding
@@ -1632,6 +1642,9 @@ export async function* extractClaudeCode(
       sessionMetrics.sessionStartedAt = fold.firstTs;
       const primaryModel = topModel(fold.models);
       if (primaryModel) sessionMetrics.primaryModel = primaryModel;
+      const primaryEffort = primaryEffortOf(fold.effort);
+      if (primaryEffort) sessionMetrics.primaryEffort = primaryEffort;
+      const effortChanges = effortChangesOf(fold.effort);
       if (fold.gitBranch) sessionMetrics.gitBranch = fold.gitBranch;
       yield {
         occurredAt: fold.lastTs,
@@ -1661,6 +1674,7 @@ export async function* extractClaudeCode(
         autonomySplit: Object.fromEntries(
           Object.entries(split.supervisingMsByBand).map(([band, ms]) => [band, minutesOf(ms)])
         ),
+        ...(effortChanges.length > 0 ? { effortChanges } : {}),
         provenance: HISTORICAL_PROVENANCE.derived,
         extractionId
       };

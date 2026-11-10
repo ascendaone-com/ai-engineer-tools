@@ -51,6 +51,7 @@ import { createHash } from "node:crypto";
 import {
   COLLECTOR_VERSION,
   classifyModelClass,
+  classifyEffortClass,
   deriveBranchHash,
   deriveWorkContext,
   hashWithMachineSalt,
@@ -248,6 +249,14 @@ export function toWirePayload(
   // uninterpretable in exactly the way P-D28 exists to prevent one level up.
   const modelClass = classifyModelClass(metadata.primaryModel as string | undefined);
   if (modelClass !== undefined) metadata.modelClass = modelClass;
+  // The effort bucket, derived here for the reasons the model class is: one
+  // place for every store, and staging files written before it existed get it
+  // on the way out. Same classifier the live Claude Code hooks call, so an
+  // imported `high` and a live `high` land in one bucket. `primaryEffort`
+  // stays beside it as the record, under its own key: it is a whole session's
+  // dominant level, while the live `effortLevel` is the level at one moment.
+  const effortClass = classifyEffortClass(metadata.primaryEffort as string | undefined);
+  if (effortClass !== undefined) metadata.effortClass = effortClass;
   const context = workContextOf(event.repoRef);
   return {
     toolInstallationId,

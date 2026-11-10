@@ -634,6 +634,23 @@ export type ModelClass =
   | "unknown";
 
 /**
+ * How hard the agent was asked to think, as a small fixed bucket. The raw
+ * string sits beside it as {@link AscendaEventMetadata.effortLevel}; the class
+ * is a reading of that string, made by `classifyEffortClass` in tool-kit for
+ * both the live hooks and the importer.
+ *
+ * `xhigh` is its own bucket because Claude Code writes it: roughly 1,300
+ * transcript lines on one machine's store carried it in November 2026, beside
+ * `low`, `medium` and `high`. `max` is reserved for the top setting by that
+ * name. Codex's `minimal` and `none` read as `low`.
+ *
+ * `unknown` means a level was reported and it isn't one we've mapped. A
+ * missing level is a missing key, never `unknown` and never `medium`: older
+ * Claude Code builds don't write the field at all.
+ */
+export type EffortClass = "low" | "medium" | "high" | "xhigh" | "max" | "unknown";
+
+/**
  * Why an agent session ended, as the agent itself reported it. Claude Code's
  * `SessionEnd` hook documents five values, mirrored 1:1: `clear` (`/clear`),
  * `resume` (the session was suspended, to be resumed later), `logout`,
@@ -757,6 +774,10 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   autonomyMode: "posture",
   modelClass: "model",
   modelId: "model",
+  // The effort setting is a model setting, so it shares the model family:
+  // the same consent covers it, and the pairing sentence names it.
+  effortLevel: "model",
+  effortClass: "model",
   userModified: "edits",
   outcome: "outcome",
   trigger: "outcome",
@@ -976,6 +997,29 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   modelId?: string;
 
   /**
+   * The effort level exactly as the agent reported it, trimmed: `low`,
+   * `medium`, `high`, `xhigh`, and whatever ships next. Claude Code puts it on
+   * every hook payload as `effort.level`.
+   *
+   * Sent on `create_focus_session` at session open, and again on the next
+   * mapped event after the level changes, so a session that moves from
+   * `medium` to `high` sends two values. Never on every event: the last level
+   * sent for a session is kept in the hook state directory and compared.
+   *
+   * Always beside {@link AscendaEventMetadata.effortClass}, both keys or
+   * neither, like the model pair. Omitted when the payload carried no effort,
+   * which a reader must treat as unknown rather than as a default level.
+   */
+  effortLevel?: string;
+
+  /**
+   * The bucket for {@link AscendaEventMetadata.effortLevel}. See
+   * {@link EffortClass}. The importer derives it from `primaryEffort` with the
+   * same classifier.
+   */
+  effortClass?: EffortClass;
+
+  /**
    * Whether the human had edited the file since the agent last wrote it, as
    * reported by an Edit-family `tool_response.userModified`. The one live
    * signal of *correction* rather than production: everything else on a file
@@ -1184,6 +1228,8 @@ export const EVENT_METADATA_FIELDS = [
   "autonomyMode",
   "modelClass",
   "modelId",
+  "effortLevel",
+  "effortClass",
   "userModified",
   "outcome",
   "trigger",

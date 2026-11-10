@@ -1,6 +1,7 @@
 import type { SubagentReceipt } from "./subagentReceipts.js";
 import type { SessionDaySlice } from "./daySlice.js";
 import type { ActiveSpan } from "./activeSplit.js";
+import type { EffortChange } from "./effortFold.js";
 import type { AutonomyBand } from "@ascenda-one/tool-kit";
 
 /**
@@ -216,6 +217,16 @@ export interface NormalizedHistoricalEvent {
    * would make a guess indistinguishable from a measurement.
    */
   autonomySplit?: Partial<Record<AutonomyBand, number>>;
+  /**
+   * The session's effort levels in time order, one entry per switch, the
+   * opening level first. See `effortFold.ts`.
+   *
+   * Beside `metrics` because a list can't be a metric: `metrics` is flat by
+   * contract. It reaches the desktop app through the handoff and doesn't go
+   * on the wire. `primaryEffort` in `metrics` does. Absent where the store
+   * wrote no effort.
+   */
+  effortChanges?: EffortChange[];
   provenance: HistoricalProvenance;
   extractionId: string;
 }

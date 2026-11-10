@@ -127,6 +127,22 @@ knew no model at all. Mapping it is a separate piece of work: the slug values
 (`gpt-5.6-sol` and friends) need matching against real ones before a
 `vendor:tier` bucket can be claimed rather than guessed.
 
+### Effort isn't on the wire
+
+No Codex hook payload we've seen carries the reasoning effort. The sample in
+`examples/` has `session_id`, `turn_id`, `model`, `permission_mode` and the
+tool fields, and nothing for effort. So this adapter sends no `effortLevel` or
+`effortClass`, unlike the Claude Code one. Recapture a payload from a current
+Codex build before trusting that for good: this was checked against the sample,
+not a live run.
+
+The session file has it. Every `turn_context` line carries `effort` (`high`
+on each of the 18 lines in one machine's store, checked 11 Nov 2026), and the
+history importer folds it into `primaryEffort` and `effortChanges`. If a later
+Codex release adds effort to the hook payload, mirror the Claude Code mapper:
+send it on `SessionStart` and again on change, with the last-sent level in the
+state directory (`readSentEffortLevel` / `recordSentEffortLevel` in tool-kit).
+
 ## Turn duration
 
 Codex's `Stop` payload carries no duration, so the adapter measures it:

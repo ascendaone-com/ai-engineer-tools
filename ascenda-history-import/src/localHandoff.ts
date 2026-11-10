@@ -49,6 +49,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { NormalizedHistoricalEvent } from "./types.js";
+import type { EffortChange } from "./effortFold.js";
 
 const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
 
@@ -172,6 +173,13 @@ export interface HandoffSession {
    * `interruptedRunsCounted`; see `interruptedRuns.ts` for the definition. */
   interruptedRuns: number;
   primaryModel: string | null;
+  /** The effort level on most of the session's main-thread model turns, as
+   * the store wrote it. Null where the store wrote none, which means unknown,
+   * never a default level. */
+  primaryEffort: string | null;
+  /** Each switch of effort level in time order, the opening level first.
+   * Empty where the store wrote none. See `effortFold.ts`. */
+  effortChanges: EffortChange[];
   /** Gap-split minutes (5m idle threshold) — the non-idle-inflated
    * alternative to wall-clock duration. See claudeCode.ts's activeMinutesOf. */
   activeMinutes: number;
@@ -546,6 +554,13 @@ export interface CodexHandoffSession {
   afterHoursPrompts: number;
   /** The dominant `turn_context.model` across the session's turns. */
   primaryModel: string | null;
+  /** The effort level on most of the session's main-thread model turns, as
+   * the store wrote it. Null where the store wrote none, which means unknown,
+   * never a default level. */
+  primaryEffort: string | null;
+  /** Each switch of effort level in time order, the opening level first.
+   * Empty where the store wrote none. See `effortFold.ts`. */
+  effortChanges: EffortChange[];
   activeMinutes: number;
   /** The two halves of `activeMinutes` — never one figure, never the second
    * as attention. See {@link HandoffSession.handsOnMinutes}. */
@@ -1081,6 +1096,9 @@ export function buildHandoff(
       afterHoursPrompts: Number(event.metrics.afterHoursPrompts ?? 0),
       primaryModel:
         typeof event.metrics.primaryModel === "string" ? event.metrics.primaryModel : null,
+      primaryEffort:
+        typeof event.metrics.primaryEffort === "string" ? event.metrics.primaryEffort : null,
+      effortChanges: event.effortChanges ?? [],
       activeMinutes: Number(event.metrics.activeMinutes ?? 0),
       handsOnMinutes: Number(event.metrics.handsOnMinutes ?? 0),
       agentSupervisingMinutes: Number(event.metrics.agentSupervisingMinutes ?? 0),
@@ -1182,6 +1200,9 @@ export function buildCodexHandoff(
       afterHoursPrompts: Number(event.metrics.afterHoursPrompts ?? 0),
       primaryModel:
         typeof event.metrics.primaryModel === "string" ? event.metrics.primaryModel : null,
+      primaryEffort:
+        typeof event.metrics.primaryEffort === "string" ? event.metrics.primaryEffort : null,
+      effortChanges: event.effortChanges ?? [],
       activeMinutes: Number(event.metrics.activeMinutes ?? 0),
       handsOnMinutes: Number(event.metrics.handsOnMinutes ?? 0),
       agentSupervisingMinutes: Number(event.metrics.agentSupervisingMinutes ?? 0),

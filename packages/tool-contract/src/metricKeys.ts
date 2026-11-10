@@ -266,6 +266,11 @@ export const METRIC_KEYS = {
     backendAliases: ["primaryModel", "primary_model"],
     note: "Read twice: the desktop's local handoff folds it, and a server-side reader resolves it to group a bucket's sessions by the model that served them. Declared handoff-only until 23 Sep 2026 — see toolName for why that direction of mistake has no symptom."
   },
+  primaryEffort: {
+    family: "model",
+    readBy: ["handoff"],
+    note: "Claude Code and Codex: the effort level on most of the session's main-thread model turns, as the store wrote it (low, medium, high, xhigh). Absent where the store wrote none, which older Claude Code builds didn't. ship.ts adds effortClass beside it on the way out. The ordered switches ride beside metrics as effortChanges, since a list can't be a metric. The backend reader arrives in its own change."
+  },
   requestCount: { family: "counts", readBy: ["handoff"] },
   sessionStartedAt: { family: "session", readBy: ["handoff"] },
   subagentComposers: { family: "counts", readBy: ["handoff"] },
