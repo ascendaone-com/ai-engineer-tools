@@ -10,6 +10,29 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.42
+
+### Join a squadron from the terminal
+
+- **`npx @ascenda-one/claude-code-hooks squadron <ref>`** joins a squadron by
+  its booking reference. It shows the squadron, its mission and what joining
+  shares, then asks. Not now is the default.
+- **Your seat.** `--callsign`, `--aircraft` and `--colour` pick it. Leave them
+  out and it suggests a callsign and asks for the rest. The confirm page can
+  change any of them.
+- **Not paired yet?** It pairs first, then joins.
+- It needs a terminal. Piped or scripted, it stops before sending anything.
+- After the confirm it prints the date sharing ends.
+
+### A rough size for each prompt
+
+- Every hooks adapter now adds `promptSizeBucket` to `ai_prompt_submitted`:
+  `s` up to 280 characters, `m` up to 2,000, `l` up to 8,000, `xl` beyond.
+  The letter is all that's sent. Never the prompt, never its length.
+- The setup disclosure says so before you pair.
+- Codex now also reads the prompt from `message`, so its prompts get a size
+  too.
+
 ## v0.1.41
 
 ### Git history is your choice, made on the confirm page
