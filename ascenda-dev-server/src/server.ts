@@ -69,14 +69,22 @@ const NO_LIVE_STUDY_CODE = "DEPT-ONLY-2026";
  * `join` renders its own plain sentence per grant `code`, so changing the
  * `name` spelling here proves nothing about what a person actually sees.
  */
+/** A 28-day study window that is always open: it began 14 days ago (UTC midnight) and ends 14 days from now. */
+export const NORTHVIEW_WINDOW: Readonly<{ windowStartUtc: string; windowEndUtc: string }> = (() => {
+  const day = 24 * 3600 * 1000;
+  const today = Math.floor(Date.now() / day) * day;
+  return { windowStartUtc: new Date(today - 14 * day).toISOString(), windowEndUtc: new Date(today + 14 * day).toISOString() };
+})();
+
 const STUDY_JOIN_CODES: Readonly<Record<string, Omit<StudyJoinSession, "joinSessionId" | "deviceCode" | "toolInstallationId" | "status" | "expiresAt" | "refusedReason" | "granted" | "optionalImportStores">>> = {
   "NORTHVIEW-2026": {
     organisationName: "Northview Health",
     // The backend's own internal kind name, not display text — `join`
     // translates it, same as it does grant `name`.
     studyKind: "Report30",
-    windowStartUtc: "2026-10-13T00:00:00.000Z",
-    windowEndUtc: "2026-11-10T00:00:00.000Z",
+    // Open today, whenever today is. A fixed window goes stale on its end
+    // date, and every remembered join after it reads as expired.
+    ...NORTHVIEW_WINDOW,
     // Exactly two, confirmed 28 Sep 2026: Report mode carries no third,
     // agent-observed grant.
     grants: [
