@@ -162,7 +162,7 @@ export async function runSquadronJoin(ctx: SquadronJoinContext): Promise<number>
     }
 
     print();
-    print(`You'd fly as ${callsign}, ${aircraft}${colour ? `, ${colour}` : ""}.`);
+    print(`You'll confirm as ${callsign}, ${aircraft}${colour ? `, ${colour}` : ""}. The confirm page lets you change any of them.`);
     print();
     print("Joining shares, with this squadron only:");
     print(`  your activity counts from ${ctx.displayName}: prompts, tool calls, turns and edits, as numbers`);
@@ -190,6 +190,10 @@ export async function runSquadronJoin(ctx: SquadronJoinContext): Promise<number>
         : `${describeSquadronError(error)}\n`);
       return 1;
     }
+    if (start.kind !== undefined && start.kind !== "jam") {
+      stderr.write(`${reference} opened a study join, not a sortie. Run join instead.\n`);
+      return 1;
+    }
 
     print();
     const confirmUrl = studyJoinConfirmUrl(ctx.apiBaseUrl, start.deviceCode);
@@ -215,9 +219,10 @@ export async function runSquadronJoin(ctx: SquadronJoinContext): Promise<number>
       }
       if (poll.status === "pending") continue;
       if (poll.status === "confirmed") {
-        const until = poll.endUtc ?? poll.jam?.endUtc;
+        const until = poll.endUtc ?? poll.jam?.endUtc ?? leaseEnd(poll.jam ?? {});
+        const seat = poll.jam?.handle ? ` as ${poll.jam.handle}` : "";
         print();
-        print(poll.jam?.alreadyJoined ? `You already have a seat, as ${callsign}.` : `Joined as ${callsign}.`);
+        print(poll.jam?.alreadyJoined ? `You already have a seat${seat}.` : `Joined${seat}.`);
         print(until
           ? `Your activity counts are shared with this squadron until ${formatLocalDate(until)}.`
           : "Your activity counts are shared with this squadron until the sortie's sharing ends. The server didn't give a date.");
@@ -239,6 +244,16 @@ export async function runSquadronJoin(ctx: SquadronJoinContext): Promise<number>
   } finally {
     prompt.close();
   }
+}
+
+/**
+ * When sharing stops, if the server doesn't say: the contract's lease rule,
+ * `(startedAt ?? quorumDeadline) + durationMinutes + 7 days` (§3).
+ */
+export function leaseEnd(jam: { startedAt?: string; quorumDeadline?: string; durationMinutes?: number }): string | undefined {
+  const from = Date.parse(jam.startedAt ?? jam.quorumDeadline ?? "");
+  if (Number.isNaN(from) || typeof jam.durationMinutes !== "number") return undefined;
+  return new Date(from + (jam.durationMinutes + 7 * 24 * 60) * 60_000).toISOString();
 }
 
 function notNow(print: (line?: string) => void): number {
@@ -302,6 +317,8 @@ export function describeSquadronRefusal(code: string | undefined): string {
     case "jam_handle_invalid": return "The server didn't accept that callsign. Run squadron again and pick another.";
     case "jam_aircraft_unknown": return "The server didn't recognise that aircraft.";
     case "jam_colour_unknown": return "The server didn't recognise that colour.";
+    case "unknown_mode": return "This server's join door didn't accept a sortie. It may be older than this command.";
+    case "too_many_open_sessions": return "Too many joins are waiting to be confirmed. Confirm or let one expire, then try again.";
     case "jam_not_enabled": return "Squadron isn't switched on for this server yet.";
     default: return code ? `The server refused the join (${code}).` : "The server refused the join.";
   }

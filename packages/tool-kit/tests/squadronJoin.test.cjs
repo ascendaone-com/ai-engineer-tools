@@ -6,7 +6,8 @@ const {
   normaliseBookingReference,
   callsignProblem,
   generateCallsign,
-  describeSquadronRefusal
+  describeSquadronRefusal,
+  leaseEnd
 } = require("../out/index.js");
 
 const API = "https://api.example.test";
@@ -133,7 +134,7 @@ test("defaults on Enter: shares are printed before the question, the seat is sen
   const fetch = mockFetch([
     previewRoute(),
     startRoute(),
-    statusRoute({ status: "confirmed", granted: [], refusedReason: null, endUtc: "2026-11-17T11:30:00Z", jam: { status: "pending", activeParticipants: 2, minParticipants: 3 } })
+    statusRoute({ kind: "jam", status: "confirmed", granted: null, refusedReason: null, jam: { status: "pending", activeParticipants: 2, minParticipants: 3, handle: "Kestrel 27", quorumDeadline: "2026-11-10T10:00:00Z", durationMinutes: 90 } })
   ]);
   try {
     const run = runSquadronJoin(ctx(io));
@@ -157,7 +158,7 @@ test("defaults on Enter: shares are printed before the question, the seat is sen
 
     const startCall = fetch.calls.find((c) => c.url.endsWith("/v1/org-study-join-sessions"));
     assert.equal(startCall.init.headers.Authorization, "Bearer tok");
-    assert.deepEqual(JSON.parse(startCall.init.body), { joinCode: "FEFBDH", mode: "report", handle: "Kestrel 27", aircraft: "glider" });
+    assert.deepEqual(JSON.parse(startCall.init.body), { joinCode: "FEFBDH", mode: "jam", handle: "Kestrel 27", aircraft: "glider" });
     assert.match(io.out(), /Open this link to confirm: https:\/\/api\.example\.test\/join\/654321/);
     assert.match(io.out(), /Joined as Kestrel 27\./);
     assert.match(io.out(), /shared with this squadron until (17 Nov 2026|Nov 17, 2026)/);
@@ -169,7 +170,7 @@ test("defaults on Enter: shares are printed before the question, the seat is sen
 
 test("flags skip their questions, and colour goes on the wire", async () => {
   const io = tty();
-  const fetch = mockFetch([previewRoute(), startRoute(), statusRoute({ status: "confirmed", granted: [], refusedReason: null })]);
+  const fetch = mockFetch([previewRoute(), startRoute(), statusRoute({ kind: "jam", status: "confirmed", refusedReason: null })]);
   try {
     const run = runSquadronJoin(ctx(io, { callsign: " Goose ", aircraft: "Fighter", colour: "red" }));
     await waitFor(io.out, "Choice [Not now]");
@@ -177,7 +178,8 @@ test("flags skip their questions, and colour goes on the wire", async () => {
     io.stdin.write("join\n");
     assert.equal(await run, 0);
     const body = JSON.parse(fetch.calls[1].init.body);
-    assert.deepEqual(body, { joinCode: "FEFBDH", mode: "report", handle: "Goose", aircraft: "fighter", colour: "red" });
+    assert.deepEqual(body, { joinCode: "FEFBDH", mode: "jam", handle: "Goose", aircraft: "fighter", colour: "red" });
+    assert.match(io.out(), /Joined\.\n/);
     assert.match(io.out(), /until the sortie's sharing ends\. The server didn't give a date\./);
   } finally {
     fetch.restore();
@@ -274,4 +276,10 @@ test("helpers: booking reference, callsign rules, generated callsign, refusal wo
   assert.match(generateCallsign(), /^[A-Z][a-z]+ \d{2}$/);
   assert.equal(describeSquadronRefusal("jam_already_left"), "You left this sortie, and leaving is final. Ask the host for a new one.");
   assert.equal(describeSquadronRefusal("mystery"), "The server refused the join (mystery).");
+});
+
+test("leaseEnd follows the contract: (startedAt ?? quorumDeadline) + flight plan + 7 days", () => {
+  assert.equal(leaseEnd({ quorumDeadline: "2026-11-10T10:00:00Z", durationMinutes: 90 }), "2026-11-17T11:30:00.000Z");
+  assert.equal(leaseEnd({ startedAt: "2026-11-10T09:12:04Z", quorumDeadline: "2026-11-10T10:00:00Z", durationMinutes: 90 }), "2026-11-17T10:42:04.000Z");
+  assert.equal(leaseEnd({ durationMinutes: 90 }), undefined);
 });

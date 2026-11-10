@@ -101,36 +101,50 @@ export async function previewJoinCode(apiBaseUrl: string, joinCode: string): Pro
 /**
  * Start a seat in a Squadron sortie at the CLI door: the org study join
  * session, with the booking reference as `joinCode` and the callsign,
- * aircraft and colour beside it. `mode` stays `report`, the only mode the
- * door takes from the command line. The response and the status poll are the
- * study join's, so `getStudyJoinStatus` reads it.
+ * aircraft and colour beside it as suggestions for the confirm page. `mode` is
+ * `jam`; the door also takes `report` or none. The response is the study
+ * join's plus `kind` and `jam`, and the status poll is the study join's.
  */
 export async function startSquadronJoin(
   apiBaseUrl: string,
   eventWriteToken: string,
   seat: { joinCode: string; handle: string; aircraft?: string; colour?: string }
-): Promise<Pick<StudyJoinStartResponse, "joinSessionId" | "deviceCode" | "expiresAt">> {
+): Promise<Pick<StudyJoinStartResponse, "joinSessionId" | "deviceCode" | "expiresAt"> & { kind?: string }> {
   const response = await fetch(`${apiBaseUrl}/v1/org-study-join-sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${eventWriteToken}` },
     body: JSON.stringify({
       joinCode: seat.joinCode,
-      mode: "report",
+      mode: "jam",
       handle: seat.handle,
       ...(seat.aircraft ? { aircraft: seat.aircraft } : {}),
       ...(seat.colour ? { colour: seat.colour } : {})
     })
   });
   if (!response.ok) throw await apiError(response);
-  return (await response.json()) as StudyJoinStartResponse;
+  return (await response.json()) as StudyJoinStartResponse & { kind?: string };
 }
 
-/** A study join status, with the sortie fields a confirmed Squadron seat is expected to carry. */
-export type SquadronJoinStatus = Omit<StudyJoinStatusResponse, "refusedReason"> & {
+/**
+ * A study join status for a squadron: `kind: "jam"`, no `granted` on success
+ * (a sortie grants no consent), and a `jam` object whose `jamId` and
+ * `participantId` appear once the session is confirmed.
+ */
+export type SquadronJoinStatus = Omit<StudyJoinStatusResponse, "refusedReason" | "granted"> & {
+  kind?: string;
+  granted?: StudyJoinStatusResponse["granted"];
   refusedReason?: string | null;
   endUtc?: string;
   jam?: {
+    name?: string;
     jamId?: string;
+    participantId?: string;
+    handle?: string;
+    aircraft?: string;
+    colour?: string;
+    startedAt?: string;
+    quorumDeadline?: string;
+    durationMinutes?: number;
     status?: "pending" | "live" | "ended" | "abandoned";
     alreadyJoined?: boolean;
     minParticipants?: number;

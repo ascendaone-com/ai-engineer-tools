@@ -128,7 +128,7 @@ export {
 } from "./forgeProject";
 export { REPO_KEYS_ENV_VAR, deriveForgeKeysForCwd, repoKeysEnabled } from "./forgeKeys";
 export type { ForgeKeys } from "./forgeKeys";
-export { runSquadronJoin, generateCallsign, normaliseBookingReference, callsignProblem, describeGate, describeSquadronRefusal, SQUADRON_AIRCRAFT, SQUADRON_COLOURS } from "./squadronJoin";
+export { runSquadronJoin, leaseEnd, generateCallsign, normaliseBookingReference, callsignProblem, describeGate, describeSquadronRefusal, SQUADRON_AIRCRAFT, SQUADRON_COLOURS } from "./squadronJoin";
 export type { SquadronJoinContext } from "./squadronJoin";
 export { previewJoinCode, startSquadronJoin } from "./http";
 export type { JoinCodePreview, SquadronJoinStatus } from "./http";
