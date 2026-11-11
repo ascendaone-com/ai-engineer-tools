@@ -279,7 +279,7 @@ export const METRIC_KEYS = {
   modelTurns: {
     family: "model",
     readBy: ["handoff"],
-    note: "Claude Code and Codex: the session's model mix as a JSON object in a string, raw slug to count, at most 8 entries, largest first. The counts are the ones primaryModel is chosen from (Claude Code: main-thread API messages plus advisor iterations; Codex: turn_context lines on every thread), so its largest entry is primaryModel. Turns past the cap are in modelTurnsOmitted. See modelTurns.ts."
+    note: "Claude Code and Codex: the session's model mix as a JSON object in a string, raw slug to count, at most 8 entries, largest first. The counts are the ones primaryModel is chosen from (Claude Code: main-thread API messages plus advisor iterations; Codex: turn_context lines on every thread), so its largest entry is primaryModel unless two models tie. Turns past the cap are in modelTurnsOmitted. See modelTurns.ts."
   },
   modelTurnsOmitted: {
     family: "model",

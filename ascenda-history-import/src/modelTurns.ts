@@ -7,7 +7,8 @@
  * map travels as a JSON object in a string: `{"claude-opus-5":41,
  * "claude-haiku-4-5":3}`. Keys are the raw slugs, exactly as `primaryModel`
  * carries one; values are the counts `primaryModel` was chosen from, so the
- * map's largest entry is always `primaryModel`.
+ * map's largest entry is `primaryModel` (on a tie the map orders by slug,
+ * and `primaryModel` keeps the one seen first).
  *
  * Bounded at {@link MODEL_TURNS_CAP} entries, largest first (ties by slug).
  * Turns on models past the cap, and on any slug too long to be a model id,
