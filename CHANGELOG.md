@@ -12,6 +12,23 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.43
 
+### Hear about a new release
+
+- **A paired install checks for a newer release once a day.** After the
+  background sender has sent your events, it fetches the release manifest
+  from GitHub. The request carries nothing about you. `status` shows what it
+  found on a new `latest` line, for every agent's hooks.
+- **Claude Code tells you once.** The first session after a release starts
+  with a one-line note naming the release and the command to run. If your
+  install is older than the oldest release still supported, the note comes
+  back every session until you update.
+- **Plugin installs hear about hooks.** The plugin already copies the newest
+  release from npm once a day, so its note only comes when a release adds
+  hooks its `hooks.json` doesn't register yet. That note names
+  `claude plugin update`.
+- An unpaired install never checks. Set `ASCENDA_DISABLE_UPDATE_CHECK=true`
+  to turn the check off.
+
 ### The effort setting, beside the model
 
 - **Claude Code hooks send the effort level.** The first event that reports
