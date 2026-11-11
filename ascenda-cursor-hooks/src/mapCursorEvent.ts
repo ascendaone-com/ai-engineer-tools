@@ -8,7 +8,9 @@ import {
   inferOutcome,
   isVerificationCommand,
   looksLikeCorrection,
-  promptSizeMetadata
+  promptSizeMetadata,
+  modelFieldsFor,
+  withModelOnChange
 } from "@ascenda-one/tool-kit";
 import type { AscendaEventMetadata } from "@ascenda-one/tool-contract";
 import { CURSOR_HOST, CursorHookEventName, CursorHookInput, MappedCursorEvent } from "./types.js";
@@ -18,7 +20,16 @@ import { CURSOR_HOST, CursorHookEventName, CursorHookInput, MappedCursorEvent } 
  * Catalog values only; hooks without a catalog counterpart map to nothing.
  * See docs/CURSOR_MAPPING.md.
  */
-export function mapCursorEvent(hookName: CursorHookEventName, input: CursorHookInput, turnDurationMs?: number): MappedCursorEvent[] {
+export function mapCursorEvent(hookName: CursorHookEventName, input: CursorHookInput, turnDurationMs?: number, lastSentModelId?: string): MappedCursorEvent[] {
+  // The model rides on the opening event and on the first event after it
+  // changes. Cursor documents `model_id` and `model` as base fields on every
+  // hook. No route: Cursor serves every model through its own backend and
+  // the payload names no endpoint, so the key is left off.
+  const events = mapEventBody(hookName, input, turnDurationMs);
+  return withModelOnChange(events, modelFieldsFor(readCursorModel(input)), lastSentModelId, hookName === "sessionStart").events;
+}
+
+function mapEventBody(hookName: CursorHookEventName, input: CursorHookInput, turnDurationMs?: number): MappedCursorEvent[] {
   switch (hookName) {
     case "sessionStart": return [{ eventType: "create_focus_session", severity: "low", metadata: withHost({ activity: "session_started" }) }];
     case "sessionEnd": return [{ eventType: "recovery_offline_period", severity: "low", metadata: withHost({ activity: "session_ended" }) }];
@@ -182,4 +193,23 @@ function sanitiseToolName(toolName: string | undefined): string {
  */
 function withHost(metadata: AscendaEventMetadata): AscendaEventMetadata {
   return { host: CURSOR_HOST, ...metadata };
+}
+
+/**
+ * The model Cursor reports. `model_id` is the plain id (`claude-opus-4-7`);
+ * `model` is the older slug, which can carry a variant suffix
+ * (`claude-opus-4-7-thinking-max`), so the plain id is preferred.
+ * `model_params` (thinking, effort) is not read.
+ */
+export function readCursorModel(input: CursorHookInput): string | undefined {
+  return getString(input, ["model_id"]) ?? getString(input, ["model"]);
+}
+
+/** The model slug a mapped batch sends, for the CLI to record. */
+export function sentModelId(events: readonly MappedCursorEvent[]): string | undefined {
+  for (const event of events) {
+    const id = event.metadata?.modelId;
+    if (typeof id === "string" && id) return id;
+  }
+  return undefined;
 }

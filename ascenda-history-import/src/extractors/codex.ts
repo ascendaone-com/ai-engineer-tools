@@ -105,10 +105,11 @@ import * as path from "node:path";
 import * as zlib from "node:zlib";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { bucketDurationMs, isOutsideBusinessHours } from "@ascenda-one/tool-kit";
+import { bucketDurationMs, isOutsideBusinessHours, modelRouteFromCodexProvider, modelRouteFromSlug } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
+import { modelTurnsMetrics } from "../modelTurns.js";
 import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
 import { DEFAULT_ACTIVE_GAP_MS, activeSpans, minutesOf, splitActiveTime, type ActiveInstant } from "../activeSplit.js";
 
@@ -380,6 +381,11 @@ interface SessionFold {
   compactedItems: number;
   contextCompactedEvents: number;
   toolResultErrorCount: number;
+  /** Failed tool outputs on the session's own thread, the same basis as
+   * `toolCallCount - subagentToolCallCount`. */
+  mainThreadToolFailureCount: number;
+  /** `session_meta.model_provider` from the session's own first rollout. */
+  modelProvider: string | null;
   apiErrorCount: number;
   contextWindowPeakTokens: number;
   contextWindowTokens: number;
@@ -420,6 +426,8 @@ function newFold(sessionId: string): SessionFold {
     compactedItems: 0,
     contextCompactedEvents: 0,
     toolResultErrorCount: 0,
+    mainThreadToolFailureCount: 0,
+    modelProvider: null,
     apiErrorCount: 0,
     contextWindowPeakTokens: 0,
     contextWindowTokens: 0,
@@ -661,6 +669,12 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
         }
         const git = asRecord(payload.git);
         if (git && typeof git.branch === "string" && (takeOver || !fold.gitBranch)) fold.gitBranch = git.branch;
+        // Which provider served the session, read only to map onto a route
+        // word. A provider someone named in their own config never leaves as
+        // that name: see modelRouteFromCodexProvider.
+        if (!sub && typeof payload.model_provider === "string" && (takeOver || !fold.modelProvider)) {
+          fold.modelProvider = payload.model_provider;
+        }
         if (!sub) fold.hasPrimary = true;
         if (identity.forkedFromId && !identity.isContinuation) {
           replaying = true;
@@ -767,7 +781,10 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
           }
         } else if (TOOL_OUTPUT_ITEM_TYPES.has(subtype)) {
           fold.toolResults += 1;
-          if (isToolOutputFailure(payload)) fold.toolResultErrorCount += 1;
+          if (isToolOutputFailure(payload)) {
+            fold.toolResultErrorCount += 1;
+            if (!sub) fold.mainThreadToolFailureCount += 1;
+          }
         } else if (subtype === "message" && payload.role === "assistant") {
           if (sub) fold.subagentAssistantTurns += 1;
           else fold.assistantTurns += 1;
@@ -1090,6 +1107,17 @@ export async function* extractCodex(
     sessionMetrics.sessionStartedAt = fold.firstTs;
     const primaryModel = topModel(fold.models);
     if (primaryModel) sessionMetrics.primaryModel = primaryModel;
+    // The whole mix, bounded, beside the dominant model. See modelTurns.ts.
+    Object.assign(sessionMetrics, modelTurnsMetrics(fold.models));
+    // The provider the rollout recorded, as a route word; the slug's own
+    // prefix where the rollout recorded none.
+    const modelRoute = modelRouteFromCodexProvider(fold.modelProvider) ?? modelRouteFromSlug(primaryModel);
+    if (modelRoute) sessionMetrics.modelRoute = modelRoute;
+    // Calls and failures on one basis, the session's own thread. The
+    // existing `toolCallCount` and `toolFailureCount` include subagent
+    // threads, and the failure count adds the runtime's own errors.
+    sessionMetrics.mainThreadToolCallCount = fold.toolCallCount - fold.subagentToolCallCount;
+    sessionMetrics.mainThreadToolFailureCount = fold.mainThreadToolFailureCount;
     const primaryEffort = primaryEffortOf(fold.effort);
     if (primaryEffort) sessionMetrics.primaryEffort = primaryEffort;
     const effortChanges = effortChangesOf(fold.effort);

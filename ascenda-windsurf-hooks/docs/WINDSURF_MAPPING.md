@@ -107,3 +107,11 @@ would report failures for work that succeeded.
 from every Cascade signal, and its absence is a measurement, not an oversight.
 Cascade payloads carry nothing that could answer, and the field is tri-state so
 that a tool which cannot know says nothing rather than saying "no".
+
+**The model is a picker label.** Cascade's payloads carry `model_name`, the
+label from its model picker (`Claude Sonnet 4`, `GPT 4.1`), or `Unknown`. The
+adapter sends it as `modelId` with `modelClass` beside it on the first event of
+a trajectory and on the first event after it changes. `Unknown` is treated as
+no model. The classifier reads family words, so labels land in the same
+buckets slugs do. Checked against Cascade's hooks reference, not a captured
+payload.

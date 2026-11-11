@@ -34,6 +34,16 @@ import { ModelClass } from "@ascenda-one/tool-contract";
  * form. Tier is then matched within that vendor only, so the two halves of a
  * `vendor:tier` value can never disagree.
  *
+ * **Vendor means who trained the model, never who served it.** DeepSeek,
+ * Alibaba (Qwen), Moonshot (Kimi), Zhipu (GLM), MiniMax, Mistral and Meta
+ * (Llama) are read from their family words and the organisation prefixes
+ * OpenRouter and Hugging Face put in front (`moonshotai/`, `z-ai/`,
+ * `meta-llama/`). A cloud or gateway prefix (`vertex_ai/`, `bedrock/`,
+ * `openrouter/`, `us.`) is a route, not a vendor, so `vertex_ai/deepseek-r1`
+ * is DeepSeek's. The route travels separately as `modelRoute`. The one
+ * exception is a local runtime, read before any vendor and filed as
+ * `local:on_device`; see `LOCAL_RUNTIME` below.
+ *
  * Bare `unknown` means exactly one thing: the *vendor* could not be read
  * either. `<synthetic>` is a real value in Claude Code's store, is not a
  * model, and correctly lands there — as does `octopus-1`, which the word
@@ -93,6 +103,13 @@ export function classifyModelClass(raw: string | undefined): ModelClass | undefi
   // the only party `copilot/auto` names is the router.
   if (ROUTER_SENTINEL.test(value)) return "router:auto";
 
+  // Also before the vendor read: an id that names a local runtime says where
+  // the weights ran, and that is the fact this class keeps. `ollama/gpt-oss`
+  // is not the hosted GPT line and `ollama/llama3.1:8b` is not a Meta API
+  // call. The trainer is still in the raw slug beside the class, and the
+  // route key says `local` as well.
+  if (LOCAL_RUNTIME.test(value)) return "local:on_device";
+
   const vendor = readModelVendor(value);
   if (vendor === undefined) return "unknown";
 
@@ -102,11 +119,25 @@ export function classifyModelClass(raw: string | undefined): ModelClass | undefi
   return UNKNOWN_TIER_BY_VENDOR[vendor];
 }
 
-type ModelVendor = "anthropic" | "openai" | "google" | "xai" | "local";
+type ModelVendor =
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "xai"
+  | "deepseek"
+  | "moonshot"
+  | "zhipu"
+  | "minimax"
+  | "alibaba"
+  | "mistral"
+  | "meta"
+  | "local";
 
 /**
  * The vendor from the shape of the identifier alone. Ordered: the first match
- * wins, and the lists are disjoint on every id shape seen so far.
+ * wins. Order matters where one id names two trainers: a distilled model such
+ * as `deepseek-r1-distill-qwen-32b` or `deepseek-r1-distill-llama-70b` is
+ * DeepSeek's, so DeepSeek sits above Alibaba and Meta.
  */
 function readModelVendor(value: string): ModelVendor | undefined {
   for (const [pattern, vendor] of VENDOR_PATTERNS) {
@@ -129,20 +160,53 @@ function readModelVendor(value: string): ModelVendor | undefined {
  */
 const ROUTER_SENTINEL = /^(?:[a-z0-9][a-z0-9._-]*\/)?(?:auto|default)$/;
 
+/**
+ * A local runtime named in the id: Ollama, llama.cpp, LM Studio, or an
+ * on-device model. Read before any vendor, so a local copy of an open-weights
+ * model is filed by where it ran.
+ *
+ * `\b` treats `_` as a word character, so `on_device_small` still misses here
+ * (pinned in the tests as a known blind spot).
+ */
+const LOCAL_RUNTIME = /\b(ollama|llamacpp|llama\.cpp|lmstudio|lm-studio|on[-_]?device)\b/;
+
+/**
+ * Family words are matched with `(?![a-z])` rather than a closing `\b` where
+ * the family name runs straight into a version number: `qwen3-coder`,
+ * `llama3.1`, `glm4`. A closing `\b` would miss those, and `(?![a-z])` still
+ * keeps a longer word (`qwenfoo`, `kimiko`) out.
+ *
+ * `vertex` is not a vendor marker. Vertex AI serves Anthropic, Meta, Mistral,
+ * DeepSeek and Qwen models as well as Gemini, so `vertex_ai/deepseek-…` is
+ * DeepSeek's model and the route key records that it came through Vertex.
+ * Google is read from `google` and `gemini` only.
+ */
 const VENDOR_PATTERNS: readonly (readonly [RegExp, ModelVendor])[] = [
   [/\b(anthropic|claude|opus|sonnet|haiku|fable)\b/, "anthropic"],
   [/\b(openai|gpt|o[1-9])\b/, "openai"],
-  [/\b(google|gemini|vertex)\b/, "google"],
+  [/\b(google|gemini)\b/, "google"],
   // xAI carries no corporate prefix in any observed id — the family name is
   // the whole marker, exactly as `claude` and `gemini` are for theirs.
   [/\b(xai|grok)\b/, "xai"],
-  [/\b(ollama|llamacpp|on[-_]?device|local)\b/, "local"]
+  [/\bdeepseek(?:-ai)?(?![a-z])/, "deepseek"],
+  [/\b(moonshot(?:ai)?|kimi)(?![a-z])/, "moonshot"],
+  [/\b(zhipu(?:ai)?|z-ai|zai-org|chatglm|glm)(?![a-z])/, "zhipu"],
+  [/\bminimax(?:ai)?(?![a-z])/, "minimax"],
+  [/\b(alibaba|qwen|qwq)(?![a-z])/, "alibaba"],
+  [/\b(mistral(?:ai)?|mixtral|codestral|devstral|magistral|ministral|pixtral)(?![a-z])/, "mistral"],
+  [/\b(meta-llama|meta|llama|codellama)(?![a-z])/, "meta"],
+  [/\blocal\b/, "local"]
 ];
 
 /**
  * Tier patterns scoped to the vendor that was already read, so a tier is only
  * ever reachable from its own vendor and the two halves of a `vendor:tier`
  * value cannot contradict each other.
+ *
+ * The vendors added in November 2026 have no tiers yet. Their names churn
+ * faster than the older lines' (`kimi-k2`, `k2-thinking`, `glm-4.6`,
+ * `qwen3-coder-plus`), and `<vendor>:unknown` keeps the vendor, which is what
+ * a vendor comparison needs. A tier is added when a reader needs one.
  */
 const TIER_PATTERNS_BY_VENDOR: Record<ModelVendor, readonly (readonly [RegExp, ModelClass])[]> = {
   anthropic: [
@@ -158,7 +222,16 @@ const TIER_PATTERNS_BY_VENDOR: Record<ModelVendor, readonly (readonly [RegExp, M
   // distinction the ids do not yet draw — `<vendor>:unknown` is waiting for
   // the day one does.
   xai: [[/\bgrok\b/, "xai:grok"]],
-  local: [[/\b(ollama|llamacpp|on[-_]?device)\b/, "local:on_device"]]
+  deepseek: [],
+  moonshot: [],
+  zhipu: [],
+  minimax: [],
+  alibaba: [],
+  mistral: [],
+  meta: [],
+  // The runtime words are read before any vendor, so only a bare `local`
+  // reaches here, and it names no runtime.
+  local: []
 };
 
 const UNKNOWN_TIER_BY_VENDOR: Record<ModelVendor, ModelClass> = {
@@ -166,5 +239,12 @@ const UNKNOWN_TIER_BY_VENDOR: Record<ModelVendor, ModelClass> = {
   openai: "openai:unknown",
   google: "google:unknown",
   xai: "xai:unknown",
+  deepseek: "deepseek:unknown",
+  moonshot: "moonshot:unknown",
+  zhipu: "zhipu:unknown",
+  minimax: "minimax:unknown",
+  alibaba: "alibaba:unknown",
+  mistral: "mistral:unknown",
+  meta: "meta:unknown",
   local: "local:unknown"
 };

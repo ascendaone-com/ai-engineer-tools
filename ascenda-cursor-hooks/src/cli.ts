@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
-import { mapCursorEvent } from "./mapCursorEvent.js";
+import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup, readSentModelId, recordSentModelId, clearSentModelId } from "@ascenda-one/tool-kit";
+import { mapCursorEvent, sentModelId } from "./mapCursorEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
 import { ASCENDA_TOOL_TYPE, CURSOR_HOST, CursorHookEventName, CursorHookInput } from "./types.js";
@@ -58,7 +58,14 @@ async function main(): Promise<void> {
   // The local live bus, before the cloud send. See `emitLive` below.
   await emitLive(hookName, input, sessionId);
 
-  await deliverHookEvents(mapCursorEvent(hookName, input, turnDurationMs), {
+  // The model rides on the first event and again only when it changes; the
+  // last one sent for this session is kept in the state directory.
+  const mapped = mapCursorEvent(hookName, input, turnDurationMs, readSentModelId(CURSOR_HOST, sessionId));
+  const modelSent = sentModelId(mapped);
+  if (modelSent) recordSentModelId(CURSOR_HOST, sessionId, modelSent);
+  if (hookName === "sessionEnd") clearSentModelId(CURSOR_HOST, sessionId);
+
+  await deliverHookEvents(mapped, {
     toolType: ASCENDA_TOOL_TYPE,
     host: CURSOR_HOST,
     setupCommand: `npx ${SETUP.packageName} setup`,

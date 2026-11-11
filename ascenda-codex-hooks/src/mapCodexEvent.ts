@@ -9,7 +9,11 @@ import {
   isVerificationCommand,
   looksLikeCorrection,
   shellCommandFacts,
-  promptSizeMetadata
+  promptSizeMetadata,
+  modelFieldsFor,
+  modelRouteFromCodexProvider,
+  modelRouteFromSlug,
+  withModelOnChange
 } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason } from "@ascenda-one/tool-contract";
 import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from "./types.js";
@@ -26,8 +30,8 @@ import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from
  * derivation the Claude adapter and the retrospective importer call, so rows
  * from all three join on the same digest.
  */
-export function mapCodexEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurationMs?: number): MappedCodexEvent[] {
-  const events = mapEvent(hookName, input, turnDurationMs);
+export function mapCodexEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurationMs?: number, lastSentModelId?: string): MappedCodexEvent[] {
+  const events = withModel(hookName, input, mapEvent(hookName, input, turnDurationMs), lastSentModelId);
   // Hooks with no catalog counterpart are the common case on the hot path;
   // don't touch the filesystem to decorate an empty list.
   if (events.length === 0) return events;
@@ -35,6 +39,44 @@ export function mapCodexEvent(hookName: CodexHookEventName, input: CodexHookInpu
   const branchHash = deriveBranchHashForCwd(getString(input, ["cwd"]) ?? process.cwd());
   if (!branchHash) return events;
   return events.map((event) => ({ ...event, metadata: { ...event.metadata, branchHash } }));
+}
+
+/**
+ * Puts `modelId`, `modelClass` and, where it can be read, `modelRoute` on the
+ * session's opening event and on the first mapped event after the model
+ * changes. Codex puts the active slug on every hook payload as `model`, so
+ * without the comparison one slug would ride on every event; the CLI keeps
+ * the last one sent in the state directory, as the Claude Code adapter does.
+ *
+ * The route comes from the slug's own prefix, or from `model_provider` if a
+ * payload ever carries one. Codex documents no provider field on hook
+ * payloads today, so on a plain `gpt-5-codex` slug the route is left off:
+ * the rollout's `model_provider` is where the history import reads it.
+ */
+function withModel(
+  hookName: CodexHookEventName,
+  input: CodexHookInput,
+  events: MappedCodexEvent[],
+  lastSentModelId: string | undefined
+): MappedCodexEvent[] {
+  if (events.length === 0) return events;
+  const raw = readCodexModel(input);
+  const route = modelRouteFromCodexProvider(input["model_provider"]) ?? modelRouteFromSlug(raw);
+  return withModelOnChange(events, modelFieldsFor(raw, route), lastSentModelId, hookName === "SessionStart").events;
+}
+
+/** The active model slug: top-level `model`, or nested under `payload`. */
+export function readCodexModel(input: CodexHookInput): string | undefined {
+  return getString(input, ["model"]) ?? getNestedString(input, [["payload", "model"]]);
+}
+
+/** The model slug a mapped batch sends, for the CLI to record. */
+export function sentModelId(events: readonly MappedCodexEvent[]): string | undefined {
+  for (const event of events) {
+    const id = event.metadata?.modelId;
+    if (typeof id === "string" && id) return id;
+  }
+  return undefined;
 }
 
 function mapEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurationMs?: number): MappedCodexEvent[] {

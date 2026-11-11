@@ -85,17 +85,21 @@ test("a tier word embedded in a longer word is not xAI either", () => {
 });
 
 /**
- * `xai` sits above `local` in the vendor list, so a grok served by a local
- * runtime reads as xAI rather than as the runtime. Not a new rule — it is
- * exactly where `ollama/gpt-oss-20b` already landed before xAI existed here —
- * but adding a vendor is what makes that ordering load-bearing, so it is
- * pinned rather than left to be rediscovered.
+ * A local runtime named in the id is read before any vendor. `ollama/gpt-oss`
+ * is OpenAI's open-weights model running on someone's machine, not the hosted
+ * GPT line, and filing it as `openai:gpt` lost the one fact that sets it
+ * apart. Until November 2026 the vendor won here (these three cases were
+ * pinned the other way). The trainer is still in the raw slug, and the route
+ * key says `local` too.
  */
-test("a model's vendor outranks the runtime serving it", () => {
-  assert.equal(classifyModelClass("ollama/grok-1"), "xai:grok");
-  assert.equal(classifyModelClass("ollama/gpt-oss-20b"), "openai:gpt");
-  // And a runtime with no readable model vendor is still the runtime.
+test("a local runtime named in the id outranks the model's trainer", () => {
+  assert.equal(classifyModelClass("ollama/gpt-oss"), "local:on_device");
+  assert.equal(classifyModelClass("ollama/gpt-oss-20b"), "local:on_device");
+  assert.equal(classifyModelClass("ollama/grok-1"), "local:on_device");
+  assert.equal(classifyModelClass("lmstudio/qwen3-coder-30b"), "local:on_device");
   assert.equal(classifyModelClass("ollama/llama3.1:8b"), "local:on_device");
+  // Without a runtime word the trainer is all the id says.
+  assert.equal(classifyModelClass("gpt-oss-120b"), "openai:gpt");
 });
 
 test("local and on-device runtimes are their own class, not unknown", () => {
@@ -228,4 +232,86 @@ test("non-string input reaches the unknown fallback instead of throwing", () => 
   assert.equal(classifyModelClass(false), "unknown");
   assert.equal(classifyModelClass({ id: "claude-opus-5" }), "unknown");
   assert.equal(classifyModelClass(["claude-opus-5"]), "unknown");
+});
+
+/**
+ * The vendors added in November 2026, in the forms their own APIs, OpenRouter,
+ * Bedrock, Vertex and Hugging Face write. Vendor is who trained the model, so
+ * a gateway or cloud prefix never changes it. None of them has a tier yet, so
+ * each reads as `<vendor>:unknown`.
+ */
+const VENDOR_CASES = [
+  ["deepseek-chat", "deepseek:unknown"],
+  ["deepseek-reasoner", "deepseek:unknown"],
+  ["deepseek/deepseek-chat-v3.1", "deepseek:unknown"],
+  ["deepseek-ai/DeepSeek-V3.2", "deepseek:unknown"],
+  ["us.deepseek.r1-v1:0", "deepseek:unknown"],
+  ["vertex_ai/deepseek-ai/deepseek-r1-0528-maas", "deepseek:unknown"],
+  // A distilled model names two trainers; the distiller is the vendor.
+  ["deepseek-r1-distill-qwen-32b", "deepseek:unknown"],
+  ["deepseek-r1-distill-llama-70b", "deepseek:unknown"],
+  ["qwen3-coder", "alibaba:unknown"],
+  ["qwen3-coder-plus", "alibaba:unknown"],
+  ["qwen/qwen3-coder-480b-a35b-instruct", "alibaba:unknown"],
+  ["Qwen2.5-Coder-32B-Instruct", "alibaba:unknown"],
+  ["qwq-32b", "alibaba:unknown"],
+  ["qwen.qwen3-coder-480b-a35b-v1:0", "alibaba:unknown"],
+  ["kimi-k2", "moonshot:unknown"],
+  ["kimi-k2-thinking", "moonshot:unknown"],
+  ["openrouter/moonshotai/kimi-k2", "moonshot:unknown"],
+  ["moonshotai/Kimi-K2-Instruct-0905", "moonshot:unknown"],
+  ["glm-4.6", "zhipu:unknown"],
+  ["glm4-9b", "zhipu:unknown"],
+  ["z-ai/glm-4.6", "zhipu:unknown"],
+  ["zai-org/GLM-4.5-Air", "zhipu:unknown"],
+  ["minimax-m2", "minimax:unknown"],
+  ["MiniMaxAI/MiniMax-M2", "minimax:unknown"],
+  ["mistral-large-latest", "mistral:unknown"],
+  ["devstral-medium-2507", "mistral:unknown"],
+  ["codestral-2508", "mistral:unknown"],
+  ["mistral.mistral-large-2407-v1:0", "mistral:unknown"],
+  ["mistralai/mixtral-8x7b-instruct", "mistral:unknown"],
+  ["meta-llama/llama-3.3-70b-instruct", "meta:unknown"],
+  ["meta.llama3-1-70b-instruct-v1:0", "meta:unknown"],
+  ["llama-4-maverick", "meta:unknown"],
+  ["vertex_ai/meta/llama-4-scout-17b-16e-instruct-maas", "meta:unknown"]
+];
+
+test("each new vendor is read from its family word or organisation prefix", () => {
+  for (const [id, expected] of VENDOR_CASES) {
+    assert.equal(classifyModelClass(id), expected, id);
+  }
+});
+
+/**
+ * `vertex` named a route, never a vendor. Vertex AI serves Anthropic, Meta,
+ * Mistral, DeepSeek and Qwen models as well as Google's, and reading the word
+ * as Google filed a DeepSeek model served through Vertex as `google:unknown`.
+ */
+test("vertex is not a vendor marker", () => {
+  assert.equal(classifyModelClass("vertex_ai/deepseek-r1"), "deepseek:unknown");
+  assert.equal(classifyModelClass("vertex_ai/claude-sonnet-4-5@20250929"), "anthropic:sonnet");
+  assert.equal(classifyModelClass("vertex_ai/gemini-2.5-pro"), "google:gemini");
+  assert.equal(classifyModelClass("vertex_ai/some-new-thing"), "unknown");
+  // Google's own resource path still names Google.
+  assert.equal(classifyModelClass("publishers/google/models/palm-9"), "google:unknown");
+});
+
+test("the older vendors are unchanged by the new patterns", () => {
+  assert.equal(classifyModelClass("us.anthropic.claude-sonnet-4-5-20250929-v1:0"), "anthropic:sonnet");
+  assert.equal(classifyModelClass("bedrock/us.anthropic.claude-opus-4-1-20250805-v1:0"), "anthropic:opus");
+  assert.equal(classifyModelClass("openrouter/auto"), "router:auto");
+  assert.equal(classifyModelClass("azure/gpt-5"), "openai:gpt");
+  assert.equal(classifyModelClass("openrouter/openai/gpt-oss-120b"), "openai:gpt");
+});
+
+test("a new family word inside a longer word is not that vendor", () => {
+  assert.equal(classifyModelClass("qwenfoo-1"), "unknown");
+  assert.equal(classifyModelClass("kimiko-2"), "unknown");
+  assert.equal(classifyModelClass("metadata-model"), "unknown");
+  assert.equal(classifyModelClass("glmx"), "unknown");
+  // And the runtime `llamacpp` is not Meta.
+  assert.equal(classifyModelClass("llamacpp-model"), "local:on_device");
+  // `<synthetic>` is still not a model.
+  assert.equal(classifyModelClass("<synthetic>"), "unknown");
 });

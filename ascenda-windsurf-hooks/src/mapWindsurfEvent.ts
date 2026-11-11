@@ -5,7 +5,9 @@ import {
   getNestedString,
   isVerificationCommand,
   looksLikeCorrection,
-  promptSizeMetadata
+  promptSizeMetadata,
+  modelFieldsFor,
+  withModelOnChange
 } from "@ascenda-one/tool-kit";
 import type { AscendaEventMetadata, CommandClass } from "@ascenda-one/tool-contract";
 import { MappedWindsurfEvent, WINDSURF_HOST, WindsurfHookEventName, WindsurfHookInput } from "./types.js";
@@ -21,7 +23,15 @@ import { MappedWindsurfEvent, WINDSURF_HOST, WindsurfHookEventName, WindsurfHook
  * status, so command outcome is always `unknown` and `compile_error` can never
  * fire. Everything else in the agent catalog is covered.
  */
-export function mapWindsurfEvent(hookName: WindsurfHookEventName, input: WindsurfHookInput, turnDurationMs?: number): MappedWindsurfEvent[] {
+export function mapWindsurfEvent(hookName: WindsurfHookEventName, input: WindsurfHookInput, turnDurationMs?: number, lastSentModelId?: string): MappedWindsurfEvent[] {
+  // The model rides on the first event of a trajectory and on the first event
+  // after it changes. Cascade has no session-start hook, so "first" is simply
+  // the first one with no model recorded for this trajectory.
+  const events = mapEventBody(hookName, input, turnDurationMs);
+  return withModelOnChange(events, modelFieldsFor(readWindsurfModel(input)), lastSentModelId).events;
+}
+
+function mapEventBody(hookName: WindsurfHookEventName, input: WindsurfHookInput, turnDurationMs?: number): MappedWindsurfEvent[] {
   switch (hookName) {
     case "pre_user_prompt": return mapUserPrompt(input);
     case "pre_read_code": return [started("read_code")];
@@ -124,4 +134,26 @@ function sanitiseToolName(toolName: string): string {
  */
 function withHost(metadata: AscendaEventMetadata): AscendaEventMetadata {
   return { host: WINDSURF_HOST, ...metadata };
+}
+
+/**
+ * Cascade's `model_name`: the label from its model picker (`Claude Sonnet 4`,
+ * `GPT 4.1`), not a slug. The classifier reads family words, so labels land
+ * in the same buckets slugs do. `Unknown` is Cascade's own word for a model
+ * it couldn't name, so it is treated as no model at all.
+ */
+export function readWindsurfModel(input: WindsurfHookInput): string | undefined {
+  const raw = input["model_name"];
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim();
+  return value && value.toLowerCase() !== "unknown" ? value : undefined;
+}
+
+/** The model slug a mapped batch sends, for the CLI to record. */
+export function sentModelId(events: readonly MappedWindsurfEvent[]): string | undefined {
+  for (const event of events) {
+    const id = event.metadata?.modelId;
+    if (typeof id === "string" && id) return id;
+  }
+  return undefined;
 }

@@ -69,6 +69,35 @@ were getting one of them by mistake.
 Hooks installed with `setup` don't update themselves. Run your tool's
 `setup` again to pick this up.
 
+### More model vendors, and who served the model
+
+- **Seven more vendors have names.** DeepSeek, Alibaba (Qwen), Moonshot
+  (Kimi), Zhipu (GLM), MiniMax, Mistral and Meta (Llama) now get their own
+  `modelClass`, such as `moonshot:unknown`. They used to be bare `unknown`.
+- **Vendor means who trained it.** `vertex_ai/deepseek-r1` is DeepSeek's
+  model. It used to file under Google. A model run by Ollama, LM Studio or
+  llama.cpp files as `local:on_device`, so `ollama/gpt-oss` isn't counted as
+  hosted GPT.
+- **`modelRoute` says who served it**, as one word: `direct`, `bedrock`,
+  `vertex`, `azure`, `gateway`, `custom_endpoint` or `local`. Claude Code
+  hooks read it from whether its Bedrock, Vertex, Foundry or base-URL settings
+  are set. The import reads Codex's provider and the slug's own prefix. No
+  URL, host or region is ever read past "is it set", and a provider you named
+  yourself goes out as `custom_endpoint`.
+
+### The model on more hooks, and when it changes
+
+- **Codex, Cursor and Windsurf hooks send the model.** Codex reads the slug on
+  every payload, Cursor its `model_id`, and Windsurf the picker label. It rides
+  on the first event and again when the model changes. Claude Code works the
+  same way now. Copilot CLI and Gemini CLI hooks don't carry a model, so they
+  send none.
+- **The import keeps the whole model mix.** Claude Code and Codex sessions get
+  `modelTurns`, the turns on each model, capped at eight models.
+- **Failure rates that divide.** `mainThreadToolCallCount` and
+  `mainThreadToolFailureCount` count the session's own calls and failed calls
+  on one basis. `toolFailureCount` still includes subagents and API errors.
+
 ## v0.1.42
 
 ### Join a squadron from the terminal

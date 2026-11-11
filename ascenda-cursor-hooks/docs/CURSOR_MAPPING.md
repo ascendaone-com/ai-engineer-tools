@@ -104,3 +104,10 @@ that a tool which cannot know says nothing rather than saying "no".
   cancelled" from "the tool broke". Only the latter is a risk signal.
 - Turn length is measured here: `beforeSubmitPrompt` records a start keyed on
   `conversation_id`, `stop` consumes it. Cursor's `stop` payload has no duration.
+- The model: Cursor's hooks reference lists `model_id` and `model` as base
+  fields on every hook. The adapter reads `model_id` (the plain id), or `model`
+  where that is missing, and sends `modelId` and `modelClass` on
+  `sessionStart` and on the first event after it changes. No `modelRoute`:
+  Cursor serves every model through its own backend and names no endpoint.
+  `model_params` (thinking, effort) is not read. Checked against the reference,
+  not a captured payload.
