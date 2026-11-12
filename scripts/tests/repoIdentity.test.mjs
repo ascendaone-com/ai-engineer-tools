@@ -13,8 +13,9 @@
  * The registries themselves are not at risk here: the npm scope
  * (`@ascenda-one`), the Marketplace publisher and the Open VSX namespace are
  * identities in those systems, unrelated to who owns the repo on GitHub.
- * Publishing is `NPM_TOKEN`/`VSCE_PAT`/`OVSX_PAT`, not trusted publishing, so
- * a transfer needs no change on any registry — only in here.
+ * The Marketplace steps use `VSCE_PAT`/`OVSX_PAT`, which survive a transfer.
+ * npm uses trusted publishing, so each package's trusted publisher on
+ * npmjs.com must be repointed at the new owner too; this test can't see that.
  *
  * Expected owner/repo comes from `GITHUB_REPOSITORY` in CI, which is the exact
  * value provenance compares against, and from the `origin` remote locally.

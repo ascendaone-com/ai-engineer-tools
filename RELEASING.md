@@ -59,7 +59,7 @@ OpenVSX namespace, Claude Code marketplace. Do not introduce a second one.
 | --- | --- | --- |
 | VS Code Marketplace | `ascenda-one.ascenda` | **Live.** Publishes automatically via `VSCE_PAT`. |
 | Open VSX (Cursor installs from here) | `ascenda-one.ascenda` | **Live.** Publishes automatically via `OVSX_PAT`. Namespace ownership is *unverified* — see below. |
-| npm | `@ascenda-one/*` | **Live.** Publishes automatically via `NPM_TOKEN`. |
+| npm | `@ascenda-one/*` | **Live.** Publishes automatically through [trusted publishing](#npm-trusted-publishing) (GitHub OIDC). No token. |
 | Claude Code plugins | `ascenda@ascenda-one` | **Live**, but served from `.claude-plugin/marketplace.json` on `main` — not from a release. See [Plugin distribution](#plugin-distribution-is-not-tag-driven). |
 
 ### Open VSX namespace verification (outstanding)
@@ -142,20 +142,54 @@ Marketplace — see [`ascenda-agent-skills`](./ascenda-agent-skills/) and
 different marketplace and a different kind of product, not a second copy of
 this editor extension. `ascenda-cursor` is free to use there if that day comes.
 
+## npm trusted publishing
+
+npm publishes with no stored token. The release job's GitHub OIDC token is
+exchanged for a short-lived publish credential, which only works for a package
+that names this workflow as its trusted publisher. Set that once per package on
+npmjs.com, signed in as an owner of the `@ascenda-one` org:
+
+1. Open `https://www.npmjs.com/package/@ascenda-one/<name>/access`.
+2. Under **Trusted Publisher**, choose **GitHub Actions**.
+3. Organization or user `ascendaone-com`, repository `ai-engineer-tools`,
+   workflow filename `release.yml`. Leave the environment blank.
+4. Save. Optionally set **Publishing access** to require 2FA and disallow
+   tokens, now nothing needs one.
+
+Every package with an `npm` name in `RELEASE_PACKAGES`
+(`scripts/release-artifacts.mjs`) needs this:
+
+- `@ascenda-one/claude-code-hooks`
+- `@ascenda-one/codex-hooks`
+- `@ascenda-one/cursor-hooks`
+- `@ascenda-one/windsurf-hooks`
+- `@ascenda-one/gemini-hooks`
+- `@ascenda-one/copilot-hooks`
+- `@ascenda-one/agent-mcp`
+- `@ascenda-one/github-collector`
+- `@ascenda-one/history-import`
+- `@ascenda-one/agent-events`
+
+A package without it fails at its `npm publish` with a 404 or an auth error,
+after the GitHub Release exists. A new package can't use it at all until it
+exists on npm, so its first version is published by hand.
+
+Trusted publishing needs npm 11.5.1 or later. The workflow upgrades npm before
+publishing because Node 20's bundled copy is older.
+
 ## Repository secrets
 
-All three are set. Rotating or re-creating one is the only reason to revisit
+Both are set. Rotating or re-creating one is the only reason to revisit
 this list.
 
 | Secret | What it is |
 | --- | --- |
 | `VSCE_PAT` | Azure DevOps PAT with Marketplace **Manage** scope. Not an npm or GitHub token — the failure mode for pasting the wrong type is an opaque "invalid token". |
 | `OVSX_PAT` | Open VSX access token, generated on open-vsx.org itself. Also not an Azure DevOps PAT. |
-| `NPM_TOKEN` | npm **automation** token (or granular token with "bypass 2FA" checked) for the `@ascenda-one` scope with read+write. Interactive tokens cannot publish from CI — there is no one present to approve the 2FA prompt. |
 
-Each publish step still warns and skips when its own token is absent, but a
-tagged release now **fails a preflight check** before it builds anything if any
-of the three is missing — otherwise the release completes green, publishes
+Each Marketplace step still warns and skips when its own token is absent, but a
+tagged release **fails a preflight check** before it builds anything if either
+is missing — otherwise the release completes green, publishes
 nothing, and cannot be re-run, because the GitHub Release already exists. Set
 the repository variable `ALLOW_PARTIAL_RELEASE=true` to restore the old
 skip-quietly behaviour for a release you intend to be partial.
@@ -193,10 +227,11 @@ time, after the GitHub Release has already been created.
 This repo may one day move to a different GitHub owner. When it
 moves, **nothing changes on any registry**. The npm scope `@ascenda-one`, the
 Marketplace publisher `ascenda-one` and the Open VSX namespace `ascenda-one` are
-identities in those systems, not on GitHub, and all three publish steps
-authenticate with a stored token (`NPM_TOKEN` / `VSCE_PAT` / `OVSX_PAT`) rather
-than with GitHub OIDC trusted publishing. There is nothing to update on
-npmjs.org, in the Marketplace publisher, or on open-vsx.org.
+identities in those systems, not on GitHub. The two Marketplace steps
+authenticate with a stored token, so nothing changes there. npm is the
+exception: each package's trusted publisher names `ascendaone-com/ai-engineer-tools`,
+so after a transfer every one must be edited on npmjs.com to the new owner (see
+[npm trusted publishing](#npm-trusted-publishing)), or the npm step fails.
 
 What does change is every place this repo names itself. The provenance gotcha
 above is the hard one — `npm publish --provenance` errors rather than warns, so
@@ -225,8 +260,8 @@ git grep -lz ascendaone-com/ai-engineer-tools | xargs -0 sed -i '' 's|ascendaone
 
 One thing the test cannot see: repository secrets are per-repo, and a publish
 step with a missing token **warns and skips**, so a release that lost its
-secrets in the move goes green having published nothing. Confirm all three are
-present before the first tag under the new owner.
+secrets in the move goes green having published nothing. Confirm both are
+present, and the npm trusted publishers updated, before the first tag under the new owner.
 
 ### A rerun cannot recreate an existing GitHub Release
 
