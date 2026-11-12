@@ -271,8 +271,17 @@ there costs a query rewrite rather than a lost year of rows.
 
 `anthropic:opus` | `anthropic:sonnet` | `anthropic:haiku` | `anthropic:fable` |
 `anthropic:unknown` | `openai:gpt` | `openai:unknown` | `google:gemini` |
-`google:unknown` | `xai:grok` | `xai:unknown` | `local:on_device` |
-`local:unknown` | `router:auto` | `unknown`.
+`google:unknown` | `xai:grok` | `xai:unknown` | `deepseek:unknown` |
+`alibaba:unknown` | `moonshot:unknown` | `zhipu:unknown` | `minimax:unknown` |
+`mistral:unknown` | `meta:unknown` | `local:on_device` | `local:unknown` |
+`router:auto` | `unknown`.
+
+**Vendor is who trained the model.** A cloud or gateway prefix
+(`vertex_ai/`, `bedrock/`, `openrouter/`, `us.`) never changes it, so
+`vertex_ai/deepseek-r1` is `deepseek:unknown`. The vendors added in November
+2026 have no tiers yet. A local runtime named in the id (`ollama/`,
+`lmstudio/`, `llamacpp`) is read first and files as `local:on_device`,
+whatever model it ran.
 
 **A delegated choice is its own answer.** `copilot/auto` and Cursor's
 `default` record a person handing the model choice to a router; the store then
@@ -336,11 +345,26 @@ vendor.
 `modelClass` is a reading; `modelId` is the record. Charts group by the class,
 and anything that needs to know exactly which build ran reads the slug.
 
-Claude-Code-first, not uniform: the VS Code extension knows no model at all,
-and while Codex payloads do carry an active model slug on every hook, that
-adapter does not read it yet (see
-[CODEX_MAPPING.md](../../ascenda-codex-hooks/docs/CODEX_MAPPING.md#still-on-the-wire-and-not-read)).
-So this must never be promised as a cross-collector field.
+**Re-sent on a change.** The pair goes out on `SessionStart` every time, and
+again on the first mapped event whose payload reports a different model, with
+the last slug sent kept in the hook state directory beside the effort level.
+Claude Code reports the model on `SessionStart` alone today, so the second
+branch waits for a build that adds it elsewhere.
+
+Not uniform across collectors. Codex, Cursor and Windsurf now send the pair
+too; the VS Code extension, Copilot CLI and Gemini CLI send none (see each
+adapter's mapping doc). So this must never be promised as a cross-collector
+field.
+
+### `modelRoute`: who served it
+
+`direct` | `bedrock` | `vertex` | `azure` | `gateway` | `custom_endpoint` |
+`local`. Sent beside the model pair. Read from the hook's environment, for
+presence only: `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and
+`CLAUDE_CODE_USE_FOUNDRY` win, then a route the slug's own prefix names, then
+`ANTHROPIC_BASE_URL` being set (`custom_endpoint`). With none of them it is
+`direct`. The base URL's value is never read, stored or sent, and neither is
+any host, region or account.
 
 ### `effortLevel` + `effortClass`: how hard it was asked to think
 

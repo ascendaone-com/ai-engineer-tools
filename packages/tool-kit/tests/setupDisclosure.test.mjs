@@ -111,7 +111,7 @@ const ADAPTERS = [
   {
     spec: CURSOR,
     emit: () => [
-      ["sessionStart", { conversation_id: "c1", composer_mode: "agent" }],
+      ["sessionStart", { conversation_id: "c1", composer_mode: "agent", model_id: "claude-opus-4-7", model: "claude-opus-4-7-thinking-max" }],
       ["beforeSubmitPrompt", { prompt: "that is wrong" }],
       ["preToolUse", { tool_name: "Shell", tool_input: { command: "npm test" } }],
       ["postToolUse", { tool_name: "Shell", tool_input: { command: "npm test" }, tool_output: '{"exitCode":0}', duration: 42000 }],
@@ -152,7 +152,7 @@ const ADAPTERS = [
   {
     spec: WINDSURF,
     emit: () => [
-      ["pre_user_prompt", { tool_info: { user_prompt: "that is wrong, try again" } }],
+      ["pre_user_prompt", { model_name: "Claude Sonnet 4", tool_info: { user_prompt: "that is wrong, try again" } }],
       ["pre_write_code", { tool_info: { file_path: "/p/a.ts" } }],
       ["post_write_code", { tool_info: { file_path: "/p/a.ts" } }],
       ["pre_run_command", { tool_info: { command_line: "npm test", cwd: "/p" } }],

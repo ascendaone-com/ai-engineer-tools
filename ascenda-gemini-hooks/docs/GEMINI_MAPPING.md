@@ -33,6 +33,9 @@ event volume several-fold for signal the tool hooks already carry. They are the
 one place any agent exposes per-inference latency, so revisit if model-level
 timing becomes a wanted metric — but do it deliberately, with volume in mind.
 
+They are also the only Gemini CLI hooks that carry a model (`llm_request.model`).
+None of the registered hooks does, so this adapter sends no model.
+
 `Notification` has no catalog counterpart. It is registered anyway, for the
 local live bus alone (below): it sends nothing to the cloud.
 

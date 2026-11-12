@@ -118,14 +118,21 @@ Live-only by nature: transcripts do not record permission state, so unlike
 model mix this cannot be recovered by a later import. Every day uncaptured is
 gone.
 
-### Still on the wire and not read
+### The model
 
-`model` — a "Codex-specific extension. Active model slug" present on **every**
-hook payload, not just `SessionStart`. It is not mapped here yet, and the
-`ModelClass` note in `@ascenda-one/tool-contract` was written believing Codex
-knew no model at all. Mapping it is a separate piece of work: the slug values
-(`gpt-5.6-sol` and friends) need matching against real ones before a
-`vendor:tier` bucket can be claimed rather than guessed.
+`model` is the active slug on every hook payload (the sample in `examples/`
+carries `gpt-5.6-sol`). The adapter sends `modelId` and `modelClass` on
+`SessionStart` and on the first mapped event after the slug changes, with the
+last one sent kept in the state directory, as the Claude Code adapter does for
+effort. It isn't repeated on every event.
+
+`modelRoute` goes beside it only when the slug's own prefix names a route
+(`openrouter/…`, `azure/…`). Hook payloads carry no `model_provider`, so a
+plain `gpt-5-codex` gets no route live. The history import reads
+`session_meta.model_provider` from the rollout instead: built-in providers map
+to a word (`openai` is `direct`, `oss`/`ollama`/`lmstudio` are `local`), and a
+provider someone defined in their own config is `custom_endpoint`, never its
+name.
 
 ### Effort isn't on the wire
 

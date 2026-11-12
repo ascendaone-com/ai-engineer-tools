@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
-import { mapCodexEvent } from "./mapCodexEvent.js";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup, readSentModelId, recordSentModelId, clearSentModelId } from "@ascenda-one/tool-kit";
+import { mapCodexEvent, sentModelId } from "./mapCodexEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
 import { ASCENDA_TOOL_TYPE, CODEX_HOST, CodexHookEventName, CodexHookInput } from "./types.js";
@@ -61,7 +61,15 @@ async function main(): Promise<void> {
   // The local live bus, before the cloud send. See `emitLive` below.
   await emitLive(hookName, input, sessionId);
 
-  await deliverHookEvents(mapCodexEvent(hookName, input, turnDurationMs), {
+  // The model rides on the opening event and again only when it changes, so
+  // the mapper is told what this session last sent. Recorded as soon as the
+  // batch is mapped: from here it is delivered, queued or logged.
+  const mapped = mapCodexEvent(hookName, input, turnDurationMs, readSentModelId(CODEX_HOST, sessionId));
+  const modelSent = sentModelId(mapped);
+  if (modelSent) recordSentModelId(CODEX_HOST, sessionId, modelSent);
+  if (hookName === "SessionEnd") clearSentModelId(CODEX_HOST, sessionId);
+
+  await deliverHookEvents(mapped, {
     toolType: ASCENDA_TOOL_TYPE,
     host: CODEX_HOST,
     setupCommand: `npx ${SETUP.packageName} setup`,

@@ -116,7 +116,7 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours } from "@ascenda-one/tool-kit";
+import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours, modelRouteFromSlug } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import {
@@ -130,6 +130,7 @@ import {
 } from "../subagentReceipts.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
+import { modelTurnsMetrics } from "../modelTurns.js";
 import {
   DEFAULT_ACTIVE_GAP_MS,
   activeSpans,
@@ -330,6 +331,27 @@ export function isToolFailureLine(record: Record<string, unknown>): boolean {
 }
 
 /**
+ * How many `tool_result` items on one line failed (`is_error: true`). One per
+ * call, so it divides by `toolCallCount`, which counts `tool_use` items.
+ * `isToolFailureLine` counts the line once however many results failed on it.
+ */
+export function failedToolResultCountOf(record: Record<string, unknown>): number {
+  const message = record.message as Record<string, unknown> | undefined;
+  const content = message?.content;
+  if (!Array.isArray(content)) return 0;
+  let count = 0;
+  for (const item of content) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      (item as Record<string, unknown>).type === "tool_result" &&
+      (item as Record<string, unknown>).is_error === true
+    ) count += 1;
+  }
+  return count;
+}
+
+/**
  * Tool names of the `tool_use` content items on one assistant line, in the
  * order the model issued them. A line usually carries one; a parallel batch
  * carries several and they share the line's single timestamp.
@@ -437,6 +459,9 @@ interface SessionFold {
    * null for a line with no readable timestamp. */
   compactions: { at: string | null; trigger: "manual" | "auto" | null }[];
   toolResultErrorCount: number;
+  /** Failed `tool_result` items on the main thread only, one per call, on
+   * the same basis as `toolCallCount`. */
+  mainThreadToolFailureCount: number;
   apiErrorCount: number;
   contextWindowPeakTokens: number;
   userModifiedEditCount: number;
@@ -538,6 +563,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     compactionAutoCount: 0,
     compactions: [],
     toolResultErrorCount: 0,
+    mainThreadToolFailureCount: 0,
     apiErrorCount: 0,
     contextWindowPeakTokens: 0,
     userModifiedEditCount: 0,
@@ -961,6 +987,7 @@ async function foldLinesInto(
           if (owned && isToolFailureLine(record)) {
             fold.toolResultErrorCount += 1;
             if (tally) tally.toolFailures += 1;
+            if (!opts.isSidechain) fold.mainThreadToolFailureCount += failedToolResultCountOf(record);
           }
           if (isToolResultUserLine(record)) {
             // A tool round-trip completing is the agent's work landing.
@@ -1642,6 +1669,20 @@ export async function* extractClaudeCode(
       sessionMetrics.sessionStartedAt = fold.firstTs;
       const primaryModel = topModel(fold.models);
       if (primaryModel) sessionMetrics.primaryModel = primaryModel;
+      // The whole mix, bounded, beside the dominant model. See modelTurns.ts.
+      Object.assign(sessionMetrics, modelTurnsMetrics(fold.models));
+      // The transcript doesn't record which endpoint served it, so the route
+      // is only what the slug's own prefix says (`us.anthropic.…` is
+      // Bedrock's form). A plain `claude-opus-5` leaves it off: never `direct`
+      // by default.
+      const modelRoute = modelRouteFromSlug(primaryModel);
+      if (modelRoute) sessionMetrics.modelRoute = modelRoute;
+      // A failure rate needs both counts on one basis. `toolFailureCount`
+      // adds subagent failures and API errors to a main-thread call count, so
+      // these two are the pair to divide: main-thread calls, and main-thread
+      // calls whose result came back as an error.
+      sessionMetrics.mainThreadToolCallCount = fold.toolCallCount;
+      sessionMetrics.mainThreadToolFailureCount = fold.mainThreadToolFailureCount;
       const primaryEffort = primaryEffortOf(fold.effort);
       if (primaryEffort) sessionMetrics.primaryEffort = primaryEffort;
       const effortChanges = effortChangesOf(fold.effort);

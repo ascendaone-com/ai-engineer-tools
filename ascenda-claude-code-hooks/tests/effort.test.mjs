@@ -156,3 +156,27 @@ test("cli: the state file carries the last-sent level between hooks, and Session
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// The model follows the effort rule: always on SessionStart, then only when a
+// payload reports a different one. Claude Code puts the model on SessionStart
+// alone today, so the change branch is for a later build that adds it.
+test("model: SessionStart always sends, with the route read from the environment", () => {
+  const [event] = mapClaudeEvent("SessionStart", start(), { lastSentModelId: "claude-opus-5-5", env: {} });
+  assert.equal(event.metadata.modelId, "claude-opus-5-5");
+  assert.equal(event.metadata.modelRoute, "direct");
+  const [bedrock] = mapClaudeEvent("SessionStart", start(), { env: { CLAUDE_CODE_USE_BEDROCK: "1" } });
+  assert.equal(bedrock.metadata.modelRoute, "bedrock");
+  const [proxied] = mapClaudeEvent("SessionStart", start(), { env: { ANTHROPIC_BASE_URL: "https://llm.example.internal" } });
+  assert.equal(proxied.metadata.modelRoute, "custom_endpoint");
+  assert.ok(!JSON.stringify(proxied).includes("example"), "the base URL must never leave the mapper");
+});
+
+test("model: a later payload with a different model sends it once; the same model doesn't", () => {
+  const withModel = (model) => ({ ...prompt(), model });
+  const [changed] = mapClaudeEvent("UserPromptSubmit", withModel("claude-haiku-4-5"), { lastSentModelId: "claude-opus-5-5", env: {} });
+  assert.equal(changed.metadata.modelClass, "anthropic:haiku");
+  const [same] = mapClaudeEvent("UserPromptSubmit", withModel("claude-opus-5-5"), { lastSentModelId: "claude-opus-5-5", env: {} });
+  assert.equal("modelId" in same.metadata, false);
+  const [none] = mapClaudeEvent("UserPromptSubmit", prompt(), { lastSentModelId: "claude-opus-5-5", env: {} });
+  assert.equal("modelId" in none.metadata, false);
+});

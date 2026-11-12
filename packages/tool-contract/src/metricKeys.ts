@@ -271,6 +271,31 @@ export const METRIC_KEYS = {
     readBy: ["handoff"],
     note: "Claude Code and Codex: the effort level on most of the session's main-thread model turns, as the store wrote it (low, medium, high, xhigh). Absent where the store wrote none, which older Claude Code builds didn't. ship.ts adds effortClass beside it on the way out. The ordered switches ride beside metrics as effortChanges, since a list can't be a metric. The backend reader arrives in its own change."
   },
+  modelRoute: {
+    family: "model",
+    readBy: ["handoff"],
+    note: "Who served the session's model, one word: direct, bedrock, vertex, azure, gateway, custom_endpoint, local. Codex reads session_meta.model_provider (a provider not built into Codex reads as custom_endpoint, never its name); Claude Code and the other stores read only the slug's own prefix, so a plain slug leaves it off. Never a URL, host or region. ship.ts derives it from primaryModel where the extractor set none. The backend reader arrives in its own change."
+  },
+  modelTurns: {
+    family: "model",
+    readBy: ["handoff"],
+    note: "Claude Code and Codex: the session's model mix as a JSON object in a string, raw slug to count, at most 8 entries, largest first. The counts are the ones primaryModel is chosen from (Claude Code: main-thread API messages plus advisor iterations; Codex: turn_context lines on every thread), so its largest entry is primaryModel unless two models tie. Turns past the cap are in modelTurnsOmitted. See modelTurns.ts."
+  },
+  modelTurnsOmitted: {
+    family: "model",
+    readBy: ["handoff"],
+    note: "Turns on models left out of modelTurns by its cap, or on a slug too long to be a model id. Absent when nothing was left out."
+  },
+  mainThreadToolCallCount: {
+    family: "tools",
+    readBy: ["handoff"],
+    note: "Claude Code and Codex: tool calls the session's own thread issued, subagents excluded. The denominator for mainThreadToolFailureCount. Equal to toolCallCount on Claude Code, which already counts the main thread only; Codex's toolCallCount includes subagent threads."
+  },
+  mainThreadToolFailureCount: {
+    family: "outcome",
+    readBy: ["handoff"],
+    note: "Claude Code and Codex: main-thread tool calls whose result was an error, one per call. Same basis as mainThreadToolCallCount, so the two divide. toolFailureCount keeps its meaning (it adds subagent failures and API errors) and is not a numerator for toolCallCount."
+  },
   requestCount: { family: "counts", readBy: ["handoff"] },
   sessionStartedAt: { family: "session", readBy: ["handoff"] },
   subagentComposers: { family: "counts", readBy: ["handoff"] },

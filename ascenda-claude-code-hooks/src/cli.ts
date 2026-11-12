@@ -40,6 +40,7 @@ import {
 import { HOOK_DELIVERY_ENV_VAR, OUTBOX_FLUSH_COMMAND, hookDeliveryInline, pendingReleaseNotice, runOutboxFlush, runsFromInstalledBundle, startBackgroundFlush, terminalStyle } from "@ascenda-one/tool-kit";
 import { describePluginBundleOutcome, installPluginBundle, pluginBundlePaths } from "@ascenda-one/tool-kit";
 import { clearSentEffortLevel, readSentEffortLevel, recordSentEffortLevel } from "@ascenda-one/tool-kit";
+import { clearSentModelId, readSentModelId, recordSentModelId } from "@ascenda-one/tool-kit";
 import type { CollectorState, DisclosureFamily, LiveBusEvent, TerminalStyle, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { liveEventFor } from "./liveEvent.js";
@@ -54,7 +55,7 @@ import {
   resolveToolInstallationId
 } from "./config.js";
 import type { ResolvedInstallationId } from "./config.js";
-import { isNewSessionStart, mapClaudeEvent, milestoneInviting, sentEffortLevel } from "./mapClaudeEvent.js";
+import { isNewSessionStart, mapClaudeEvent, milestoneInviting, sentEffortLevel, sentModelId } from "./mapClaudeEvent.js";
 
 /** The agent name the effort state file is keyed under in the state directory. */
 const CLAUDE_EFFORT_STATE_AGENT = "claude";
@@ -416,12 +417,20 @@ async function main(): Promise<void> {
   // as soon as the batch is mapped: from here the events are delivered,
   // queued or logged, and a value counts as sent in all three.
   const effortSessionId = getString(input, ["session_id", "sessionId"]);
+  // The model follows the same rule: always on the opening event, then only
+  // when the payload reports a different one.
   const mappedEvents = mapClaudeEvent(hookName, input, {
-    lastSentEffortLevel: readSentEffortLevel(CLAUDE_EFFORT_STATE_AGENT, effortSessionId)
+    lastSentEffortLevel: readSentEffortLevel(CLAUDE_EFFORT_STATE_AGENT, effortSessionId),
+    lastSentModelId: readSentModelId(CLAUDE_EFFORT_STATE_AGENT, effortSessionId)
   });
   const effortSent = sentEffortLevel(mappedEvents);
   if (effortSent) recordSentEffortLevel(CLAUDE_EFFORT_STATE_AGENT, effortSessionId, effortSent);
-  if (hookName === "SessionEnd") clearSentEffortLevel(CLAUDE_EFFORT_STATE_AGENT, effortSessionId);
+  const modelSent = sentModelId(mappedEvents);
+  if (modelSent) recordSentModelId(CLAUDE_EFFORT_STATE_AGENT, effortSessionId, modelSent);
+  if (hookName === "SessionEnd") {
+    clearSentEffortLevel(CLAUDE_EFFORT_STATE_AGENT, effortSessionId);
+    clearSentModelId(CLAUDE_EFFORT_STATE_AGENT, effortSessionId);
+  }
   if (!mappedEvents.length) return;
 
   // Where this work happened, from the payload's own cwd. Derived here rather

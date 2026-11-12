@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
-import { mapWindsurfEvent } from "./mapWindsurfEvent.js";
+import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup, readSentModelId, recordSentModelId, clearSentModelId } from "@ascenda-one/tool-kit";
+import { mapWindsurfEvent, sentModelId } from "./mapWindsurfEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
 import { ASCENDA_TOOL_TYPE, WINDSURF_HOST, WindsurfHookEventName, WindsurfHookInput } from "./types.js";
@@ -56,7 +56,13 @@ async function main(): Promise<void> {
   // The local live bus, before the cloud send. See `emitLive` below.
   await emitLive(hookName, input, sessionId);
 
-  await deliverHookEvents(mapWindsurfEvent(hookName, input, turnDurationMs), {
+  // The model rides on the first event and again only when it changes; the
+  // last one sent for this session is kept in the state directory.
+  const mapped = mapWindsurfEvent(hookName, input, turnDurationMs, readSentModelId(WINDSURF_HOST, sessionId));
+  const modelSent = sentModelId(mapped);
+  if (modelSent) recordSentModelId(WINDSURF_HOST, sessionId, modelSent);
+
+  await deliverHookEvents(mapped, {
     toolType: ASCENDA_TOOL_TYPE,
     host: WINDSURF_HOST,
     setupCommand: `npx ${SETUP.packageName} setup`,

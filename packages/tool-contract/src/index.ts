@@ -607,14 +607,22 @@ export type AutonomyMode =
  * cadence; vendors persist, and vendor-mix-over-time is the reading this field
  * exists to serve.
  *
- * Claude-Code-first, not uniform. `SessionStart` is the only live hook that
- * can carry a model at all, and even there the docs do not guarantee it (it is
- * omitted after `/clear` and on conversation recovery). The VS Code extension
- * knows no model whatsoever. Codex is the correction to an earlier claim here:
- * its hook payloads carry an active model slug on *every* event, but that
- * adapter does not read it yet, so its rows carry no `modelClass` either. So
- * absence is the normal case everywhere else, and no surface may treat a
- * missing `modelClass` as an anomaly.
+ * **Vendor is who trained the model.** DeepSeek, Alibaba (Qwen), Moonshot
+ * (Kimi), Zhipu (GLM), MiniMax, Mistral and Meta (Llama) joined in November
+ * 2026, each as `<vendor>:unknown` only: their tier names churn fast and a
+ * vendor comparison needs the vendor, not the tier. Who served the model
+ * (Bedrock, Vertex, a gateway, a laptop) is a separate fact, carried as
+ * {@link ModelRoute}. A local runtime named in the id is the exception and
+ * files as `local:on_device`, because there the place it ran is the larger
+ * difference.
+ *
+ * Not uniform across collectors. Claude Code reports a model on
+ * `SessionStart` only, and not always (it is omitted after `/clear` and on
+ * conversation recovery). Codex puts a slug on every hook payload, Cursor
+ * documents `model_id`, and Windsurf a picker label; those adapters send the
+ * pair on the opening event and again when it changes. The VS Code extension,
+ * Copilot CLI and Gemini CLI's registered hooks carry no model. So absence is
+ * normal, and no surface may treat a missing `modelClass` as an anomaly.
  */
 export type ModelClass =
   | "anthropic:opus"
@@ -628,6 +636,13 @@ export type ModelClass =
   | "google:unknown"
   | "xai:grok"
   | "xai:unknown"
+  | "deepseek:unknown"
+  | "alibaba:unknown"
+  | "moonshot:unknown"
+  | "zhipu:unknown"
+  | "minimax:unknown"
+  | "mistral:unknown"
+  | "meta:unknown"
   | "local:on_device"
   | "local:unknown"
   | "router:auto"
@@ -649,6 +664,25 @@ export type ModelClass =
  * Claude Code builds don't write the field at all.
  */
 export type EffortClass = "low" | "medium" | "high" | "xhigh" | "max" | "unknown";
+
+/**
+ * Who served the model, as one word: the vendor's own API (`direct`), a cloud
+ * platform (`bedrock`, `vertex`, `azure`), a model gateway or router
+ * (`gateway`), an endpoint someone configured themselves (`custom_endpoint`),
+ * or a runtime on the machine (`local`). Separate from {@link ModelClass},
+ * which says who trained it.
+ *
+ * Coarse by rule, and closed. It never carries a URL, host, region, account,
+ * deployment or provider name, in any part: the collectors read only whether a
+ * setting is present, a fixed prefix on the slug, or a built-in provider id,
+ * and map that onto this list. A provider name that isn't built in is
+ * `custom_endpoint`, never itself. There is no country field anywhere, and
+ * none is derived from this.
+ *
+ * Omitted when the route can't be read, never defaulted. See `modelRoute.ts`
+ * in tool-kit for each reader.
+ */
+export type ModelRoute = "direct" | "bedrock" | "vertex" | "azure" | "gateway" | "custom_endpoint" | "local";
 
 /**
  * Why an agent session ended, as the agent itself reported it. Claude Code's
@@ -778,6 +812,8 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   // the same consent covers it, and the pairing sentence names it.
   effortLevel: "model",
   effortClass: "model",
+  // Who served the model, one word from a closed list. Never a host.
+  modelRoute: "model",
   userModified: "edits",
   outcome: "outcome",
   trigger: "outcome",
@@ -937,10 +973,10 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   autonomyMode?: AutonomyMode;
 
   /**
-   * Which model was in use, at vendor:tier grain. Session-grain in practice:
-   * only `create_focus_session` carries it, because `SessionStart` is the only
-   * live hook that can see a model — and even there it is optional, so the
-   * absent case is normal rather than an error.
+   * Which model was in use, at vendor:tier grain. Sent on a session's opening
+   * event and again on the first event after the model changes, never on
+   * every event. Optional everywhere, so the absent case is normal rather
+   * than an error.
    *
    * Without it, every per-person norm derived from live events pools models
    * that behave nothing alike and is wrong for each of them. The imported
@@ -985,14 +1021,15 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * **Not the same measurement as the importer's `primaryModel`, and
    * deliberately not the same key.** `primaryModel` is the *dominant* model
    * across a whole imported session, folded out of a transcript after the
-   * fact. This is the model at *session open* — read off `SessionStart`, the
-   * only live hook that can see one — and a mid-session model switch is
-   * invisible to it. Two derivations under one key would fuse two different
+   * fact. This is the model in use from the event it rides on until the next
+   * `modelId` for the same session: the opening model, then one row per
+   * switch where the payload reports the model. Two derivations under one key would fuse two different
    * things into one column, the same error as fusing provenances into one
    * rollup row, and no reader downstream could tell which it had.
    *
-   * Session-grain, so the cost is one field per session rather than per
-   * event. Omitted when the payload reported no model at all.
+   * Sent at session open and on each change, so the cost is one field per
+   * model a session used rather than per event. Omitted when the payload
+   * reported no model at all.
    */
   modelId?: string;
 
@@ -1019,6 +1056,14 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * same classifier.
    */
   effortClass?: EffortClass;
+
+  /**
+   * Who served the model, as one closed word. See {@link ModelRoute}. Sent
+   * beside {@link AscendaEventMetadata.modelId}/`modelClass` on the events
+   * that carry the model pair, and by the history import beside
+   * `primaryModel`. Omitted when it couldn't be read.
+   */
+  modelRoute?: ModelRoute;
 
   /**
    * Whether the human had edited the file since the agent last wrote it, as
@@ -1231,6 +1276,7 @@ export const EVENT_METADATA_FIELDS = [
   "modelId",
   "effortLevel",
   "effortClass",
+  "modelRoute",
   "userModified",
   "outcome",
   "trigger",

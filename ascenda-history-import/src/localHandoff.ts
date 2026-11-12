@@ -50,6 +50,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { NormalizedHistoricalEvent } from "./types.js";
 import type { EffortChange } from "./effortFold.js";
+import { parseModelTurns } from "./modelTurns.js";
 
 const APP_BUNDLE_ID = "one.ascenda.ascendaMissionControl";
 
@@ -180,6 +181,18 @@ export interface HandoffSession {
   /** Each switch of effort level in time order, the opening level first.
    * Empty where the store wrote none. See `effortFold.ts`. */
   effortChanges: EffortChange[];
+  /** Who served the model, one word, or null where it couldn't be read. See
+   * `ModelRoute` in tool-contract. */
+  modelRoute: string | null;
+  /** The model mix, raw slug to count, at most 8 entries. Null where the
+   * session recorded no model. See `modelTurns.ts`. */
+  modelTurns: Record<string, number> | null;
+  /** Turns left out of `modelTurns` by its cap. 0 when none were. */
+  modelTurnsOmitted: number;
+  /** Tool calls and failed calls on the session's own thread: the pair a
+   * failure rate divides. */
+  mainThreadToolCallCount: number;
+  mainThreadToolFailureCount: number;
   /** Gap-split minutes (5m idle threshold) — the non-idle-inflated
    * alternative to wall-clock duration. See claudeCode.ts's activeMinutesOf. */
   activeMinutes: number;
@@ -561,6 +574,18 @@ export interface CodexHandoffSession {
   /** Each switch of effort level in time order, the opening level first.
    * Empty where the store wrote none. See `effortFold.ts`. */
   effortChanges: EffortChange[];
+  /** Who served the model, one word, or null where it couldn't be read. See
+   * `ModelRoute` in tool-contract. */
+  modelRoute: string | null;
+  /** The model mix, raw slug to count, at most 8 entries. Null where the
+   * session recorded no model. See `modelTurns.ts`. */
+  modelTurns: Record<string, number> | null;
+  /** Turns left out of `modelTurns` by its cap. 0 when none were. */
+  modelTurnsOmitted: number;
+  /** Tool calls and failed calls on the session's own thread: the pair a
+   * failure rate divides. */
+  mainThreadToolCallCount: number;
+  mainThreadToolFailureCount: number;
   activeMinutes: number;
   /** The two halves of `activeMinutes` — never one figure, never the second
    * as attention. See {@link HandoffSession.handsOnMinutes}. */
@@ -1099,6 +1124,11 @@ export function buildHandoff(
       primaryEffort:
         typeof event.metrics.primaryEffort === "string" ? event.metrics.primaryEffort : null,
       effortChanges: event.effortChanges ?? [],
+      modelRoute: typeof event.metrics.modelRoute === "string" ? event.metrics.modelRoute : null,
+      modelTurns: parseModelTurns(event.metrics.modelTurns),
+      modelTurnsOmitted: Number(event.metrics.modelTurnsOmitted ?? 0),
+      mainThreadToolCallCount: Number(event.metrics.mainThreadToolCallCount ?? 0),
+      mainThreadToolFailureCount: Number(event.metrics.mainThreadToolFailureCount ?? 0),
       activeMinutes: Number(event.metrics.activeMinutes ?? 0),
       handsOnMinutes: Number(event.metrics.handsOnMinutes ?? 0),
       agentSupervisingMinutes: Number(event.metrics.agentSupervisingMinutes ?? 0),
@@ -1203,6 +1233,11 @@ export function buildCodexHandoff(
       primaryEffort:
         typeof event.metrics.primaryEffort === "string" ? event.metrics.primaryEffort : null,
       effortChanges: event.effortChanges ?? [],
+      modelRoute: typeof event.metrics.modelRoute === "string" ? event.metrics.modelRoute : null,
+      modelTurns: parseModelTurns(event.metrics.modelTurns),
+      modelTurnsOmitted: Number(event.metrics.modelTurnsOmitted ?? 0),
+      mainThreadToolCallCount: Number(event.metrics.mainThreadToolCallCount ?? 0),
+      mainThreadToolFailureCount: Number(event.metrics.mainThreadToolFailureCount ?? 0),
       activeMinutes: Number(event.metrics.activeMinutes ?? 0),
       handsOnMinutes: Number(event.metrics.handsOnMinutes ?? 0),
       agentSupervisingMinutes: Number(event.metrics.agentSupervisingMinutes ?? 0),

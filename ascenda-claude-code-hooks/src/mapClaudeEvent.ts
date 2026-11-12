@@ -1,4 +1,4 @@
-import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, classifyEffortClass, deriveBranchHashForCwd, deriveForgeKeysForCwd, promptSizeMetadata } from "@ascenda-one/tool-kit";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, classifyEffortClass, claudeCodeModelRoute, modelFieldsFor, withModelOnChange, deriveBranchHashForCwd, deriveForgeKeysForCwd, promptSizeMetadata } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason, SubagentClass } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent, claudeRuntime } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
@@ -30,7 +30,7 @@ export function mapClaudeEvent(
   input: ClaudeHookInput,
   options: ClaudeMapOptions = {}
 ): MappedAscendaEvent[] {
-  const events = withEffort(hookName, input, mapEvent(hookName, input), options.lastSentEffortLevel);
+  const events = withModel(hookName, input, withEffort(hookName, input, mapEvent(hookName, input), options.lastSentEffortLevel), options);
   // Hooks with no catalog counterpart are the common case on the hot path;
   // don't touch the filesystem to decorate an empty list.
   if (events.length === 0) return events;
@@ -54,7 +54,51 @@ export function mapClaudeEvent(
 export type ClaudeMapOptions = {
   /** The effort level last sent for this session, if any. */
   lastSentEffortLevel?: string;
+  /** The model slug last sent for this session, if any. */
+  lastSentModelId?: string;
+  /** The environment the route is read from. Defaults to this process's,
+   * which is the one Claude Code started the hook with. */
+  env?: NodeJS.ProcessEnv;
 };
+
+/**
+ * Puts `modelId`, `modelClass` and `modelRoute` on the session's opening
+ * event, and again on the first mapped event whose payload reports a model
+ * different from the last one sent. Same rule as {@link withEffort}.
+ *
+ * Today Claude Code reports the model on `SessionStart` only, so in practice
+ * the opening event is the only one that carries it. The change check is
+ * there so a later build that adds the model to other payloads is read
+ * without another release of these hooks, and a mid-session `/model` switch
+ * shows up as soon as it does.
+ *
+ * The route comes from the environment Claude Code started the hook with,
+ * read for presence only. See `claudeCodeModelRoute` in tool-kit.
+ */
+function withModel(
+  hookName: ClaudeHookEventName,
+  input: ClaudeHookInput,
+  events: MappedAscendaEvent[],
+  options: ClaudeMapOptions
+): MappedAscendaEvent[] {
+  if (events.length === 0) return events;
+  const raw = readModelIdentifier(input);
+  const route = claudeCodeModelRoute(options.env ?? process.env, raw);
+  return withModelOnChange(events, modelFieldsFor(raw, route), options.lastSentModelId, hookName === "SessionStart").events;
+}
+
+/**
+ * The model slug a mapped batch sends, so the CLI can record it as the
+ * session's last-sent value. `undefined` when no event in the batch carries
+ * one.
+ */
+export function sentModelId(events: readonly MappedAscendaEvent[]): string | undefined {
+  for (const event of events) {
+    const id = event.metadata?.modelId;
+    if (typeof id === "string" && id) return id;
+  }
+  return undefined;
+}
 
 /**
  * Puts `effortLevel` and `effortClass` on the first mapped event whose payload
@@ -197,17 +241,13 @@ function mapSessionStart(input: ClaudeHookInput): MappedAscendaEvent[] {
   // reader can interpret.
   //
   // Session-grain, so this is one extra field per session, not per event.
-  const modelId = readModelIdentifier(input)?.trim();
-  const modelClass = classifyModelClass(modelId);
+  //
+  // The pair (and the route) is attached by `withModel`, which always sends
+  // it on this event and otherwise only on a change.
   return [{
     eventType: "create_focus_session",
     severity: "low",
-    metadata: {
-      activity: "session_started",
-      // `classifyModelClass` returns undefined exactly when nothing was
-      // reported (absent, empty, whitespace), so this one guard governs both.
-      ...(modelClass !== undefined && modelId ? { modelClass, modelId } : {})
-    }
+    metadata: { activity: "session_started" }
   }];
 }
 

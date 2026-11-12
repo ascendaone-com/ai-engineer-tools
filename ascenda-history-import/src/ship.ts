@@ -52,6 +52,7 @@ import {
   COLLECTOR_VERSION,
   classifyModelClass,
   classifyEffortClass,
+  modelRouteFromSlug,
   deriveBranchHash,
   deriveWorkContext,
   hashWithMachineSalt,
@@ -255,6 +256,12 @@ export function toWirePayload(
   // imported `high` and a live `high` land in one bucket. `primaryEffort`
   // stays beside it as the record, under its own key: it is a whole session's
   // dominant level, while the live `effortLevel` is the level at one moment.
+  // The route, where the extractor couldn't read one, from the slug's own
+  // prefix. Same function the live hooks call. Never defaulted.
+  if (metadata.modelRoute === undefined) {
+    const modelRoute = modelRouteFromSlug(metadata.primaryModel);
+    if (modelRoute) metadata.modelRoute = modelRoute;
+  }
   const effortClass = classifyEffortClass(metadata.primaryEffort as string | undefined);
   if (effortClass !== undefined) metadata.effortClass = effortClass;
   const context = workContextOf(event.repoRef);
