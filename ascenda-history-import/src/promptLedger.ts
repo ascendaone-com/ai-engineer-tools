@@ -217,6 +217,11 @@ export class PromptLedger {
  * The cost is one map of contested ids, not of every id: 21,826 entries
  * rather than 605,501, because the full set is built during the pre-read and
  * thrown away at the end of it.
+ *
+ * The figures above are one store's, measured by hand. Re-measure with
+ * `scripts/measure-store.mjs` (`contestedIds`). In November 2026 it read
+ * 26,171 contested ids, 54,117 claims across 102 transcripts, of 926,094
+ * home-claimed lines, on one machine.
  */
 export class HomeClaims {
   /** Id to the first transcript that claimed it, in walk order. */

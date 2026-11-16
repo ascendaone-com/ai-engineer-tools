@@ -11,7 +11,22 @@ This plan adds a seeded transcript generator that knows the true figures of
 everything it writes, plus one small named fixture per edge case. Line
 numbers are against `main` at `badbcf6`.
 
-Status: not started. Touches tests only, so it can run beside any other plan.
+Status: built for Claude Code and Codex. Touches tests, one script and two
+comments, so it runs beside any other plan. Copilot CLI is still to do.
+
+What differs from the sketch below:
+
+- Truth keys are `mainThreadToolCallCount` and `subagentToolCallCount`, since
+  the shipped `toolCallCount` means main thread on one store and all threads
+  on the other. `unparsedLines` and `unknownLines` are in the truth too.
+- Codex truth defines `inputTokens` as uncached input, the definition the
+  other stores use. That's why `cachedInput` is a flag and a `todo` for the
+  Codex token plan.
+- Shapes that add a session (`resumeCopy` on Claude Code, `forkedSubagent` on
+  Codex) add it on top of `sessions`.
+- `tests/edgeFixtures.test.mjs` and `tests/measureStore.test.mjs` are new:
+  one runs the named fixtures, the other checks the script on a generated
+  store.
 
 ## 1. Seeded generator
 
