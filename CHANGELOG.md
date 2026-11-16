@@ -10,6 +10,20 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.44
+
+### History import keeps its staging small
+
+- **`import` keeps the output of its two newest runs.** Each run leaves an
+  `events.jsonl` under `~/.ascenda/history-import/staging/`, and on a busy
+  machine one runs to about 200 MB. Older runs used to stay forever. Now
+  every run removes run directories older than the newest two, at the start
+  and again when it finishes. `--keep-staging` skips the cleanup at the end.
+- **Every run prints `staging on disk`.** It sits next to the archive's own
+  size line, so you can see what the importer holds.
+- The archive is never touched. Folders in staging that the importer didn't
+  name are left in place.
+
 ## v0.1.43
 
 ### Hear about a new release

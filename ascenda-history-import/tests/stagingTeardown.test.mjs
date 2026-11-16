@@ -9,6 +9,8 @@ import {
   disposeStagingArea,
   formatBytes,
   freeSpaceBytes,
+  STAGING_KEEP_RUNS,
+  stagingSizeBytes,
   sweepStagingRoot
 } from "../dist/staging.js";
 
@@ -22,7 +24,8 @@ import {
  * simply never been told to clean up.
  *
  * The rule these tests hold: a run keeps its extraction OUTPUT and removes its
- * INPUTS. `events.jsonl` is ~10 MB and is the part with lasting value; the
+ * INPUTS. `events.jsonl` is the part with lasting value, kept for the newest
+ * `STAGING_KEEP_RUNS` runs only (one runs to ~200 MB); the
  * snapshot beside it is ~20 GB of someone else's files that we already read.
  */
 
@@ -102,7 +105,7 @@ test("the sweep drains a backlog of old runs but never the live one", async () =
 
 test("sweeping an absent staging root is a no-op, not a failure", async () => {
   const result = await sweepStagingRoot(path.join(os.tmpdir(), "asc-does-not-exist-" + Date.now()));
-  assert.deepEqual(result, { runsSwept: 0, freedBytes: 0 });
+  assert.deepEqual(result, { runsSwept: 0, runsRemoved: 0, freedBytes: 0 });
 });
 
 test("STAGING_KEEP is the extraction output, not its inputs", () => {
@@ -143,4 +146,94 @@ test("formatBytes reads as a size a human can act on", () => {
   assert.equal(formatBytes(0), "0 B");
   assert.equal(formatBytes(1024), "1.0 KB");
   assert.equal(formatBytes(254 * 1024 ** 3), "254 GB");
+});
+
+/* Bounded retention: one events.jsonl runs to ~200 MB, so only the newest
+ * STAGING_KEEP_RUNS keep theirs. */
+
+const ids = [
+  "2026-08-25T09-00-00-000Z-aaaaaaaa",
+  "2026-09-03T09-00-00-000Z-bbbbbbbb",
+  "2026-10-25T09-00-00-000Z-cccccccc",
+  "2026-10-26T01-48-22-730Z-f49e8dfc"
+];
+
+async function exists(p) {
+  return fs.access(p).then(() => true, () => false);
+}
+
+test("the sweep keeps events.jsonl for the newest runs and removes older runs whole", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "asc-bound-"));
+  const stagingRoot = path.join(home, "staging");
+  // Create newest first so mtime order is the reverse of timestamp order.
+  for (const id of [...ids].reverse()) await makeRun(stagingRoot, id);
+
+  const result = await sweepStagingRoot(stagingRoot);
+
+  assert.equal(STAGING_KEEP_RUNS, 2);
+  assert.equal(result.runsRemoved, 2);
+  assert.equal(await exists(path.join(stagingRoot, ids[0])), false);
+  assert.equal(await exists(path.join(stagingRoot, ids[1])), false);
+  for (const id of ids.slice(2)) {
+    assert.deepEqual(await fs.readdir(path.join(stagingRoot, id)), ["events.jsonl"]);
+  }
+});
+
+test("the live run is never touched and counts toward the kept runs", async () => {
+  const stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "asc-bound-"));
+  for (const id of ids) await makeRun(stagingRoot, id);
+  const live = ids[3];
+
+  await sweepStagingRoot(stagingRoot, live);
+
+  const liveEntries = (await fs.readdir(path.join(stagingRoot, live))).sort();
+  assert.ok(liveEntries.includes("cursor.vscdb"), "live snapshot left intact");
+  assert.deepEqual(await fs.readdir(path.join(stagingRoot, ids[2])), ["events.jsonl"]);
+  assert.equal(await exists(path.join(stagingRoot, ids[1])), false);
+  assert.equal(await exists(path.join(stagingRoot, ids[0])), false);
+});
+
+test("the live run is spared even when it is not among the newest", async () => {
+  const stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "asc-bound-"));
+  for (const id of ids) await makeRun(stagingRoot, id);
+
+  await sweepStagingRoot(stagingRoot, ids[0]);
+
+  assert.ok((await fs.readdir(path.join(stagingRoot, ids[0]))).includes("cursor.vscdb"));
+  assert.equal(await exists(path.join(stagingRoot, ids[1])), false);
+});
+
+test("the archive beside staging is never reached", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "asc-bound-"));
+  const stagingRoot = path.join(home, "staging");
+  const archive = path.join(home, "archive", "objects");
+  await fs.mkdir(archive, { recursive: true });
+  await fs.writeFile(path.join(archive, "blob"), "keep me");
+  for (const id of ids) await makeRun(stagingRoot, id);
+  // A symlinked run pointing at the archive must not be followed.
+  await fs.symlink(path.join(home, "archive"), path.join(stagingRoot, "2020-01-01T00-00-00-000Z-00000000"));
+
+  await sweepStagingRoot(stagingRoot, undefined, undefined, 0);
+
+  assert.equal(await fs.readFile(path.join(archive, "blob"), "utf8"), "keep me");
+});
+
+test("directories whose names aren't extraction ids are not removed", async () => {
+  const stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "asc-bound-"));
+  for (const id of ids) await makeRun(stagingRoot, id);
+  await makeRun(stagingRoot, "notes");
+  await makeRun(stagingRoot, "2026-10-26-not-an-id");
+
+  await sweepStagingRoot(stagingRoot);
+
+  assert.deepEqual(await fs.readdir(path.join(stagingRoot, "notes")), ["events.jsonl"]);
+  assert.deepEqual(await fs.readdir(path.join(stagingRoot, "2026-10-26-not-an-id")), ["events.jsonl"]);
+});
+
+test("stagingSizeBytes reports what the root holds", async () => {
+  const stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "asc-bound-"));
+  await fs.mkdir(path.join(stagingRoot, ids[0]));
+  await fs.writeFile(path.join(stagingRoot, ids[0], "events.jsonl"), "x".repeat(500));
+  assert.equal(await stagingSizeBytes(stagingRoot), 500);
+  assert.equal(await stagingSizeBytes(path.join(stagingRoot, "absent")), 0);
 });
