@@ -18,7 +18,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   extractCodex,
@@ -427,10 +427,36 @@ test("the zstd CLI decodes a .jsonl.zst when it's the decoder chosen", { skip: z
   });
   const events = await collect(extractCodex(root, "x1", { zstdDecoder: "cli" }));
   const [s] = sessions(events);
+  if (!s) {
+    // Say what the CLI itself made of the file, so a failure names its cause.
+    const file = path.join(root, "sessions", "2026", "08", "03", `rollout-2026-08-03T09-00-00-${PARENT}.jsonl.zst`);
+    const r = spawnSync("zstd", ["-dcq", "--", file], { encoding: "utf8" });
+    const which = spawnSync("sh", ["-c", "command -v zstd; zstd --version"], { encoding: "utf8" });
+    assert.fail(
+      `no session from the CLI decode; zstd status ${r.status} signal ${r.signal} error ${r.error?.message} ` +
+        `stdout ${r.stdout?.length ?? 0} chars, stderr ${JSON.stringify(r.stderr)}; ${which.stdout.trim()}; ` +
+        `epoch ${JSON.stringify(events.find((e) => e.eventKind === "extraction_epoch")?.metrics)}`
+    );
+  }
   assert.equal(s.sessionRef, PARENT);
   assert.equal(s.metrics.promptCount, 2);
   assert.equal(s.metrics.inputTokens, 500);
   assert.equal(events.find((e) => e.eventKind === "extraction_epoch").metrics.unreadableRolloutFiles, 0);
+});
+
+// stdout can end before zstd is reaped. A clean decode must not be killed
+// then and counted unreadable, which happened about 1 run in 150.
+test("a zstd CLI decode that has finished writing isn't killed and counted unreadable", { skip: zstdCliMissing() }, async () => {
+  const { root } = await snapshotWith({
+    [`rollout-2026-08-03T09-00-00-${PARENT}.jsonl.zst`]: compressParent()
+  });
+  const runs = await Promise.all(
+    Array.from({ length: 200 }, async () => {
+      const events = await collect(extractCodex(root, "x1", { zstdDecoder: "cli" }));
+      return events.find((e) => e.eventKind === "extraction_epoch").metrics.unreadableRolloutFiles;
+    })
+  );
+  assert.deepEqual(runs.filter((n) => n !== 0), []);
 });
 
 test(
