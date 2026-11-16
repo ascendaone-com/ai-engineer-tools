@@ -77,32 +77,48 @@ account that has commits in this repository — not necessarily the account that
 published. Cite an existing commit as evidence; do not manufacture one for the
 purpose.
 
-### Plugin distribution is not tag-driven
+### Plugin distribution: a pinned commit
 
-Every other artifact here ships by pushing a tag. The Claude Code plugin does
-not: `/plugin marketplace add ascendaone-com/ai-engineer-tools` reads
-`.claude-plugin/marketplace.json` from `main` directly, and
-`ascenda-agent-skills/.claude-plugin/plugin.json` pins the version users get.
+The plugin isn't tag-driven, and merging to `main` doesn't release it either.
+`/plugin marketplace add ascendaone-com/ai-engineer-tools` reads
+`.claude-plugin/marketplace.json` from `main`, and the plugin's entry there is
+a `git-subdir` source with a `sha`. Users get the plugin as it was at that
+commit. A plugin change merged for review stays invisible until a second PR
+moves the pin.
 
-Consequences worth knowing:
+Releasing the plugin takes two PRs, in this order:
 
-- **A merge to `main` is a plugin release.** There is no separate publish step
-  and no tag gate.
-- Bump `version` in `plugin.json` when the plugin's behaviour changes, or users
-  will not receive the update — omitting it falls back to the commit SHA, which
-  makes every commit a new version. `marketplace.json` carries the same number
-  and `scripts/tests/releasePackages.test.mjs` fails verify when the two
-  disagree, so move both together.
+1. **Land the change.** Bump `version` in `ascenda-agent-skills/.claude-plugin/plugin.json`
+   when behaviour changes, and merge it. Validate first with
+   `claude plugin validate ./ascenda-agent-skills --strict`.
+2. **Promote it.** Once the merge is on `main`, open a PR that changes two
+   lines in `marketplace.json`: `sha`, to the merge commit
+   (`git rev-parse origin/main` after fetching, if nothing else has landed
+   since), and `version`, to match `plugin.json`. Merge it. Users
+   get the new plugin on their next marketplace refresh.
+
+Things worth knowing:
+
+- **Pin a commit that's already on `main`.** A squash merge rewrites commits,
+  so a sha taken from a PR branch doesn't exist after the merge. That's why
+  the change and the promotion are separate PRs. `scripts/check-dry.sh`
+  (part of `npm run verify`) fails when the pinned commit isn't in the
+  branch's history, and `scripts/tests/releasePackages.test.mjs` fails when
+  it isn't 40 hex characters.
+- **`version` still matters.** Omit it and Claude Code falls back to the commit
+  sha as the version. `marketplace.json` and `plugin.json` carry the same
+  number, and the test fails verify when they disagree.
+- **A refresh with the same sha downloads nothing.** Moving the sha is what
+  triggers an update.
 - `ascenda-agent-skills/package.json` is `private`: the plugin is this
-  channel's only artifact and is never an npm tarball. The tag path does not
-  stamp its version — it tracks `plugin.json`, not the release.
-- Validate before merging: `claude plugin validate ./ascenda-agent-skills --strict`.
+  channel's only artifact and is never an npm tarball. The tag path doesn't
+  stamp its version, which tracks `plugin.json`.
 - The plugin's hooks and MCP server run the **published npm packages**
   through `bin/launch.mjs`. It runs a copy in `~/.ascenda/plugin` and fetches
   `latest` in the background once a day (`npx -y <package> plugin-sync`), so
-  a release reaches plugin users within a day. Until the first copy lands it
-  runs `npx -y <package>` directly. A plugin change that depends on new CLI
-  behaviour still needs the npm release to land *first*.
+  an npm release reaches plugin users within a day, whatever the pin says.
+  A plugin change that depends on new CLI behaviour still needs the npm
+  release to land *first*.
 
 ### Extension identity: one, not two
 

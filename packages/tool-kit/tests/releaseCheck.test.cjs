@@ -73,6 +73,19 @@ test("refresh fetches the manifest and records the latest release and floors", (
   assert.equal(readReleaseCheck().checkedAt, new Date(NOW).toISOString());
 }));
 
+test("refresh keeps a summary of at most 200 characters and ignores any other", () => withHome(async () => {
+  const kept = await refreshReleaseCheck({ installed: "0.1.33", now: NOW, env: {}, fetchImpl: manifestFetch({ ...MANIFEST, summary: "Hooks now start faster." }) });
+  assert.equal(kept.latestSummary, "Hooks now start faster.");
+  assert.equal(readReleaseCheck().latestSummary, "Hooks now start faster.");
+
+  for (const summary of ["x".repeat(201), 42, { text: "no" }, "   "]) {
+    fs.rmSync(releaseCheckPath(), { force: true });
+    const check = await refreshReleaseCheck({ installed: "0.1.33", now: NOW, env: {}, fetchImpl: manifestFetch({ ...MANIFEST, summary }) });
+    assert.equal(check.latestVersion, "0.1.36");
+    assert.equal(check.latestSummary, undefined, `ignored ${JSON.stringify(summary).slice(0, 20)}`);
+  }
+}));
+
 test("refresh fetches at most once a day", () => withHome(async () => {
   const calls = [];
   const fetchImpl = manifestFetch(MANIFEST, calls);
@@ -119,6 +132,13 @@ test("a release behind is noted once per release", () => withHome(async () => {
   assert.match(pendingReleaseNotice({ ...NOTICE, installed: "0.1.33" }).text, /0\.1\.37 is out/);
 }));
 
+test("the behind note says what's new; the unsupported note doesn't", () => withHome(async () => {
+  writeCheck({ latestVersion: "0.1.36", minCollectorVersion: "0.1.9", latestSummary: "Hooks now start faster.", checkedAt: new Date(NOW).toISOString() });
+  const behind = pendingReleaseNotice({ ...NOTICE, installed: "0.1.33" }).text;
+  assert.match(behind, /0\.1\.36 is out\. What's new: Hooks now start faster\. Run `/);
+  assert.doesNotMatch(pendingReleaseNotice({ ...NOTICE, installed: "0.1.8" }).text, /What's new/);
+}));
+
 test("below the floor, the note repeats until the install is updated", () => withHome(async () => {
   writeCheck({ latestVersion: "0.1.36", minCollectorVersion: "0.1.9", checkedAt: new Date(NOW).toISOString() });
   const first = pendingReleaseNotice({ ...NOTICE, installed: "0.1.8" });
@@ -147,6 +167,8 @@ test("status line reads the last check and says why there isn't one", () => with
   assert.match(describeReleaseCheck({ ...base, localOnly: false }), /not checked yet/);
   writeCheck({ latestVersion: "0.1.36", minCollectorVersion: "0.1.9", checkedAt: new Date(NOW - 3 * 60 * 60 * 1000).toISOString() });
   assert.equal(describeReleaseCheck({ ...base, localOnly: false }), "0.1.36 (checked 3 h ago). Update: npx -y x setup");
+  writeCheck({ ...readReleaseCheck(), latestSummary: "Hooks now start faster." });
+  assert.equal(describeReleaseCheck({ ...base, localOnly: false }), "0.1.36 (checked 3 h ago). What's new: Hooks now start faster. Update: npx -y x setup");
   assert.equal(describeReleaseCheck({ ...base, installed: "0.1.36", localOnly: false }), "0.1.36, up to date (checked 3 h ago)");
 }));
 

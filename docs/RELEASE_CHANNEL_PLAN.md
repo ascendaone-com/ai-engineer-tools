@@ -5,7 +5,7 @@ changed, not just that something did. And the Claude Code plugin moves from
 "whatever is on `main`" to a pinned commit, so merging a PR is no longer a
 plugin release. Line numbers are against `main` at `badbcf6`.
 
-Status: not started. The two parts touch different files and can land apart.
+Status: both parts implemented in this PR. The two parts touch different files and can land apart.
 
 ## Part 1: the update note says what changed
 
@@ -102,6 +102,17 @@ Before switching, confirm on the current Claude Code release that a
 marketplace added by `owner/repo` honours `git-subdir` with `sha` for a
 plugin in the same repository, and that a refresh with an unchanged `sha`
 doesn't re-download. If it doesn't, stop and record what it did here.
+
+Result (Claude Code 2.1.316, scratch `CLAUDE_CONFIG_DIR`, marketplace added
+from a local checkout carrying the new entry): it works.
+
+- `claude plugin validate ./ascenda-agent-skills --strict` passes.
+- Install resolves the pinned commit. `installed_plugins.json` records
+  `gitCommitSha` equal to the `sha`, and pinning the 0.2.2 commit installed
+  0.2.2 though `main` holds 0.3.1.
+- `marketplace update` and `plugin update` with the same `sha` say "already at
+  the latest version" and leave the cache untouched.
+- Moving `sha` to the 0.3.1 commit and updating installed 0.3.1 beside 0.2.2.
 
 ## Done when
 

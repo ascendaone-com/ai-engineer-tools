@@ -70,6 +70,22 @@ if [ -n "$combined" ]; then
   fail=1
 fi
 
+# 4. The plugin's pinned commit must be in this branch's history. A squash
+#    merge rewrites commits, so a sha taken from a PR branch is gone once the
+#    PR lands; the pin has to name a commit already on main.
+pins=$(sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' .claude-plugin/marketplace.json)
+if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+  echo "check-dry: shallow clone, skipping the plugin pin ancestry check"
+else
+  for pin in $pins; do
+    if ! git merge-base --is-ancestor "$pin" HEAD 2>/dev/null; then
+      echo "FAIL: .claude-plugin/marketplace.json pins $pin, which is not in this branch's history."
+      echo "      Pin a commit that is already on main (git fetch origin first if it should be)."
+      fail=1
+    fi
+  done
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "check-dry: FAILED"
   exit 1

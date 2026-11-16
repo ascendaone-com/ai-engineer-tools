@@ -10,6 +10,13 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.44
+
+- **The update note says what changed.** When a newer release is out, the
+  note at the start of a session and the `latest` line in `status` carry a
+  sentence or two from that release's notes, so you can judge whether it's
+  worth the restart.
+
 ## v0.1.43
 
 ### Hear about a new release

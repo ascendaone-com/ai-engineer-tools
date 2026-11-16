@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 
-import { buildManifest, sha256 } from "../release-manifest.mjs";
+import { buildManifest, sha256, summarise } from "../release-manifest.mjs";
 import { minNode, normaliseVersion } from "../release-artifacts.mjs";
 
 const REPO = "ascendaone-com/ai-engineer-tools";
@@ -14,11 +14,15 @@ const REPO = "ascendaone-com/ai-engineer-tools";
  * A staging dir holding `files` plus a fake repo root declaring engines.node,
  * a tool-contract version to derive from, and the compatibility floors.
  */
-function fixture(files, engines = ">=20", compat = COMPAT) {
+const BODY = "The installer checks a download before it runs it.\n\n- Smaller things.";
+const NOTES = ["1.2.3", "1.0.0", "0.1.0"].map((v) => `## v${v}\n\n${BODY}`).join("\n\n");
+
+function fixture(files, engines = ">=20", compat = COMPAT, notes = NOTES) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-manifest-"));
   const dir = path.join(base, "release");
   fs.mkdirSync(dir);
   for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), body);
+  fs.writeFileSync(path.join(base, "CHANGELOG.md"), `# Changelog\n\n${notes}\n`);
   fs.writeFileSync(path.join(base, "package.json"), JSON.stringify({ engines: { node: engines } }));
   const contractDir = path.join(base, "packages", "tool-contract");
   fs.mkdirSync(contractDir, { recursive: true });
@@ -124,4 +128,34 @@ test("a missing or malformed floor fails the release rather than shipping a sile
     /semver/,
     "a typo'd floor must fail at build time, not silently at a user's"
   );
+});
+
+test("the manifest carries a summary taken from the tag's changelog section", () => {
+  const { base, dir } = fixture({ "cli.js": "bytes" });
+  assert.equal(
+    buildManifest({ tag: "v1.2.3", dir, repo: REPO, root: base }).summary,
+    "The installer checks a download before it runs it."
+  );
+});
+
+test("a tag with no section, or an empty one, fails the manifest", () => {
+  const { base, dir } = fixture({ "cli.js": "bytes" });
+  assert.throws(() => buildManifest({ tag: "v9.9.9", dir, repo: REPO, root: base }), /no "## v9.9.9" section/);
+  const empty = fixture({ "cli.js": "bytes" }, ">=20", COMPAT, "## v1.2.3\n\n### Heading only");
+  assert.throws(() => buildManifest({ tag: "v1.2.3", dir: empty.dir, repo: REPO, root: empty.base }), /nothing to summarise|no text/);
+});
+
+test("summarise: paragraph, bullet list, links and emphasis, and the length cap", () => {
+  assert.equal(summarise("A paragraph [with a link](https://x.y) and **bold**.\n\nSecond."), "A paragraph with a link and bold.");
+  assert.equal(summarise("### Heading\n\n- **First bullet.** It goes on.\n- Second bullet."), "First bullet. It goes on.");
+  assert.equal(summarise("- One\n  wrapped line.\n- Two."), "One wrapped line.");
+
+  const long = `${"Short sentence. ".repeat(20)}`.trim();
+  const cut = summarise(long);
+  assert.ok(cut.length <= 200 && cut.endsWith("."), cut);
+  assert.equal(cut, long.slice(0, cut.length), "cut on a sentence end");
+
+  const noEnd = summarise("word ".repeat(80));
+  assert.ok(noEnd.length <= 200 && noEnd.endsWith("…"));
+  assert.equal(summarise(""), "");
 });
