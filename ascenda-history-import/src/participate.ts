@@ -904,9 +904,9 @@ function printSummary(input: {
       print(`${label("Backfill")}${ui.mark("bad")} ${n(summary.totalExtracted)} events read, none sent: ${summary.shipError ?? "the send didn't run"}`);
     } else {
       const tone = summary.exitCode === 0 ? "ok" : "bad";
-      print(`${label("Backfill")}${ui.mark(tone)} ${n(ship.sent)} events sent: ${n(ship.accepted)} accepted, ${n(ship.duplicate)} already there, ${n(ship.rejected)} rejected`);
+      print(`${label("Backfill")}${ui.mark(tone)} ${n(ship.sent)} events sent: ${n(ship.accepted)} accepted, ${n(ship.duplicate)} already there, ${ship.revised > 0 ? `${n(ship.revised)} revised, ` : ""}${n(ship.rejected)} rejected`);
       for (const [store, counts] of Object.entries(ship.perStore)) {
-        print(`${pad}  ${store.padEnd(12)} ${n(counts.accepted)} accepted, ${n(counts.duplicate)} already there, ${n(counts.rejected)} rejected`);
+        print(`${pad}  ${store.padEnd(12)} ${n(counts.accepted)} accepted, ${n(counts.duplicate)} already there, ${counts.revised > 0 ? `${n(counts.revised)} revised, ` : ""}${n(counts.rejected)} rejected`);
       }
       for (const [reason, count] of Object.entries(ship.rejectionReasons)) {
         print(`${pad}  ${n(count)} rejected: ${REJECTION_SENTENCES[reason] ?? reason}`);

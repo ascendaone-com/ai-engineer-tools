@@ -143,3 +143,24 @@ test("an event with no session still keys stably", () => {
   ];
   assert.deepEqual(keysOf(first.slice(1)), [keysOf(first)[1]]);
 });
+
+test("the extractor revision rides the metadata and is not part of the key", async () => {
+  const { toWirePayload, importKeyOf } = await import("../dist/ship.js");
+  const { EXTRACTOR_REVISION } = await import("../dist/extractorRevisions.js");
+  const base = {
+    occurredAt: "2026-08-01T10:00:00.000Z",
+    store: "codex",
+    sourceVersion: null,
+    sessionRef: "s1",
+    repoRef: null,
+    eventKind: "create_focus_session",
+    metrics: {},
+    provenance: "historical_direct",
+    extractionId: "e1"
+  };
+  const keyBefore = importKeyOf(base, 0);
+  assert.equal(toWirePayload(base, 0, "t").metadata.extractorRevision, EXTRACTOR_REVISION.codex);
+  assert.equal(toWirePayload(base, 0, "t").metadata.importKey, keyBefore);
+  // Same preimage whatever the revision: the preimage has no revision in it.
+  assert.equal(importKeyOf(base, 0), keyBefore);
+});
