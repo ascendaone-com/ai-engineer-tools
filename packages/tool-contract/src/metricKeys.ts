@@ -32,10 +32,11 @@
  *                wrong the key is silently dropped, which is the bug above.
  * - `handoff`  — `localHandoff.ts` reads it for the desktop app, on the
  *                machine. This names a READER, not an egress rule: `ship.ts`
- *                copies every `metrics` entry into wire metadata, so a
- *                `handoff` key still travels. Read the other way round —
- *                "handoff means it stays local" — this list would be a
- *                disclosure claim it cannot keep.
+ *                copies a `metrics` entry into wire metadata whoever reads
+ *                it, so a `handoff` key still travels. Read the other way
+ *                round — "handoff means it stays local" — this list would be
+ *                a disclosure claim it cannot keep. The egress rule is
+ *                `family: "local"`, below.
  * - `diagnostic` — read by neither, and meant to be. These are the honesty
  *                counters: unparsed lines, unreadable files, which timeline
  *                fallback dated a session. They exist so a reader can tell
@@ -185,54 +186,53 @@ export const METRIC_KEYS = {
   // Codex's own usage-limit readings: `rate_limits` on its token_count lines,
   // main thread only. The limit's id and name, the plan and the credit
   // balance on the same object are never read. A session whose rollouts
-  // carried no readings has none of these keys. The backend reader arrives
-  // in its own change.
+  // carried no readings has none of these keys.
+  //
+  // `family: "local"`, all seven. They say how much of an allowance was left
+  // on an account with the provider, which is a fact about the account and
+  // not about how the work went, so they are read on the machine and never
+  // sent. `ship.ts` leaves a `local` key out of the wire payload, and
+  // `localMetricKeys.test.mjs` holds it to that.
   usageLimitShortPeakPct: {
-    family: "context",
-    readBy: ["backend"],
-    backendAliases: ["usageLimitShortPeakPct", "usage_limit_short_peak_pct"],
+    family: "local",
+    readBy: ["handoff"],
     unit: "percent (0–100), whole number",
-    note: "History import: the largest used_percent of the short (primary) window the session saw. Five hours on every build seen; usageLimitShortWindowMinutes says. The live Codex hooks put the same key on ai_turn_completed with the reading at the turn's end, read from the rollout at Stop."
+    note: "Stays on the machine: an account's allowance, not the work. The largest used_percent of the short (primary) window the session saw. Five hours on every build seen; usageLimitShortWindowMinutes says. Each day slice carries that day's own peak under the same name."
   },
   usageLimitLongPeakPct: {
-    family: "context",
-    readBy: ["backend"],
-    backendAliases: ["usageLimitLongPeakPct", "usage_limit_long_peak_pct"],
+    family: "local",
+    readBy: ["handoff"],
     unit: "percent (0–100), whole number",
-    note: "The same for the long (secondary) window, on both paths. Weekly on every build seen."
+    note: "Stays on the machine, as the short window does. The same for the long (secondary) window. Weekly on every build seen."
   },
   usageLimitShortWindowMinutes: {
-    family: "context",
-    readBy: ["backend"],
-    backendAliases: ["usageLimitShortWindowMinutes", "usage_limit_short_window_minutes"],
+    family: "local",
+    readBy: ["handoff"],
     unit: "minutes",
-    note: "The short window's size as the rollout reported it, never assumed."
+    note: "Stays on the machine. The short window's size as the rollout reported it, never assumed."
   },
   usageLimitLongWindowMinutes: {
-    family: "context",
-    readBy: ["backend"],
-    backendAliases: ["usageLimitLongWindowMinutes", "usage_limit_long_window_minutes"],
-    unit: "minutes"
+    family: "local",
+    readBy: ["handoff"],
+    unit: "minutes",
+    note: "Stays on the machine. The long window's size as the rollout reported it."
   },
   usageLimitReached: {
-    family: "context",
-    readBy: ["backend"],
-    backendAliases: ["usageLimitReached", "usage_limit_reached"],
+    family: "local",
+    readBy: ["handoff"],
     unit: "boolean",
-    note: "True when a reading carried a non-null rate_limit_reached_type. Present only beside the peaks."
+    note: "Stays on the machine. True when a reading carried a non-null rate_limit_reached_type. Present only beside the peaks."
   },
   usageLimitReachedType: {
-    family: "context",
-    readBy: ["backend"],
-    backendAliases: ["usageLimitReachedType", "usage_limit_reached_type"],
-    note: "Which limit was hit: primary, secondary, or other for any value outside that list."
+    family: "local",
+    readBy: ["handoff"],
+    note: "Stays on the machine. Which limit was hit: primary, secondary, or other for any value outside that list."
   },
   usageLimitFirstReachedAt: {
-    family: "context",
-    readBy: ["backend"],
-    backendAliases: ["usageLimitFirstReachedAt", "usage_limit_first_reached_at"],
+    family: "local",
+    readBy: ["handoff"],
     unit: "ISO 8601 instant",
-    note: "The first reading that carried a reached type."
+    note: "Stays on the machine. The first reading that carried a reached type."
   },
 
   // ── Read by the local handoff only ──────────────────────────────────────
@@ -649,6 +649,19 @@ export type MetricKey = keyof typeof METRIC_KEYS;
 
 /** The value shape of `metrics{}`: flat, bucketed, never free text. */
 export type MetricValue = number | string | boolean;
+
+/**
+ * Keys that are read on the machine and never sent. `ship.ts` filters on this
+ * list, so declaring `family: "local"` is what keeps a key off the wire. A
+ * `local` key names no backend reader: there is nothing there to read.
+ */
+export function localMetricKeys(): ReadonlySet<MetricKey> {
+  return new Set(
+    (Object.entries(METRIC_KEYS) as Array<[MetricKey, MetricKeySpec]>)
+      .filter(([, spec]) => spec.family === "local")
+      .map(([key]) => key)
+  );
+}
 
 /** Keys a server-side reader resolves, with the spellings it accepts. */
 export function backendMetricKeys(): ReadonlyArray<readonly [MetricKey, readonly string[]]> {

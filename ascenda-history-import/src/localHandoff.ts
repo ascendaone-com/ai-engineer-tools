@@ -617,6 +617,23 @@ export interface CodexHandoffSession {
    * demand rail derives by counting `ai_tool_call_started` rows. */
   toolCallCount: number;
   provenance: string;
+  /**
+   * The provider's own usage-limit readings for the session, from the
+   * rollout. Null where the rollout carried none, which means the build
+   * didn't write them, never that there was headroom. Read here and nowhere
+   * else: these keys are never sent. Each entry of `days` carries that day's
+   * own two peaks.
+   */
+  usageLimitShortPeakPct: number | null;
+  usageLimitLongPeakPct: number | null;
+  /** The window sizes as the rollout reported them, in minutes. */
+  usageLimitShortWindowMinutes: number | null;
+  usageLimitLongWindowMinutes: number | null;
+  /** Whether a reading said a limit was hit. Null with no readings. */
+  usageLimitReached: boolean | null;
+  /** `primary`, `secondary` or `other`. Null unless a limit was hit. */
+  usageLimitReachedType: string | null;
+  usageLimitFirstReachedAt: string | null;
 }
 
 export interface CodexHandoffFile {
@@ -1197,6 +1214,10 @@ export function buildHandoff(
   };
 }
 
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
 export function buildCodexHandoff(
   events: NormalizedHistoricalEvent[],
   extractionId: string,
@@ -1253,6 +1274,16 @@ export function buildCodexHandoff(
       contextWindowTokens:
         typeof event.metrics.contextWindowTokens === "number" ? event.metrics.contextWindowTokens : null,
       toolCallCount: Number(event.metrics.toolCallCount ?? 0),
+      usageLimitShortPeakPct: numberOrNull(event.metrics.usageLimitShortPeakPct),
+      usageLimitLongPeakPct: numberOrNull(event.metrics.usageLimitLongPeakPct),
+      usageLimitShortWindowMinutes: numberOrNull(event.metrics.usageLimitShortWindowMinutes),
+      usageLimitLongWindowMinutes: numberOrNull(event.metrics.usageLimitLongWindowMinutes),
+      usageLimitReached:
+        typeof event.metrics.usageLimitReached === "boolean" ? event.metrics.usageLimitReached : null,
+      usageLimitReachedType:
+        typeof event.metrics.usageLimitReachedType === "string" ? event.metrics.usageLimitReachedType : null,
+      usageLimitFirstReachedAt:
+        typeof event.metrics.usageLimitFirstReachedAt === "string" ? event.metrics.usageLimitFirstReachedAt : null,
       days: event.dayBreakdown ?? [],
       provenance: event.provenance
     });

@@ -66,10 +66,9 @@ export const SETUP: CliAgentSetupSpec = {
   restartHint: "Restart Codex, then open /hooks to review and trust the Ascenda hooks. Registration alone does not run them.",
   // Codex reports the posture it was working under, its approval gate, the
   // git action or milestone a shell command reached, and the model slug every
-  // payload carries (on the opening event and on each change), and at each
-  // turn's end the usage-limit percentages its rollout recorded. It sends no
+  // payload carries (on the opening event and on each change). It sends no
   // per-file change size.
-  sends: ["model", "posture", "waiting", "git", "turns", "forge", "context"],
+  sends: ["model", "posture", "waiting", "git", "turns", "forge"],
   trust: {
     check: checkCodexHookTrust,
     fix: "Restart Codex and open /hooks, then approve the Ascenda hooks. A hook whose command changed needs approving again."

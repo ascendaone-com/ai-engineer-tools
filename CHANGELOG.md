@@ -10,6 +10,23 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.44
+
+### Codex usage limits stay on your machine
+
+v0.1.43 sent Codex's usage-limit readings with your sessions. They say how
+much of your allowance was left, which is about your account and not your
+work, so they no longer leave the machine.
+
+- **The import keeps them local.** The peaks, the window sizes and whether a
+  limit was hit go into the local handoff for the desktop app, per session
+  and per day. None of them is sent.
+- **Codex hooks stopped reading them.** `ai_turn_completed` no longer carries
+  the two percentages, and the hook doesn't open the rollout for them. Run
+  Codex's `setup` again to pick this up.
+- The setup disclosure no longer mentions usage limits, because nothing about
+  them is sent.
+
 ## v0.1.43
 
 Corrected import figures for Codex and Claude Code, Codex usage-limit
