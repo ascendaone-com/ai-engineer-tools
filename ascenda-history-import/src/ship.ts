@@ -62,6 +62,7 @@ import {
 } from "@ascenda-one/tool-kit";
 import type { WorkContext } from "@ascenda-one/tool-kit";
 import type { AscendaEventPayload, AscendaTelemetrySource } from "@ascenda-one/tool-contract";
+import { localMetricKeys, type MetricKey } from "@ascenda-one/tool-contract";
 import {
   EXTRACTION_EPOCH_KIND,
   HISTORICAL_CONSENT_SCOPE,
@@ -172,6 +173,9 @@ function registerLegacyBranchDigest(rawBranch: string, branchHash: string): void
   if (legacyHash && legacyHash !== branchHash) recordWorkContextAlias(legacyHash, rawBranch);
 }
 
+/** Metric keys that stay on the machine. Resolved once: the list is static. */
+const LOCAL_METRIC_KEYS = localMetricKeys();
+
 export function toWirePayload(
   event: NormalizedHistoricalEvent & { eventKind: AscendaEventPayload["eventType"] },
   ordinal: number,
@@ -195,7 +199,10 @@ export function toWirePayload(
   // session and a live one disaggregate on the same key.
   const host = STORE_HOST[event.store];
   if (host) metadata.host = host;
+  // A key declared `family: "local"` is read on this machine and stops here.
+  // The handoff is built from `event.metrics` directly, so it still has it.
   for (const [key, value] of Object.entries(event.metrics)) {
+    if (LOCAL_METRIC_KEYS.has(key as MetricKey)) continue;
     metadata[key] = value;
   }
   // gitBranch is a metric locally but a name on the wire — hash it like the
