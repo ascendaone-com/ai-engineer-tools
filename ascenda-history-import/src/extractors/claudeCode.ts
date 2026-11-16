@@ -1456,6 +1456,8 @@ export async function probeTopLevelTranscript(
 /** One project directory's transcripts, listed before anything is read. */
 interface ProjectPlan {
   slug: string;
+  /** Set on projects read from a Claude Desktop Cowork config dir. */
+  clientName: string | null;
   dir: string;
   /** Main-thread transcript names, sorted. */
   topLevelFiles: string[];
@@ -1480,19 +1482,31 @@ function topModel(models: Map<string, number>): string | null {
   return best;
 }
 
+/** Where staging puts transcripts copied from Claude Desktop's Cowork config
+ * dirs, beside `projects/`, so the extractor can tell them apart. */
+export const COWORK_SNAPSHOT_DIR = "cowork-projects";
+export const COWORK_CLIENT_NAME = "claude-desktop-cowork";
+
 export async function* extractClaudeCode(
   snapshotDir: string,
   extractionId: string
 ): AsyncIterable<NormalizedHistoricalEvent> {
-  const projectsDir = path.join(snapshotDir, "projects");
-  let projectSlugs: string[] = [];
-  try {
-    projectSlugs = (await fs.readdir(projectsDir, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-  } catch {
-    return; // No projects dir in the snapshot — nothing to extract.
+  const roots: { projectsDir: string; clientName: string | null }[] = [
+    { projectsDir: path.join(snapshotDir, "projects"), clientName: null },
+    { projectsDir: path.join(snapshotDir, COWORK_SNAPSHOT_DIR), clientName: COWORK_CLIENT_NAME }
+  ];
+  const projectRoots: { projectsDir: string; clientName: string | null; slugs: string[] }[] = [];
+  for (const root of roots) {
+    try {
+      const slugs = (await fs.readdir(root.projectsDir, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+      projectRoots.push({ ...root, slugs });
+    } catch {
+      // This root isn't in the snapshot.
+    }
   }
+  if (projectRoots.length === 0) return; // No projects dir in the snapshot — nothing to extract.
 
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
@@ -1526,7 +1540,8 @@ export async function* extractClaudeCode(
   // ledger has to read every transcript, in this order, before the first
   // session is folded. Paths only; nothing is held open.
   const plan: ProjectPlan[] = [];
-  for (const slug of projectSlugs.sort()) {
+  for (const { projectsDir, clientName, slugs } of projectRoots)
+  for (const slug of slugs.sort()) {
     const dir = path.join(projectsDir, slug);
     let entries;
     try {
@@ -1554,6 +1569,7 @@ export async function* extractClaudeCode(
     }
     plan.push({
       slug,
+      clientName,
       dir,
       topLevelFiles,
       flatSidechains,
@@ -1584,7 +1600,7 @@ export async function* extractClaudeCode(
   // because the rule for a line whose home file is gone is first-come.
   const ownership = new TimelineOwnership(mainTranscripts, contestedOwners);
 
-  for (const { slug, dir, topLevelFiles, flatSidechains, otherFiles, sessionDirs } of plan) {
+  for (const { slug, clientName, dir, topLevelFiles, flatSidechains, otherFiles, sessionDirs } of plan) {
     let slugJsonlFiles = topLevelFiles.length + flatSidechains.length;
     let slugOtherFiles = otherFiles;
 
@@ -1798,6 +1814,7 @@ export async function* extractClaudeCode(
       if (primaryEffort) sessionMetrics.primaryEffort = primaryEffort;
       const effortChanges = effortChangesOf(fold.effort);
       if (fold.gitBranch) sessionMetrics.gitBranch = fold.gitBranch;
+      if (clientName) sessionMetrics.clientName = clientName;
       yield {
         occurredAt: fold.lastTs,
         store: "claude_code",

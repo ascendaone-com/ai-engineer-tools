@@ -569,7 +569,7 @@ export const METRIC_KEYS = {
   clientName: {
     family: "session",
     readBy: ["diagnostic"],
-    note: "Copilot CLI only: workspace.yaml's client_name, one constant word naming what started the CLI (vscode, vscode-agent-host). Absent on sessions written before the field existed, which were the standalone CLI."
+    note: "Copilot CLI: workspace.yaml's client_name, one constant word naming what started the CLI (vscode, vscode-agent-host); absent on sessions written before the field existed, which were the standalone CLI. Claude Code: claude-desktop-cowork on sessions read from Claude Desktop's Cowork config dirs, absent on the rest."
   },
   totalApiDurationMs: {
     family: "session",
