@@ -65,7 +65,7 @@ import {
   snapshotVsCodeWorkspaceStorage,
   sweepStagingRoot
 } from "./staging.js";
-import { extractClaudeCode } from "./extractors/claudeCode.js";
+import { COWORK_SNAPSHOT_DIR, extractClaudeCode } from "./extractors/claudeCode.js";
 import { CODEX_SNAPSHOT_DIRS, extractCodex } from "./extractors/codex.js";
 import { extractCopilotCli } from "./extractors/copilotCli.js";
 import { extractCursor } from "./extractors/cursor.js";
@@ -643,13 +643,20 @@ async function main(): Promise<number> {
           // Several config dirs merge into one projects tree. Transcripts are
           // named by session id, so two dirs only collide on the same
           // session, and keeping one copy of it is what dedup wants anyway.
+          // Cowork dirs go to their own subtree so the extractor can name
+          // the client; the copy merges them the same way.
           for (const projectsDir of paths.claudeProjectsDirs) {
             try {
               await fs.access(projectsDir);
             } catch {
               continue;
             }
-            await snapshotPath(area, projectsDir, path.join("claude_code", "projects"));
+            const cowork = paths.claudeCoworkProjectsDirs.includes(projectsDir);
+            await snapshotPath(
+              area,
+              projectsDir,
+              path.join("claude_code", cowork ? COWORK_SNAPSHOT_DIR : "projects")
+            );
           }
           for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) collect(event);
         }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError, crossStore);
