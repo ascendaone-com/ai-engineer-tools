@@ -195,3 +195,56 @@ test("an unknown name is an error, not an npx run", posix, () => {
     box.cleanup();
   }
 });
+
+function writeSetupBundle(box, version) {
+  const bin = join(box.home, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "ascenda-claude-hook.mjs"), [
+    "import { readFileSync } from 'node:fs';",
+    "const stdin = readFileSync(0, 'utf8');",
+    "process.stdout.write(JSON.stringify({ setup: true, argv: process.argv.slice(1), stdin }));",
+    ""
+  ].join("\n"));
+  writeFileSync(join(bin, "ascenda-claude-hook.version"), `${version}\n`);
+  return join(bin, "ascenda-claude-hook.mjs");
+}
+
+test("with no plugin bundle, setup's hook bundle runs in-process and the sync still seeds one", posix, async () => {
+  const box = sandbox();
+  try {
+    const file = writeSetupBundle(box, "0.1.38");
+    const result = box.run(["claude-code-hooks", "Stop", "--hook-set", "4"], { input: "{}" });
+    assert.equal(result.status, 0, result.stderr);
+    const seen = JSON.parse(result.stdout);
+    assert.equal(seen.setup, true);
+    assert.deepEqual(seen.argv, [file, "Stop", "--hook-set", "4"]);
+    const calls = await waitForCalls(box, 1);
+    assert.deepEqual(calls.map((call) => call.args), ["-y @ascenda-one/claude-code-hooks plugin-sync"]);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test("the plugin bundle wins over setup's", posix, () => {
+  const box = sandbox();
+  try {
+    writeSetupBundle(box, "0.1.99");
+    writeBundle(box, "claude-code-hooks");
+    age(box.checked("claude-code-hooks"), 1);
+    const result = box.run(["claude-code-hooks", "Stop"], { input: "" });
+    assert.equal(JSON.parse(result.stdout).setup, undefined);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test("a setup bundle older than 0.1.33 doesn't read --hook-set, so npx runs", posix, () => {
+  const box = sandbox();
+  try {
+    writeSetupBundle(box, "0.1.32");
+    const result = box.run(["claude-code-hooks", "Stop", "--hook-set", "4"]);
+    assert.equal(result.stdout.trim(), "from-npx");
+  } finally {
+    box.cleanup();
+  }
+});

@@ -10,6 +10,22 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.44
+
+Faster plugin hooks on a machine that already ran `setup`.
+
+### Plugin hooks
+
+- **The plugin uses the hook launcher `setup` installed.** Until the
+  plugin's own copy of the hooks arrives, each hook runs the bundle in
+  `~/.ascenda/bin` in-process. Before, every one of those events went
+  through npx. On an M-series Mac a `PostToolUse` event took 0.04 s and
+  59 MB, down from 0.49 s and 135 MB.
+- **The plugin's copy still wins.** It's refreshed daily, while the `setup`
+  copy is only as new as your last `setup` run. Once the plugin's copy lands,
+  hooks use it. A `setup` bundle older than 0.1.33 is skipped and npx runs
+  as before.
+
 ## v0.1.43
 
 Corrected import figures for Codex and Claude Code, Codex usage-limit
