@@ -9,7 +9,7 @@
  * produce it, and whether the main thread went back over the same files soon
  * after.
  *
- * **Metrics only.** A receipt holds a class token, two instants, minutes,
+ * **Metrics only.** A receipt holds two class tokens, two instants, minutes,
  * counts, a character count and one boolean. It never holds the agent's name
  * (`classifySubagentType` collapses a custom one to `custom`), a prompt, a
  * result, or a path. Paths are compared by SHA-256 inside this module and the
@@ -20,7 +20,8 @@
  * (`claude_code_extractor.dart`) makes the same receipts by the same rules.
  */
 import { createHash } from "node:crypto";
-import type { SubagentClass } from "@ascenda-one/tool-contract";
+import type { ModelClass, SubagentClass } from "@ascenda-one/tool-contract";
+import { classifyModelClass } from "@ascenda-one/tool-kit";
 
 /** How long after a subagent returned a main-thread edit still counts as
  * going back over its work. */
@@ -50,6 +51,10 @@ export interface SubagentReceipt {
    * {@link RETOUCH_WINDOW_MS} after it returned. Null where there is no return
    * instant to measure from. */
   retouchedAfterReturn: boolean | null;
+  /** `classifyModelClass` of the model on most of the subagent's own API
+   * messages. Null where none of its lines named a model. The slug itself
+   * stays off the receipt; the session's model mix already carries slugs. */
+  modelClass: ModelClass | null;
 }
 
 /** Built up while one subagent transcript is read. */
@@ -68,6 +73,8 @@ export interface SidechainTally {
   toolCalls: number;
   toolFailures: number;
   editHashes: Set<string>;
+  /** API messages per model, from the subagent's own lines. */
+  models: Map<string, number>;
 }
 
 export function newSidechainTally(): SidechainTally {
@@ -80,7 +87,8 @@ export function newSidechainTally(): SidechainTally {
     times: [],
     toolCalls: 0,
     toolFailures: 0,
-    editHashes: new Set()
+    editHashes: new Set(),
+    models: new Map()
   };
 }
 
@@ -232,6 +240,20 @@ export function buildReceipt(tally: SidechainTally, parent: ParentRecord): Subag
     toolFailures: tally.toolFailures,
     resultChars: result && !background ? result.chars : null,
     background,
-    retouchedAfterReturn: retouched
+    retouchedAfterReturn: retouched,
+    modelClass: topModelClassOf(tally.models)
   };
+}
+
+/** The class of the model with the most messages; the first seen wins a tie. */
+function topModelClassOf(models: ReadonlyMap<string, number>): ModelClass | null {
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [model, count] of models) {
+    if (count > bestCount) {
+      best = model;
+      bestCount = count;
+    }
+  }
+  return best === null ? null : classifyModelClass(best) ?? null;
 }
