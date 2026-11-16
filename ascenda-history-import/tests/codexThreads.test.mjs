@@ -18,7 +18,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   extractCodex,
@@ -186,12 +186,12 @@ test("a fork keeps its own id and counts only its own prompts and tokens", async
 
   const parent = byRef.get(PARENT);
   assert.equal(parent.metrics.promptCount, 2);
-  assert.equal(parent.metrics.inputTokens, 1000);
+  assert.equal(parent.metrics.inputTokens, 500, "uncached: 1000 input less 500 cached");
 
   const fork = byRef.get(FORK);
   assert.ok(fork, "the fork is filed under its own id, not the replayed parent's");
   assert.equal(fork.metrics.promptCount, 1, "the replayed prompts are the parent's");
-  assert.equal(fork.metrics.inputTokens, 300);
+  assert.equal(fork.metrics.inputTokens, 200, "the fork's own 300, less its own 100 cached");
   assert.equal(fork.metrics.outputTokens, 50);
   assert.equal(fork.metrics.cacheReadTokens, 100);
   assert.equal(fork.metrics.toolCallCount, 1);
@@ -274,7 +274,7 @@ test("a subagent thread folds into its parent, and its task text isn't a prompt"
   assert.equal(s.metrics.subagentAssistantTurns, 1);
   assert.equal(s.metrics.subagentToolCallCount, 1);
   assert.equal(s.metrics.subagentTokensTotal, 440);
-  assert.equal(s.metrics.inputTokens, 1400, "the subagent's spend is the session's spend");
+  assert.equal(s.metrics.inputTokens, 900, "the subagent's spend is the session's spend");
   assert.equal(s.metrics.toolCallCount, 1);
   assert.equal(s.metrics.contextWindowPeakTokens, 1000, "context pressure is the thread's own");
   assert.equal(s.metrics.modelSwitchCount, 0, "a subagent's model isn't a switch on the parent");
@@ -330,7 +330,7 @@ test("a paginated continuation folds into one session with its first page", asyn
   const [s] = all;
   assert.equal(s.sessionRef, PARENT);
   assert.equal(s.metrics.promptCount, 3);
-  assert.equal(s.metrics.inputTokens, 1600, "the cumulative counter carries across pages");
+  assert.equal(s.metrics.inputTokens, 900, "the cumulative counter carries across pages");
   assert.equal(s.metrics.sessionStartedAt, "2026-08-03T09:00:00.000Z");
   assert.equal(s.occurredAt, "2026-08-03T11:00:10.000Z");
   assert.equal(s.metrics.modelSwitchCount, 1, "the switch is seen across the page boundary");
@@ -383,7 +383,7 @@ test("a .jsonl.zst rollout is read like a plain one", { skip: typeof zlib.zstdCo
   const [s] = sessions(events);
   assert.equal(s.sessionRef, PARENT);
   assert.equal(s.metrics.promptCount, 2);
-  assert.equal(s.metrics.inputTokens, 1000);
+  assert.equal(s.metrics.inputTokens, 500);
   assert.equal(events.find((e) => e.eventKind === "extraction_epoch").metrics.unreadableRolloutFiles, 0);
 });
 
@@ -427,10 +427,36 @@ test("the zstd CLI decodes a .jsonl.zst when it's the decoder chosen", { skip: z
   });
   const events = await collect(extractCodex(root, "x1", { zstdDecoder: "cli" }));
   const [s] = sessions(events);
+  if (!s) {
+    // Say what the CLI itself made of the file, so a failure names its cause.
+    const file = path.join(root, "sessions", "2026", "08", "03", `rollout-2026-08-03T09-00-00-${PARENT}.jsonl.zst`);
+    const r = spawnSync("zstd", ["-dcq", "--", file], { encoding: "utf8" });
+    const which = spawnSync("sh", ["-c", "command -v zstd; zstd --version"], { encoding: "utf8" });
+    assert.fail(
+      `no session from the CLI decode; zstd status ${r.status} signal ${r.signal} error ${r.error?.message} ` +
+        `stdout ${r.stdout?.length ?? 0} chars, stderr ${JSON.stringify(r.stderr)}; ${which.stdout.trim()}; ` +
+        `epoch ${JSON.stringify(events.find((e) => e.eventKind === "extraction_epoch")?.metrics)}`
+    );
+  }
   assert.equal(s.sessionRef, PARENT);
   assert.equal(s.metrics.promptCount, 2);
-  assert.equal(s.metrics.inputTokens, 1000);
+  assert.equal(s.metrics.inputTokens, 500);
   assert.equal(events.find((e) => e.eventKind === "extraction_epoch").metrics.unreadableRolloutFiles, 0);
+});
+
+// stdout can end before zstd is reaped. A clean decode must not be killed
+// then and counted unreadable, which happened about 1 run in 150.
+test("a zstd CLI decode that has finished writing isn't killed and counted unreadable", { skip: zstdCliMissing() }, async () => {
+  const { root } = await snapshotWith({
+    [`rollout-2026-08-03T09-00-00-${PARENT}.jsonl.zst`]: compressParent()
+  });
+  const runs = await Promise.all(
+    Array.from({ length: 200 }, async () => {
+      const events = await collect(extractCodex(root, "x1", { zstdDecoder: "cli" }));
+      return events.find((e) => e.eventKind === "extraction_epoch").metrics.unreadableRolloutFiles;
+    })
+  );
+  assert.deepEqual(runs.filter((n) => n !== 0), []);
 });
 
 test(

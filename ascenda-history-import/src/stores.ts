@@ -5,6 +5,7 @@
  * and when an upstream release moves a store, this file is where the fix
  * lands.
  */
+import { readdirSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -20,6 +21,12 @@ export interface StorePaths {
   claudeConfigDirs: string[];
   /** The `projects/` dir under each of `claudeConfigDirs`, same order. */
   claudeProjectsDirs: string[];
+  /** `~/Library/Application Support/Claude/local-agent-mode-sessions` —
+   * Claude Desktop's Cowork sessions, each with its own `.claude` dir. */
+  claudeDesktopSessionsRoot: string;
+  /** The Cowork `projects/` dirs found under `claudeDesktopSessionsRoot`,
+   * sorted. Empty off macOS. Also the tail of `claudeProjectsDirs`. */
+  claudeCoworkProjectsDirs: string[];
   /** `~/.codex`, or `CODEX_HOME` when set — Codex CLI's home; rollouts,
    * config, skills, caches. */
   codexRoot: string;
@@ -102,6 +109,46 @@ export function claudeConfigDirsOf(
   return out;
 }
 
+/** How many directory levels below the Cowork root are searched. */
+const COWORK_WALK_DEPTH = 5;
+
+/**
+ * The `projects/` dirs of Claude Desktop's Cowork sessions:
+ *
+ *   <root>/<account>/<org>/local_<id>/.claude/projects
+ *   <root>/<account>/<org>/agent/local_ditto_<id>/.claude/projects
+ *
+ * Walks at most five levels down (account, org, agent, session, `.claude`) for a `projects` dir whose parent is `.claude`,
+ * and doesn't go inside one. Anything with `audit` in its path is skipped:
+ * `audit.jsonl` sits beside `.claude/` and repeats the session's usage.
+ * `claude-code-sessions/` next to the root holds manifests only and is never
+ * visited. macOS only; the other platforms keep Claude Desktop's data
+ * elsewhere, and this isn't resolved for them. Sorted, so runs agree.
+ */
+export function coworkProjectsDirsOf(root: string, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform !== "darwin") return [];
+  const found: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.toLowerCase().includes("audit")) continue;
+      const child = path.join(dir, entry.name);
+      if (entry.name === "projects" && path.basename(dir) === ".claude") {
+        found.push(child);
+      } else if (depth < COWORK_WALK_DEPTH) {
+        walk(child, depth + 1);
+      }
+    }
+  };
+  walk(root, 0);
+  return found.filter((p) => !p.toLowerCase().includes("audit")).sort();
+}
+
 /** Codex's home: `CODEX_HOME` when it's set and non-empty, else `~/.codex`. */
 export function codexHomeOf(home: string, env: NodeJS.ProcessEnv): string {
   const entry = env.CODEX_HOME?.trim();
@@ -110,9 +157,12 @@ export function codexHomeOf(home: string, env: NodeJS.ProcessEnv): string {
 
 export function resolveStorePaths(
   home: string = os.homedir(),
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
 ): StorePaths {
   const appSupport = path.join(home, "Library", "Application Support");
+  const claudeDesktopSessionsRoot = path.join(appSupport, "Claude", "local-agent-mode-sessions");
+  const claudeCoworkProjectsDirs = coworkProjectsDirsOf(claudeDesktopSessionsRoot, platform);
   const claude = claudeConfigDirsOf(home, env);
   const codexRoot = codexHomeOf(home, env);
   return {
@@ -121,7 +171,9 @@ export function resolveStorePaths(
     claudeProjects: claude[0].projectsDir,
     claudeSettings: path.join(claude[0].configDir, "settings.json"),
     claudeConfigDirs: claude.map((c) => c.configDir),
-    claudeProjectsDirs: claude.map((c) => c.projectsDir),
+    claudeProjectsDirs: [...claude.map((c) => c.projectsDir), ...claudeCoworkProjectsDirs],
+    claudeDesktopSessionsRoot,
+    claudeCoworkProjectsDirs,
     codexRoot,
     codexSessions: path.join(codexRoot, "sessions"),
     codexArchivedSessions: path.join(codexRoot, "archived_sessions"),

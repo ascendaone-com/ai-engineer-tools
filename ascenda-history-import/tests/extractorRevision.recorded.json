@@ -1,0 +1,14 @@
+{
+  "claude_code": {
+    "revision": 2,
+    "outputHash": "39b312085de431e0c9902f4f9f2e7d832abe9050f610405cf53a1c7e4c031ced"
+  },
+  "copilot_cli": {
+    "revision": 1,
+    "outputHash": "f7fcb3f28b5d8bf83438833d9e8b12b739bfc4805d07e411b6a1c3f7830d9e2c"
+  },
+  "codex": {
+    "revision": 2,
+    "outputHash": "805317bdbf22315ceea8683d7636d28c3a879c8cfc0bf7831f1d4242dad00cc1"
+  }
+}

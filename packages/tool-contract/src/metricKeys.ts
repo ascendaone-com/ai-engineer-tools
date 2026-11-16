@@ -32,10 +32,11 @@
  *                wrong the key is silently dropped, which is the bug above.
  * - `handoff`  — `localHandoff.ts` reads it for the desktop app, on the
  *                machine. This names a READER, not an egress rule: `ship.ts`
- *                copies every `metrics` entry into wire metadata, so a
- *                `handoff` key still travels. Read the other way round —
- *                "handoff means it stays local" — this list would be a
- *                disclosure claim it cannot keep.
+ *                copies a `metrics` entry into wire metadata whoever reads
+ *                it, so a `handoff` key still travels. Read the other way
+ *                round — "handoff means it stays local" — this list would be
+ *                a disclosure claim it cannot keep. The egress rule is
+ *                `family: "local"`, below.
  * - `diagnostic` — read by neither, and meant to be. These are the honesty
  *                counters: unparsed lines, unreadable files, which timeline
  *                fallback dated a session. They exist so a reader can tell
@@ -128,6 +129,12 @@ const CONTEXT_WINDOW_CANONICAL_ALIASES = [
 const CONTEXT_WINDOW_CURSOR_PERCENT_ALIASES = ["contextUsagePercent"] as const;
 
 export const METRIC_KEYS = {
+  extractorRevision: {
+    family: "transport",
+    readBy: ["backend"],
+    backendAliases: ["extractorRevision"],
+    note: "Which rung of the store's extractor produced the row; the backend replaces a stored row when a higher one arrives under the same importKey."
+  },
   // ── Read by a backend reader ────────────────────────────────────────────
   contextWindowPeakPct: {
     family: "context",
@@ -147,8 +154,12 @@ export const METRIC_KEYS = {
   sessionMinutes: { family: "session", readBy: ["backend"], backendAliases: ["sessionMinutes", "session_minutes"], unit: "minutes" },
   durationBucket: { family: "session", readBy: ["backend", "handoff"], backendAliases: ["durationBucket", "duration_bucket"] },
   afterHoursPrompts: { family: "clock", readBy: ["backend", "handoff"], backendAliases: ["afterHoursPrompts", "after_hours_prompts"] },
+  /** Input tokens billed at the full rate: cache reads and cache writes
+   * excluded. Every extractor ships it on this definition, so
+   * `inputTokens + cacheReadTokens + cacheCreationTokens` is the whole input. */
   inputTokens: { family: "context", readBy: ["backend"], backendAliases: ["inputTokens", "input_tokens"], unit: "tokens" },
   outputTokens: { family: "context", readBy: ["backend"], backendAliases: ["outputTokens", "output_tokens"], unit: "tokens" },
+  /** Input tokens served from the prompt cache. Not part of `inputTokens`. */
   cacheReadTokens: { family: "context", readBy: ["backend"], backendAliases: ["cacheReadTokens", "cache_read_tokens"], unit: "tokens" },
   queuedPrompts: { family: "counts", readBy: ["backend"], backendAliases: ["queuedPrompts", "queued_prompts"] },
   linesChangedBucket: { family: "edits", readBy: ["backend"], backendAliases: ["linesChangedBucket", "lines_changed_bucket"] },
@@ -172,6 +183,58 @@ export const METRIC_KEYS = {
     note: "forgeBranchKey of the repository and the branch a commit is reachable from. Absent on the default branch, like the live hooks."
   },
 
+  // Codex's own usage-limit readings: `rate_limits` on its token_count lines,
+  // main thread only. The limit's id and name, the plan and the credit
+  // balance on the same object are never read. A session whose rollouts
+  // carried no readings has none of these keys.
+  //
+  // `family: "local"`, all seven. They say how much of an allowance was left
+  // on an account with the provider, which is a fact about the account and
+  // not about how the work went, so they are read on the machine and never
+  // sent. `ship.ts` leaves a `local` key out of the wire payload, and
+  // `localMetricKeys.test.mjs` holds it to that.
+  usageLimitShortPeakPct: {
+    family: "local",
+    readBy: ["handoff"],
+    unit: "percent (0–100), whole number",
+    note: "Stays on the machine: an account's allowance, not the work. The largest used_percent of the short (primary) window the session saw. Five hours on every build seen; usageLimitShortWindowMinutes says. Each day slice carries that day's own peak under the same name."
+  },
+  usageLimitLongPeakPct: {
+    family: "local",
+    readBy: ["handoff"],
+    unit: "percent (0–100), whole number",
+    note: "Stays on the machine, as the short window does. The same for the long (secondary) window. Weekly on every build seen."
+  },
+  usageLimitShortWindowMinutes: {
+    family: "local",
+    readBy: ["handoff"],
+    unit: "minutes",
+    note: "Stays on the machine. The short window's size as the rollout reported it, never assumed."
+  },
+  usageLimitLongWindowMinutes: {
+    family: "local",
+    readBy: ["handoff"],
+    unit: "minutes",
+    note: "Stays on the machine. The long window's size as the rollout reported it."
+  },
+  usageLimitReached: {
+    family: "local",
+    readBy: ["handoff"],
+    unit: "boolean",
+    note: "Stays on the machine. True when a reading carried a non-null rate_limit_reached_type. Present only beside the peaks."
+  },
+  usageLimitReachedType: {
+    family: "local",
+    readBy: ["handoff"],
+    note: "Stays on the machine. Which limit was hit: primary, secondary, or other for any value outside that list."
+  },
+  usageLimitFirstReachedAt: {
+    family: "local",
+    readBy: ["handoff"],
+    unit: "ISO 8601 instant",
+    note: "Stays on the machine. The first reading that carried a reached type."
+  },
+
   // ── Read by the local handoff only ──────────────────────────────────────
   activeMinutes: { family: "session", readBy: ["handoff"], unit: "minutes" },
   syntheticPromptLines: {
@@ -179,6 +242,12 @@ export const METRIC_KEYS = {
     readBy: ["handoff"],
     unit: "lines",
     note: "Main-thread user lines the runtime wrote on the person's behalf (notifications, its own bookkeeping, slash-command wrappers, interrupt markers) and promptCount left out. Claude Code only; the receipt for the handoff's promptBasis. Counted per transcript, so a resumed transcript's copies count again."
+  },
+  repeatedLines: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    unit: "lines",
+    note: "Lines read but left out of every count because they repeat one already read: a uuid seen earlier in the same transcript (a resume can write the same lines twice), or, in a forked subagent's transcript, a line its parent's main transcript holds. Claude Code only; shipped when above 0."
   },
   dispatchedPromptLines: {
     family: "reading",
@@ -364,6 +433,76 @@ export const METRIC_KEYS = {
   subagentAssistantTurns: { family: "counts", readBy: ["diagnostic"] },
   subagentPrompts: { family: "counts", readBy: ["diagnostic"] },
   subagentTokensTotal: { family: "context", readBy: ["diagnostic"] },
+  // ── Cost-finding evidence (Claude Code). Counts only: skill, MCP server and
+  // agent names stay on the machine. Each family ships behind its own seen
+  // flag, so an absent key means "not measured", never zero.
+  skillListingSeen: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: true when the transcript listed the skills in context (a skill_listing attachment). Without it the session ships no skill keys, since a skill can't be called unused off a list nobody saw. The backend reader arrives in its own change."
+  },
+  skillsListed: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: how many skills were in the session's context at the end, from its skill_listing attachments (an initial listing replaces the set, a later one adds to it). A count; the names aren't read past the fold. Shipped with skillListingSeen. The backend reader arrives in its own change."
+  },
+  skillsInvoked: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: distinct listed skills the session loaded, from invoked_skills attachments and Skill tool calls, main thread and subagents. Shipped with skillListingSeen. The backend reader arrives in its own change."
+  },
+  mcpListingSeen: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: true when the transcript recorded which MCP servers were in context (mcp_instructions_delta or deferred_tools_delta). Without it the session ships no MCP keys. The backend reader arrives in its own change."
+  },
+  mcpServersLoaded: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: distinct MCP servers in context at the end: servers with instructions, servers with deferred tools, and any server whose tool was called. Shipped with mcpListingSeen. The backend reader arrives in its own change."
+  },
+  mcpServersUsed: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: distinct MCP servers whose tools the session called, main thread and subagents, read from the raw mcp__<server>__<tool> name before toolName truncation. Shipped with mcpListingSeen. The backend reader arrives in its own change."
+  },
+  mcpServersFailed: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: distinct MCP servers a deferred_tools_delta reported as failed and that never loaded later in the session. Shipped with mcpListingSeen. The backend reader arrives in its own change."
+  },
+  speedSeen: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: true once any owned assistant line carried usage.speed. Without it fastTurns and subagentFastTurns are absent, because the build didn't record the field. The backend reader arrives in its own change."
+  },
+  fastTurns: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: main-thread API messages (one per message, however many lines it spans) whose usage.speed was fast. Shipped with speedSeen. The backend reader arrives in its own change."
+  },
+  subagentFastTurns: {
+    family: "subagents",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: subagent API messages whose usage.speed was fast, counted like fastTurns. Shipped with speedSeen. The backend reader arrives in its own change."
+  },
+  deepTurns200k: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "messages",
+    note: "Claude Code only: main-thread API messages whose context (input + cache read + cache write tokens) was above 200,000. A fixed cut point, so sessions compare without the raw series. The backend reader arrives in its own change."
+  },
+  deepTurns400k: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "messages",
+    note: "Claude Code only: the same count above 400,000 tokens. The backend reader arrives in its own change."
+  },
+  premiumSubagents: {
+    family: "subagents",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: subagents whose receipt modelClass is in PREMIUM_MODEL_CLASSES (tool-kit: anthropic:opus, anthropic:fable). 0 for a session with no subagents. The backend reader arrives in its own change."
+  },
   advisorMessageCount: {
     family: "counts",
     readBy: ["diagnostic"],
@@ -375,6 +514,8 @@ export const METRIC_KEYS = {
     unit: "tokens",
     note: "Claude Code only: input, output and cache tokens spent by advisor calls. A part of the session totals, not an addition to them."
   },
+  /** Input tokens written to the prompt cache. Not part of `inputTokens`.
+   * Absent, never 0, where the store doesn't record the figure. */
   cacheCreationTokens: {
     family: "context",
     readBy: ["diagnostic"],
@@ -428,7 +569,7 @@ export const METRIC_KEYS = {
   clientName: {
     family: "session",
     readBy: ["diagnostic"],
-    note: "Copilot CLI only: workspace.yaml's client_name, one constant word naming what started the CLI (vscode, vscode-agent-host). Absent on sessions written before the field existed, which were the standalone CLI."
+    note: "Copilot CLI: workspace.yaml's client_name, one constant word naming what started the CLI (vscode, vscode-agent-host); absent on sessions written before the field existed, which were the standalone CLI. Claude Code: claude-desktop-cowork on sessions read from Claude Desktop's Cowork config dirs, absent on the rest."
   },
   totalApiDurationMs: {
     family: "session",
@@ -486,6 +627,11 @@ export const METRIC_KEYS = {
   unparsedBubbles: { family: "reading", readBy: ["diagnostic"] },
   unparsedChatSessionFiles: { family: "reading", readBy: ["diagnostic"] },
   unparsedHistoryFiles: { family: "reading", readBy: ["diagnostic"] },
+  duplicateRolloutFiles: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    note: "Codex only: rollout files skipped because the same rollout sat under both sessions/ and archived_sessions/. One copy is read; the other would have counted its prompts and tool calls twice."
+  },
   unparsedLines: { family: "reading", readBy: ["diagnostic"] },
   unreadableChatSessionFiles: { family: "reading", readBy: ["diagnostic"] },
   unreadableHistoryFiles: { family: "reading", readBy: ["diagnostic"] },
@@ -503,6 +649,19 @@ export type MetricKey = keyof typeof METRIC_KEYS;
 
 /** The value shape of `metrics{}`: flat, bucketed, never free text. */
 export type MetricValue = number | string | boolean;
+
+/**
+ * Keys that are read on the machine and never sent. `ship.ts` filters on this
+ * list, so declaring `family: "local"` is what keeps a key off the wire. A
+ * `local` key names no backend reader: there is nothing there to read.
+ */
+export function localMetricKeys(): ReadonlySet<MetricKey> {
+  return new Set(
+    (Object.entries(METRIC_KEYS) as Array<[MetricKey, MetricKeySpec]>)
+      .filter(([, spec]) => spec.family === "local")
+      .map(([key]) => key)
+  );
+}
 
 /** Keys a server-side reader resolves, with the spellings it accepts. */
 export function backendMetricKeys(): ReadonlyArray<readonly [MetricKey, readonly string[]]> {

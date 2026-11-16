@@ -42,6 +42,9 @@ export const RELEASE_CHECK_RETRY_MS = 60 * 60 * 1000;
 
 const FETCH_TIMEOUT_MS = 3000;
 
+/** The longest manifest `summary` we'll keep. The release script cuts to the same number. */
+const SUMMARY_MAX_CHARS = 200;
+
 export interface ReleaseCheck {
   /** When a fetch last succeeded. */
   checkedAt?: string;
@@ -51,6 +54,8 @@ export interface ReleaseCheck {
   minCollectorVersion?: string;
   /** Major version of Node the latest release needs. */
   minNode?: number;
+  /** One or two sentences on what the latest release does, from its changelog. */
+  latestSummary?: string;
   /** The latest release a "newer release" note was shown for, so it's shown once. */
   notifiedFor?: string;
 }
@@ -162,7 +167,7 @@ export async function refreshReleaseCheck(options: RefreshReleaseCheckOptions = 
   return next;
 }
 
-async function fetchManifest(fetchImpl: typeof fetch): Promise<Pick<ReleaseCheck, "latestVersion" | "minCollectorVersion" | "minNode"> | undefined> {
+async function fetchManifest(fetchImpl: typeof fetch): Promise<Pick<ReleaseCheck, "latestVersion" | "latestSummary" | "minCollectorVersion" | "minNode"> | undefined> {
   try {
     const response = await fetchImpl(RELEASE_MANIFEST_URL, {
       headers: { accept: "application/json" },
@@ -170,12 +175,14 @@ async function fetchManifest(fetchImpl: typeof fetch): Promise<Pick<ReleaseCheck
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
     });
     if (!response.ok) return undefined;
-    const manifest = await response.json() as { version?: unknown; minNode?: unknown; compatibility?: { minCollectorVersion?: unknown } };
+    const manifest = await response.json() as { version?: unknown; summary?: unknown; minNode?: unknown; compatibility?: { minCollectorVersion?: unknown } };
     const latestVersion = typeof manifest.version === "string" && parseRelease(manifest.version) ? manifest.version : undefined;
     if (!latestVersion) return undefined;
     const floor = manifest.compatibility?.minCollectorVersion;
+    const summary = typeof manifest.summary === "string" ? manifest.summary.trim() : "";
     return {
       latestVersion,
+      ...(summary && summary.length <= SUMMARY_MAX_CHARS ? { latestSummary: summary } : {}),
       ...(typeof floor === "string" && parseRelease(floor) ? { minCollectorVersion: floor } : {}),
       ...(typeof manifest.minNode === "number" ? { minNode: manifest.minNode } : {})
     };
@@ -228,9 +235,10 @@ export function pendingReleaseNotice(options: ReleaseNoticeOptions): { text: str
     ? ` ${standing.latest} needs Node ${check.minNode} or newer and these hooks run on Node ${nodeMajor}, so update Node first.`
     : "";
   const run = `Run \`${options.setupCommand}\`, then restart ${options.agentName}.`;
+  const news = standing.kind === "behind" && check.latestSummary ? ` What's new: ${check.latestSummary}` : "";
   const text = standing.kind === "unsupported"
     ? `Ascenda note: the Ascenda hooks here are ${installed}, older than the oldest supported release (${standing.floor}). ${run}${node} This note repeats each session until they're updated.`
-    : `Ascenda note: the Ascenda hooks here are ${installed}, and ${standing.latest} is out. ${run}${node} This note appears once per release.`;
+    : `Ascenda note: the Ascenda hooks here are ${installed}, and ${standing.latest} is out.${news} ${run}${node} This note appears once per release.`;
 
   return {
     text,
@@ -252,7 +260,8 @@ export function describeReleaseCheck(options: { installed: string; setupCommand:
   if (!standing) return `${check.latestVersion} (checked ${age})`;
   if (standing.kind === "current") return `${check.latestVersion}, up to date (checked ${age})`;
   const below = standing.kind === "unsupported" ? `, and ${options.installed} is below the oldest supported release (${standing.floor})` : "";
-  return `${check.latestVersion} (checked ${age})${below}. Update: ${options.setupCommand}`;
+  const news = check.latestSummary ? ` What's new: ${check.latestSummary}` : "";
+  return `${check.latestVersion} (checked ${age})${below}.${news} Update: ${options.setupCommand}`;
 }
 
 /** The release of the bundle `setup` installed under this name, or undefined when there isn't one. */

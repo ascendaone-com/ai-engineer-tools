@@ -157,6 +157,17 @@ Codex's `Stop` payload carries no duration, so the adapter measures it:
 (override with `ASCENDA_STATE_DIR`), and `Stop` consumes it. Any state failure
 degrades to "no duration" — never to a hook error.
 
+## Usage-limit readings
+
+The hooks send none. Codex writes its own usage-limit readings into the
+session's rollout, and they say how much of an allowance was left on an
+account, not how the work went. No hook opens the rollout for them and no
+event carries them.
+
+The history import reads them from the rollout into the local handoff, where
+the desktop app can show them on the same machine. It doesn't send them
+either.
+
 ## Hook safety contract
 
 Codex treats **exit code 2 as blocking** the user's action and awaits command

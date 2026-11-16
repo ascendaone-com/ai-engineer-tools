@@ -12,21 +12,86 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.44
 
-### History import keeps its staging small
+### Codex usage limits stay on your machine
 
-- **`import` keeps the output of its two newest runs.** Each run leaves an
-  `events.jsonl` under `~/.ascenda/history-import/staging/`, and on a busy
-  machine one runs to about 200 MB. Older runs used to stay forever. Now
-  every run removes run directories older than the newest two, at the start
-  and again when it finishes. `--keep-staging` skips the cleanup at the end.
-- **Every run prints `staging on disk`.** It sits next to the archive's own
-  size line, so you can see what the importer holds.
-- The archive is never touched. Folders in staging that the importer didn't
-  name are left in place.
+v0.1.43 sent Codex's usage-limit readings with your sessions. They say how
+much of your allowance was left, which is about your account and not your
+work, so they no longer leave the machine.
+
+- **The import keeps them local.** The peaks, the window sizes and whether a
+  limit was hit go into the local handoff for the desktop app, per session
+  and per day. None of them is sent.
+- **Codex hooks stopped reading them.** `ai_turn_completed` no longer carries
+  the two percentages, and the hook doesn't open the rollout for them. Run
+  Codex's `setup` again to pick this up.
+- The setup disclosure no longer mentions usage limits, because nothing about
+  them is sent.
 
 ## v0.1.43
 
+Corrected import figures for Codex and Claude Code, Codex usage-limit
+readings, Claude Desktop Cowork sessions, and an update check that tells you
+what changed.
+
+### History import corrections
+
+- **A re-run corrects what it sent.** Each imported session now carries the
+  version of the reader that produced it. When a later release reads a store
+  better, running the import again replaces that session's earlier figures.
+  The summary counts those sessions as `revised`.
+- **Codex tokens mean what they mean everywhere else.** `inputTokens` is
+  uncached input. Cache reads go in `cacheReadTokens` and cache writes in
+  `cacheCreationTokens`, so the three add up to the whole input. Expect Codex
+  input figures to drop on the next run. Older rollouts that never recorded
+  cache writes send no `cacheCreationTokens`.
+- **Codex drift warnings are quiet again.** Current rollouts write
+  `token_usage_record` and `item_completed` lines, and the import knows both.
+  A rollout found under both `sessions/` and `archived_sessions/` is read
+  once, and large rollouts are read as a stream.
+- **Resumed Claude Code sessions count each line once.** A resume replays
+  earlier lines into the same transcript. Those repeats used to count again,
+  so resumed sessions now report fewer tool calls, tool results, failures and
+  API errors. A forked subagent counts only its own lines.
+- **Claude Desktop Cowork sessions are found.** On macOS the import reads
+  them from Claude Desktop's own folder and marks them with
+  `clientName: "claude-desktop-cowork"`.
+- Two imports finishing at the same moment both succeed. One used to exit
+  with `ENOENT` on a `.tmp` file.
+
+### Codex usage limits
+
+Codex writes its own usage-limit readings into every rollout. Reading them
+needs no credential and no network call.
+
+- **The import sends the peaks.** Each Codex session gets the highest
+  five-hour and weekly percentages it saw, the window sizes as Codex
+  reported them, and whether and when a limit was hit. Day slices carry each
+  day's own peaks.
+- **Codex hooks send them live.** At the end of a turn, `ai_turn_completed`
+  carries the two percentages. Run Codex's `setup` again to pick this up.
+- The plan name, credits and limit ids are never read.
+
+### Counts for spotting avoidable spend
+
+Claude Code sessions in the import now carry counts that show where a
+setting costs more than the work needs:
+
+- skills listed and skills used
+- MCP servers loaded, used and failed
+- fast-mode turns, on the main thread and in subagents
+- turns past 200k and 400k tokens of context
+- subagents on a premium model, with each subagent's model class
+
+Names stay on your machine. Only counts and model classes are sent. A
+session whose transcript didn't record a family sends none of its keys, so a
+missing count means unknown, not zero.
+
 ### Hear about a new release
+
+- **The note says what changed.** When a newer release is out, the note at
+  the start of a session and the `latest` line in `status` carry a sentence
+  or two from that release's notes, so you can judge whether it's worth the
+  restart.
 
 - **A paired install checks for a newer release once a day.** After the
   background sender has sent your events, it fetches the release manifest

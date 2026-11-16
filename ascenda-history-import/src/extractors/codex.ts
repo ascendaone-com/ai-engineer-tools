@@ -18,9 +18,9 @@
  *    its own rollout, which is skipped so it isn't counted twice;
  *  - a subagent thread folds into the session that spawned it.
  * With history compression on, rollouts are `.jsonl.zst`; see
- * `decompressZstd` for how they're read.
+ * `zstdLines` for how they're read.
  *
- * Everything the import needs sits on five top-level types:
+ * Everything the import needs sits on six top-level types:
  *  - `session_meta` — the first line: `id` (`session_id` beside it on newer
  *    builds), `cwd`, `cli_version`, `originator`, `git.branch`.
  *  - `turn_context` — one per turn: `model`, `cwd`, `approval_policy`,
@@ -33,6 +33,9 @@
  *    `local_shell_call`, `web_search_call`, `tool_search_call`,
  *    `image_generation_call`), their outputs, and the compaction items.
  *  - `compacted` — the rollout's own record of a context compaction.
+ *  - `token_usage_record` — written beside each `token_count` on current
+ *    builds, with the thread's cumulative total in `thread_token_usage` and
+ *    the thread it belongs to in `thread_id`.
  *
  * The classification everything else rests on: **a human prompt is an
  * `event_msg` of type `user_message`, never a `response_item` message with
@@ -60,9 +63,17 @@
  *  - **Tokens**: `token_count.info.total_token_usage` is cumulative for the
  *    session, so the session totals are the largest cumulative figure seen
  *    (largest, not last — a `thread_rolled_back` can move it backwards).
- *    `last_token_usage.input_tokens` is the last request's whole input and
- *    already includes `cached_input_tokens`, so it is the context occupancy
- *    of that request; the session peak is the largest of them.
+ *    `token_usage_record.thread_token_usage` is the same running total under
+ *    the same field names, folded by the same max, so a rollout carrying
+ *    both lines comes out as if it carried one. Codex's `input_tokens`
+ *    counts `cached_input_tokens` and `cache_write_input_tokens` inside it;
+ *    `inputTokens` ships with both taken out, the uncached input every other
+ *    store ships under that key, and the two cache figures ship as
+ *    `cacheReadTokens` and `cacheCreationTokens`. A rollout from before
+ *    `cache_write_input_tokens` existed ships no `cacheCreationTokens`.
+ *    `last_token_usage.input_tokens` is the last request's whole input,
+ *    cache included, so it is the context occupancy of that request; the
+ *    session peak is the largest of them.
  *  - **Context window**: `info.model_context_window` (also on
  *    `task_started`) is the model's real window, so `contextWindowPeakPct`
  *    here divides by what the store recorded rather than by the 200k Claude
@@ -103,17 +114,18 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { createReadStream } from "node:fs";
+import { pipeline } from "node:stream";
+import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { bucketDurationMs, isOutsideBusinessHours, modelRouteFromCodexProvider, modelRouteFromSlug } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
+import { foldUsageLimits, newUsageLimitTrack, usageLimitMetrics, type UsageLimitTrack } from "../usageLimitFold.js";
 import { modelTurnsMetrics } from "../modelTurns.js";
 import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
 import { DEFAULT_ACTIVE_GAP_MS, activeSpans, minutesOf, splitActiveTime, type ActiveInstant } from "../activeSplit.js";
-
-const execFileAsync = promisify(execFile);
 
 /** Top-level line types the extractor reads fields from. */
 export const KNOWN_CODEX_LINE_TYPES = [
@@ -121,7 +133,8 @@ export const KNOWN_CODEX_LINE_TYPES = [
   "turn_context",
   "response_item",
   "event_msg",
-  "compacted"
+  "compacted",
+  "token_usage_record"
 ] as const;
 export type CodexLineType = (typeof KNOWN_CODEX_LINE_TYPES)[number];
 
@@ -131,6 +144,15 @@ export type CodexLineType = (typeof KNOWN_CODEX_LINE_TYPES)[number];
  * mean a type nobody has classified yet — the only kind worth alerting on.
  */
 export const META_CODEX_LINE_TYPES = new Set(["world_state"]);
+
+/**
+ * `event_msg` payload types that are recognised and read for nothing.
+ * `item_completed` repeats, once an item finishes, a tool call, message or
+ * reasoning item the rollout already wrote as a `response_item`. Counting it
+ * would count each call twice, and placing it on the timeline would add an
+ * instant for work already placed. It counts as a `metaLines` line.
+ */
+export const META_EVENT_MSG_TYPES = new Set(["item_completed"]);
 
 /** `response_item` payload types this extractor recognises. A type not here
  * counts as an unknown line — the drift signal — rather than being skipped. */
@@ -232,6 +254,9 @@ export function sniffCodexLine(line: string): SniffedCodexLine {
   let subtype: string | null = null;
   if (type === "response_item" || type === "event_msg") {
     subtype = typeof payload.type === "string" ? payload.type : null;
+    if (type === "event_msg" && subtype !== null && META_EVENT_MSG_TYPES.has(subtype)) {
+      return { kind: "meta", type: `${type}:${subtype}` };
+    }
     const known = type === "response_item" ? KNOWN_RESPONSE_ITEM_TYPES : KNOWN_EVENT_MSG_TYPES;
     if (subtype === null || !known.has(subtype)) {
       return { kind: "unknown", type: `${type}:${subtype ?? "?"}` };
@@ -288,20 +313,33 @@ export function isToolOutputFailure(payload: Record<string, unknown>): boolean {
   return match !== null && match[1] !== "0";
 }
 
+/**
+ * A cumulative token figure as Codex writes it. `input` is Codex's own
+ * `input_tokens`, which counts `cached` and `cacheWrite` inside it; it is kept
+ * that way here because the fork-replay check and the subagent delta compare
+ * raw cumulative inputs. The cache parts come off only at emission.
+ */
 interface TokenTotals {
   input: number;
   output: number;
   cached: number;
+  cacheWrite: number;
 }
 
-const NO_TOKENS: TokenTotals = { input: 0, output: 0, cached: 0 };
+const NO_TOKENS: TokenTotals = { input: 0, output: 0, cached: 0, cacheWrite: 0 };
 
 function maxTokens(a: TokenTotals, b: TokenTotals): TokenTotals {
   return {
     input: Math.max(a.input, b.input),
     output: Math.max(a.output, b.output),
-    cached: Math.max(a.cached, b.cached)
+    cached: Math.max(a.cached, b.cached),
+    cacheWrite: Math.max(a.cacheWrite, b.cacheWrite)
   };
+}
+
+/** Input billed at the full rate: what `inputTokens` means on every store. */
+function uncachedInputOf(t: TokenTotals): number {
+  return Math.max(0, t.input - t.cached - t.cacheWrite);
 }
 
 /**
@@ -322,10 +360,14 @@ interface TokenTrack {
    * Rollouts written before those events existed have none, and a replayed
    * parent figure doesn't count: the thread itself was not measured. */
   seen: boolean;
+  /** Whether one of this thread's own totals carried
+   * `cache_write_input_tokens`. Builds before the field existed don't, and
+   * their sessions ship no `cacheCreationTokens` rather than a 0. */
+  cacheWriteSeen: boolean;
 }
 
 function newTokenTrack(): TokenTrack {
-  return { own: { ...NO_TOKENS }, replayed: null, settled: false, seen: false };
+  return { own: { ...NO_TOKENS }, replayed: null, settled: false, seen: false, cacheWriteSeen: false };
 }
 
 function ownTokensOf(track: TokenTrack): TokenTotals {
@@ -333,18 +375,54 @@ function ownTokensOf(track: TokenTrack): TokenTotals {
   return {
     input: Math.max(0, track.own.input - base.input),
     output: Math.max(0, track.own.output - base.output),
-    cached: Math.max(0, track.own.cached - base.cached)
+    cached: Math.max(0, track.own.cached - base.cached),
+    cacheWrite: Math.max(0, track.own.cacheWrite - base.cacheWrite)
   };
 }
 
-function totalsOf(info: Record<string, unknown>): TokenTotals | null {
-  const total = asRecord(info.total_token_usage);
+/** One cumulative total as read off a line, and whether it reported cache
+ * writes at all. */
+interface TokenReading {
+  totals: TokenTotals;
+  reportsCacheWrite: boolean;
+}
+
+/** A cumulative usage object: `token_count.info.total_token_usage`, or
+ * `token_usage_record.thread_token_usage`. Both use the same field names. */
+function readingOf(usage: unknown): TokenReading | null {
+  const total = asRecord(usage);
   if (!total) return null;
   return {
-    input: asNumber(total.input_tokens),
-    output: asNumber(total.output_tokens),
-    cached: asNumber(total.cached_input_tokens)
+    totals: {
+      input: asNumber(total.input_tokens),
+      output: asNumber(total.output_tokens),
+      cached: asNumber(total.cached_input_tokens),
+      cacheWrite: asNumber(total.cache_write_input_tokens)
+    },
+    reportsCacheWrite: typeof total.cache_write_input_tokens === "number"
   };
+}
+
+/** The cumulative total a line carries, for the two line types that carry one. */
+function readingOfLine(sniffed: { kind: string; subtype: string | null; payload: Record<string, unknown> }): TokenReading | null {
+  if (sniffed.kind === "event_msg" && sniffed.subtype === "token_count") {
+    return readingOf(asRecord(sniffed.payload.info)?.total_token_usage);
+  }
+  if (sniffed.kind === "token_usage_record") return readingOf(sniffed.payload.thread_token_usage);
+  return null;
+}
+
+/** Folds one of a thread's own totals into its counter. The first reading
+ * after a fork's replay decides whether the counter carried on from the
+ * parent's figure or restarted; see `TokenTrack`. */
+function foldOwnReading(track: TokenTrack, reading: TokenReading): void {
+  if (track.replayed && !track.settled && reading.totals.input < track.replayed.input) {
+    track.replayed = null;
+  }
+  track.settled = true;
+  track.seen = true;
+  if (reading.reportsCacheWrite) track.cacheWriteSeen = true;
+  track.own = maxTokens(track.own, reading.totals);
 }
 
 interface SessionFold {
@@ -378,6 +456,8 @@ interface SessionFold {
   modelSwitchCount: number;
   /** `turn_context.effort` on the session's own turns. See effortFold.ts. */
   effort: EffortTrack;
+  /** `token_count.rate_limits` on the session's own thread. See usageLimitFold.ts. */
+  usageLimits: UsageLimitTrack;
   compactedItems: number;
   contextCompactedEvents: number;
   toolResultErrorCount: number;
@@ -423,6 +503,7 @@ function newFold(sessionId: string): SessionFold {
     lastModel: null,
     modelSwitchCount: 0,
     effort: newEffortTrack(),
+    usageLimits: newUsageLimitTrack(),
     compactedItems: 0,
     contextCompactedEvents: 0,
     toolResultErrorCount: 0,
@@ -586,12 +667,23 @@ function compactionCountOf(fold: SessionFold): number {
   return fold.compactedItems > 0 ? fold.compactedItems : fold.contextCompactedEvents;
 }
 
-function firstSessionMeta(lines: string[]): Record<string, unknown> | null {
-  for (const line of lines) {
-    const sniffed = sniffCodexLine(line);
-    if (sniffed.kind === "session_meta") return sniffed.payload;
-  }
-  return null;
+/**
+ * The counter a `token_usage_record` belongs on, by its `thread_id`. Absent or
+ * naming this rollout's own thread, it's this rollout's counter. Naming the
+ * session's main thread or a subagent thread already folded in, it's that
+ * thread's. A thread this session hasn't seen is left out: its figure is
+ * cumulative for a thread whose rollout wasn't read here, and no counter
+ * here can hold it without guessing.
+ */
+function trackForThread(
+  fold: SessionFold,
+  identity: RolloutIdentity,
+  current: TokenTrack,
+  threadId: string | null
+): TokenTrack | null {
+  if (threadId === null || threadId === identity.threadId) return current;
+  if (threadId === fold.sessionId) return fold.tokens;
+  return fold.subagentThreads.get(threadId) ?? null;
 }
 
 /**
@@ -605,7 +697,7 @@ function firstSessionMeta(lines: string[]): Record<string, unknown> | null {
  * (long turns, compactions, context peak, model switches) stay the
  * thread's own, since a subagent's turn runs inside one of the parent's.
  */
-function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIdentity): void {
+async function foldLinesInto(fold: SessionFold, lines: AsyncIterable<string>, identity: RolloutIdentity): Promise<void> {
   const sub = identity.isSubagent;
   let track = fold.tokens;
   if (sub) {
@@ -617,7 +709,7 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
   let replaying = false;
   let lastReplayMs: number | null = null;
 
-  for (const line of lines) {
+  for await (const line of lines) {
     const sniffed = sniffCodexLine(line);
     if (sniffed.kind === "unparsed") {
       if (line.trim() !== "") fold.unparsedLines += 1;
@@ -639,11 +731,8 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
         // the fork's own counter can be told apart from it.
         if (Number.isFinite(ms)) lastReplayMs = Math.max(lastReplayMs ?? ms, ms);
         fold.metaLines += 1;
-        if (sniffed.kind === "event_msg" && sniffed.subtype === "token_count") {
-          const info = asRecord(sniffed.payload.info);
-          const totals = info ? totalsOf(info) : null;
-          if (totals) track.replayed = maxTokens(track.replayed ?? NO_TOKENS, totals);
-        }
+        const replayed = readingOfLine(sniffed);
+        if (replayed) track.replayed = maxTokens(track.replayed ?? NO_TOKENS, replayed.totals);
         continue;
       }
       replaying = false;
@@ -702,6 +791,17 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
         if (!sub) fold.compactedItems += 1;
         break;
       }
+      case "token_usage_record": {
+        // The thread's running total again, beside the `token_count` that
+        // carries the same figure. Folded by max like it, so no pairing is
+        // needed, and a rollout that writes only this line still has totals.
+        // `usage` and `turn_token_usage` are per response and per turn, and
+        // nothing here needs them.
+        const reading = readingOf(payload.thread_token_usage);
+        const target = trackForThread(fold, identity, track, nonEmptyString(payload.thread_id));
+        if (reading && target) foldOwnReading(target, reading);
+        break;
+      }
       case "event_msg": {
         switch (sniffed.subtype) {
           case "user_message": {
@@ -719,17 +819,14 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
             break;
           }
           case "token_count": {
+            // The provider's usage-limit readings ride on the same line, and
+            // often on one whose `info` is still null, so they're read first.
+            // A subagent thread reports the same account's figures again.
+            if (!sub) foldUsageLimits(fold.usageLimits, payload.rate_limits, sniffed.occurredAt);
             const info = asRecord(payload.info);
             if (!info) break;
-            const totals = totalsOf(info);
-            if (totals) {
-              if (track.replayed && !track.settled && totals.input < track.replayed.input) {
-                track.replayed = null;
-              }
-              track.settled = true;
-              track.seen = true;
-              track.own = maxTokens(track.own, totals);
-            }
+            const reading = readingOf(info.total_token_usage);
+            if (reading) foldOwnReading(track, reading);
             if (sub) break;
             const last = asRecord(info.last_token_usage);
             if (last) {
@@ -843,12 +940,8 @@ function foldLinesInto(fold: SessionFold, lines: string[], identity: RolloutIden
 export type ZstdDecoder = "auto" | "node" | "cli" | "none";
 const ZSTD_DECODERS: readonly ZstdDecoder[] = ["auto", "node", "cli", "none"];
 
-type ZstdDecompress = (buffer: Buffer, callback: (error: Error | null, result: Buffer) => void) => void;
-const nodeZstdDecompress = (zlib as unknown as { zstdDecompress?: ZstdDecompress }).zstdDecompress;
-
-/** Ceiling on one decompressed rollout read through the CLI. Rollouts run
- * to a few megabytes; this is far past any of them. */
-const ZSTD_MAX_BYTES = 1024 * 1024 * 1024;
+type ZstdDecompressStream = () => NodeJS.ReadWriteStream;
+const nodeCreateZstdDecompress = (zlib as unknown as { createZstdDecompress?: ZstdDecompressStream }).createZstdDecompress;
 
 /** The decoder an option or `ASCENDA_ZSTD_DECODER` names. An unrecognised
  * value falls back to `auto` rather than failing the whole store. */
@@ -857,31 +950,98 @@ export function zstdDecoderOf(choice: string | undefined): ZstdDecoder {
   return ZSTD_DECODERS.find((d) => d === value) ?? "auto";
 }
 
-async function decompressZstd(filePath: string, decoder: ZstdDecoder): Promise<string> {
+/** Lines out of a byte stream, split on `\n`, decoded as UTF-8 across chunk
+ * boundaries. Iterating the stream directly, rather than through `readline`,
+ * means a read or decode error ends the loop with that error. */
+async function* linesOf(chunks: AsyncIterable<Buffer | string>): AsyncGenerator<string> {
+  const decoder = new StringDecoder("utf8");
+  let rest = "";
+  for await (const chunk of chunks) {
+    rest += typeof chunk === "string" ? chunk : decoder.write(chunk);
+    let from = 0;
+    let nl = rest.indexOf("\n", from);
+    while (nl >= 0) {
+      yield rest.slice(from, nl);
+      from = nl + 1;
+      nl = rest.indexOf("\n", from);
+    }
+    rest = rest.slice(from);
+  }
+  rest += decoder.end();
+  if (rest !== "") yield rest;
+}
+
+/** A `.jsonl.zst` rollout's lines, decoded as they're read. */
+async function* zstdLines(filePath: string, decoder: ZstdDecoder): AsyncGenerator<string> {
   if (decoder === "none") throw new Error("zstd decoding is turned off");
-  if ((decoder === "auto" || decoder === "node") && typeof nodeZstdDecompress === "function") {
-    const compressed = await fs.readFile(filePath);
-    const out = await new Promise<Buffer>((resolve, reject) =>
-      nodeZstdDecompress(compressed, (error, result) => (error ? reject(error) : resolve(result)))
-    );
-    return out.toString("utf8");
+  if ((decoder === "auto" || decoder === "node") && typeof nodeCreateZstdDecompress === "function") {
+    // `pipeline` destroys the decoder with the source's error, so a failed
+    // read surfaces in the loop instead of ending it early and quietly.
+    const decoded = pipeline(createReadStream(filePath), nodeCreateZstdDecompress(), () => {});
+    yield* linesOf(decoded as AsyncIterable<Buffer>);
+    return;
   }
   if (decoder === "node") throw new Error("this Node has no built-in zstd");
-  const { stdout } = await execFileAsync("zstd", ["-dcq", "--", filePath], {
-    encoding: "buffer",
-    maxBuffer: ZSTD_MAX_BYTES
+  const child = spawn("zstd", ["-dcq", "--", filePath], { stdio: ["ignore", "pipe", "ignore"] });
+  const exited = new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code));
   });
-  return stdout.toString("utf8");
+  exited.catch(() => {});
+  // stdout can end before the process is reaped, so `exitCode` is still null
+  // after a clean decode. Kill only when the reader stopped before the end.
+  let readToEnd = false;
+  try {
+    yield* linesOf(child.stdout);
+    readToEnd = true;
+  } finally {
+    if (!readToEnd && child.exitCode === null) child.kill();
+  }
+  const code = await exited;
+  if (code !== 0) throw new Error(`zstd exited with ${code}`);
 }
 
 /**
- * A rollout's whole text. Read in full before any of it is folded, so a
- * file that fails partway leaves nothing half-counted in a session other
- * rollouts also feed.
+ * A rollout's lines, streamed: a plain `.jsonl` straight off disk, a
+ * `.jsonl.zst` through the decoder. Nothing holds the whole file, so a
+ * rollout past V8's string limit reads like any other. A file that fails
+ * partway throws from the loop; `extractCodex` folds each file into a copy
+ * of its session and keeps the copy only when the file read to the end, so a
+ * failed read leaves nothing half-counted.
  */
-async function readRolloutText(filePath: string, decoder: ZstdDecoder): Promise<string> {
-  if (filePath.endsWith(".zst")) return decompressZstd(filePath, decoder);
-  return fs.readFile(filePath, "utf8");
+function readRolloutLines(filePath: string, decoder: ZstdDecoder): AsyncIterable<string> {
+  if (filePath.endsWith(".zst")) return zstdLines(filePath, decoder);
+  return linesOf(createReadStream(filePath));
+}
+
+/** The lines of `head`, then the rest of `tail`. */
+async function* chainLines(head: string[], tail: AsyncIterator<string>): AsyncGenerator<string> {
+  yield* head;
+  for (let next = await tail.next(); !next.done; next = await tail.next()) yield next.value;
+}
+
+/**
+ * Reads a rollout up to its first `session_meta`, which names the thread
+ * and so the session the rest folds into. Returns that meta and the lines
+ * again from the top. On every rollout observed the meta is the first line,
+ * so the buffer holds one line.
+ */
+async function openRollout(
+  filePath: string,
+  decoder: ZstdDecoder
+): Promise<{ meta: Record<string, unknown> | null; lines: AsyncIterable<string> }> {
+  const iterator = readRolloutLines(filePath, decoder)[Symbol.asyncIterator]();
+  const head: string[] = [];
+  let meta: Record<string, unknown> | null = null;
+  for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
+    head.push(next.value);
+    const sniffed = sniffCodexLine(next.value);
+    if (sniffed.kind === "session_meta") {
+      meta = sniffed.payload;
+      break;
+    }
+  }
+  return { meta, lines: chainLines(head, iterator) };
 }
 
 export interface ExtractCodexOptions {
@@ -928,6 +1088,49 @@ export function rolloutReadingOrder(files: string[]): string[] {
     });
 }
 
+/** A rollout found under one of the snapshot roots, with its size on disk. */
+export interface FoundRollout {
+  file: string;
+  root: (typeof CODEX_SNAPSHOT_DIRS)[number];
+  size: number;
+}
+
+/**
+ * One copy of each rollout. A rollout whose name (with `.zst` off) sits under
+ * both `sessions/` and `archived_sessions/` is one rollout caught mid-archive
+ * or restored by hand, and reading both would count its prompts, tool calls
+ * and turns twice. The plain copy wins over a compressed one, since their
+ * sizes can't be compared. Otherwise the larger wins, because a copy caught
+ * mid-move is the shorter one, and on a tie the `sessions/` copy. Returns the
+ * kept files in the order given, and how many were dropped.
+ */
+export function dropDuplicateRollouts(found: FoundRollout[]): { files: string[]; duplicates: number } {
+  const keep = new Map<string, FoundRollout>();
+  const beats = (a: FoundRollout, b: FoundRollout): boolean => {
+    const aPlain = a.file.endsWith(".jsonl");
+    const bPlain = b.file.endsWith(".jsonl");
+    if (aPlain !== bPlain) return aPlain;
+    if (a.size !== b.size) return a.size > b.size;
+    return a.root === "sessions" && b.root !== "sessions";
+  };
+  for (const entry of found) {
+    const name = rolloutBaseName(entry.file);
+    const held = keep.get(name);
+    if (!held || (held.root !== entry.root && beats(entry, held))) keep.set(name, entry);
+  }
+  const kept = new Set([...keep.values()].map((e) => e.file));
+  // Two files of one name under the same root (a `.zst` beside its plain
+  // twin) were already settled by `rolloutReadingOrder`; only the cross-root
+  // pairs count here.
+  const files = found.filter((e) => kept.has(e.file) || !crossRootTwin(e, keep)).map((e) => e.file);
+  return { files, duplicates: found.length - files.length };
+}
+
+function crossRootTwin(entry: FoundRollout, keep: Map<string, FoundRollout>): boolean {
+  const held = keep.get(rolloutBaseName(entry.file));
+  return held !== undefined && held.root !== entry.root;
+}
+
 function topModel(models: Map<string, number>): string | null {
   let best: string | null = null;
   let bestCount = 0;
@@ -949,12 +1152,23 @@ export async function* extractCodex(
   options: ExtractCodexOptions = {}
 ): AsyncIterable<NormalizedHistoricalEvent> {
   const zstdDecoder = options.zstdDecoder ?? zstdDecoderOf(process.env.ASCENDA_ZSTD_DECODER);
-  const found: string[] = [];
+  const walked: string[] = [];
+  const rootOf = new Map<string, FoundRollout["root"]>();
   for (const dir of CODEX_SNAPSHOT_DIRS) {
-    for (const file of await walkRolloutFiles(path.join(snapshotDir, dir))) found.push(file);
+    for (const file of await walkRolloutFiles(path.join(snapshotDir, dir))) {
+      walked.push(file);
+      rootOf.set(file, dir);
+    }
   }
-  if (found.length === 0) return;
-  const files = rolloutReadingOrder(found);
+  if (walked.length === 0) return;
+  const ordered: FoundRollout[] = [];
+  for (const file of rolloutReadingOrder(walked)) {
+    // A file that can't be statted sizes as -1, so a readable twin wins; the
+    // read below then says whether it opens.
+    const size = await fs.stat(file).then((st) => st.size, () => -1);
+    ordered.push({ file, root: rootOf.get(file) ?? "sessions", size });
+  }
+  const { files, duplicates: duplicateRolloutFiles } = dropDuplicateRollouts(ordered);
 
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
@@ -966,24 +1180,22 @@ export async function* extractCodex(
   // first-seen order, which keeps the output deterministic.
   const folds = new Map<string, SessionFold>();
   for (const file of files) {
-    let text: string;
     try {
-      text = await readRolloutText(file, zstdDecoder);
+      const { meta, lines } = await openRollout(file, zstdDecoder);
+      const identity = rolloutIdentityOf(meta, file);
+      const key = sessionKeyOf(identity);
+      // Folded into a copy, kept only once the whole file has read, so a
+      // rollout that fails partway leaves nothing half-counted in a session
+      // other rollouts also feed.
+      const existing = folds.get(key);
+      const working = existing ? structuredClone(existing) : newFold(key);
+      await foldLinesInto(working, lines, identity);
+      folds.set(key, working);
     } catch {
       // A rollout that cannot be opened, read or decompressed is a hole in
       // the window, and the epoch marker is the only place that can say so.
       unreadableRolloutFiles += 1;
-      continue;
     }
-    const lines = text.split("\n");
-    const identity = rolloutIdentityOf(firstSessionMeta(lines), file);
-    const key = sessionKeyOf(identity);
-    let fold = folds.get(key);
-    if (!fold) {
-      fold = newFold(key);
-      folds.set(key, fold);
-    }
-    foldLinesInto(fold, lines, identity);
   }
 
   for (const fold of folds.values()) {
@@ -1042,11 +1254,14 @@ export async function* extractCodex(
     const compactionCount = compactionCountOf(fold);
     const own = ownTokensOf(fold.tokens);
     const subagent = { ...NO_TOKENS };
+    let subagentUncached = 0;
     for (const track of fold.subagentThreads.values()) {
       const spent = ownTokensOf(track);
       subagent.input += spent.input;
       subagent.output += spent.output;
       subagent.cached += spent.cached;
+      subagent.cacheWrite += spent.cacheWrite;
+      subagentUncached += uncachedInputOf(spent);
     }
     const sessionMetrics: NormalizedHistoricalEvent["metrics"] = {
       promptCount: fold.humanPrompts,
@@ -1079,15 +1294,19 @@ export async function* extractCodex(
     // isn't set when a subagent thread did report tokens.
     const subagentSeen = [...fold.subagentThreads.values()].some((track) => track.seen);
     if (fold.tokens.seen || subagentSeen) {
-      sessionMetrics.inputTokens = own.input + subagent.input;
+      sessionMetrics.inputTokens = uncachedInputOf(own) + subagentUncached;
       sessionMetrics.outputTokens = own.output + subagent.output;
       sessionMetrics.cacheReadTokens = own.cached + subagent.cached;
+      const cacheWriteSeen =
+        fold.tokens.cacheWriteSeen || [...fold.subagentThreads.values()].some((track) => track.cacheWriteSeen);
+      if (cacheWriteSeen) sessionMetrics.cacheCreationTokens = own.cacheWrite + subagent.cacheWrite;
     } else {
       sessionMetrics.tokensNotCollected = true;
     }
     // The subagent breakdown only on a session that had one, so a session
-    // that didn't carries no row of zeros. `subagentTokensTotal` is input
-    // plus output: Codex's input figure already includes the cached part.
+    // that didn't carries no row of zeros. `subagentTokensTotal` is
+    // everything the subagents consumed: input with its cached and
+    // cache-written parts, plus output.
     if (fold.subagentThreads.size > 0) {
       sessionMetrics.subagentTranscripts = fold.subagentThreads.size;
       sessionMetrics.subagentPrompts = fold.subagentPrompts;
@@ -1121,6 +1340,7 @@ export async function* extractCodex(
     const primaryEffort = primaryEffortOf(fold.effort);
     if (primaryEffort) sessionMetrics.primaryEffort = primaryEffort;
     const effortChanges = effortChangesOf(fold.effort);
+    Object.assign(sessionMetrics, usageLimitMetrics(fold.usageLimits));
     if (fold.gitBranch) sessionMetrics.gitBranch = fold.gitBranch;
     yield {
       occurredAt: fold.lastTs,
@@ -1132,7 +1352,8 @@ export async function* extractCodex(
       metrics: sessionMetrics,
       dayBreakdown: sliceSessionByLocalDay(fold.humanPromptTimestamps, {
         activeGapMs: ACTIVE_GAP_MS,
-        activeInstants: fold.timelinePoints
+        activeInstants: fold.timelinePoints,
+        usageLimitReadings: fold.usageLimits.readings
       }),
       // Local-only; see `NormalizedHistoricalEvent.activeSpans`. Same
       // threshold, same function, same spans the split above was summed from.
@@ -1187,7 +1408,7 @@ export async function* extractCodex(
       sessionRef: null,
       repoRef: null,
       eventKind: "extraction_epoch",
-      metrics: { ...window, sessionCount, unreadableRolloutFiles },
+      metrics: { ...window, sessionCount, unreadableRolloutFiles, duplicateRolloutFiles },
       provenance: HISTORICAL_PROVENANCE.derived,
       extractionId
     };

@@ -116,7 +116,7 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours, modelRouteFromSlug } from "@ascenda-one/tool-kit";
+import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours, isPremiumModelClass, modelRouteFromSlug } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import {
@@ -132,6 +132,18 @@ import { sliceSessionByLocalDay } from "../daySlice.js";
 import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
 import { modelTurnsMetrics } from "../modelTurns.js";
 import {
+  LISTING_ATTACHMENT_TYPES,
+  USE_ATTACHMENT_TYPES,
+  costEvidenceMetrics,
+  foldDepth,
+  foldListingAttachment,
+  foldSpeed,
+  foldToolUses,
+  foldUseAttachment,
+  newCostEvidence,
+  type CostEvidence
+} from "../costEvidence.js";
+import {
   DEFAULT_ACTIVE_GAP_MS,
   activeSpans,
   minutesOf,
@@ -142,6 +154,7 @@ import {
 import { isTypedPromptLine, stepRun } from "../interruptedRuns.js";
 import {
   PromptLedger,
+  isHomeTranscript,
   TimelineOwnership,
   readPromptLedger,
   resolveContestedOwners
@@ -486,6 +499,10 @@ interface SessionFold {
    * on the store this was measured on (11,059 lines, 5,173 messages). A line
    * of a message already seen replaces what that message added instead of
    * adding to it, so the last line wins whichever order it arrives in.
+   *
+   * Re-measure with `scripts/measure-store.mjs` (`linesPerMessage`). In
+   * November 2026 it read 583,172 assistant lines over 289,126 messages on one
+   * machine, 2.02 lines per message.
    */
   messageTokens: Map<string, MessageUsage>;
   /**
@@ -513,11 +530,23 @@ interface SessionFold {
    * A fold where this is the only thing the file held is a pure copy, and the
    * emit loop counts it as unusable. */
   inheritedTimelineLines: number;
+  /** Lines read but not counted because they repeat one already read: a
+   * `uuid` seen earlier in the same file (a resume can write the same lines
+   * twice), or, in a forked subagent's transcript, one the parent's main
+   * transcript already held. Shipped as `repeatedLines` when above 0. */
+  repeatedLines: number;
+  /** Every `uuid` in the session's main transcript, kept so a forked
+   * subagent can skip the lines it copied from it. Null until the main
+   * transcript is read, and for a fold seeded from a subagent file. */
+  mainThreadUuids: ReadonlyMap<string, boolean> | null;
   /** Timestamps of HUMAN prompts only — the per-prompt events emitted later,
    * and the source for rapid-reprompt detection. Timestamps, never text. Only
    * the prompts this transcript owns (`promptLedger.ts`): a prompt a resumed
    * transcript copied from its ancestor is its ancestor's. */
   humanPromptTimestamps: (string | null)[];
+  /** Skills and MCP servers in context and used, fast and deep messages.
+   * Names stay in here; only counts ship. See `costEvidence.ts`. */
+  costEvidence: CostEvidence;
   /** Runs the person cut short, main thread only. See `interruptedRuns.ts`. */
   interruptedRuns: number;
   /** When each of those cuts happened, for the day slices. Never shipped. */
@@ -582,7 +611,10 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     timelinePoints: [],
     undatedTimelineLines: 0,
     inheritedTimelineLines: 0,
+    repeatedLines: 0,
+    mainThreadUuids: null,
     humanPromptTimestamps: [],
+    costEvidence: newCostEvidence(),
     interruptedRuns: 0,
     interruptedRunTimestamps: []
   };
@@ -844,6 +876,24 @@ async function foldLinesInto(
   // person cut short. Per file, because a subagent's turns are not the
   // person's to interrupt and its transcript is never stepped.
   let turnRunning = false;
+  // Every `uuid` read so far in this file, and whether this file counted it.
+  // A resumed transcript can hold the same lines twice, with the same ids and
+  // timestamps; the second copy is read for turn state like any other line but
+  // adds nothing.
+  const seenInFile = new Map<string, boolean>();
+  if (!opts.isSidechain) {
+    // The main transcript is read before any subagent transcript of the same
+    // session: `extractClaudeCode` folds every top-level file of a project
+    // before it opens a session directory or a flat subagent file. A fork's
+    // dedupe below depends on that order, so break loudly if it ever changes.
+    if (fold.sidechainTallies.length > 0) {
+      throw new Error(`main transcript ${filePath} read after a subagent transcript of the same session`);
+    }
+    fold.mainThreadUuids = seenInFile;
+  }
+  // A forked subagent opens with a copy of its parent's conversation, same
+  // ids. Set from the sidecar below; without one, every line is its own.
+  let isFork = false;
   // One tally per subagent transcript, for its receipt. The sibling
   // `.meta.json` names the agent's type and the parent's tool_use id; a
   // missing or unreadable one leaves both to the parent's own lines.
@@ -857,6 +907,7 @@ async function foldLinesInto(
       const meta = JSON.parse(await fs.readFile(filePath.replace(/\.jsonl$/, ".meta.json"), "utf8")) as Record<string, unknown>;
       if (typeof meta.agentType === "string") tally.metaType = meta.agentType;
       if (typeof meta.toolUseId === "string") tally.toolUseId = meta.toolUseId;
+      if (meta.isFork === true) tally.isFork = isFork = true;
     } catch {
       // No sidecar: fine.
     }
@@ -899,11 +950,33 @@ async function foldLinesInto(
       // copy is still read, because the turn state below needs every line, but
       // it adds nothing. Typed prompts are settled by the ledger (`claim`)
       // instead. Asked once per line: an orphan's claim is remembered.
-      const owned = opts.ownership.owns(
-        sniffed,
-        filePath,
-        opts.isSidechain ? { isSidechain: true, foundUnderSessionId: fold.sessionId } : { isSidechain: false }
-      );
+      //
+      // A repeat is settled first, before `owns` is asked: `owns` remembers an
+      // orphan's claim, and a repeat must not claim anything. A line repeats
+      // when its `uuid` came earlier in this file, or, in a fork, when the
+      // parent's main transcript held it.
+      //
+      // One repeat is still asked: a main-thread line whose first copy here
+      // named an ancestor and was left to it, repeated with its `sessionId`
+      // rewritten to this file. The contested-owner rule may give that line to
+      // this file, and skipping it would leave it counted nowhere. A line that
+      // names this file never touches the orphan claims, so asking is safe.
+      const uuid = sniffed.uuid;
+      const seenHere = uuid === null ? undefined : seenInFile.get(uuid);
+      const forkCopy = uuid !== null && isFork && fold.mainThreadUuids?.has(uuid) === true;
+      const ask = opts.isSidechain
+        ? seenHere === undefined && !forkCopy
+        : seenHere === undefined || (seenHere === false && isHomeTranscript(filePath, sniffed.sessionId));
+      const owned =
+        ask &&
+        opts.ownership.owns(
+          sniffed,
+          filePath,
+          opts.isSidechain ? { isSidechain: true, foundUnderSessionId: fold.sessionId } : { isSidechain: false }
+        );
+      const repeat = (seenHere !== undefined || forkCopy) && !owned;
+      if (uuid !== null) seenInFile.set(uuid, seenHere === true || owned);
+      if (repeat) fold.repeatedLines += 1;
       // Trust the store's own id over the filename when they disagree — main
       // thread only, and only from a line this file owns, which is the same
       // thing as a line written here. A subagent's own sessionId already
@@ -1103,6 +1176,13 @@ async function foldLinesInto(
             messageKeyOf(record),
             read.usage
           );
+          const messageKey = messageKeyOf(record);
+          foldSpeed(fold.costEvidence, messageKey, usage?.speed, opts.isSidechain);
+          foldToolUses(fold.costEvidence, record);
+          if (tally && firstLine) {
+            const subagentModel = foldableModelOf(sniffed.model);
+            if (subagentModel) tally.models.set(subagentModel, (tally.models.get(subagentModel) ?? 0) + 1);
+          }
           const advisor = counted.advisor;
           const advisorTokens = advisor.input + advisor.output + advisor.cacheRead + advisor.cacheCreation;
           fold.advisorMessageCount += advisor.count;
@@ -1184,6 +1264,7 @@ async function foldLinesInto(
               asNumber(usage.cache_read_input_tokens) +
               asNumber(usage.cache_creation_input_tokens);
             if (contextTokens > fold.contextWindowPeakTokens) fold.contextWindowPeakTokens = contextTokens;
+            if (firstLine) foldDepth(fold.costEvidence, contextTokens);
           }
           break;
         }
@@ -1224,11 +1305,32 @@ async function foldLinesInto(
           }
           break;
         }
+        case "attachment": {
+          // Bookkeeping for the split, like the types below: `agentOutputHere`
+          // stays false. Parsed only when it can be one the cost evidence
+          // reads. A listing is context the session carried, so a copy of an
+          // ancestor's counts too; a repeat would replay adds and removes out
+          // of order, so it doesn't. A subagent's listings aren't read: the
+          // findings are about the session's own context. A use counts only
+          // where this session owns the line.
+          const listing = !repeat && !opts.isSidechain && LISTING_ATTACHMENT_TYPES.some((t) => line.includes(`"${t}"`));
+          const use = owned && USE_ATTACHMENT_TYPES.some((t) => line.includes(`"${t}"`));
+          if (!listing && !use) break;
+          const attachment = (JSON.parse(line) as Record<string, unknown>).attachment;
+          if (typeof attachment !== "object" || attachment === null || Array.isArray(attachment)) break;
+          if (listing) foldListingAttachment(fold.costEvidence, attachment as Record<string, unknown>);
+          if (use) foldUseAttachment(fold.costEvidence, attachment as Record<string, unknown>);
+          break;
+        }
         default:
-          break; // attachment / last-prompt / custom-title: window only, and
-        //           bookkeeping for the split — `agentOutputHere` stays false.
+          break; // last-prompt / custom-title: window only, and bookkeeping
+        //           for the split — `agentOutputHere` stays false.
       }
-      if (sniffed.occurredAt && !owned) {
+      if (repeat) {
+        // Already placed, or not, by the copy read first. Neither a point nor
+        // an inherited line: counting it as inherited would make a session
+        // that only repeated itself look like a pure copy.
+      } else if (sniffed.occurredAt && !owned) {
         // Someone else's instant, held here as a copy. Counted rather than
         // dropped silently: a fold whose file held nothing else is a pure copy
         // and the emit loop reports it.
@@ -1354,6 +1456,8 @@ export async function probeTopLevelTranscript(
 /** One project directory's transcripts, listed before anything is read. */
 interface ProjectPlan {
   slug: string;
+  /** Set on projects read from a Claude Desktop Cowork config dir. */
+  clientName: string | null;
   dir: string;
   /** Main-thread transcript names, sorted. */
   topLevelFiles: string[];
@@ -1378,19 +1482,31 @@ function topModel(models: Map<string, number>): string | null {
   return best;
 }
 
+/** Where staging puts transcripts copied from Claude Desktop's Cowork config
+ * dirs, beside `projects/`, so the extractor can tell them apart. */
+export const COWORK_SNAPSHOT_DIR = "cowork-projects";
+export const COWORK_CLIENT_NAME = "claude-desktop-cowork";
+
 export async function* extractClaudeCode(
   snapshotDir: string,
   extractionId: string
 ): AsyncIterable<NormalizedHistoricalEvent> {
-  const projectsDir = path.join(snapshotDir, "projects");
-  let projectSlugs: string[] = [];
-  try {
-    projectSlugs = (await fs.readdir(projectsDir, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-  } catch {
-    return; // No projects dir in the snapshot — nothing to extract.
+  const roots: { projectsDir: string; clientName: string | null }[] = [
+    { projectsDir: path.join(snapshotDir, "projects"), clientName: null },
+    { projectsDir: path.join(snapshotDir, COWORK_SNAPSHOT_DIR), clientName: COWORK_CLIENT_NAME }
+  ];
+  const projectRoots: { projectsDir: string; clientName: string | null; slugs: string[] }[] = [];
+  for (const root of roots) {
+    try {
+      const slugs = (await fs.readdir(root.projectsDir, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+      projectRoots.push({ ...root, slugs });
+    } catch {
+      // This root isn't in the snapshot.
+    }
   }
+  if (projectRoots.length === 0) return; // No projects dir in the snapshot — nothing to extract.
 
   let windowOldest: string | null = null;
   let windowNewest: string | null = null;
@@ -1424,7 +1540,8 @@ export async function* extractClaudeCode(
   // ledger has to read every transcript, in this order, before the first
   // session is folded. Paths only; nothing is held open.
   const plan: ProjectPlan[] = [];
-  for (const slug of projectSlugs.sort()) {
+  for (const { projectsDir, clientName, slugs } of projectRoots)
+  for (const slug of slugs.sort()) {
     const dir = path.join(projectsDir, slug);
     let entries;
     try {
@@ -1452,6 +1569,7 @@ export async function* extractClaudeCode(
     }
     plan.push({
       slug,
+      clientName,
       dir,
       topLevelFiles,
       flatSidechains,
@@ -1482,7 +1600,7 @@ export async function* extractClaudeCode(
   // because the rule for a line whose home file is gone is first-come.
   const ownership = new TimelineOwnership(mainTranscripts, contestedOwners);
 
-  for (const { slug, dir, topLevelFiles, flatSidechains, otherFiles, sessionDirs } of plan) {
+  for (const { slug, clientName, dir, topLevelFiles, flatSidechains, otherFiles, sessionDirs } of plan) {
     let slugJsonlFiles = topLevelFiles.length + flatSidechains.length;
     let slugOtherFiles = otherFiles;
 
@@ -1542,6 +1660,10 @@ export async function* extractClaudeCode(
         await foldLinesInto(fold, nestedPath, { isSidechain: true, ledger, ownership });
       }
     }
+
+    // Every subagent transcript of this project is folded; the id sets were
+    // only for them.
+    for (const fold of foldsByKey.values()) fold.mainThreadUuids = null;
 
     // Files here, but nothing this extractor can read as a transcript.
     if (slugJsonlFiles === 0 && slugOtherFiles > 0) projectsWithNoReadableTranscript += 1;
@@ -1658,6 +1780,11 @@ export async function* extractClaudeCode(
         sessionMetrics.cacheCreation5mTokens = fold.cacheCreation5mTokens;
         sessionMetrics.cacheCreation1hTokens = fold.cacheCreation1hTokens;
       }
+      if (fold.repeatedLines > 0) sessionMetrics.repeatedLines = fold.repeatedLines;
+      // Counts only, each family behind its own seen flag. See costEvidence.ts.
+      Object.assign(sessionMetrics, costEvidenceMetrics(fold.costEvidence));
+      const subagentReceipts = fold.sidechainTallies.filter((t) => t.ownedLines > 0).map((t) => buildReceipt(t, fold.parentRecord));
+      sessionMetrics.premiumSubagents = subagentReceipts.filter((r) => isPremiumModelClass(r.modelClass ?? undefined)).length;
       if (fold.advisorMessageCount > 0) {
         sessionMetrics.advisorMessageCount = fold.advisorMessageCount;
         sessionMetrics.advisorTokensTotal = fold.advisorTokensTotal;
@@ -1687,6 +1814,7 @@ export async function* extractClaudeCode(
       if (primaryEffort) sessionMetrics.primaryEffort = primaryEffort;
       const effortChanges = effortChangesOf(fold.effort);
       if (fold.gitBranch) sessionMetrics.gitBranch = fold.gitBranch;
+      if (clientName) sessionMetrics.clientName = clientName;
       yield {
         occurredAt: fold.lastTs,
         store: "claude_code",
@@ -1711,7 +1839,7 @@ export async function* extractClaudeCode(
         // Local-only, like `dayBreakdown`; see `subagentReceipts.ts`. Always
         // present on this store, empty for a session with no subagents, so a
         // reader can tell none from not collected.
-        subagentReceipts: fold.sidechainTallies.filter((t) => t.ownedLines > 0).map((t) => buildReceipt(t, fold.parentRecord)),
+        subagentReceipts,
         autonomySplit: Object.fromEntries(
           Object.entries(split.supervisingMsByBand).map(([band, ms]) => [band, minutesOf(ms)])
         ),

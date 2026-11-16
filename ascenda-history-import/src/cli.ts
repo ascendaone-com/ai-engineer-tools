@@ -66,7 +66,7 @@ import {
   stagingSizeBytes,
   sweepStagingRoot
 } from "./staging.js";
-import { extractClaudeCode } from "./extractors/claudeCode.js";
+import { COWORK_SNAPSHOT_DIR, extractClaudeCode } from "./extractors/claudeCode.js";
 import { CODEX_SNAPSHOT_DIRS, extractCodex } from "./extractors/codex.js";
 import { extractCopilotCli } from "./extractors/copilotCli.js";
 import { extractCursor } from "./extractors/cursor.js";
@@ -383,6 +383,7 @@ function writeSummary(input: SummaryInput): void {
       line += `, ${counts.sent.toLocaleString("en-US")} sent`;
       line += ` (accepted ${counts.accepted.toLocaleString("en-US")}`;
       line += `, duplicate ${counts.duplicate.toLocaleString("en-US")}`;
+      line += `, revised ${counts.revised.toLocaleString("en-US")}`;
       line += `, rejected ${counts.rejected.toLocaleString("en-US")})`;
     }
     out.write(line + "\n");
@@ -410,11 +411,21 @@ function writeSummary(input: SummaryInput): void {
     return;
   }
   out.write(
-    `\nshipped: sent=${shipResult.sent} accepted=${shipResult.accepted} duplicate=${shipResult.duplicate} rejected=${shipResult.rejected} httpFailures=${shipResult.httpFailures}\n`
+    `\nshipped: sent=${shipResult.sent} accepted=${shipResult.accepted} duplicate=${shipResult.duplicate} revised=${shipResult.revised} rejected=${shipResult.rejected} httpFailures=${shipResult.httpFailures}\n`
   );
   if (shipResult.duplicate > 0) {
     out.write(
       `  ${shipResult.duplicate.toLocaleString("en-US")} already imported — the backend kept its existing copy and stored nothing new.\n`
+    );
+  }
+  if (shipResult.revised > 0) {
+    out.write(
+      `  ${shipResult.revised.toLocaleString("en-US")} revised: the extractor has been corrected since they were first sent, so the backend replaced its copy.\n`
+    );
+  }
+  if (shipResult.importComplete === "failed") {
+    out.write(
+      "  the closing call to the backend failed, so rows this run no longer emits weren't retired. Run it again to retry.\n"
     );
   }
   if (shipResult.consentBlocked) {
@@ -491,7 +502,7 @@ function exitCodeFor(
   // failure: everything the user asked to be there is there. Gating on
   // `accepted > 0` alone would make the second run of a working importer
   // report failure precisely because dedup did its job.
-  return shipResult.accepted + shipResult.duplicate > 0 ? 0 : 1;
+  return shipResult.accepted + shipResult.duplicate + shipResult.revised > 0 ? 0 : 1;
 }
 
 async function main(): Promise<number> {
@@ -644,13 +655,20 @@ async function main(): Promise<number> {
           // Several config dirs merge into one projects tree. Transcripts are
           // named by session id, so two dirs only collide on the same
           // session, and keeping one copy of it is what dedup wants anyway.
+          // Cowork dirs go to their own subtree so the extractor can name
+          // the client; the copy merges them the same way.
           for (const projectsDir of paths.claudeProjectsDirs) {
             try {
               await fs.access(projectsDir);
             } catch {
               continue;
             }
-            await snapshotPath(area, projectsDir, path.join("claude_code", "projects"));
+            const cowork = paths.claudeCoworkProjectsDirs.includes(projectsDir);
+            await snapshotPath(
+              area,
+              projectsDir,
+              path.join("claude_code", cowork ? COWORK_SNAPSHOT_DIR : "projects")
+            );
           }
           for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) collect(event);
         }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError, crossStore);

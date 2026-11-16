@@ -46,6 +46,7 @@ import { pipeline } from "node:stream/promises";
 import { ascendaHome } from "@ascenda-one/tool-kit";
 import { HistoryStore } from "./types.js";
 import { StorePaths } from "./stores.js";
+import { writeJsonAtomically } from "./localHandoff.js";
 
 export const ARCHIVE_SCHEMA = 1;
 
@@ -377,9 +378,7 @@ export async function archiveStores(options: ArchiveOptions): Promise<ArchiveRes
   };
   // Last, and atomically: a manifest is a promise that every blob it names is
   // on disk, and a run killed mid-copy must not be able to make that promise.
-  const temporary = `${result.manifestPath}.tmp`;
-  await fs.writeFile(temporary, JSON.stringify(manifest, null, 2) + "\n", "utf8");
-  await fs.rename(temporary, result.manifestPath);
+  await writeJsonAtomically(result.manifestPath, manifest);
 
   return result;
 }
