@@ -7,7 +7,9 @@ as a duplicate. This plan adds an extractor revision so a corrected row
 replaces the one it corrects. Line numbers are against `main` at `badbcf6`
 here and `a6665fb3` in the backend (`Ascenda-One-Pty-Ltd/asc-core-be`).
 
-Status: not started. Blocks the shipped-figure fixes in
+Status: collector side built (this PR); backend side built behind a setting
+that's off (draft PR in `asc-core-be`); app side not started. Blocks the
+shipped-figure fixes in
 `docs/CODEX_TOKEN_ACCOUNTING_PLAN.md` and `docs/CLAUDE_TRANSCRIPT_REPLAY_PLAN.md`.
 
 ## Why it's needed
@@ -136,3 +138,30 @@ types: collector PR here, then the backend PR straight after, then tag.
   superseded.
 - A re-run with no bump reports everything `duplicate`, as today.
 - `npm run verify` passes, and the backend tests pass.
+
+## App follow-up (not in this PR)
+
+The macOS app ships the same keys from its own extractor, so it has to claim
+the same rungs. In `apps/macos/lib/src/flow/import/`:
+
+- `wire_event.dart`: add a `kExtractorRevision` map beside `kStoreSource`,
+  one entry per store, at 1. In `toWirePayload`, put
+  `'extractorRevision': kExtractorRevision[event.store] ?? 1` in `metadata`
+  next to `'importSchema': 1`. It stays out of the `importKey` preimage.
+- `import_shipper.dart`: read `revised` from the batch response. Count it in
+  the shipper's counters beside `duplicate`, and treat a batch with revised
+  items as having stored something (`storedAnything`). After the last batch of
+  a clean run (every batch answered, nothing rejected), call
+  `POST /v1/tool-events/import-complete` with `{extractionId}`. Skip it
+  after any failed batch.
+- `history_ship_status_card.dart`: show the revised count. A revised session
+  isn't a new one and isn't "already there".
+- The extractors (`claude_code_extractor.dart`, `codex_extractor.dart`,
+  `cursor_extractor.dart`, `vscode_extractor.dart`): don't touch them here.
+  An app extractor may claim a store's rung N only once it carries that rung's
+  fix, so the ladder table in `extractorRevisions.ts` is the checklist.
+- A fixture test that hashes each extractor's output against a recorded
+  revision, like `tests/extractorRevision.test.mjs` here.
+
+Until this lands, rows the app sends carry no revision and read as 0, so a
+collector run at revision 1 replaces them. That's the intended direction.
