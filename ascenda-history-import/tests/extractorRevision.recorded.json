@@ -6,5 +6,9 @@
   "copilot_cli": {
     "revision": 1,
     "outputHash": "f7fcb3f28b5d8bf83438833d9e8b12b739bfc4805d07e411b6a1c3f7830d9e2c"
+  },
+  "codex": {
+    "revision": 1,
+    "outputHash": "06fb67f1d66e5d793df163d5a51d3b7fa0725b7f8391c835743c55896479e7e8"
   }
 }

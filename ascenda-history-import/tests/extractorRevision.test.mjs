@@ -13,7 +13,7 @@
  *
  * Re-record with: RECORD_EXTRACTOR_HASHES=1 npm test -w @ascenda-one/history-import
  *
- * Stores without a committed fixture (codex, cursor, vscode, git) build theirs
+ * Stores without a committed fixture (cursor, vscode, git) build theirs
  * inline in their own tests and aren't covered here; `UNGUARDED` says so.
  */
 import { test } from "node:test";
@@ -25,6 +25,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractClaudeCode } from "../dist/extractors/claudeCode.js";
 import { extractCopilotCli } from "../dist/extractors/copilotCli.js";
+import { extractCodex } from "../dist/extractors/codex.js";
 import { EXTRACTOR_REVISION } from "../dist/extractorRevisions.js";
 
 // Clock-derived figures (after-hours counts) read the local zone; pin it so the
@@ -33,7 +34,7 @@ process.env.TZ = "UTC";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RECORD = path.join(HERE, "extractorRevision.recorded.json");
-const UNGUARDED = ["codex", "cursor", "vscode", "git"];
+const UNGUARDED = ["cursor", "vscode", "git"];
 
 async function collect(iterable) {
   const events = [];
@@ -67,7 +68,8 @@ async function outputs() {
       claude_code: hashOf(await collect(extractClaudeCode(root, "revision-guard"))),
       copilot_cli: hashOf(
         await collect(extractCopilotCli(path.join(HERE, "fixtures", "copilot-cli-store"), "revision-guard"))
-      )
+      ),
+      codex: hashOf(await collect(extractCodex(path.join(HERE, "fixtures", "codex-store"), "revision-guard")))
     };
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -101,5 +103,5 @@ test("every store has a revision, and an unguarded one is named", () => {
   for (const store of ["claude_code", "codex", "copilot_cli", "cursor", "vscode", "git"]) {
     assert.ok(Number.isInteger(EXTRACTOR_REVISION[store]) && EXTRACTOR_REVISION[store] >= 1, store);
   }
-  assert.deepEqual(UNGUARDED.sort(), ["codex", "cursor", "git", "vscode"]);
+  assert.deepEqual(UNGUARDED.sort(), ["cursor", "git", "vscode"]);
 });
