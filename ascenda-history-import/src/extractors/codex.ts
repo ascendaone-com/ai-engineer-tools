@@ -988,10 +988,14 @@ async function* zstdLines(filePath: string, decoder: ZstdDecoder): AsyncGenerato
     child.once("close", (code) => resolve(code));
   });
   exited.catch(() => {});
+  // stdout can end before the process is reaped, so `exitCode` is still null
+  // after a clean decode. Kill only when the reader stopped before the end.
+  let readToEnd = false;
   try {
     yield* linesOf(child.stdout);
+    readToEnd = true;
   } finally {
-    if (child.exitCode === null) child.kill();
+    if (!readToEnd && child.exitCode === null) child.kill();
   }
   const code = await exited;
   if (code !== 0) throw new Error(`zstd exited with ${code}`);
