@@ -63,6 +63,7 @@ import {
   snapshotCopilotSessionState,
   snapshotPath,
   snapshotVsCodeWorkspaceStorage,
+  stagingSizeBytes,
   sweepStagingRoot
 } from "./staging.js";
 import { COWORK_SNAPSHOT_DIR, extractClaudeCode } from "./extractors/claudeCode.js";
@@ -605,9 +606,9 @@ async function main(): Promise<number> {
       // about to measure, so a machine already full of old snapshots heals
       // itself instead of refusing to run.
       const swept = await sweepStagingRoot(stagingRoot);
-      if (swept.runsSwept > 0) {
+      if (swept.runsSwept + swept.runsRemoved > 0) {
         process.stdout.write(
-          `swept ${swept.runsSwept} stale staging run(s), freed ${formatBytes(swept.freedBytes)}\n`
+          `swept ${swept.runsSwept + swept.runsRemoved} stale staging run(s), freed ${formatBytes(swept.freedBytes)}\n`
         );
       }
 
@@ -854,6 +855,16 @@ async function main(): Promise<number> {
             );
           }
         }
+        if (!keepStaging) {
+          // Hold the bound: only the newest runs keep their events.jsonl.
+          const bounded = await sweepStagingRoot(stagingRoot, area.extractionId);
+          if (bounded.runsRemoved > 0) {
+            process.stdout.write(
+              `removed ${bounded.runsRemoved} older staging run(s), freed ${formatBytes(bounded.freedBytes)}\n`
+            );
+          }
+        }
+        process.stdout.write(`staging on disk: ${formatBytes(await stagingSizeBytes(stagingRoot))}\n`);
       }
     }
     case "archive": {

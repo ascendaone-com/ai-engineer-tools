@@ -201,18 +201,28 @@ export async function snapshotCopilotSessionState(
  *
  * A snapshot is scaffolding: worth exactly as much as the extraction running
  * against it, and worth nothing once that extraction has finished. The
- * extracted `events.jsonl` is the part with lasting value (~10 MB against
- * ~20 GB of sources), so teardown keeps that and removes the rest.
+ * extracted `events.jsonl` is the part with lasting value, so teardown keeps
+ * that and removes the rest. One `events.jsonl` runs to about 200 MB on a
+ * busy machine, so only the newest `STAGING_KEEP_RUNS` runs keep theirs;
+ * older run directories are removed whole. Staging is bounded at roughly
+ * `STAGING_KEEP_RUNS` times one run's output.
  *
  * Teardown belongs to the RUN, not to a separate `fix-retention`-style
  * command: a run that cleans up after itself cannot be forgotten, and the
- * failure mode being fixed here is precisely that nobody remembered. The
- * sweep below exists only to drain the backlog left by runs that shipped
- * before teardown did.
+ * failure mode being fixed here is precisely that nobody remembered. Every
+ * run sweeps at the start (to free space before the pre-flight check) and
+ * again at the end (to hold the bound).
  * ------------------------------------------------------------------------ */
 
 /** Kept when a staging run is disposed of — the extraction output, not its inputs. */
 export const STAGING_KEEP = ["events.jsonl"];
+
+/** How many of the newest runs keep their `STAGING_KEEP` output. */
+export const STAGING_KEEP_RUNS = 2;
+
+/** An extraction id as `createStagingArea` makes it:
+ * `2026-10-26T01-48-22-730Z-f49e8dfc`. Its prefix sorts by time. */
+const EXTRACTION_ID = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}$/;
 
 export interface DisposeResult {
   /** Bytes of snapshot removed, as reported by the directory walk. */
@@ -280,41 +290,68 @@ export async function disposeStagingArea(
 }
 
 export interface SweepResult {
+  /** Runs whose snapshot payload was stripped, keeping `STAGING_KEEP`. */
   runsSwept: number;
+  /** Older runs removed whole, `events.jsonl` included. */
+  runsRemoved: number;
   freedBytes: number;
 }
 
 /**
- * Drain snapshot payloads left by earlier runs.
+ * Bound the staging root.
  *
- * `exceptRun` is the run currently executing — never swept, because its
- * snapshot is live. Everything else keeps only `STAGING_KEEP`, so historical
- * `events.jsonl` files survive a sweep: they are extraction output someone may
- * still want to inspect, and they are ~10 MB, not ~20 GB.
+ * Runs are ordered by their extraction-id timestamp, never by mtime. The
+ * newest `keepRuns` keep only `STAGING_KEEP`; older runs are removed whole.
+ * `exceptRun` is the run currently executing and is never touched, though it
+ * counts toward `keepRuns`. A directory whose name isn't an extraction id
+ * isn't ours to delete: its snapshot payload is stripped and the rest left
+ * alone. Only direct children of `stagingRoot` are ever touched, and
+ * symlinks are skipped, so nothing outside the root (the archive beside it)
+ * is reachable from here.
  */
 export async function sweepStagingRoot(
   stagingRoot: string,
   exceptRun?: string,
-  keep: readonly string[] = STAGING_KEEP
+  keep: readonly string[] = STAGING_KEEP,
+  keepRuns: number = STAGING_KEEP_RUNS
 ): Promise<SweepResult> {
-  const result: SweepResult = { runsSwept: 0, freedBytes: 0 };
+  const result: SweepResult = { runsSwept: 0, runsRemoved: 0, freedBytes: 0 };
   let runs: string[] = [];
   try {
     runs = (await fs.readdir(stagingRoot, { withFileTypes: true }))
-      .filter((e) => e.isDirectory())
+      .filter((e) => e.isDirectory() && !e.isSymbolicLink())
       .map((e) => e.name);
   } catch {
     return result; // No staging root yet — nothing to sweep.
   }
+  const timestamped = runs.filter((r) => EXTRACTION_ID.test(r)).sort().reverse();
+  const keepSet = new Set(timestamped.slice(0, Math.max(0, keepRuns)));
   for (const run of runs) {
     if (run === exceptRun) continue;
-    const disposed = await disposeStagingArea({ extractionId: run, root: path.join(stagingRoot, run) }, keep);
+    const root = path.join(stagingRoot, run);
+    if (EXTRACTION_ID.test(run) && !keepSet.has(run)) {
+      const size = await entrySizeBytes(root);
+      try {
+        await fs.rm(root, { recursive: true, force: true });
+        result.runsRemoved += 1;
+        result.freedBytes += size;
+      } catch {
+        // Left behind — the next run will try again.
+      }
+      continue;
+    }
+    const disposed = await disposeStagingArea({ extractionId: run, root }, keep);
     if (disposed.freedBytes > 0) {
       result.runsSwept += 1;
       result.freedBytes += disposed.freedBytes;
     }
   }
   return result;
+}
+
+/** Bytes the staging root holds on disk right now. */
+export async function stagingSizeBytes(stagingRoot: string): Promise<number> {
+  return entrySizeBytes(stagingRoot);
 }
 
 /* ------------------------------------------------------------------------ *
