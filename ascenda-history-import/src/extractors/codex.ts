@@ -144,6 +144,15 @@ export type CodexLineType = (typeof KNOWN_CODEX_LINE_TYPES)[number];
  */
 export const META_CODEX_LINE_TYPES = new Set(["world_state"]);
 
+/**
+ * `event_msg` payload types that are recognised and read for nothing.
+ * `item_completed` repeats, once an item finishes, a tool call, message or
+ * reasoning item the rollout already wrote as a `response_item`. Counting it
+ * would count each call twice, and placing it on the timeline would add an
+ * instant for work already placed. It counts as a `metaLines` line.
+ */
+export const META_EVENT_MSG_TYPES = new Set(["item_completed"]);
+
 /** `response_item` payload types this extractor recognises. A type not here
  * counts as an unknown line — the drift signal — rather than being skipped. */
 export const KNOWN_RESPONSE_ITEM_TYPES = new Set([
@@ -244,6 +253,9 @@ export function sniffCodexLine(line: string): SniffedCodexLine {
   let subtype: string | null = null;
   if (type === "response_item" || type === "event_msg") {
     subtype = typeof payload.type === "string" ? payload.type : null;
+    if (type === "event_msg" && subtype !== null && META_EVENT_MSG_TYPES.has(subtype)) {
+      return { kind: "meta", type: `${type}:${subtype}` };
+    }
     const known = type === "response_item" ? KNOWN_RESPONSE_ITEM_TYPES : KNOWN_EVENT_MSG_TYPES;
     if (subtype === null || !known.has(subtype)) {
       return { kind: "unknown", type: `${type}:${subtype ?? "?"}` };

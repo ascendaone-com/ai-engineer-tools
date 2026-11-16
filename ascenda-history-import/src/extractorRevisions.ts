@@ -22,7 +22,7 @@ import type { HistoryStore } from "./types.js";
  * | Store | Rev | Fix it stands for |
  * | ----- | --- | ----------------- |
  * | all   | 1   | The first rung. Nothing is corrected yet. |
- * | codex | 2   | `inputTokens` leaves out cache reads and writes; `token_usage_record` folds as a total; a rollout under both roots is read once. |
+ * | codex | 2   | `inputTokens` leaves out cache reads and writes; `token_usage_record` folds as a total and `item_completed` is a meta line, so neither is drift; a rollout under both roots is read once. |
  */
 export const EXTRACTOR_REVISION = {
   claude_code: 1,

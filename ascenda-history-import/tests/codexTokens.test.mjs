@@ -258,6 +258,25 @@ test("a fork's replayed token_usage_record is the parent's, not the fork's", asy
   assert.equal(fork.metrics.outputTokens, 50);
 });
 
+test("an item_completed event is a meta line: not drift, not a second tool call", async () => {
+  const [s] = (await sessionsOf(await storeWith({
+    [`sessions/2026/11/10/${rollout("01-00-00", MAIN)}`]: body([
+      meta("2026-11-10T01:00:00.000Z", MAIN),
+      prompt("2026-11-10T01:00:01.000Z"),
+      call("2026-11-10T01:00:02.000Z"),
+      line("2026-11-10T01:00:03.000Z", "event_msg", {
+        type: "item_completed",
+        thread_id: MAIN,
+        turn_id: "t1",
+        item: { type: "CommandExecution", id: "i1", command: "redacted", exit_code: 0 }
+      })
+    ])
+  }))).sessions;
+  assert.equal(s.metrics.unknownLines, 0);
+  assert.equal(s.metrics.metaLines, 1);
+  assert.equal(s.metrics.toolCallCount, 1);
+});
+
 /* ------------------------------------------------------------------------ *
  * Step 4: one rollout, one read
  * ------------------------------------------------------------------------ */
