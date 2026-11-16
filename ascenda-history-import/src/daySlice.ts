@@ -63,6 +63,14 @@ export interface SessionDaySlice {
    * and `0` means "counted, and there were none".
    */
   interruptedRuns?: number;
+  /**
+   * The day's own peak `used_percent` of the provider's short and long
+   * usage-limit windows, whole numbers. Codex only, and only on a day that
+   * holds a reading, so a session crossing midnight shows which day the
+   * limit bit. See usageLimitFold.ts.
+   */
+  usageLimitShortPeakPct?: number;
+  usageLimitLongPeakPct?: number;
 }
 
 /** The IANA zone the slices were cut in, or null where the host cannot say. */
@@ -147,6 +155,12 @@ export interface SliceOptions {
    * no prompt on it. Undated cuts are dropped here as undated prompts are.
    */
   interruptedRunTimestamps?: readonly (string | null | undefined)[];
+  /**
+   * Dated usage-limit readings. Each day that holds one gets its own peaks.
+   * A reading never creates a slice: it sits on a line the session's active
+   * time already covers.
+   */
+  usageLimitReadings?: readonly { at: string; shortPct: number | null; longPct: number | null }[];
 }
 
 /** Local-day keys of the parseable timestamps in `timestamps`, unsorted. */
@@ -230,6 +244,16 @@ export function sliceSessionByLocalDay(
   const cuts = options.interruptedRunTimestamps
     ? localDayCounts(options.interruptedRunTimestamps)
     : null;
+  const limitPeaks = new Map<string, { short: number | null; long: number | null }>();
+  for (const reading of options.usageLimitReadings ?? []) {
+    const d = new Date(reading.at);
+    if (!Number.isFinite(d.getTime())) continue;
+    const key = localDayKey(d);
+    const peak = limitPeaks.get(key) ?? { short: null, long: null };
+    if (reading.shortPct !== null) peak.short = Math.max(peak.short ?? reading.shortPct, reading.shortPct);
+    if (reading.longPct !== null) peak.long = Math.max(peak.long ?? reading.longPct, reading.longPct);
+    limitPeaks.set(key, peak);
+  }
   const days = [...new Set([...prompts.keys(), ...activeMs.keys(), ...(cuts?.keys() ?? [])])].sort();
   return days.map((day) => {
     const slice: SessionDaySlice = { day, prompts: prompts.get(day) ?? 0 };
@@ -241,6 +265,9 @@ export function sliceSessionByLocalDay(
       }
     }
     if (cuts) slice.interruptedRuns = cuts.get(day) ?? 0;
+    const peak = limitPeaks.get(day);
+    if (peak?.short != null) slice.usageLimitShortPeakPct = Math.round(peak.short);
+    if (peak?.long != null) slice.usageLimitLongPeakPct = Math.round(peak.long);
     return slice;
   });
 }

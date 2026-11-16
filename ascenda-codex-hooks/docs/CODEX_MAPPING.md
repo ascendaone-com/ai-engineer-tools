@@ -157,6 +157,19 @@ Codex's `Stop` payload carries no duration, so the adapter measures it:
 (override with `ASCENDA_STATE_DIR`), and `Stop` consumes it. Any state failure
 degrades to "no duration" — never to a hook error.
 
+## Usage-limit readings
+
+No hook payload carries the provider's usage-limit figures, but every payload
+carries `transcript_path`, which is the session's rollout. At `Stop` the
+rollout's last line is the turn's closing `token_count`, and current builds
+write `rate_limits` on it. The adapter reads the file's last 64 KB, takes the
+last line with a reading, and puts two whole numbers on `ai_turn_completed`:
+`usageLimitShortPeakPct` (the five-hour window) and `usageLimitLongPeakPct`
+(the weekly one). The limit's id and name, the plan and the credit balance on
+the same object are never read. No reading, no keys.
+
+Earlier hooks fire before that line is written, so only `Stop` reads it.
+
 ## Hook safety contract
 
 Codex treats **exit code 2 as blocking** the user's action and awaits command

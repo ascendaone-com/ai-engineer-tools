@@ -17,6 +17,7 @@ import {
 } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason } from "@ascenda-one/tool-contract";
 import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from "./types.js";
+import { usageLimitMetadata, type UsageLimitReading } from "./usageLimitReading.js";
 
 /**
  * Maps Codex lifecycle hooks to the canonical Ascenda event catalog.
@@ -30,8 +31,14 @@ import { CODEX_HOST, CodexHookEventName, CodexHookInput, MappedCodexEvent } from
  * derivation the Claude adapter and the retrospective importer call, so rows
  * from all three join on the same digest.
  */
-export function mapCodexEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurationMs?: number, lastSentModelId?: string): MappedCodexEvent[] {
-  const events = withModel(hookName, input, mapEvent(hookName, input, turnDurationMs), lastSentModelId);
+export function mapCodexEvent(
+  hookName: CodexHookEventName,
+  input: CodexHookInput,
+  turnDurationMs?: number,
+  lastSentModelId?: string,
+  usageLimits?: UsageLimitReading
+): MappedCodexEvent[] {
+  const events = withModel(hookName, input, mapEvent(hookName, input, turnDurationMs, usageLimits), lastSentModelId);
   // Hooks with no catalog counterpart are the common case on the hot path;
   // don't touch the filesystem to decorate an empty list.
   if (events.length === 0) return events;
@@ -79,7 +86,7 @@ export function sentModelId(events: readonly MappedCodexEvent[]): string | undef
   return undefined;
 }
 
-function mapEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurationMs?: number): MappedCodexEvent[] {
+function mapEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurationMs?: number, usageLimits?: UsageLimitReading): MappedCodexEvent[] {
   switch (hookName) {
     case "SessionStart": return mapSessionStart(input);
     case "UserPromptSubmit": return mapUserPromptSubmit(input);
@@ -93,7 +100,7 @@ function mapEvent(hookName: CodexHookEventName, input: CodexHookInput, turnDurat
     // `permission_mode` out of, so these two events carry no posture and that
     // absence is the payload's, not a decision of ours.
     case "PostCompact": return [{ eventType: "context_pressure_high", severity: "medium", metadata: withHost({ trigger: "inferred", reason: "context_limit" }) }];
-    case "Stop": return mapStop(input, turnDurationMs);
+    case "Stop": return mapStop(input, turnDurationMs, usageLimits);
     // Codex's approval gate: the agent has stopped and is waiting for the
     // person to allow something. Same leg as Claude Code's `Notification`, and
     // unambiguous in a way that one is not — this hook fires for approvals and
@@ -193,7 +200,7 @@ function mapPreCompact(input: CodexHookInput): MappedCodexEvent[] {
   return [{ eventType: isManual ? "context_compression_manual" : "context_compression_auto", severity: isManual ? "medium" : "high", metadata: withHost({ trigger: isManual ? "manual" : "auto", reason: "context_limit" }) }];
 }
 
-function mapStop(input: CodexHookInput, turnDurationMs: number | undefined): MappedCodexEvent[] {
+function mapStop(input: CodexHookInput, turnDurationMs: number | undefined, usageLimits: UsageLimitReading | undefined): MappedCodexEvent[] {
   const durationBucket = bucketDurationMs(turnDurationMs);
   const autonomy = autonomyModeMetadata(input);
   const events: MappedCodexEvent[] = [];
@@ -205,8 +212,10 @@ function mapStop(input: CodexHookInput, turnDurationMs: number | undefined): Map
   }
   // Every turn ends here, long or short. Pushed last so a send that isn't
   // accepted can't cost the long-loop signal ahead of it. A turn with no
-  // recorded start still ended; it just has no duration bucket.
-  events.push({ eventType: "ai_turn_completed", severity: "low", metadata: withHost({ ...(durationBucket ? { durationBucket } : {}), ...autonomy }) });
+  // recorded start still ended; it just has no duration bucket. The usage
+  // limit reading is the rollout's own, read by the CLI at this hook (see
+  // usageLimitReading.ts); absent when the build wrote none.
+  events.push({ eventType: "ai_turn_completed", severity: "low", metadata: withHost({ ...(durationBucket ? { durationBucket } : {}), ...autonomy, ...usageLimitMetadata(usageLimits) }) });
   return events;
 }
 
