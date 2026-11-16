@@ -849,6 +849,9 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   importKey: "transport",
   extractionId: "transport",
   importSchema: "transport",
+  // A whole number naming which rung of a store's extractor produced the row.
+  // Says nothing about the work itself.
+  extractorRevision: "transport",
   // The version of the Ascenda collector that sent this event. Names the
   // build, and nothing about the work it observed.
   collectorVersion: "transport",
@@ -1220,6 +1223,9 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   /** Version of the normalized historical event shape the importer emitted. */
   importSchema?: number;
 
+  /** Which rung of its store's extractor produced this row. A higher rung under the same {@link importKey} replaces the stored row. */
+  extractorRevision?: number;
+
   /**
    * The version of the Ascenda collector that sent this event: the release tag
    * without its `v` (`0.1.28`), or `unreleased` for a build from a checkout.
@@ -1300,6 +1306,7 @@ export const EVENT_METADATA_FIELDS = [
   "importKey",
   "extractionId",
   "importSchema",
+  "extractorRevision",
   "collectorVersion",
   "collectorPlatform"
 ] as const;
