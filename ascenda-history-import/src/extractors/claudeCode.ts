@@ -499,6 +499,10 @@ interface SessionFold {
    * on the store this was measured on (11,059 lines, 5,173 messages). A line
    * of a message already seen replaces what that message added instead of
    * adding to it, so the last line wins whichever order it arrives in.
+   *
+   * Re-measure with `scripts/measure-store.mjs` (`linesPerMessage`). In
+   * November 2026 it read 583,172 assistant lines over 289,126 messages on one
+   * machine, 2.02 lines per message.
    */
   messageTokens: Map<string, MessageUsage>;
   /**
