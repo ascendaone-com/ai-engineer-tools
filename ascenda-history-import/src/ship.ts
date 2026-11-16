@@ -69,6 +69,7 @@ import {
   STORE_HOST,
   STORE_SOURCE
 } from "./types.js";
+import { EXTRACTOR_REVISION } from "./extractorRevisions.js";
 
 export type { ShipConfig } from "./credentials.js";
 export { DEFAULT_API_BASE_URL, loadShipConfig } from "./credentials.js";
@@ -180,6 +181,9 @@ export function toWirePayload(
     importKey: importKeyOf(event, ordinal),
     extractionId: event.extractionId,
     importSchema: 1,
+    // Which rung of the store's extractor produced this row. Metadata, not
+    // part of the key: a fix replaces the stored row, it doesn't add one.
+    extractorRevision: EXTRACTOR_REVISION[event.store],
     // The importer build that shipped this row. Extractors gain metrics from
     // release to release, so a metric missing from an older import is a fact
     // about the build that read the store, and this is how a reader knows.
@@ -306,6 +310,13 @@ export interface ShipResult {
    * baseline; folding them into `rejected` would tell them their import broke.
    */
   duplicate: number;
+  /**
+   * Events whose key the backend already held at a lower extractor revision.
+   * It replaced the stored row with this one. Counted apart from `accepted`
+   * (nothing new was added to the baseline) and from `duplicate` (something
+   * did change).
+   */
+  revised: number;
   rejected: number;
   /** reason -> count, from the batch response's per-item results. */
   rejectionReasons: Record<string, number>;
@@ -344,17 +355,25 @@ export interface ShipResult {
    * per-store table must say so when this is false.
    */
   attributionComplete: boolean;
+  /**
+   * What happened to the closing `import-complete` call. `sent` after a clean
+   * run, `failed` when the call didn't land, `skipped` when the run wasn't
+   * clean (any failed batch, any rejection, a consent stop) and so must not
+   * let the backend supersede anything.
+   */
+  importComplete: "sent" | "failed" | "skipped";
 }
 
 export interface StoreShipCounts {
   sent: number;
   accepted: number;
   duplicate: number;
+  revised: number;
   rejected: number;
 }
 
 function storeCounts(result: ShipResult, store: string): StoreShipCounts {
-  return (result.perStore[store] ??= { sent: 0, accepted: 0, duplicate: 0, rejected: 0 });
+  return (result.perStore[store] ??= { sent: 0, accepted: 0, duplicate: 0, revised: 0, rejected: 0 });
 }
 
 const BATCH_SIZE = 200;
@@ -383,11 +402,13 @@ export async function shipEvents(
     sent: 0,
     accepted: 0,
     duplicate: 0,
+    revised: 0,
     rejected: 0,
     rejectionReasons: {},
     httpFailures: 0,
     perStore: {},
-    attributionComplete: true
+    attributionComplete: true,
+    importComplete: "skipped"
   };
   const wireEvents = shippableEvents(events);
   // Ordinals are assigned across the whole shipment before it is cut into
@@ -440,11 +461,13 @@ export async function shipEvents(
       const body = (await response.json()) as {
         accepted?: number;
         duplicate?: number;
+        revised?: number;
         rejected?: number;
         results?: { status?: string; reason?: string }[];
       };
       result.accepted += body.accepted ?? 0;
       result.duplicate += body.duplicate ?? 0;
+      result.revised += body.revised ?? 0;
       result.rejected += body.rejected ?? 0;
       const items = body.results ?? [];
       // Per-item results are positional against the batch we sent. Only
@@ -452,7 +475,7 @@ export async function shipEvents(
       // anything else and the mapping is a guess, and a guessed per-store
       // table is worse than an absent one.
       const attributable = items.length === chunk.length;
-      if (!attributable && (body.accepted ?? body.duplicate ?? body.rejected) !== undefined) {
+      if (!attributable && (body.accepted ?? body.duplicate ?? body.revised ?? body.rejected) !== undefined) {
         result.attributionComplete = false;
       }
       for (let i = 0; i < items.length; i += 1) {
@@ -461,11 +484,12 @@ export async function shipEvents(
           const counts = storeCounts(result, chunk[i].store);
           if (item.status === "accepted") counts.accepted += 1;
           else if (item.status === "duplicate") counts.duplicate += 1;
+          else if (item.status === "revised") counts.revised += 1;
           else counts.rejected += 1;
         }
         // Duplicates have their own counter; bucketing them as rejection
         // reasons too would report the same events twice under two headings.
-        if (item.status !== "accepted" && item.status !== "duplicate") {
+        if (item.status !== "accepted" && item.status !== "duplicate" && item.status !== "revised") {
           const reason = item.reason ?? "unknown";
           result.rejectionReasons[reason] = (result.rejectionReasons[reason] ?? 0) + 1;
         }
@@ -505,6 +529,7 @@ export async function shipEvents(
           (item) =>
             item.status !== "accepted" &&
             item.status !== "duplicate" &&
+            item.status !== "revised" &&
             (item.reason === "consent_missing_or_expired" ||
               item.reason === "unknown_consent_scope")
         );
@@ -521,5 +546,42 @@ export async function shipEvents(
     }
     onProgress?.(Math.min(offset + BATCH_SIZE, wireEvents.length), wireEvents.length);
   }
+  await closeRun(result, config, wireEvents);
   return result;
+}
+
+/**
+ * Tells the backend the run is over, so it can supersede stored rows this run
+ * no longer emits. Sent only when every batch got a response and nothing was
+ * rejected: a session cut short by a failed batch would otherwise look like a
+ * session whose missing rows had been dropped on purpose. A run that dies
+ * before this call supersedes nothing, so a crash can't lose rows.
+ */
+async function closeRun(
+  result: ShipResult,
+  config: ShipConfig,
+  wireEvents: NormalizedHistoricalEvent[]
+): Promise<void> {
+  const clean =
+    result.sent > 0 &&
+    result.httpFailures === 0 &&
+    result.rejected === 0 &&
+    !result.consentBlocked &&
+    result.attributionComplete;
+  if (!clean) return;
+  const extractionId = wireEvents[0]?.extractionId;
+  if (!extractionId) return;
+  try {
+    const response = await fetch(`${config.apiBaseUrl}/v1/tool-events/import-complete`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.eventWriteToken}`
+      },
+      body: JSON.stringify({ extractionId })
+    });
+    result.importComplete = response.ok ? "sent" : "failed";
+  } catch {
+    result.importComplete = "failed";
+  }
 }

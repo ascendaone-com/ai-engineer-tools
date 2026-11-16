@@ -53,9 +53,9 @@ test("ship results are attributed back to the source that produced them", async 
   try {
     const result = await shipEvents(events, CONFIG);
     assert.equal(result.attributionComplete, true);
-    assert.deepEqual(result.perStore.claude_code, { sent: 1, accepted: 1, duplicate: 0, rejected: 0 });
-    assert.deepEqual(result.perStore.cursor, { sent: 1, accepted: 1, duplicate: 0, rejected: 0 });
-    assert.deepEqual(result.perStore.vscode, { sent: 2, accepted: 1, duplicate: 1, rejected: 0 });
+    assert.deepEqual(result.perStore.claude_code, { sent: 1, accepted: 1, duplicate: 0, revised: 0, rejected: 0 });
+    assert.deepEqual(result.perStore.cursor, { sent: 1, accepted: 1, duplicate: 0, revised: 0, rejected: 0 });
+    assert.deepEqual(result.perStore.vscode, { sent: 2, accepted: 1, duplicate: 1, revised: 0, rejected: 0 });
   } finally {
     restore();
   }
@@ -116,6 +116,82 @@ test("event order — and therefore every importKey — is unchanged by per-stor
   try {
     await shipEvents(events, CONFIG);
     assert.deepEqual(seen, ["claude_code-s1", "vscode-s2", "cursor-s3"]);
+  } finally {
+    restore();
+  }
+});
+
+test("revised items are counted per store and in the total", async () => {
+  const events = [event("claude_code", 1), event("claude_code", 2), event("vscode", 3)];
+  const restore = stubFetch(async (url, init) => {
+    if (String(url).endsWith("/import-complete")) return jsonResponse({});
+    const sent = JSON.parse(init.body).events;
+    const status = ["revised", "duplicate", "accepted"];
+    return jsonResponse({ accepted: 1, duplicate: 1, revised: 1, rejected: 0, results: sent.map((_, i) => ({ status: status[i] })) });
+  });
+  try {
+    const result = await shipEvents(events, CONFIG);
+    assert.equal(result.revised, 1);
+    assert.deepEqual(result.perStore.claude_code, { sent: 2, accepted: 0, duplicate: 1, revised: 1, rejected: 0 });
+    assert.deepEqual(result.rejectionReasons, {}, "revised is not a rejection");
+  } finally {
+    restore();
+  }
+});
+
+test("import-complete is sent once, after a clean run, with the run's extractionId", async () => {
+  const events = [event("claude_code", 1), event("vscode", 2)];
+  const calls = [];
+  const restore = stubFetch(async (url, init) => {
+    calls.push(String(url));
+    if (String(url).endsWith("/import-complete")) {
+      assert.deepEqual(JSON.parse(init.body), { extractionId: "e1" });
+      return jsonResponse({});
+    }
+    const sent = JSON.parse(init.body).events;
+    return jsonResponse({ accepted: sent.length, results: sent.map(() => ({ status: "accepted" })) });
+  });
+  try {
+    const result = await shipEvents(events, CONFIG);
+    assert.equal(result.importComplete, "sent");
+    assert.equal(calls.filter((u) => u.endsWith("/import-complete")).length, 1);
+    assert.ok(calls[calls.length - 1].endsWith("/import-complete"), "it is the last call");
+  } finally {
+    restore();
+  }
+});
+
+test("import-complete is not sent after a run whose last batch failed", async () => {
+  const events = Array.from({ length: 201 }, (_, i) => event("claude_code", i));
+  let batches = 0;
+  const calls = [];
+  const restore = stubFetch(async (url, init) => {
+    calls.push(String(url));
+    batches += 1;
+    if (batches === 2) return { ok: false, status: 500, json: async () => ({}) };
+    const sent = JSON.parse(init.body).events;
+    return jsonResponse({ accepted: sent.length, results: sent.map(() => ({ status: "accepted" })) });
+  });
+  try {
+    const result = await shipEvents(events, CONFIG);
+    assert.equal(result.importComplete, "skipped");
+    assert.equal(calls.some((u) => u.endsWith("/import-complete")), false);
+  } finally {
+    restore();
+  }
+});
+
+test("import-complete is not sent when any event was rejected", async () => {
+  const calls = [];
+  const restore = stubFetch(async (url, init) => {
+    calls.push(String(url));
+    const sent = JSON.parse(init.body).events;
+    return jsonResponse({ accepted: 0, rejected: sent.length, results: sent.map(() => ({ status: "rejected", reason: "validation_failed" })) });
+  });
+  try {
+    const result = await shipEvents([event("claude_code", 1)], CONFIG);
+    assert.equal(result.importComplete, "skipped");
+    assert.equal(calls.some((u) => u.endsWith("/import-complete")), false);
   } finally {
     restore();
   }
