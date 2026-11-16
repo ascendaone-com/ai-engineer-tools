@@ -23,10 +23,11 @@ import type { HistoryStore } from "./types.js";
  * | ----- | --- | ----------------- |
  * | all   | 1   | The first rung. Nothing is corrected yet. |
  * | claude_code | 2 | A line whose `uuid` already appeared in the same transcript, or, in a forked subagent's transcript, in the parent's main transcript, adds nothing. Tool calls, tool results, tool failures and API errors drop on resumed sessions. |
+ * | codex | 2   | `inputTokens` leaves out cache reads and writes; `token_usage_record` folds as a total and `item_completed` is a meta line, so neither is drift; a rollout under both roots is read once. |
  */
 export const EXTRACTOR_REVISION = {
   claude_code: 2,
-  codex: 1,
+  codex: 2,
   copilot_cli: 1,
   cursor: 1,
   vscode: 1,

@@ -105,8 +105,9 @@ const ADAPTERS = [
       ["PostToolUse", { tool_name: "exec_command", tool_input: { cmd: "git commit -m x" }, tool_response: { exit_code: 0 }, cwd: CWD }],
       ["PostToolUse", { tool_name: "apply_patch", tool_response: { exit_code: 0 }, cwd: CWD }],
       ["PermissionRequest", { cwd: CWD }],
-      ["Stop", { cwd: CWD }, 120000]
-    ].flatMap(([hook, input, turnMs]) => withForgeKeys(withPromptId(mapCodexEvent(hook, input, turnMs), MINTED), FORGE_CWD))
+      ["Stop", { cwd: CWD }, 120000, { shortPct: 40, longPct: 8 }]
+    ].flatMap(([hook, input, turnMs, usageLimits]) =>
+      withForgeKeys(withPromptId(mapCodexEvent(hook, input, turnMs, undefined, usageLimits), MINTED), FORGE_CWD))
   },
   {
     spec: CURSOR,

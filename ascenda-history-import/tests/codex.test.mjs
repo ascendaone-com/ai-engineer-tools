@@ -246,7 +246,7 @@ test("sniffs the payload subtype off response_item and event_msg lines", () => {
 test("the extractor's known-type list matches the documented one", () => {
   assert.deepEqual(
     [...KNOWN_CODEX_LINE_TYPES].sort(),
-    ["compacted", "event_msg", "response_item", "session_meta", "turn_context"]
+    ["compacted", "event_msg", "response_item", "session_meta", "token_usage_record", "turn_context"]
   );
 });
 
@@ -335,7 +335,7 @@ test("the fixture folds into the documented session shape", async () => {
   assert.equal(m.toolResultErrorCount, 2, "one non-zero exit code, one success:false");
   assert.equal(m.apiErrorCount, 1);
   assert.equal(m.toolFailureCount, 3);
-  assert.equal(m.inputTokens, 2500, "the largest cumulative figure, not a sum of cumulative figures");
+  assert.equal(m.inputTokens, 1600, "the largest cumulative figure, less its cached part");
   assert.equal(m.outputTokens, 120);
   assert.equal(m.cacheReadTokens, 900);
   assert.equal(m.contextWindowPeakTokens, 1500, "the largest last-request input");

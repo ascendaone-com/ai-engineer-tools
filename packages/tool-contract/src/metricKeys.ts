@@ -153,8 +153,12 @@ export const METRIC_KEYS = {
   sessionMinutes: { family: "session", readBy: ["backend"], backendAliases: ["sessionMinutes", "session_minutes"], unit: "minutes" },
   durationBucket: { family: "session", readBy: ["backend", "handoff"], backendAliases: ["durationBucket", "duration_bucket"] },
   afterHoursPrompts: { family: "clock", readBy: ["backend", "handoff"], backendAliases: ["afterHoursPrompts", "after_hours_prompts"] },
+  /** Input tokens billed at the full rate: cache reads and cache writes
+   * excluded. Every extractor ships it on this definition, so
+   * `inputTokens + cacheReadTokens + cacheCreationTokens` is the whole input. */
   inputTokens: { family: "context", readBy: ["backend"], backendAliases: ["inputTokens", "input_tokens"], unit: "tokens" },
   outputTokens: { family: "context", readBy: ["backend"], backendAliases: ["outputTokens", "output_tokens"], unit: "tokens" },
+  /** Input tokens served from the prompt cache. Not part of `inputTokens`. */
   cacheReadTokens: { family: "context", readBy: ["backend"], backendAliases: ["cacheReadTokens", "cache_read_tokens"], unit: "tokens" },
   queuedPrompts: { family: "counts", readBy: ["backend"], backendAliases: ["queuedPrompts", "queued_prompts"] },
   linesChangedBucket: { family: "edits", readBy: ["backend"], backendAliases: ["linesChangedBucket", "lines_changed_bucket"] },
@@ -176,6 +180,59 @@ export const METRIC_KEYS = {
     readBy: ["backend"],
     backendAliases: ["branchKey", "branch_key"],
     note: "forgeBranchKey of the repository and the branch a commit is reachable from. Absent on the default branch, like the live hooks."
+  },
+
+  // Codex's own usage-limit readings: `rate_limits` on its token_count lines,
+  // main thread only. The limit's id and name, the plan and the credit
+  // balance on the same object are never read. A session whose rollouts
+  // carried no readings has none of these keys. The backend reader arrives
+  // in its own change.
+  usageLimitShortPeakPct: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitShortPeakPct", "usage_limit_short_peak_pct"],
+    unit: "percent (0–100), whole number",
+    note: "History import: the largest used_percent of the short (primary) window the session saw. Five hours on every build seen; usageLimitShortWindowMinutes says. The live Codex hooks put the same key on ai_turn_completed with the reading at the turn's end, read from the rollout at Stop."
+  },
+  usageLimitLongPeakPct: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitLongPeakPct", "usage_limit_long_peak_pct"],
+    unit: "percent (0–100), whole number",
+    note: "The same for the long (secondary) window, on both paths. Weekly on every build seen."
+  },
+  usageLimitShortWindowMinutes: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitShortWindowMinutes", "usage_limit_short_window_minutes"],
+    unit: "minutes",
+    note: "The short window's size as the rollout reported it, never assumed."
+  },
+  usageLimitLongWindowMinutes: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitLongWindowMinutes", "usage_limit_long_window_minutes"],
+    unit: "minutes"
+  },
+  usageLimitReached: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitReached", "usage_limit_reached"],
+    unit: "boolean",
+    note: "True when a reading carried a non-null rate_limit_reached_type. Present only beside the peaks."
+  },
+  usageLimitReachedType: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitReachedType", "usage_limit_reached_type"],
+    note: "Which limit was hit: primary, secondary, or other for any value outside that list."
+  },
+  usageLimitFirstReachedAt: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitFirstReachedAt", "usage_limit_first_reached_at"],
+    unit: "ISO 8601 instant",
+    note: "The first reading that carried a reached type."
   },
 
   // ── Read by the local handoff only ──────────────────────────────────────
@@ -457,6 +514,8 @@ export const METRIC_KEYS = {
     unit: "tokens",
     note: "Claude Code only: input, output and cache tokens spent by advisor calls. A part of the session totals, not an addition to them."
   },
+  /** Input tokens written to the prompt cache. Not part of `inputTokens`.
+   * Absent, never 0, where the store doesn't record the figure. */
   cacheCreationTokens: {
     family: "context",
     readBy: ["diagnostic"],
@@ -568,6 +627,11 @@ export const METRIC_KEYS = {
   unparsedBubbles: { family: "reading", readBy: ["diagnostic"] },
   unparsedChatSessionFiles: { family: "reading", readBy: ["diagnostic"] },
   unparsedHistoryFiles: { family: "reading", readBy: ["diagnostic"] },
+  duplicateRolloutFiles: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    note: "Codex only: rollout files skipped because the same rollout sat under both sessions/ and archived_sessions/. One copy is read; the other would have counted its prompts and tool calls twice."
+  },
   unparsedLines: { family: "reading", readBy: ["diagnostic"] },
   unreadableChatSessionFiles: { family: "reading", readBy: ["diagnostic"] },
   unreadableHistoryFiles: { family: "reading", readBy: ["diagnostic"] },
