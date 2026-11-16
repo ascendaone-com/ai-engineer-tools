@@ -22,9 +22,10 @@ import type { HistoryStore } from "./types.js";
  * | Store | Rev | Fix it stands for |
  * | ----- | --- | ----------------- |
  * | all   | 1   | The first rung. Nothing is corrected yet. |
+ * | claude_code | 2 | A line whose `uuid` already appeared in the same transcript, or, in a forked subagent's transcript, in the parent's main transcript, adds nothing. Tool calls, tool results, tool failures and API errors drop on resumed sessions. |
  */
 export const EXTRACTOR_REVISION = {
-  claude_code: 1,
+  claude_code: 2,
   codex: 1,
   copilot_cli: 1,
   cursor: 1,

@@ -5,7 +5,7 @@ resumed session that repeats lines inside its own file, forked subagents that
 repeat their parent's lines, and Claude Desktop's Cowork sessions, which we
 never find. Line numbers are against `main` at `badbcf6`.
 
-Status: not started.
+Status: parts 1 and 2 built (`repeatedLines`, claude_code revision 2); part 3 in #226.
 
 ## 1. Repeated lines inside one transcript
 
