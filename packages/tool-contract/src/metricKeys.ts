@@ -128,6 +128,12 @@ const CONTEXT_WINDOW_CANONICAL_ALIASES = [
 const CONTEXT_WINDOW_CURSOR_PERCENT_ALIASES = ["contextUsagePercent"] as const;
 
 export const METRIC_KEYS = {
+  extractorRevision: {
+    family: "transport",
+    readBy: ["backend"],
+    backendAliases: ["extractorRevision"],
+    note: "Which rung of the store's extractor produced the row; the backend replaces a stored row when a higher one arrives under the same importKey."
+  },
   // ── Read by a backend reader ────────────────────────────────────────────
   contextWindowPeakPct: {
     family: "context",
