@@ -6,7 +6,21 @@ Copilot, drops cache writes, and flags a current line type as drift. This plan
 fixes all four and makes the reader stream. Line numbers are against `main` at
 `badbcf6`.
 
-Status: not started.
+Status: built on `docs/codex-token-accounting-plan`, stacked on the
+extractor revision. `codex` is at revision 2, and the output-hash guard now
+covers it with a committed fixture (`tests/fixtures/codex-store`). Where the
+build differs from the steps below:
+
+- `event_msg:item_completed` also tripped `unknownLines` on current rollouts.
+  It repeats items already written as `response_item`s, so it counts as a
+  meta line and stays off the timeline.
+- The large-file test writes 600 MB, since 300 MB is under V8's string limit
+  and wouldn't fail the old reader.
+- Node's built-in zstd decoder returns the decodable prefix of a truncated
+  frame without an error, before and after this change. The partway-failure
+  test uses the CLI decoder, which does fail.
+- The app's matching change isn't open yet. The PR body has the exact Dart
+  change.
 
 ## What's wrong today
 
