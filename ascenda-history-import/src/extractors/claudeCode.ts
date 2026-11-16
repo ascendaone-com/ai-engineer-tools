@@ -142,6 +142,7 @@ import {
 import { isTypedPromptLine, stepRun } from "../interruptedRuns.js";
 import {
   PromptLedger,
+  isHomeTranscript,
   TimelineOwnership,
   readPromptLedger,
   resolveContestedOwners
@@ -513,6 +514,15 @@ interface SessionFold {
    * A fold where this is the only thing the file held is a pure copy, and the
    * emit loop counts it as unusable. */
   inheritedTimelineLines: number;
+  /** Lines read but not counted because they repeat one already read: a
+   * `uuid` seen earlier in the same file (a resume can write the same lines
+   * twice), or, in a forked subagent's transcript, one the parent's main
+   * transcript already held. Shipped as `repeatedLines` when above 0. */
+  repeatedLines: number;
+  /** Every `uuid` in the session's main transcript, kept so a forked
+   * subagent can skip the lines it copied from it. Null until the main
+   * transcript is read, and for a fold seeded from a subagent file. */
+  mainThreadUuids: ReadonlyMap<string, boolean> | null;
   /** Timestamps of HUMAN prompts only — the per-prompt events emitted later,
    * and the source for rapid-reprompt detection. Timestamps, never text. Only
    * the prompts this transcript owns (`promptLedger.ts`): a prompt a resumed
@@ -582,6 +592,8 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     timelinePoints: [],
     undatedTimelineLines: 0,
     inheritedTimelineLines: 0,
+    repeatedLines: 0,
+    mainThreadUuids: null,
     humanPromptTimestamps: [],
     interruptedRuns: 0,
     interruptedRunTimestamps: []
@@ -844,6 +856,24 @@ async function foldLinesInto(
   // person cut short. Per file, because a subagent's turns are not the
   // person's to interrupt and its transcript is never stepped.
   let turnRunning = false;
+  // Every `uuid` read so far in this file, and whether this file counted it.
+  // A resumed transcript can hold the same lines twice, with the same ids and
+  // timestamps; the second copy is read for turn state like any other line but
+  // adds nothing.
+  const seenInFile = new Map<string, boolean>();
+  if (!opts.isSidechain) {
+    // The main transcript is read before any subagent transcript of the same
+    // session: `extractClaudeCode` folds every top-level file of a project
+    // before it opens a session directory or a flat subagent file. A fork's
+    // dedupe below depends on that order, so break loudly if it ever changes.
+    if (fold.sidechainTallies.length > 0) {
+      throw new Error(`main transcript ${filePath} read after a subagent transcript of the same session`);
+    }
+    fold.mainThreadUuids = seenInFile;
+  }
+  // A forked subagent opens with a copy of its parent's conversation, same
+  // ids. Set from the sidecar below; without one, every line is its own.
+  let isFork = false;
   // One tally per subagent transcript, for its receipt. The sibling
   // `.meta.json` names the agent's type and the parent's tool_use id; a
   // missing or unreadable one leaves both to the parent's own lines.
@@ -857,6 +887,7 @@ async function foldLinesInto(
       const meta = JSON.parse(await fs.readFile(filePath.replace(/\.jsonl$/, ".meta.json"), "utf8")) as Record<string, unknown>;
       if (typeof meta.agentType === "string") tally.metaType = meta.agentType;
       if (typeof meta.toolUseId === "string") tally.toolUseId = meta.toolUseId;
+      if (meta.isFork === true) tally.isFork = isFork = true;
     } catch {
       // No sidecar: fine.
     }
@@ -899,11 +930,33 @@ async function foldLinesInto(
       // copy is still read, because the turn state below needs every line, but
       // it adds nothing. Typed prompts are settled by the ledger (`claim`)
       // instead. Asked once per line: an orphan's claim is remembered.
-      const owned = opts.ownership.owns(
-        sniffed,
-        filePath,
-        opts.isSidechain ? { isSidechain: true, foundUnderSessionId: fold.sessionId } : { isSidechain: false }
-      );
+      //
+      // A repeat is settled first, before `owns` is asked: `owns` remembers an
+      // orphan's claim, and a repeat must not claim anything. A line repeats
+      // when its `uuid` came earlier in this file, or, in a fork, when the
+      // parent's main transcript held it.
+      //
+      // One repeat is still asked: a main-thread line whose first copy here
+      // named an ancestor and was left to it, repeated with its `sessionId`
+      // rewritten to this file. The contested-owner rule may give that line to
+      // this file, and skipping it would leave it counted nowhere. A line that
+      // names this file never touches the orphan claims, so asking is safe.
+      const uuid = sniffed.uuid;
+      const seenHere = uuid === null ? undefined : seenInFile.get(uuid);
+      const forkCopy = uuid !== null && isFork && fold.mainThreadUuids?.has(uuid) === true;
+      const ask = opts.isSidechain
+        ? seenHere === undefined && !forkCopy
+        : seenHere === undefined || (seenHere === false && isHomeTranscript(filePath, sniffed.sessionId));
+      const owned =
+        ask &&
+        opts.ownership.owns(
+          sniffed,
+          filePath,
+          opts.isSidechain ? { isSidechain: true, foundUnderSessionId: fold.sessionId } : { isSidechain: false }
+        );
+      const repeat = (seenHere !== undefined || forkCopy) && !owned;
+      if (uuid !== null) seenInFile.set(uuid, seenHere === true || owned);
+      if (repeat) fold.repeatedLines += 1;
       // Trust the store's own id over the filename when they disagree — main
       // thread only, and only from a line this file owns, which is the same
       // thing as a line written here. A subagent's own sessionId already
@@ -1228,7 +1281,11 @@ async function foldLinesInto(
           break; // attachment / last-prompt / custom-title: window only, and
         //           bookkeeping for the split — `agentOutputHere` stays false.
       }
-      if (sniffed.occurredAt && !owned) {
+      if (repeat) {
+        // Already placed, or not, by the copy read first. Neither a point nor
+        // an inherited line: counting it as inherited would make a session
+        // that only repeated itself look like a pure copy.
+      } else if (sniffed.occurredAt && !owned) {
         // Someone else's instant, held here as a copy. Counted rather than
         // dropped silently: a fold whose file held nothing else is a pure copy
         // and the emit loop reports it.
@@ -1543,6 +1600,10 @@ export async function* extractClaudeCode(
       }
     }
 
+    // Every subagent transcript of this project is folded; the id sets were
+    // only for them.
+    for (const fold of foldsByKey.values()) fold.mainThreadUuids = null;
+
     // Files here, but nothing this extractor can read as a transcript.
     if (slugJsonlFiles === 0 && slugOtherFiles > 0) projectsWithNoReadableTranscript += 1;
 
@@ -1658,6 +1719,7 @@ export async function* extractClaudeCode(
         sessionMetrics.cacheCreation5mTokens = fold.cacheCreation5mTokens;
         sessionMetrics.cacheCreation1hTokens = fold.cacheCreation1hTokens;
       }
+      if (fold.repeatedLines > 0) sessionMetrics.repeatedLines = fold.repeatedLines;
       if (fold.advisorMessageCount > 0) {
         sessionMetrics.advisorMessageCount = fold.advisorMessageCount;
         sessionMetrics.advisorTokensTotal = fold.advisorTokensTotal;

@@ -58,6 +58,9 @@ export interface SidechainTally {
   /** `agentType` from the sibling `.meta.json`, when there is one. */
   metaType: string | null;
   toolUseId: string | null;
+  /** `isFork` from the sidecar: the transcript opens with a copy of the
+   * parent's conversation. */
+  isFork: boolean;
   /** Lines this session owns. A resumed session's copy of its parent's
    * transcript owns none, and gets no receipt: the parent has it. */
   ownedLines: number;
@@ -72,6 +75,7 @@ export function newSidechainTally(): SidechainTally {
     agentId: null,
     metaType: null,
     toolUseId: null,
+    isFork: false,
     ownedLines: 0,
     times: [],
     toolCalls: 0,

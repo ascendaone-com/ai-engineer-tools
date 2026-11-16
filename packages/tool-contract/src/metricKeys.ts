@@ -128,6 +128,12 @@ const CONTEXT_WINDOW_CANONICAL_ALIASES = [
 const CONTEXT_WINDOW_CURSOR_PERCENT_ALIASES = ["contextUsagePercent"] as const;
 
 export const METRIC_KEYS = {
+  extractorRevision: {
+    family: "transport",
+    readBy: ["backend"],
+    backendAliases: ["extractorRevision"],
+    note: "Which rung of the store's extractor produced the row; the backend replaces a stored row when a higher one arrives under the same importKey."
+  },
   // ── Read by a backend reader ────────────────────────────────────────────
   contextWindowPeakPct: {
     family: "context",
@@ -179,6 +185,12 @@ export const METRIC_KEYS = {
     readBy: ["handoff"],
     unit: "lines",
     note: "Main-thread user lines the runtime wrote on the person's behalf (notifications, its own bookkeeping, slash-command wrappers, interrupt markers) and promptCount left out. Claude Code only; the receipt for the handoff's promptBasis. Counted per transcript, so a resumed transcript's copies count again."
+  },
+  repeatedLines: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    unit: "lines",
+    note: "Lines read but left out of every count because they repeat one already read: a uuid seen earlier in the same transcript (a resume can write the same lines twice), or, in a forked subagent's transcript, a line its parent's main transcript holds. Claude Code only; shipped when above 0."
   },
   dispatchedPromptLines: {
     family: "reading",
