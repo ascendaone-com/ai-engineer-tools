@@ -123,7 +123,8 @@ figure can be refreshed. Not run in CI; it reads a real home directory.
 ## Done when
 
 - The generator, both test files and the edge fixtures are in, and
-  `npm run verify` passes, with the known open bugs marked `todo`.
+  `npm run verify` passes. The known-bug cases started as `todo` and became ordinary
+  tests once #219 and #220 landed.
 - `scripts/measure-store.mjs` prints the five measurements above on a
   developer machine.
 - The comments quoting figures in `promptLedger.ts` and `claudeCode.ts` name

@@ -12,8 +12,3 @@ Figures are what a correct reader reports.
 | `incomplete-final-record.jsonl` | The last line is cut mid-JSON. It's counted as unparsed and nothing else. | `unparsedLines` 1, `promptCount` 1, `mainThreadToolCallCount` 1, `assistantTurns` 2 |
 | `malformed-between-valid.jsonl` | One invalid line sits between two valid ones. The lines around it still count. | `unparsedLines` 1, `promptCount` 1, `mainThreadToolCallCount` 1, `assistantTurns` 2 |
 | `compaction-continues-session.jsonl` | A `compact_boundary` doesn't end the session. The summary line after it isn't a prompt. | `compactionCount` 1, `compactionAutoCount` 1, `compactionManualCount` 0, `syntheticPromptLines` 1, `promptCount` 2, `assistantTurns` 2 |
-
-## Known to fail today
-
-- `resume-replay.jsonl` reports 5 tool calls and 2 failures. Fix: [#220](https://github.com/ascendaone-com/ai-engineer-tools/pull/220).
-- `fork-subagent/` reports 2 subagent tool calls. Fix: [#220](https://github.com/ascendaone-com/ai-engineer-tools/pull/220).

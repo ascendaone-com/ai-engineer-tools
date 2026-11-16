@@ -60,13 +60,11 @@ const CASES = [
   {
     store: "claude_code",
     file: "resume-replay.jsonl",
-    todo: PLAN(220),
     expect: { promptCount: 1, mainThreadToolCallCount: 3, toolResultErrorCount: 1, toolFailureCount: 1, assistantTurns: 3, inputTokens: 30, outputTokens: 300 }
   },
   {
     store: "claude_code",
     file: "fork-subagent",
-    todo: PLAN(220),
     expect: { promptCount: 1, mainThreadToolCallCount: 1, assistantTurns: 2, subagentTranscripts: 1, subagentToolCallCount: 1, subagentAssistantTurns: 1, toolFailureCount: 0 }
   },
   {
@@ -88,19 +86,16 @@ const CASES = [
   {
     store: "codex",
     file: "token-usage-record-only.jsonl",
-    todo: PLAN(219),
     expect: { promptCount: 1, unknownLines: 0, inputTokens: 1000, outputTokens: 50, tokensNotCollected: undefined }
   },
   {
     store: "codex",
     file: "token-usage-record-and-token-count.jsonl",
-    todo: PLAN(219),
     expect: { promptCount: 1, unknownLines: 0, inputTokens: 1000, outputTokens: 50 }
   },
   {
     store: "codex",
     file: "archived-copy",
-    todo: PLAN(219),
     expect: { promptCount: 1, mainThreadToolCallCount: 1, assistantTurns: 1, inputTokens: 1000, outputTokens: 50 }
   },
   {

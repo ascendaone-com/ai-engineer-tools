@@ -15,15 +15,8 @@ const PLAN = (n) => `https://github.com/ascendaone-com/ai-engineer-tools/pull/${
 
 /** Shape flags whose cases fail today, per store, with the plan that fixes them. */
 const OPEN = {
-  claude_code: {
-    resumeReplay: PLAN(220),
-    forkedSubagent: PLAN(220)
-  },
-  codex: {
-    tokenUsageRecord: PLAN(219),
-    cachedInput: PLAN(219),
-    archivedCopy: PLAN(219)
-  }
+  claude_code: {},
+  codex: {}
 };
 
 function openPlanFor(store, flags) {

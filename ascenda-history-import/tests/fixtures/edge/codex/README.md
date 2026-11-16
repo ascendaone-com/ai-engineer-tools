@@ -13,11 +13,3 @@ it or not.
 | `token-usage-record-and-token-count.jsonl` | Both lines carry the same running total. Figures match a rollout with `token_count` alone. | `unknownLines` 0, `inputTokens` 1000, `outputTokens` 50, `promptCount` 1 |
 | `archived-copy/` | One rollout under `sessions/` and again under `archived_sessions/`. It counts once. | `promptCount` 1, `mainThreadToolCallCount` 1, `assistantTurns` 1, `inputTokens` 1000, `outputTokens` 50 |
 | `fork-replay.jsonl` | A fork replays its parent's session header, prompt and running total (500 in, 50 out) with older timestamps, then works. Only the fork's own work counts. | `promptCount` 1, `mainThreadToolCallCount` 1, `assistantTurns` 1, `inputTokens` 300, `outputTokens` 40, `unknownLines` 0 |
-
-## Known to fail today
-
-- `token-usage-record-only.jsonl` ships no token figures and flags the line as unknown.
-- `token-usage-record-and-token-count.jsonl` flags the line as unknown. Totals are right.
-- `archived-copy/` counts 2 prompts, 2 tool calls and 2 turns.
-
-All three: [#219](https://github.com/ascendaone-com/ai-engineer-tools/pull/219).
