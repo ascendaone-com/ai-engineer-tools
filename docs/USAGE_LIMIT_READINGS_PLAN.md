@@ -5,7 +5,18 @@ rollout. We read none of them. This plan ships them from the history import,
 then checks whether the live Codex hooks can see them too. Line numbers are
 against `main` at `badbcf6`.
 
-Status: steps 1 to 3 built, step 4 deliberately not. Touches `codex.ts`, so
+**Changed after this plan was built: the readings stay on the machine.** They
+say how much of an allowance was left on an account with the provider, which
+is about the account and not about the work. So the import folds them into
+the local handoff and sends none of them, and the live Codex hooks no longer
+read them at all. Where a step below says "ship", read "write to the
+handoff". Step 3's finding stands as a record of what the hook payloads
+carry; the `Stop` reader it describes was removed. The keys are registered
+`family: "local"` and `readBy: ["handoff"]`, and `ship.ts` leaves a `local`
+key out of the wire payload.
+
+Status: steps 1 and 2 built and kept local, step 3 built then removed, step
+4 deliberately not. Touches `codex.ts`, so
 it lands after `docs/CODEX_TOKEN_ACCOUNTING_PLAN.md`. Line numbers below are
 the original plan's; the fold now lives in `usageLimitFold.ts`.
 

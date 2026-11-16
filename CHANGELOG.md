@@ -12,19 +12,20 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.44
 
-Faster plugin hooks on a machine that already ran `setup`.
+### Codex usage limits stay on your machine
 
-### Plugin hooks
+v0.1.43 sent Codex's usage-limit readings with your sessions. They say how
+much of your allowance was left, which is about your account and not your
+work, so they no longer leave the machine.
 
-- **The plugin uses the hook launcher `setup` installed.** Until the
-  plugin's own copy of the hooks arrives, each hook runs the bundle in
-  `~/.ascenda/bin` in-process. Before, every one of those events went
-  through npx. On an M-series Mac a `PostToolUse` event took 0.04 s and
-  59 MB, down from 0.49 s and 135 MB.
-- **The plugin's copy still wins.** It's refreshed daily, while the `setup`
-  copy is only as new as your last `setup` run. Once the plugin's copy lands,
-  hooks use it. A `setup` bundle older than 0.1.33 is skipped and npx runs
-  as before.
+- **The import keeps them local.** The peaks, the window sizes and whether a
+  limit was hit go into the local handoff for the desktop app, per session
+  and per day. None of them is sent.
+- **Codex hooks stopped reading them.** `ai_turn_completed` no longer carries
+  the two percentages, and the hook doesn't open the rollout for them. Run
+  Codex's `setup` again to pick this up.
+- The setup disclosure no longer mentions usage limits, because nothing about
+  them is sent.
 
 ## v0.1.43
 

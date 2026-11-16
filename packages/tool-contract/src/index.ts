@@ -1572,6 +1572,7 @@ export const ASCENDA_SEMANTIC_PROVENANCE = "semantic_work_signals";
 export {
   METRIC_KEYS,
   backendMetricKeys,
+  localMetricKeys,
   type MetricKey,
   type MetricKeySpec,
   type MetricReader,

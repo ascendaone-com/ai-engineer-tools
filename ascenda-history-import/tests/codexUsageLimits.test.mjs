@@ -9,6 +9,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { extractCodex } from "../dist/extractors/codex.js";
+import { toWirePayload } from "../dist/ship.js";
+import { buildCodexHandoff } from "../dist/localHandoff.js";
 
 const MAIN = "019c0000-0000-7000-8000-00000000000a";
 const SUB = "019c0000-0000-7000-8000-00000000000b";
@@ -122,7 +124,7 @@ test("a reached type marks the session and dates the first hit", async () => {
   assert.equal(session.metrics.usageLimitFirstReachedAt, "2026-11-10T01:00:09.000Z");
 });
 
-test("an unknown reached type ships as other", async () => {
+test("an unknown reached type is kept as other", async () => {
   const root = await storeWith({
     [rollout("10", "01-00-00", MAIN)]: body([
       meta("2026-11-10T01:00:00.000Z", MAIN),
@@ -134,7 +136,7 @@ test("an unknown reached type ships as other", async () => {
   assert.equal(session.metrics.usageLimitReachedType, "other");
 });
 
-test("a rollout with no readings ships no usageLimit keys", async () => {
+test("a rollout with no readings has no usageLimit keys", async () => {
   const root = await storeWith({
     [rollout("10", "01-00-00", MAIN)]: body([
       meta("2026-11-10T01:00:00.000Z", MAIN),
@@ -216,4 +218,53 @@ test("each day slice carries that day's own peaks", async () => {
       [15, 33]
     ]
   );
+});
+
+/* ------------------------------------------------------------------------ *
+ * The readings stay on the machine
+ * ------------------------------------------------------------------------ */
+
+test("the readings reach the handoff and never the wire payload", async () => {
+  const root = await storeWith({
+    [rollout("10", "01-00-00", MAIN)]: body([
+      meta("2026-11-10T01:00:00.000Z", MAIN),
+      prompt("2026-11-10T01:00:01.000Z"),
+      tokenCount("2026-11-10T01:00:05.000Z", limits(40, 25)),
+      tokenCount("2026-11-10T01:05:00.000Z", limits(100, 31, { rate_limit_reached_type: "primary" }))
+    ])
+  });
+  const { session, events } = await sessionOf(root);
+  assert.equal(session.metrics.usageLimitShortPeakPct, 100, "the extractor still folds them");
+
+  const payload = toWirePayload(session, 0, "cli_agent:test-install");
+  const sent = Object.keys(payload.metadata).filter((k) => /usage.?limit/i.test(k));
+  assert.deepEqual(sent, [], "no usage-limit key is sent");
+  assert.equal(typeof payload.metadata.promptCount, "number", "the rest of the session still is");
+
+  const handoff = buildCodexHandoff(events, "x1", "2026-11-11T00:00:00.000Z");
+  assert.equal(handoff.sessions.length, 1);
+  const local = handoff.sessions[0];
+  assert.equal(local.usageLimitShortPeakPct, 100);
+  assert.equal(local.usageLimitLongPeakPct, 31);
+  assert.equal(local.usageLimitShortWindowMinutes, 300);
+  assert.equal(local.usageLimitLongWindowMinutes, 10080);
+  assert.equal(local.usageLimitReached, true);
+  assert.equal(local.usageLimitReachedType, "primary");
+  assert.equal(local.usageLimitFirstReachedAt, "2026-11-10T01:05:00.000Z");
+  assert.equal(local.days[0].usageLimitShortPeakPct, 100);
+});
+
+test("a session with no readings is null in the handoff, never zero", async () => {
+  const root = await storeWith({
+    [rollout("10", "01-00-00", MAIN)]: body([
+      meta("2026-11-10T01:00:00.000Z", MAIN),
+      prompt("2026-11-10T01:00:01.000Z"),
+      line("2026-11-10T01:00:05.000Z", "event_msg", { type: "token_count", info: null })
+    ])
+  });
+  const { events } = await sessionOf(root);
+  const local = buildCodexHandoff(events, "x1", "2026-11-11T00:00:00.000Z").sessions[0];
+  assert.equal(local.usageLimitShortPeakPct, null);
+  assert.equal(local.usageLimitLongPeakPct, null);
+  assert.equal(local.usageLimitReached, null);
 });
