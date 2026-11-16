@@ -63,6 +63,11 @@ async function outputs() {
     path.join(HERE, "fixtures", "claude-session-real.jsonl"),
     path.join(project, "aaaaaaaa-bbbb-cccc-dddd-eeeeffff0001.jsonl")
   );
+  // A resume that repeats its own lines, so the hash moves with the rung-2 fix.
+  await fs.copyFile(
+    path.join(HERE, "fixtures", "claude-resume-replay.jsonl"),
+    path.join(project, "5e5e5e5e-0000-4000-8000-000000000001.jsonl")
+  );
   try {
     return {
       claude_code: hashOf(await collect(extractClaudeCode(root, "revision-guard"))),
