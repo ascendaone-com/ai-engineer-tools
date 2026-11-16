@@ -1,6 +1,19 @@
 import { ModelClass } from "@ascenda-one/tool-contract";
 
 /**
+ * The classes billed at the top rate. A subagent on one of these is the
+ * spend a cost finding names. OpenAI and Google classes don't split by tier
+ * yet, so none of theirs is here: a class can only be premium once the
+ * vocabulary can tell its tiers apart.
+ */
+export const PREMIUM_MODEL_CLASSES: ReadonlySet<ModelClass> = new Set<ModelClass>(["anthropic:opus", "anthropic:fable"]);
+
+/** Whether a class is in {@link PREMIUM_MODEL_CLASSES}. Absent is never premium. */
+export function isPremiumModelClass(modelClass: ModelClass | undefined): boolean {
+  return modelClass !== undefined && PREMIUM_MODEL_CLASSES.has(modelClass);
+}
+
+/**
  * A raw model identifier onto the coarse vendor:tier vocabulary. Total for any
  * input; `undefined` only for a genuinely absent one, keeping "no model was
  * reported" distinct from "a model was reported that we could not place".

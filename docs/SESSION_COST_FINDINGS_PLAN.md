@@ -8,8 +8,10 @@ already read most of the evidence for these. This plan says what to ship from
 the collector so the backend can name them, and the rules that keep a finding
 honest. Line numbers are against `main` at `badbcf6`.
 
-Status: not started. The collector part touches `claudeCode.ts`, so it lands
-after `docs/CLAUDE_TRANSCRIPT_REPLAY_PLAN.md`.
+Status: collector part built, on top of the transcript replay work
+(`docs/CLAUDE_TRANSCRIPT_REPLAY_PLAN.md`). The backend rules and the app's
+receipt change are still to do. "As built" below says where the code differs
+from the steps.
 
 ## What a finding needs, and what we have
 
@@ -85,9 +87,58 @@ session, main thread unless stated. Register every key in
    is above 200k and above 400k: `deepTurns200k`, `deepTurns400k`. Fixed
    cut points, so the backend can compare sessions without the raw series.
 
-Codex: ship `fastTurns` only if rollouts record a speed tier; check
-`turn_context` and `token_count` for one and note the finding here. Effort
+Codex: ship `fastTurns` only if rollouts record a speed tier. Effort
 already ships for Codex.
+
+**Codex finding (16 Nov 2026): no speed tier is recorded.** Checked on a
+developer machine across 8 rollouts: 102 `turn_context` lines, 1,882
+`token_count` events and every `session_meta`, keys only. `turn_context`
+carries `model`, `effort`, `collaboration_mode` (`mode` plus `settings` with
+`model`, `reasoning_effort`, `developer_instructions`) and permission fields,
+with no tier. `token_count` carries `info` (total and last usage,
+`model_context_window`) and `rate_limits` (`plan_type`, `credits`, the
+primary and secondary windows), with no tier either. No `service_tier`,
+`speed`, `priority` or `tier` key appears at any depth in those three line
+types. So Codex ships no `fastTurns`. Look again when a rollout shows one.
+
+### As built
+
+All in `src/costEvidence.ts`, called from `claudeCode.ts`. Where it differs
+from the steps above, and why:
+
+- **Line ownership.** A listing is context, so it's read from every
+  main-thread line that isn't a repeat, including history copied from an
+  ancestor: a resumed session writes deltas against what it copied, so
+  skipping the copy would lose the list. A use, a fast message and a deep
+  message count only on lines this session owns. A repeated line or a fork's
+  copied line adds nothing to any of them.
+- **`skillsListed` is the size of the listed set, not the latest
+  `skillCount`.** A `skill_listing` with `isInitial: false` is a delta (one
+  real store: `60`, then `4` more), so the latest count undercounts. An
+  initial listing replaces the set; a later one adds to it.
+- **Invocations come from both threads.** A skill a subagent loads, or an MCP
+  server a subagent calls, was used. Listings are read from the main thread
+  only.
+- **MCP loaded is a union.** `mcp_instructions_delta` names only servers
+  that send instructions: on the same machine 8 servers had instructions
+  and 24 had deferred tools. So loaded is servers with instructions, plus
+  servers with a deferred `mcp__<server>__…` tool, plus any server whose tool
+  was called (a tool that isn't deferred appears in no listing). Listings
+  spell a plugin's server `plugin:<plugin>:<server>` and tool names spell it
+  `plugin_<plugin>_<server>`, so both are normalized before comparing.
+- **`mcpServersFailed`** counts servers a delta reported failed that never
+  loaded later in the session.
+- **`deepTurns200k` and `deepTurns400k` always ship**, like
+  `contextWindowPeakTokens`. **`premiumSubagents` always ships** too, 0 with
+  no subagents.
+- **`readBy: ["diagnostic"]`, not `backend`.** The registry's `backend`
+  means a server reader resolves the key today, and none does yet. Each note
+  says the reader arrives in its own change; flip them when it lands.
+- The `claude_code` revision stays at 2. The keys are new, so only the
+  output hash was re-recorded.
+- No changelog line yet. `CHANGELOG.md` takes no unreleased heading (its
+  newest section must name a tag), so the line goes in the section for the
+  release that carries this.
 
 ## Backend rules (asc-core-be, separate PR)
 

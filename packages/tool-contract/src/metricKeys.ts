@@ -376,6 +376,76 @@ export const METRIC_KEYS = {
   subagentAssistantTurns: { family: "counts", readBy: ["diagnostic"] },
   subagentPrompts: { family: "counts", readBy: ["diagnostic"] },
   subagentTokensTotal: { family: "context", readBy: ["diagnostic"] },
+  // ── Cost-finding evidence (Claude Code). Counts only: skill, MCP server and
+  // agent names stay on the machine. Each family ships behind its own seen
+  // flag, so an absent key means "not measured", never zero.
+  skillListingSeen: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: true when the transcript listed the skills in context (a skill_listing attachment). Without it the session ships no skill keys, since a skill can't be called unused off a list nobody saw. The backend reader arrives in its own change."
+  },
+  skillsListed: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: how many skills were in the session's context at the end, from its skill_listing attachments (an initial listing replaces the set, a later one adds to it). A count; the names aren't read past the fold. Shipped with skillListingSeen. The backend reader arrives in its own change."
+  },
+  skillsInvoked: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: distinct listed skills the session loaded, from invoked_skills attachments and Skill tool calls, main thread and subagents. Shipped with skillListingSeen. The backend reader arrives in its own change."
+  },
+  mcpListingSeen: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: true when the transcript recorded which MCP servers were in context (mcp_instructions_delta or deferred_tools_delta). Without it the session ships no MCP keys. The backend reader arrives in its own change."
+  },
+  mcpServersLoaded: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: distinct MCP servers in context at the end: servers with instructions, servers with deferred tools, and any server whose tool was called. Shipped with mcpListingSeen. The backend reader arrives in its own change."
+  },
+  mcpServersUsed: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: distinct MCP servers whose tools the session called, main thread and subagents, read from the raw mcp__<server>__<tool> name before toolName truncation. Shipped with mcpListingSeen. The backend reader arrives in its own change."
+  },
+  mcpServersFailed: {
+    family: "tools",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: distinct MCP servers a deferred_tools_delta reported as failed and that never loaded later in the session. Shipped with mcpListingSeen. The backend reader arrives in its own change."
+  },
+  speedSeen: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: true once any owned assistant line carried usage.speed. Without it fastTurns and subagentFastTurns are absent, because the build didn't record the field. The backend reader arrives in its own change."
+  },
+  fastTurns: {
+    family: "model",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: main-thread API messages (one per message, however many lines it spans) whose usage.speed was fast. Shipped with speedSeen. The backend reader arrives in its own change."
+  },
+  subagentFastTurns: {
+    family: "subagents",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: subagent API messages whose usage.speed was fast, counted like fastTurns. Shipped with speedSeen. The backend reader arrives in its own change."
+  },
+  deepTurns200k: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "messages",
+    note: "Claude Code only: main-thread API messages whose context (input + cache read + cache write tokens) was above 200,000. A fixed cut point, so sessions compare without the raw series. The backend reader arrives in its own change."
+  },
+  deepTurns400k: {
+    family: "context",
+    readBy: ["diagnostic"],
+    unit: "messages",
+    note: "Claude Code only: the same count above 400,000 tokens. The backend reader arrives in its own change."
+  },
+  premiumSubagents: {
+    family: "subagents",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: subagents whose receipt modelClass is in PREMIUM_MODEL_CLASSES (tool-kit: anthropic:opus, anthropic:fable). 0 for a session with no subagents. The backend reader arrives in its own change."
+  },
   advisorMessageCount: {
     family: "counts",
     readBy: ["diagnostic"],

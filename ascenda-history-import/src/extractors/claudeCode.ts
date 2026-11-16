@@ -116,7 +116,7 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours, modelRouteFromSlug } from "@ascenda-one/tool-kit";
+import { bucketDurationMs, bucketLinesChanged, isOutsideBusinessHours, isPremiumModelClass, modelRouteFromSlug } from "@ascenda-one/tool-kit";
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import {
@@ -131,6 +131,18 @@ import {
 import { sliceSessionByLocalDay } from "../daySlice.js";
 import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
 import { modelTurnsMetrics } from "../modelTurns.js";
+import {
+  LISTING_ATTACHMENT_TYPES,
+  USE_ATTACHMENT_TYPES,
+  costEvidenceMetrics,
+  foldDepth,
+  foldListingAttachment,
+  foldSpeed,
+  foldToolUses,
+  foldUseAttachment,
+  newCostEvidence,
+  type CostEvidence
+} from "../costEvidence.js";
 import {
   DEFAULT_ACTIVE_GAP_MS,
   activeSpans,
@@ -528,6 +540,9 @@ interface SessionFold {
    * the prompts this transcript owns (`promptLedger.ts`): a prompt a resumed
    * transcript copied from its ancestor is its ancestor's. */
   humanPromptTimestamps: (string | null)[];
+  /** Skills and MCP servers in context and used, fast and deep messages.
+   * Names stay in here; only counts ship. See `costEvidence.ts`. */
+  costEvidence: CostEvidence;
   /** Runs the person cut short, main thread only. See `interruptedRuns.ts`. */
   interruptedRuns: number;
   /** When each of those cuts happened, for the day slices. Never shipped. */
@@ -595,6 +610,7 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     repeatedLines: 0,
     mainThreadUuids: null,
     humanPromptTimestamps: [],
+    costEvidence: newCostEvidence(),
     interruptedRuns: 0,
     interruptedRunTimestamps: []
   };
@@ -1156,6 +1172,13 @@ async function foldLinesInto(
             messageKeyOf(record),
             read.usage
           );
+          const messageKey = messageKeyOf(record);
+          foldSpeed(fold.costEvidence, messageKey, usage?.speed, opts.isSidechain);
+          foldToolUses(fold.costEvidence, record);
+          if (tally && firstLine) {
+            const subagentModel = foldableModelOf(sniffed.model);
+            if (subagentModel) tally.models.set(subagentModel, (tally.models.get(subagentModel) ?? 0) + 1);
+          }
           const advisor = counted.advisor;
           const advisorTokens = advisor.input + advisor.output + advisor.cacheRead + advisor.cacheCreation;
           fold.advisorMessageCount += advisor.count;
@@ -1237,6 +1260,7 @@ async function foldLinesInto(
               asNumber(usage.cache_read_input_tokens) +
               asNumber(usage.cache_creation_input_tokens);
             if (contextTokens > fold.contextWindowPeakTokens) fold.contextWindowPeakTokens = contextTokens;
+            if (firstLine) foldDepth(fold.costEvidence, contextTokens);
           }
           break;
         }
@@ -1277,9 +1301,26 @@ async function foldLinesInto(
           }
           break;
         }
+        case "attachment": {
+          // Bookkeeping for the split, like the types below: `agentOutputHere`
+          // stays false. Parsed only when it can be one the cost evidence
+          // reads. A listing is context the session carried, so a copy of an
+          // ancestor's counts too; a repeat would replay adds and removes out
+          // of order, so it doesn't. A subagent's listings aren't read: the
+          // findings are about the session's own context. A use counts only
+          // where this session owns the line.
+          const listing = !repeat && !opts.isSidechain && LISTING_ATTACHMENT_TYPES.some((t) => line.includes(`"${t}"`));
+          const use = owned && USE_ATTACHMENT_TYPES.some((t) => line.includes(`"${t}"`));
+          if (!listing && !use) break;
+          const attachment = (JSON.parse(line) as Record<string, unknown>).attachment;
+          if (typeof attachment !== "object" || attachment === null || Array.isArray(attachment)) break;
+          if (listing) foldListingAttachment(fold.costEvidence, attachment as Record<string, unknown>);
+          if (use) foldUseAttachment(fold.costEvidence, attachment as Record<string, unknown>);
+          break;
+        }
         default:
-          break; // attachment / last-prompt / custom-title: window only, and
-        //           bookkeeping for the split — `agentOutputHere` stays false.
+          break; // last-prompt / custom-title: window only, and bookkeeping
+        //           for the split — `agentOutputHere` stays false.
       }
       if (repeat) {
         // Already placed, or not, by the copy read first. Neither a point nor
@@ -1720,6 +1761,10 @@ export async function* extractClaudeCode(
         sessionMetrics.cacheCreation1hTokens = fold.cacheCreation1hTokens;
       }
       if (fold.repeatedLines > 0) sessionMetrics.repeatedLines = fold.repeatedLines;
+      // Counts only, each family behind its own seen flag. See costEvidence.ts.
+      Object.assign(sessionMetrics, costEvidenceMetrics(fold.costEvidence));
+      const subagentReceipts = fold.sidechainTallies.filter((t) => t.ownedLines > 0).map((t) => buildReceipt(t, fold.parentRecord));
+      sessionMetrics.premiumSubagents = subagentReceipts.filter((r) => isPremiumModelClass(r.modelClass ?? undefined)).length;
       if (fold.advisorMessageCount > 0) {
         sessionMetrics.advisorMessageCount = fold.advisorMessageCount;
         sessionMetrics.advisorTokensTotal = fold.advisorTokensTotal;
@@ -1773,7 +1818,7 @@ export async function* extractClaudeCode(
         // Local-only, like `dayBreakdown`; see `subagentReceipts.ts`. Always
         // present on this store, empty for a session with no subagents, so a
         // reader can tell none from not collected.
-        subagentReceipts: fold.sidechainTallies.filter((t) => t.ownedLines > 0).map((t) => buildReceipt(t, fold.parentRecord)),
+        subagentReceipts,
         autonomySplit: Object.fromEntries(
           Object.entries(split.supervisingMsByBand).map(([band, ms]) => [band, minutesOf(ms)])
         ),

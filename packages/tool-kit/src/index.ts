@@ -4,7 +4,7 @@ export { classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief } from 
 export { shellCommandFacts } from "./shellFacts";
 export { autonomyBand } from "./autonomyBand";
 export type { AutonomyBand } from "./autonomyBand";
-export { classifyModelClass } from "./modelClassifier";
+export { classifyModelClass, PREMIUM_MODEL_CLASSES, isPremiumModelClass } from "./modelClassifier";
 export { classifyEffortClass } from "./effortClassifier";
 export { modelRouteFromSlug, modelRouteFromCodexProvider, claudeCodeModelRoute } from "./modelRoute";
 export { readSentModelId, recordSentModelId, clearSentModelId, modelFieldsFor, withModelOnChange } from "./modelState";
