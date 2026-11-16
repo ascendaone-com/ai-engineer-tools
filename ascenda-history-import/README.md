@@ -235,6 +235,23 @@ active time, spread over 14 sessions and all of it agent supervising. Hands-on
 didn't move. Nor did the union, since a copy repeats an interval that's
 already counted.
 
+### Lines a transcript repeats
+
+A resumed session can write lines its own transcript already holds, with the
+same `uuid` and timestamp. A forked subagent's transcript opens with lines from
+its parent's (`isFork: true` in `agent-<id>.meta.json`). Each repeat is read
+and counts once. `repeatedLines` on the session says how many were left out.
+
+On one store, 36 of 1,743 transcripts repeated themselves, 9,374 lines in all.
+The worst three reported 1,139, 3,069 and 895 tool calls; their real figures
+are 611, 2,418 and 693. Tokens and prompts already counted once, by message and
+by prompt, so they hardly move. The exception on that store was one replayed
+message whose copy carried zeroed usage. The last line of a message sets its
+tokens, so the copy used to wipe out the original's.
+
+One kind of repeat still counts: a line whose first copy named an older session
+and whose second names the file holding it.
+
 ### What counts as a prompt
 
 `promptCount` on a Claude Code session counts the prompts you typed. Claude
