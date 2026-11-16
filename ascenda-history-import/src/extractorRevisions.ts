@@ -22,10 +22,11 @@ import type { HistoryStore } from "./types.js";
  * | Store | Rev | Fix it stands for |
  * | ----- | --- | ----------------- |
  * | all   | 1   | The first rung. Nothing is corrected yet. |
+ * | codex | 2   | `inputTokens` leaves out cache reads and writes; `token_usage_record` folds as a total; a rollout under both roots is read once. |
  */
 export const EXTRACTOR_REVISION = {
   claude_code: 1,
-  codex: 1,
+  codex: 2,
   copilot_cli: 1,
   cursor: 1,
   vscode: 1,
