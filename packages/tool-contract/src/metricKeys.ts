@@ -128,6 +128,12 @@ const CONTEXT_WINDOW_CANONICAL_ALIASES = [
 const CONTEXT_WINDOW_CURSOR_PERCENT_ALIASES = ["contextUsagePercent"] as const;
 
 export const METRIC_KEYS = {
+  extractorRevision: {
+    family: "transport",
+    readBy: ["backend"],
+    backendAliases: ["extractorRevision"],
+    note: "Which rung of the store's extractor produced the row; the backend replaces a stored row when a higher one arrives under the same importKey."
+  },
   // ── Read by a backend reader ────────────────────────────────────────────
   contextWindowPeakPct: {
     family: "context",
@@ -147,8 +153,12 @@ export const METRIC_KEYS = {
   sessionMinutes: { family: "session", readBy: ["backend"], backendAliases: ["sessionMinutes", "session_minutes"], unit: "minutes" },
   durationBucket: { family: "session", readBy: ["backend", "handoff"], backendAliases: ["durationBucket", "duration_bucket"] },
   afterHoursPrompts: { family: "clock", readBy: ["backend", "handoff"], backendAliases: ["afterHoursPrompts", "after_hours_prompts"] },
+  /** Input tokens billed at the full rate: cache reads and cache writes
+   * excluded. Every extractor ships it on this definition, so
+   * `inputTokens + cacheReadTokens + cacheCreationTokens` is the whole input. */
   inputTokens: { family: "context", readBy: ["backend"], backendAliases: ["inputTokens", "input_tokens"], unit: "tokens" },
   outputTokens: { family: "context", readBy: ["backend"], backendAliases: ["outputTokens", "output_tokens"], unit: "tokens" },
+  /** Input tokens served from the prompt cache. Not part of `inputTokens`. */
   cacheReadTokens: { family: "context", readBy: ["backend"], backendAliases: ["cacheReadTokens", "cache_read_tokens"], unit: "tokens" },
   queuedPrompts: { family: "counts", readBy: ["backend"], backendAliases: ["queuedPrompts", "queued_prompts"] },
   linesChangedBucket: { family: "edits", readBy: ["backend"], backendAliases: ["linesChangedBucket", "lines_changed_bucket"] },
@@ -375,6 +385,8 @@ export const METRIC_KEYS = {
     unit: "tokens",
     note: "Claude Code only: input, output and cache tokens spent by advisor calls. A part of the session totals, not an addition to them."
   },
+  /** Input tokens written to the prompt cache. Not part of `inputTokens`.
+   * Absent, never 0, where the store doesn't record the figure. */
   cacheCreationTokens: {
     family: "context",
     readBy: ["diagnostic"],
@@ -486,6 +498,11 @@ export const METRIC_KEYS = {
   unparsedBubbles: { family: "reading", readBy: ["diagnostic"] },
   unparsedChatSessionFiles: { family: "reading", readBy: ["diagnostic"] },
   unparsedHistoryFiles: { family: "reading", readBy: ["diagnostic"] },
+  duplicateRolloutFiles: {
+    family: "reading",
+    readBy: ["diagnostic"],
+    note: "Codex only: rollout files skipped because the same rollout sat under both sessions/ and archived_sessions/. One copy is read; the other would have counted its prompts and tool calls twice."
+  },
   unparsedLines: { family: "reading", readBy: ["diagnostic"] },
   unreadableChatSessionFiles: { family: "reading", readBy: ["diagnostic"] },
   unreadableHistoryFiles: { family: "reading", readBy: ["diagnostic"] },
