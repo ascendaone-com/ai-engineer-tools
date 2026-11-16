@@ -182,6 +182,59 @@ export const METRIC_KEYS = {
     note: "forgeBranchKey of the repository and the branch a commit is reachable from. Absent on the default branch, like the live hooks."
   },
 
+  // Codex's own usage-limit readings: `rate_limits` on its token_count lines,
+  // main thread only. The limit's id and name, the plan and the credit
+  // balance on the same object are never read. A session whose rollouts
+  // carried no readings has none of these keys. The backend reader arrives
+  // in its own change.
+  usageLimitShortPeakPct: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitShortPeakPct", "usage_limit_short_peak_pct"],
+    unit: "percent (0–100), whole number",
+    note: "History import: the largest used_percent of the short (primary) window the session saw. Five hours on every build seen; usageLimitShortWindowMinutes says. The live Codex hooks put the same key on ai_turn_completed with the reading at the turn's end, read from the rollout at Stop."
+  },
+  usageLimitLongPeakPct: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitLongPeakPct", "usage_limit_long_peak_pct"],
+    unit: "percent (0–100), whole number",
+    note: "The same for the long (secondary) window, on both paths. Weekly on every build seen."
+  },
+  usageLimitShortWindowMinutes: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitShortWindowMinutes", "usage_limit_short_window_minutes"],
+    unit: "minutes",
+    note: "The short window's size as the rollout reported it, never assumed."
+  },
+  usageLimitLongWindowMinutes: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitLongWindowMinutes", "usage_limit_long_window_minutes"],
+    unit: "minutes"
+  },
+  usageLimitReached: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitReached", "usage_limit_reached"],
+    unit: "boolean",
+    note: "True when a reading carried a non-null rate_limit_reached_type. Present only beside the peaks."
+  },
+  usageLimitReachedType: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitReachedType", "usage_limit_reached_type"],
+    note: "Which limit was hit: primary, secondary, or other for any value outside that list."
+  },
+  usageLimitFirstReachedAt: {
+    family: "context",
+    readBy: ["backend"],
+    backendAliases: ["usageLimitFirstReachedAt", "usage_limit_first_reached_at"],
+    unit: "ISO 8601 instant",
+    note: "The first reading that carried a reached type."
+  },
+
   // ── Read by the local handoff only ──────────────────────────────────────
   activeMinutes: { family: "session", readBy: ["handoff"], unit: "minutes" },
   syntheticPromptLines: {

@@ -122,6 +122,7 @@ import { bucketDurationMs, isOutsideBusinessHours, modelRouteFromCodexProvider, 
 import { HISTORICAL_PROVENANCE, NormalizedHistoricalEvent } from "../types.js";
 import { sanitizeToolName } from "../toolName.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
+import { foldUsageLimits, newUsageLimitTrack, usageLimitMetrics, type UsageLimitTrack } from "../usageLimitFold.js";
 import { modelTurnsMetrics } from "../modelTurns.js";
 import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
 import { DEFAULT_ACTIVE_GAP_MS, activeSpans, minutesOf, splitActiveTime, type ActiveInstant } from "../activeSplit.js";
@@ -455,6 +456,8 @@ interface SessionFold {
   modelSwitchCount: number;
   /** `turn_context.effort` on the session's own turns. See effortFold.ts. */
   effort: EffortTrack;
+  /** `token_count.rate_limits` on the session's own thread. See usageLimitFold.ts. */
+  usageLimits: UsageLimitTrack;
   compactedItems: number;
   contextCompactedEvents: number;
   toolResultErrorCount: number;
@@ -500,6 +503,7 @@ function newFold(sessionId: string): SessionFold {
     lastModel: null,
     modelSwitchCount: 0,
     effort: newEffortTrack(),
+    usageLimits: newUsageLimitTrack(),
     compactedItems: 0,
     contextCompactedEvents: 0,
     toolResultErrorCount: 0,
@@ -815,6 +819,10 @@ async function foldLinesInto(fold: SessionFold, lines: AsyncIterable<string>, id
             break;
           }
           case "token_count": {
+            // The provider's usage-limit readings ride on the same line, and
+            // often on one whose `info` is still null, so they're read first.
+            // A subagent thread reports the same account's figures again.
+            if (!sub) foldUsageLimits(fold.usageLimits, payload.rate_limits, sniffed.occurredAt);
             const info = asRecord(payload.info);
             if (!info) break;
             const reading = readingOf(info.total_token_usage);
@@ -1328,6 +1336,7 @@ export async function* extractCodex(
     const primaryEffort = primaryEffortOf(fold.effort);
     if (primaryEffort) sessionMetrics.primaryEffort = primaryEffort;
     const effortChanges = effortChangesOf(fold.effort);
+    Object.assign(sessionMetrics, usageLimitMetrics(fold.usageLimits));
     if (fold.gitBranch) sessionMetrics.gitBranch = fold.gitBranch;
     yield {
       occurredAt: fold.lastTs,
@@ -1339,7 +1348,8 @@ export async function* extractCodex(
       metrics: sessionMetrics,
       dayBreakdown: sliceSessionByLocalDay(fold.humanPromptTimestamps, {
         activeGapMs: ACTIVE_GAP_MS,
-        activeInstants: fold.timelinePoints
+        activeInstants: fold.timelinePoints,
+        usageLimitReadings: fold.usageLimits.readings
       }),
       // Local-only; see `NormalizedHistoricalEvent.activeSpans`. Same
       // threshold, same function, same spans the split above was summed from.
