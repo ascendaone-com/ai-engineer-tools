@@ -13,13 +13,19 @@
 // background, and that run copies the release npm serves into place. A
 // hanging network holds up that background process and nothing else. Until
 // the first copy lands, it runs `npx -y <package>` the way the plugin always
-// has.
+// has, unless `setup` installed the hook launcher: then its bundle in
+// ~/.ascenda/bin runs in-process instead.
+//
+// The plugin copy wins whenever both exist. It's refreshed daily, and the
+// setup copy is only as new as the last `setup` run. The setup copy fills
+// the gap before the first sync, and only from 0.1.33 on, the first release
+// that reads --hook-set.
 //
 // No imports beyond Node's own: this file is the plugin's, not a package's.
 // The paths match pluginBundle.ts in tool-kit.
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -42,20 +48,32 @@ if (!pkg) {
   process.exit(1);
 }
 
-const dir = join(process.env.ASCENDA_HOME ?? join(homedir(), ".ascenda"), "plugin");
+const home = process.env.ASCENDA_HOME ?? join(homedir(), ".ascenda");
+const dir = join(home, "plugin");
+// What `setup` installs, per package. Only the hooks have one.
+const SETUP_BUNDLES = { "claude-code-hooks": "ascenda-claude-hook" };
+const SETUP_MIN_VERSION = [0, 1, 33];
 const bundle = join(dir, `${name}.mjs`);
 const checked = join(dir, `${name}.checked`);
 const windows = process.platform === "win32";
 
-if (existsSync(bundle)) {
+const setupBundle = existsSync(bundle) ? undefined : usableSetupBundle();
+
+if (setupBundle) {
+  // Seeds the plugin copy, which takes over from the next run after it lands.
+  refreshAfter(RETRY_MS);
+  try {
+    await runBundle(setupBundle);
+  } catch (error) {
+    console.error(`launch.mjs: ${setupBundle} didn't load (${error instanceof Error ? error.message : String(error)}). Running through npx.`);
+    runThroughNpx();
+  }
+} else if (existsSync(bundle)) {
   // ASCENDA_DISABLE_UPDATE_CHECK keeps the bundle there is. It doesn't stop
   // the first copy: without one, every run goes through npx anyway.
   if (process.env.ASCENDA_DISABLE_UPDATE_CHECK !== "true") refreshAfter(REFRESH_MS);
   try {
-    // The bundle reads argv as if it had been run directly, and its
-    // background sender re-runs argv[1].
-    process.argv = [process.argv[0], bundle, ...args];
-    await import(pathToFileURL(bundle).href);
+    await runBundle(bundle);
   } catch (error) {
     // A file that won't load (a damaged copy, a Node too old for its
     // syntax) ran nothing, so npx can run the event. The refresh replaces it.
@@ -66,6 +84,30 @@ if (existsSync(bundle)) {
 } else {
   refreshAfter(RETRY_MS);
   runThroughNpx();
+}
+
+/** Imports a bundle in this process. It reads argv as if run directly, and its background sender re-runs argv[1]. */
+async function runBundle(file) {
+  process.argv = [process.argv[0], file, ...args];
+  await import(pathToFileURL(file).href);
+}
+
+/** The bundle `setup` installed in ~/.ascenda/bin, when it's there and new enough to read --hook-set. */
+function usableSetupBundle() {
+  const base = Object.hasOwn(SETUP_BUNDLES, name) ? SETUP_BUNDLES[name] : undefined;
+  if (!base) return undefined;
+  const file = join(home, "bin", `${base}.mjs`);
+  try {
+    if (!existsSync(file)) return undefined;
+    const version = readFileSync(join(home, "bin", `${base}.version`), "utf8").trim().split(/[.-]/).slice(0, 3).map(Number);
+    for (let i = 0; i < 3; i++) {
+      if (!(version[i] >= 0)) return undefined;
+      if (version[i] !== SETUP_MIN_VERSION[i]) return version[i] > SETUP_MIN_VERSION[i] ? file : undefined;
+    }
+    return file;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Starts a background `plugin-sync` when the last one began longer ago than `ms`. */
