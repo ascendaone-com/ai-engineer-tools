@@ -163,5 +163,8 @@ the same rungs. In `apps/macos/lib/src/flow/import/`:
 - A fixture test that hashes each extractor's output against a recorded
   revision, like `tests/extractorRevision.test.mjs` here.
 
-Until this lands, rows the app sends carry no revision and read as 0, so a
-collector run at revision 1 replaces them. That's the intended direction.
+Until this lands, rows the app sends carry no revision and read as 0. Once
+the backend setting is on, the first collector run over a machine that the app
+also imported reports every shared session as `revised`, once, and the
+collector's figures replace the app's. After that a re-run is all `duplicate`
+again. Worth knowing before turning the setting on.
