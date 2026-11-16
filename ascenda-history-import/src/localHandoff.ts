@@ -45,6 +45,7 @@ import {
 } from "./handoffActiveTime.js";
 import { DEFAULT_ACTIVE_GAP_MS, minutesOf, type ActiveSpan, type HandsOnBoundary } from "./activeSplit.js";
 import { unionActiveByLocalDay, unionActiveTime } from "./activeUnion.js";
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -1508,9 +1509,19 @@ export async function appIsInstalled(home: string): Promise<boolean> {
 
 /** Write-then-rename, for the reason above: the app may be reading at any
  * moment, and a half-written document is indistinguishable from a corrupt
- * one. */
+ * one.
+ *
+ * The temp name is unique per call (pid plus random suffix). A fixed
+ * `<target>.tmp` let two imports overlap: both wrote the same temp file, the
+ * first rename moved it, and the second rename failed with ENOENT. The last
+ * rename wins, which is fine: each is a complete document. */
 export async function writeJsonAtomically(target: string, payload: unknown): Promise<void> {
-  const temp = `${target}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(payload, null, 2) + "\n", "utf8");
-  await fs.rename(temp, target);
+  const temp = `${target}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    await fs.writeFile(temp, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await fs.rename(temp, target);
+  } catch (error) {
+    await fs.rm(temp, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
