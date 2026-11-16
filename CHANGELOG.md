@@ -10,28 +10,11 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
-## v0.1.44
-
-### Codex usage limits stay on your machine
-
-v0.1.43 sent Codex's usage-limit readings with your sessions. They say how
-much of your allowance was left, which is about your account and not your
-work, so they no longer leave the machine.
-
-- **The import keeps them local.** The peaks, the window sizes and whether a
-  limit was hit go into the local handoff for the desktop app, per session
-  and per day. None of them is sent.
-- **Codex hooks stopped reading them.** `ai_turn_completed` no longer carries
-  the two percentages, and the hook doesn't open the rollout for them. Run
-  Codex's `setup` again to pick this up.
-- The setup disclosure no longer mentions usage limits, because nothing about
-  them is sent.
-
 ## v0.1.43
 
-Corrected import figures for Codex and Claude Code, Codex usage-limit
-readings, Claude Desktop Cowork sessions, and an update check that tells you
-what changed.
+Corrected import figures for Codex and Claude Code, Claude Desktop Cowork
+sessions, a bounded staging folder, and an update check that tells you what
+changed.
 
 ### History import corrections
 
@@ -57,19 +40,24 @@ what changed.
   `clientName: "claude-desktop-cowork"`.
 - Two imports finishing at the same moment both succeed. One used to exit
   with `ENOENT` on a `.tmp` file.
+- **Staging keeps its two newest runs.** Each run leaves an `events.jsonl`
+  under `~/.ascenda/history-import/staging/`, about 200 MB on a busy machine,
+  and every one used to stay forever. Each run now removes run directories
+  older than the newest two, and prints `staging on disk` beside the
+  archive's size. `--keep-staging` skips the cleanup at the end. The archive
+  is never touched.
 
-### Codex usage limits
+### Codex usage limits, for the desktop app
 
-Codex writes its own usage-limit readings into every rollout. Reading them
-needs no credential and no network call.
+Codex writes its own usage-limit readings into every rollout. The import now
+reads them for the desktop app and sends none of them.
 
-- **The import sends the peaks.** Each Codex session gets the highest
-  five-hour and weekly percentages it saw, the window sizes as Codex
-  reported them, and whether and when a limit was hit. Day slices carry each
-  day's own peaks.
-- **Codex hooks send them live.** At the end of a turn, `ai_turn_completed`
-  carries the two percentages. Run Codex's `setup` again to pick this up.
-- The plan name, credits and limit ids are never read.
+- **What the app gets.** Each Codex session's highest five-hour and weekly
+  percentages, the window sizes as Codex reported them, and whether and when
+  a limit was hit. Day slices carry each day's own peaks.
+- **What stays unread.** The plan name, credits and limit ids.
+- They describe your account's allowance, not the work, so they stay on your
+  machine. Codex hooks don't read them.
 
 ### Counts for spotting avoidable spend
 
@@ -92,7 +80,6 @@ missing count means unknown, not zero.
   the start of a session and the `latest` line in `status` carry a sentence
   or two from that release's notes, so you can judge whether it's worth the
   restart.
-
 - **A paired install checks for a newer release once a day.** After the
   background sender has sent your events, it fetches the release manifest
   from GitHub. The request carries nothing about you. `status` shows what it
@@ -107,6 +94,17 @@ missing count means unknown, not zero.
   `claude plugin update`.
 - An unpaired install never checks. Set `ASCENDA_DISABLE_UPDATE_CHECK=true`
   to turn the check off.
+
+### Faster plugin hooks after `setup`
+
+- **The plugin uses the hooks `setup` installed.** Until the plugin's own
+  copy of the hooks arrives, each hook runs the bundle in `~/.ascenda/bin`
+  in-process. Those events used to go through npx. On an M-series Mac a
+  `PostToolUse` event took 0.04 s and 59 MB, down from 0.49 s and 135 MB.
+- **The plugin's copy still wins.** It's refreshed daily, and the `setup`
+  copy is only as new as your last `setup` run. A `setup` bundle older than
+  0.1.33 is skipped.
+- It reaches you with the next plugin update.
 
 ### The effort setting, beside the model
 
