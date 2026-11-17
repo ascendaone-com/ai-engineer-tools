@@ -13,7 +13,7 @@
         "url": "https://github.com/ascendaone-com/ai-engineer-tools.git",
         "path": "ascenda-agent-skills",
         "ref": "main",
-        "sha": "e2827cb68c61bb48a2e2266cd10d822d61afc43e"
+        "sha": "1b99919fdee7a995f3a862943efa43ad8b49b863"
       },
       "description": "Cognitive performance and AI-work telemetry for Claude Code — a passive work-signals skill, a metadata-only MCP reporting tool, and lifecycle hooks, all reading from the same Ascenda pairing.",
       "version": "0.3.3",
