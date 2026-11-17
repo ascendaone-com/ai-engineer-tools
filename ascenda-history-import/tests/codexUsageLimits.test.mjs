@@ -25,8 +25,8 @@ function limits(shortPct, longPct, extra = {}) {
     limit_id: "plan-limit-id",
     limit_name: "plan-limit-name",
     plan_type: "plan-type",
-    primary: { used_percent: shortPct, window_minutes: 300, resets_at: 1763000000 },
-    secondary: { used_percent: longPct, window_minutes: 10080, resets_at: 1763500000 },
+    primary: { used_percent: shortPct, window_minutes: 300, resets_at: 1800000000 },
+    secondary: { used_percent: longPct, window_minutes: 10080, resets_at: 1800500000 },
     credits: { has_credits: false, unlimited: false, balance: "12.34" },
     individual_limit: { amount: 1 },
     spend_control_reached: null,
@@ -267,4 +267,48 @@ test("a session with no readings is null in the handoff, never zero", async () =
   assert.equal(local.usageLimitShortPeakPct, null);
   assert.equal(local.usageLimitLongPeakPct, null);
   assert.equal(local.usageLimitReached, null);
+});
+
+async function metricsFor(lines) {
+  const root = await storeWith({
+    [rollout("10", "01-00-00", MAIN)]: body([meta("2026-11-10T01:00:00.000Z", MAIN), prompt("2026-11-10T01:00:01.000Z"), ...lines])
+  });
+  return (await sessionOf(root)).session.metrics;
+}
+
+test("a window with resets_in_seconds and no resets_at is still read", async () => {
+  const m = await metricsFor([
+    tokenCount("2026-11-10T01:00:05.000Z", {
+      primary: { used_percent: 42, window_minutes: 300, resets_in_seconds: 600 },
+      secondary: null
+    })
+  ]);
+  assert.equal(m.usageLimitShortPeakPct, 42);
+});
+
+test("a window whose reset has passed is cleared, not held", async () => {
+  const m = await metricsFor([
+    tokenCount("2026-11-10T01:00:05.000Z", {
+      primary: { used_percent: 97, window_minutes: 300, resets_at: Date.parse("2026-11-10T00:30:00Z") / 1000 },
+      secondary: { used_percent: 20, window_minutes: 10080, resets_at: 1800500000 },
+      rate_limit_reached_type: "primary"
+    })
+  ]);
+  assert.equal(m.usageLimitShortPeakPct, undefined);
+  assert.equal(m.usageLimitLongPeakPct, 20);
+  assert.equal(m.usageLimitReached, false);
+});
+
+test("additional_rate_limits windows count toward the peaks", async () => {
+  const m = await metricsFor([
+    tokenCount("2026-11-10T01:00:05.000Z", {
+      primary: { used_percent: 10, window_minutes: 300, resets_at: 1800000000 },
+      secondary: { used_percent: 5, window_minutes: 10080, resets_at: 1800500000 },
+      additional_rate_limits: [
+        { limit_name: "extra", primary: { used_percent: 60, window_minutes: 300, resets_in_seconds: 100 }, secondary: null }
+      ]
+    })
+  ]);
+  assert.equal(m.usageLimitShortPeakPct, 60);
+  assert.equal(m.usageLimitLongPeakPct, 5);
 });

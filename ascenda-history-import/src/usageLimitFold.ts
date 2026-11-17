@@ -4,7 +4,7 @@
  * Current Codex builds write a `rate_limits` object beside `info` on each
  * `event_msg/token_count` line: a `primary` (short, five-hour on every line
  * seen) and a `secondary` (long, weekly) window, each with `used_percent`,
- * `window_minutes` and `resets_at`, plus `rate_limit_reached_type`, null
+ * `window_minutes` and `resets_at` (or `resets_in_seconds`), plus `rate_limit_reached_type`, null
  * unless a limit was hit.
  *
  * Only those fields are read. The object also names the account's limit and
@@ -71,15 +71,41 @@ function maxOf(a: number | null, b: number | null): number | null {
   return Math.max(a, b);
 }
 
-function windowOf(raw: unknown): { pct: number | null; minutes: number | null } | null {
+interface Window {
+  pct: number | null;
+  minutes: number | null;
+  /** The window's reset had already passed at the line's instant. */
+  stale: boolean;
+}
+
+/**
+ * One window. `resets_at` is epoch seconds; builds that omit it write
+ * `resets_in_seconds` instead, counted from the line. A window whose reset
+ * has passed holds a reading from the window before it, so its percentage is
+ * dropped: it has cleared, and the line says nothing about the new one.
+ */
+function windowOf(raw: unknown, atMs: number | null): Window | null {
   const window = record(raw);
   if (!window) return null;
   const pct = finite(window.used_percent);
   const minutes = finite(window.window_minutes);
+  const resetsAt = finite(window.resets_at);
+  const inSeconds = finite(window.resets_in_seconds);
+  const resetMs =
+    resetsAt !== null ? resetsAt * 1000 : inSeconds !== null && atMs !== null ? atMs + inSeconds * 1000 : null;
+  const stale = resetMs !== null && atMs !== null && resetMs <= atMs;
   return {
-    pct: pct === null ? null : Math.min(100, Math.max(0, pct)),
-    minutes: minutes !== null && minutes > 0 ? minutes : null
+    pct: pct === null || stale ? null : Math.min(100, Math.max(0, pct)),
+    minutes: minutes !== null && minutes > 0 ? minutes : null,
+    stale
   };
+}
+
+/** The short and long windows of each entry in `additional_rate_limits`,
+ * which may be an array or an object keyed by limit. */
+function extraLimits(raw: unknown): Record<string, unknown>[] {
+  const list = Array.isArray(raw) ? raw : record(raw) ? Object.values(raw as object) : [];
+  return list.map(record).filter((r): r is Record<string, unknown> => r !== null);
 }
 
 /** The reached-type value as it may ship: allow-listed, or `other`. */
@@ -96,13 +122,29 @@ export function usageLimitReachedTypeOf(raw: unknown): string | null {
 export function foldUsageLimits(track: UsageLimitTrack, raw: unknown, at: string | null): void {
   const limits = record(raw);
   if (!limits) return;
-  const short = windowOf(limits.primary);
-  const long = windowOf(limits.secondary);
-  const reached = usageLimitReachedTypeOf(limits.rate_limit_reached_type);
-  if (!short && !long && reached === null) return;
+  const parsed = at ? Date.parse(at) : NaN;
+  const atMs = Number.isFinite(parsed) ? parsed : null;
+  const short = windowOf(limits.primary, atMs);
+  const long = windowOf(limits.secondary, atMs);
+  let reached = usageLimitReachedTypeOf(limits.rate_limit_reached_type);
+  // A hit recorded against a window that has since reset isn't held.
+  if ((reached === "primary" && short?.stale) || (reached === "secondary" && long?.stale)) reached = null;
+  const extras = extraLimits(limits.additional_rate_limits).map((e) => ({
+    short: windowOf(e.primary, atMs),
+    long: windowOf(e.secondary, atMs)
+  }));
+  if (!short && !long && reached === null && !extras.some((e) => e.short || e.long)) return;
   track.seen = true;
-  track.shortPeakPct = maxOf(track.shortPeakPct, short?.pct ?? null);
-  track.longPeakPct = maxOf(track.longPeakPct, long?.pct ?? null);
+  let shortPct = short?.pct ?? null;
+  let longPct = long?.pct ?? null;
+  for (const e of extras) {
+    shortPct = maxOf(shortPct, e.short?.pct ?? null);
+    longPct = maxOf(longPct, e.long?.pct ?? null);
+    if (e.short?.minutes && !track.shortWindowMinutes) track.shortWindowMinutes = e.short.minutes;
+    if (e.long?.minutes && !track.longWindowMinutes) track.longWindowMinutes = e.long.minutes;
+  }
+  track.shortPeakPct = maxOf(track.shortPeakPct, shortPct);
+  track.longPeakPct = maxOf(track.longPeakPct, longPct);
   if (short?.minutes) track.shortWindowMinutes = short.minutes;
   if (long?.minutes) track.longWindowMinutes = long.minutes;
   // The earliest dated hit wins, since a session's lines can reach the fold
@@ -114,8 +156,8 @@ export function foldUsageLimits(track: UsageLimitTrack, raw: unknown, at: string
       if (at !== null) track.firstReachedAt = at;
     }
   }
-  if (at && (short?.pct != null || long?.pct != null)) {
-    track.readings.push({ at, shortPct: short?.pct ?? null, longPct: long?.pct ?? null });
+  if (at && (shortPct !== null || longPct !== null)) {
+    track.readings.push({ at, shortPct, longPct });
   }
 }
 
