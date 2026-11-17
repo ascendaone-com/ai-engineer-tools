@@ -13,8 +13,9 @@ targets, error counts or internal resource names — this repository is public.
 ## v0.1.44
 
 Plugin 0.3.3: work signals read a second line on the day's intention, and
-the faster plugin hooks from v0.1.43 reach plugin users. The CLIs and the
-extension are unchanged.
+the faster plugin hooks from v0.1.43 reach plugin users. The Claude Code hooks
+CLI gains an opt-in quota capture. The other CLIs and the extension are
+unchanged.
 
 ### Usage-limit holds can use the real reset time
 
