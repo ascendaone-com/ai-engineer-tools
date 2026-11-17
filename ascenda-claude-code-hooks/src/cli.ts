@@ -44,6 +44,7 @@ import { clearSentModelId, readSentModelId, recordSentModelId } from "@ascenda-o
 import type { CollectorState, DisclosureFamily, LiveBusEvent, TerminalStyle, WorkContext } from "@ascenda-one/tool-kit";
 import { AscendaClient } from "./ascendaClient.js";
 import { liveEventFor } from "./liveEvent.js";
+import { trackWait } from "./waitTracker.js";
 import { autoContinueEnabled, resumesAtFor } from "./usageLimitReset.js";
 import { readQuota, resumesAtFromQuota } from "./quotaSnapshot.js";
 import {
@@ -432,6 +433,13 @@ async function main(): Promise<void> {
     lastSentEffortLevel: readSentEffortLevel(CLAUDE_EFFORT_STATE_AGENT, effortSessionId),
     lastSentModelId: readSentModelId(CLAUDE_EFFORT_STATE_AGENT, effortSessionId)
   });
+  // How long a wait lasted, inferred from this hook ending one that an
+  // earlier hook opened. Local file only; never blocks, never throws.
+  const wait = trackWait(hookName, input);
+  if (wait.suppressInterruption) {
+    for (let i = mappedEvents.length - 1; i >= 0; i--) if (mappedEvents[i].eventType === "supervision_interruption") mappedEvents.splice(i, 1);
+  }
+  mappedEvents.push(...wait.events);
   const effortSent = sentEffortLevel(mappedEvents);
   if (effortSent) recordSentEffortLevel(CLAUDE_EFFORT_STATE_AGENT, effortSessionId, effortSent);
   const modelSent = sentModelId(mappedEvents);

@@ -61,6 +61,24 @@ and the work-signals skill reads it.
   whether a line landed.
 - Every work signal now carries `skillVersion` `1.1.0`.
 
+### How long a wait lasted
+
+Claude Code tells the hooks when it stops to ask you something, and never
+when you answer. The hooks now work out the end themselves and send
+`supervision_wait_ended` with `waitMs`.
+
+- **The end is the next hook that needs an answer first.** A permission
+  prompt ends at the tool call it was for, or at its denial. An idle prompt
+  ends at your next message.
+- **Parallel prompts say so.** When several were open at once, the event
+  carries `waitConfidence: lower_bound`. A prompt closed by your next message
+  carries `upper_bound`, because an interrupt looks the same. A wait the
+  turn's end cancelled sends nothing.
+- **One idle pause counts once.** Repeat idle notifications inside a minute
+  fold into the first, and only the first sends `supervision_interruption`.
+- Nothing about the tool, the command or the message leaves your machine. The
+  setup disclosure now mentions the duration.
+
 ### Faster plugin hooks after `setup`
 
 - **Now in the plugin.** v0.1.43 taught the plugin to run the hooks `setup`

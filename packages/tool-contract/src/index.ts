@@ -374,6 +374,7 @@ export type AscendaTelemetryEventType =
   | "subagent_started"
   | "subagent_stopped"
   | "supervision_interruption"
+  | "supervision_wait_ended"
   | "permission_requested"
   | "permission_denied"
   | "context_pressure_high"
@@ -827,6 +828,9 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   // One constant word, from the agent itself. The session sentence names it.
   sessionEndReason: "session",
   interruptionKind: "waiting",
+  waitMs: "waiting",
+  waitEndedBy: "waiting",
+  waitConfidence: "waiting",
   // Claude Code's own opaque id for one subagent, and the class it belongs
   // to. Never the agent's name or anything it was asked.
   subagentId: "subagents",
@@ -1167,6 +1171,24 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
   interruptionKind?: "permission_request" | "input_request" | "idle_prompt" | "other";
 
   /**
+   * On `supervision_wait_ended`: milliseconds from the wait opening to the
+   * hook that answered it, as inferred on the machine. See
+   * {@link waitConfidence} for how far to trust it.
+   */
+  waitMs?: number;
+
+  /** On `supervision_wait_ended`: which hook closed the wait. */
+  waitEndedBy?: "tool_started" | "tool_finished" | "permission_denied" | "prompt_submitted";
+
+  /**
+   * On `supervision_wait_ended`: `inferred` is the time to the answering hook;
+   * `lower_bound` means parallel requests were open and the person waited at
+   * least this long; `upper_bound` means a new prompt closed it, which an
+   * interrupt also looks like, so they waited at most this long.
+   */
+  waitConfidence?: "inferred" | "lower_bound" | "upper_bound";
+
+  /**
    * Claude Code's `agent_id` for one subagent, as sent. On
    * `subagent_started` and `subagent_stopped`, and on any other event whose
    * hook fired inside that subagent (its tool calls, for one).
@@ -1297,6 +1319,9 @@ export const EVENT_METADATA_FIELDS = [
   "runtime",
   "sessionEndReason",
   "interruptionKind",
+  "waitMs",
+  "waitEndedBy",
+  "waitConfidence",
   "subagentId",
   "subagentClass",
   "simulated",
@@ -1514,6 +1539,10 @@ export const EVENT_WORKLOAD_CATEGORY: Record<AscendaTelemetryEventType, Workload
   // step toward an interruption count becoming a score, a streak, or something
   // that fires on a miss. It must never become any of those.
   supervision_interruption: "supervision",
+  // How long that wait lasted, inferred from the next hook that could only
+  // have fired after an answer. Same leg, same rule: overhead to be counted,
+  // never a score.
+  supervision_wait_ended: "supervision",
 
   // The agent asked to run a tool, and the auto-mode classifier refused one.
   // Claude Code's `PermissionRequest` and `PermissionDenied` hooks. Neutral,
