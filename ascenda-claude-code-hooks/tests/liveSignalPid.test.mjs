@@ -117,12 +117,15 @@ test("an npm Claude Code's halted carries its pid and how it was found", onMac, 
     { npm: true }
   );
   assert.equal(lines.length, 1);
+  assert.ok(Number.isFinite(lines[0].pidStartedAt) && lines[0].pidStartedAt > 0);
   assert.deepEqual(lines[0], {
     tool: "claude_code",
     session: "s1",
     pid,
     pidMatch: "path",
     pidMarker: "@anthropic-ai/claude-code",
+    // The start time is the real one from `ps`, so only its shape is pinned.
+    pidStartedAt: lines[0].pidStartedAt,
     event: "halted",
     errorKind: "rate_limit"
   });

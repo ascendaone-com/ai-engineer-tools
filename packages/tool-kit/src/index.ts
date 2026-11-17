@@ -166,8 +166,8 @@ export type { HookRegistration, LiveSignalDoctorOptions } from "./liveSignalDoct
 export type { LiveBusEvent, LiveBusSignal, LiveBusStopFailureKind, PromptSizeBucket } from "./liveBus";
 export { HOOK_SET_FLAG, UNVERSIONED_HOOK_SET, describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand, isHookSet, readHookSet, readViaPlugin } from "./hookSet";
 export type { HookSetChanges } from "./hookSet";
-export { AGENT_PROCESS, findAgentPid, findAgentProcess, livePidFields, psArgsLookup, psLookup, scriptMarkerIn } from "./agentProcess";
-export type { AgentProcessMatch, AgentProcessRule, FindAgentPidOptions, ProcessArgsLookup, ProcessInfo, ProcessLookup } from "./agentProcess";
+export { AGENT_PROCESS, findAgentPid, findAgentProcess, livePidFields, probeProcess, psArgsLookup, psLookup, psStartLookup, scriptMarkerIn } from "./agentProcess";
+export type { AgentProcessMatch, AgentProcessRule, FindAgentPidOptions, ProcessArgsLookup, ProcessInfo, ProcessLiveness, ProcessLookup, ProcessStartLookup, ProbeOptions } from "./agentProcess";
 export {
   AscendaApiError,
   createPairingSession,

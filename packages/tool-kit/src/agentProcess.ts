@@ -57,8 +57,8 @@ export interface AgentProcessRule {
  * says "some node process", which a recycled PID could also be.
  */
 export type AgentProcessMatch =
-  | { pid: number; match: "executable" }
-  | { pid: number; match: "path"; marker: string };
+  | { pid: number; match: "executable"; startedAt?: number }
+  | { pid: number; match: "path"; marker: string; startedAt?: number };
 
 /**
  * Which executables count as an agent CLI, per live-bus tool name.
@@ -153,6 +153,60 @@ export const psLookup: ProcessLookup = (pid) => {
 
 export const psArgsLookup: ProcessArgsLookup = (pid) => ps("args=", pid);
 
+/** Looks a PID's start time up (epoch ms), or `undefined` when unreadable. */
+export type ProcessStartLookup = (pid: number) => number | undefined;
+
+/**
+ * `ps -o lstart=`, e.g. `Mon Nov 17 10:02:03 2026`, in local time at one
+ * second's resolution. Same output on macOS and Linux (procps). Windows has
+ * no `ps`, so it's skipped there and the answer is `undefined`.
+ */
+export const psStartLookup: ProcessStartLookup = (pid) => {
+  if (process.platform === "win32") return undefined;
+  const line = ps("lstart=", pid);
+  const ms = line ? Date.parse(line) : NaN;
+  return Number.isFinite(ms) ? ms : undefined;
+};
+
+/** Start times from two reads of the same process can differ by a second. */
+const START_TOLERANCE_MS = 2000;
+
+export type ProcessLiveness = "alive" | "dead" | "unknown";
+
+export interface ProbeOptions {
+  platform?: NodeJS.Platform;
+  /** Signal 0 existence check. Throws like `process.kill`. Injectable for tests. */
+  kill?: (pid: number, signal: 0) => void;
+  startLookup?: ProcessStartLookup;
+}
+
+/**
+ * Is the process the hook recorded still the same process?
+ *
+ * `dead` only on proof: the pid is gone (ESRCH), or it's there with a start
+ * time that differs from the recorded one, which is a recycled pid. Anything
+ * else, including a failed or timed-out `ps`, no recorded start time, a
+ * permission error and Windows, is `unknown`, and the caller must treat that
+ * as live. Never throws.
+ */
+export function probeProcess(pid: number, startedAt: number | undefined, options: ProbeOptions = {}): ProcessLiveness {
+  if ((options.platform ?? process.platform) === "win32") return "unknown";
+  if (!Number.isInteger(pid) || pid <= 1) return "unknown";
+  const kill = options.kill ?? ((p, sig) => { process.kill(p, sig); });
+  try {
+    kill(pid, 0);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    // EPERM means it exists but isn't ours, so go on and compare start times.
+    if (code === "ESRCH") return "dead";
+    if (code !== "EPERM") return "unknown";
+  }
+  if (startedAt === undefined) return "unknown";
+  const now = (options.startLookup ?? psStartLookup)(pid);
+  if (now === undefined) return "unknown";
+  return Math.abs(now - startedAt) > START_TOLERANCE_MS ? "dead" : "alive";
+}
+
 export interface FindAgentPidOptions {
   /** Where the walk starts. Defaults to this process's parent. */
   startPid?: number;
@@ -160,6 +214,8 @@ export interface FindAgentPidOptions {
   argsLookup?: ProcessArgsLookup;
   /** Defaults to `process.platform`; anything but `darwin` returns undefined. */
   platform?: NodeJS.Platform;
+  /** Reads the matched process's start time. Defaults to `ps -o lstart=`. */
+  startLookup?: ProcessStartLookup;
 }
 
 /**
@@ -191,7 +247,7 @@ export function findAgentProcess(
       if (rule.executable(info.command)) {
         // A matching binary we can't read the arguments of may be the
         // server shape, so it isn't named.
-        return accepts(rule, rule.args ? argsLookup(pid) : "") ? { pid, match: "executable" } : undefined;
+        return accepts(rule, rule.args ? argsLookup(pid) : "") ? { pid, match: "executable", ...startField(pid, options) } : undefined;
       }
       if (markers.length > 0 && SCRIPT_RUNTIME.test(path.basename(info.command))) {
         const args = argsLookup(pid);
@@ -199,13 +255,18 @@ export function findAgentProcess(
         // A runtime running something else is a wrapper, and the walk
         // carries on past it.
         if (marker !== undefined) {
-          return accepts(rule, args) ? { pid, match: "path", marker } : undefined;
+          return accepts(rule, args) ? { pid, match: "path", marker, ...startField(pid, options) } : undefined;
         }
       }
     }
     pid = info.ppid;
   }
   return undefined;
+}
+
+function startField(pid: number, options: FindAgentPidOptions): { startedAt?: number } {
+  const startedAt = (options.startLookup ?? psStartLookup)(pid);
+  return startedAt === undefined ? {} : { startedAt };
 }
 
 function accepts(rule: AgentProcessRule, args: string | undefined): boolean {
@@ -224,8 +285,9 @@ export function findAgentPid(rule: AgentProcessRule | undefined, options: FindAg
  */
 export function livePidFields(
   match: AgentProcessMatch | undefined
-): { pid?: number; pidMatch?: "path"; pidMarker?: string } {
+): { pid?: number; pidMatch?: "path"; pidMarker?: string; pidStartedAt?: number } {
   if (!match) return {};
-  if (match.match === "executable") return { pid: match.pid };
-  return { pid: match.pid, pidMatch: "path", pidMarker: match.marker };
+  const start = match.startedAt === undefined ? {} : { pidStartedAt: match.startedAt };
+  if (match.match === "executable") return { pid: match.pid, ...start };
+  return { pid: match.pid, pidMatch: "path", pidMarker: match.marker, ...start };
 }

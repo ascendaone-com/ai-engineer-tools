@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { AGENT_PROCESS, findAgentPid, findAgentProcess, livePidFields, psLookup, scriptMarkerIn } = require("../out/index.js");
+const { AGENT_PROCESS, findAgentPid, findAgentProcess, livePidFields, probeProcess, psLookup, scriptMarkerIn } = require("../out/index.js");
 
 /** A fake process table: pid → [ppid, executable, args?]. */
 function table(rows) {
@@ -229,4 +229,32 @@ test("psLookup reads a real process, path and all", { skip: process.platform !==
   assert.equal(self.ppid, process.ppid);
   assert.match(self.command, /node/);
   assert.equal(psLookup(2 ** 22 + 12345), undefined);
+});
+
+test("the match carries the process start time, and the signal fields name it", () => {
+  const t = table({ 300: [200, "/bin/sh"], 200: [1, NATIVE_CLAUDE] });
+  const m = findAgentProcess(AGENT_PROCESS.claude_code, { startPid: 300, platform: "darwin", startLookup: () => 1000, ...t });
+  assert.equal(m.startedAt, 1000);
+  assert.deepEqual(livePidFields(m), { pid: 200, pidStartedAt: 1000 });
+  const none = findAgentProcess(AGENT_PROCESS.claude_code, { startPid: 300, platform: "darwin", startLookup: () => undefined, ...t });
+  assert.deepEqual(livePidFields(none), { pid: 200 });
+});
+
+const errno = (code) => () => { throw Object.assign(new Error(code), { code }); };
+
+test("probeProcess: dead only on proof", () => {
+  const alive = () => {};
+  assert.equal(probeProcess(50, 1000, { platform: "darwin", kill: errno("ESRCH") }), "dead");
+  assert.equal(probeProcess(50, 1000, { platform: "darwin", kill: alive, startLookup: () => 1500 }), "alive");
+  assert.equal(probeProcess(50, 1000, { platform: "darwin", kill: alive, startLookup: () => 900000 }), "dead");
+  assert.equal(probeProcess(50, 1000, { platform: "linux", kill: errno("EPERM"), startLookup: () => 900000 }), "dead");
+});
+
+test("probeProcess: a failed probe never reads as dead", () => {
+  const alive = () => {};
+  assert.equal(probeProcess(50, 1000, { platform: "darwin", kill: alive, startLookup: () => undefined }), "unknown");
+  assert.equal(probeProcess(50, undefined, { platform: "darwin", kill: alive }), "unknown");
+  assert.equal(probeProcess(50, 1000, { platform: "darwin", kill: errno("EINVAL") }), "unknown");
+  assert.equal(probeProcess(50, 1000, { platform: "win32", kill: errno("ESRCH") }), "unknown");
+  assert.equal(probeProcess(1, 1000, { platform: "darwin", kill: errno("ESRCH") }), "unknown");
 });

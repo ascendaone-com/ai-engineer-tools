@@ -161,6 +161,15 @@ export interface LiveBusSignal {
   pidMatch?: "path";
   /** The install-path marker a `path` match found, e.g. `@google/gemini-cli`. */
   pidMarker?: string;
+  /**
+   * When {@link pid} started, epoch milliseconds, from `ps -o lstart=` (one
+   * second's resolution). Lets a reader tell the same process from a
+   * recycled pid before closing a session at its real exit time. Identity
+   * only, like {@link pidMatch}: it rides with `pid`, never varies by event
+   * and isn't part of the stream key. Absent when the read failed, which a
+   * reader treats as "can't tell", never as "dead".
+   */
+  pidStartedAt?: number;
   event: LiveBusEvent;
   /** Only meaningful on `prompt_submitted`. */
   sizeBucket?: PromptSizeBucket;
