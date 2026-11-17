@@ -119,6 +119,14 @@ export interface ActiveInstant {
    * where none was. Null is the overwhelming majority; see the module note.
    */
   autonomyMode: string | null;
+  /**
+   * True where the line at this instant parked the agent on the person: a
+   * question or an approval gate. The span from here to the next instant is
+   * the person's to answer, so it is not active time and breaks the run, the
+   * same as a gap past the threshold. Optional: absent means false, which is
+   * what every writer without such a line means.
+   */
+  awaitingPerson?: boolean;
 }
 
 export interface ActiveSplit {
@@ -267,7 +275,7 @@ export function activeSpans(
 ): ActiveSpanReport {
   const collapsed = new Map<
     number,
-    { human: boolean; agentOutput: boolean; autonomyMode: string | null }
+    { human: boolean; agentOutput: boolean; autonomyMode: string | null; awaitingPerson: boolean }
   >();
   let undatedPoints = 0;
   for (const point of points) {
@@ -279,12 +287,14 @@ export function activeSpans(
     if (existing) {
       existing.human = existing.human || point.human;
       existing.agentOutput = existing.agentOutput || point.agentOutput;
+      existing.awaitingPerson = existing.awaitingPerson || point.awaitingPerson === true;
       if (point.autonomyMode) existing.autonomyMode = point.autonomyMode;
     } else {
       collapsed.set(point.at, {
         human: point.human,
         agentOutput: point.agentOutput,
-        autonomyMode: point.autonomyMode
+        autonomyMode: point.autonomyMode,
+        awaitingPerson: point.awaitingPerson === true
       });
     }
   }
@@ -315,7 +325,7 @@ export function activeSpans(
     const to = instants[i];
     const here = collapsed.get(to)!;
     const gap = to - from;
-    if (gap > 0 && gap <= options.activeGapMs) {
+    if (gap > 0 && gap <= options.activeGapMs && !collapsed.get(from)!.awaitingPerson) {
       // `autonomyBand` maps a null or unrecognised token to `unknown` on its
       // own; passing the raw carried value keeps that decision in the one
       // place that documents it.

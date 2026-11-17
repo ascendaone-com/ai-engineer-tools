@@ -213,6 +213,21 @@ export const TOOL_OUTPUT_ITEM_TYPES = new Set([
   "tool_search_output"
 ]);
 
+/**
+ * Tools Codex models as a question or an approval gate, so the call parks the
+ * agent on the person until the output lands. `request_user_input_async` is
+ * the one seen in real rollouts; the rest are the names Codex's protocol
+ * documents for the same gates.
+ */
+export const CODEX_BLOCKING_TOOLS = new Set([
+  "request_user_input",
+  "request_user_input_async",
+  "request_permissions",
+  "exec_approval_request",
+  "apply_patch_approval_request",
+  "elicitation_request"
+]);
+
 export type SniffedCodexLine =
   | {
       kind: CodexLineType;
@@ -909,11 +924,17 @@ async function foldLinesInto(fold: SessionFold, lines: AsyncIterable<string>, id
         // line yet. Its handoff stamps `handsOnBoundary: "nearest_line"` for
         // the same reason. Classifying them is the next step, and the
         // Claude Code extractor is the worked example.
+        const awaitingPerson =
+          sniffed.kind === "response_item" &&
+          TOOL_CALL_ITEM_TYPES.has(sniffed.subtype ?? "") &&
+          typeof payload.name === "string" &&
+          CODEX_BLOCKING_TOOLS.has(payload.name);
         fold.timelinePoints.push({
           at: ms,
           human: humanHere,
           agentOutput: !humanHere,
-          autonomyMode: null
+          autonomyMode: null,
+          ...(awaitingPerson ? { awaitingPerson } : {})
         });
       } else {
         fold.undatedTimelineLines += 1;

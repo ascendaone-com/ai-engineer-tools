@@ -514,3 +514,15 @@ test("minutes round once, at the edge", () => {
   assert.equal(minutesOf(30_000), 1);
   assert.equal(minutesOf(90_000), 2);
 });
+
+test("a span after an awaitingPerson instant is not active time", () => {
+  const min = 60_000;
+  const pts = (flag) => [
+    { at: 0, human: true, agentOutput: false, autonomyMode: null },
+    { at: min, human: false, agentOutput: true, autonomyMode: null, ...(flag ? { awaitingPerson: true } : {}) },
+    { at: 4 * min, human: false, agentOutput: true, autonomyMode: null }
+  ];
+  const total = (report) => report.spans.reduce((n, s) => n + (s.to - s.from), 0);
+  assert.equal(total(activeSpans(pts(false), { activeGapMs: 5 * min })), 4 * min);
+  assert.equal(total(activeSpans(pts(true), { activeGapMs: 5 * min })), 1 * min);
+});

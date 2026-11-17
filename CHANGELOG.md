@@ -16,6 +16,19 @@ Plugin 0.3.3: work signals read a second line on the day's intention, and
 the faster plugin hooks from v0.1.43 reach plugin users. The CLIs and the
 extension are unchanged.
 
+### Codex questions and approvals aren't work
+
+When Codex stops to ask you something, or to approve a command or a patch, the
+gauges now read it as waiting on you. Away Mode no longer counts it as load.
+
+- **Live.** The five Codex tools that open a question or an approval gate
+  (`request_user_input`, `request_permissions`, `exec_approval_request`,
+  `apply_patch_approval_request`, `elicitation_request`) send `awaiting`, the
+  way Claude Code's question tool does. `request_user_input_async`, the name
+  recent Codex builds write, is treated the same.
+- **Imported history.** The minutes between one of those calls and what
+  follows it are left out of active time. Re-import to pick up the change.
+
 ### An intention can have a second line
 
 The Flow app's morning card can now hold an "And if there's time" line beside

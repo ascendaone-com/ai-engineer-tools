@@ -318,6 +318,22 @@ export function classifySessionEndReason(raw: unknown): SessionEndReason {
  * not. The prefix is dropped so one spelling reaches every comparison and the
  * name that goes on the wire.
  */
+/** Tool names Codex uses for a question or approval gate; the call waits on the person. */
+const BLOCKING_TOOLS = new Set([
+  "request_user_input",
+  "request_user_input_async",
+  "request_permissions",
+  "exec_approval_request",
+  "apply_patch_approval_request",
+  "elicitation_request"
+]);
+
+/** Whether this payload's tool is one that parks the agent on the person. */
+export function isBlockingTool(input: CodexHookInput): boolean {
+  const name = getToolName(input);
+  return name !== undefined && BLOCKING_TOOLS.has(name);
+}
+
 function getToolName(input: CodexHookInput): string | undefined {
   return getString(input, ["tool_name", "toolName", "name"])?.replace(/^functions\./i, "");
 }
