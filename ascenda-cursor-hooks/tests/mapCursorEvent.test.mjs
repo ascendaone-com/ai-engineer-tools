@@ -122,3 +122,10 @@ test("beforeSubmitPrompt: the prompt's size bucket rides along, never its text, 
   assert.equal(bare.eventType, "ai_prompt_submitted");
   assert.equal("promptSizeBucket" in bare.metadata, false);
 });
+
+test("afterAgentResponse is neither registered nor mapped, so stop is the only turn end", async () => {
+  const { HOOK_EVENTS } = await import("../dist/setup.js");
+  assert.ok(!HOOK_EVENTS.includes("afterAgentResponse"));
+  assert.deepEqual(mapCursorEvent("afterAgentResponse", { text: "hi" }), []);
+  assert.deepEqual(mapCursorEvent("stop", {}, 1000).map((e) => e.eventType), ["ai_turn_completed"]);
+});

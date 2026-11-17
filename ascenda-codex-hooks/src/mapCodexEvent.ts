@@ -193,7 +193,27 @@ function mapPreCompact(input: CodexHookInput): MappedCodexEvent[] {
   return [{ eventType: isManual ? "context_compression_manual" : "context_compression_auto", severity: isManual ? "medium" : "high", metadata: withHost({ trigger: isManual ? "manual" : "auto", reason: "context_limit" }) }];
 }
 
+/**
+ * Codex follows a turn's real `Stop` with a second one whose
+ * `last_assistant_message` is only a suggestions object, `{"suggestions":[...]}`.
+ * It closes nothing: the turn already ended. Counting it would add a second
+ * `ai_turn_completed` with no duration.
+ */
+export function isSuggestionsOnlyStop(input: CodexHookInput): boolean {
+  const raw = input["last_assistant_message"];
+  if (typeof raw !== "string" || !raw.includes("suggestions")) return false;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
+    const keys = Object.keys(parsed);
+    return keys.length === 1 && keys[0] === "suggestions";
+  } catch {
+    return false;
+  }
+}
+
 function mapStop(input: CodexHookInput, turnDurationMs: number | undefined): MappedCodexEvent[] {
+  if (isSuggestionsOnlyStop(input)) return [];
   const durationBucket = bucketDurationMs(turnDurationMs);
   const autonomy = autonomyModeMetadata(input);
   const events: MappedCodexEvent[] = [];

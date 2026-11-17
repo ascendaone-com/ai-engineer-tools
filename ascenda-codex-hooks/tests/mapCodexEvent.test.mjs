@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyAutonomyMode, mapCodexEvent } from "../dist/mapCodexEvent.js";
+import { classifyAutonomyMode, isSuggestionsOnlyStop, mapCodexEvent } from "../dist/mapCodexEvent.js";
 
 test("SessionStart: startup/resume open a focus session, clear/compact do not", () => {
   assert.equal(mapCodexEvent("SessionStart", { source: "startup" })[0].eventType, "create_focus_session");
@@ -305,4 +305,25 @@ test("SessionEnd: one session_ended row, with the reason only when Codex sent on
   assert.equal(event.metadata.host, "codex");
   assert.equal("sessionEndReason" in mapCodexEvent("SessionEnd", {})[0].metadata, false);
   assert.equal(mapCodexEvent("SessionEnd", { reason: "something_new" })[0].metadata.sessionEndReason, "unknown");
+});
+
+test("Stop: the suggestions-only second Stop adds no turn", () => {
+  const real = { last_assistant_message: "Done, the tests pass.", turn_id: "t1" };
+  const suggestions = { last_assistant_message: JSON.stringify({ suggestions: ["Run the linter", "Add a test"] }), turn_id: "t1" };
+  assert.equal(isSuggestionsOnlyStop(real), false);
+  assert.equal(isSuggestionsOnlyStop(suggestions), true);
+  const turn = [...mapCodexEvent("Stop", real, 60000), ...mapCodexEvent("Stop", suggestions, undefined)];
+  assert.deepEqual(turn.map((e) => e.eventType), ["ai_turn_completed"]);
+});
+
+test("Stop: a reply that merely mentions suggestions still ends the turn", () => {
+  for (const msg of ["Here are my suggestions: rename it.", '{"suggestions":[],"other":1}', "[1]", '{"suggestions"']) {
+    assert.deepEqual(mapCodexEvent("Stop", { last_assistant_message: msg }, 1000).map((e) => e.eventType), ["ai_turn_completed"], msg);
+  }
+});
+
+test("late hooks after a Stop map as a fresh turn", () => {
+  mapCodexEvent("Stop", { last_assistant_message: "ok" }, 1000);
+  assert.deepEqual(mapCodexEvent("UserPromptSubmit", { prompt: "next" }).map((e) => e.eventType), ["ai_prompt_submitted"]);
+  assert.deepEqual(mapCodexEvent("PreToolUse", { tool_name: "Bash" }).map((e) => e.eventType), ["ai_tool_call_started"]);
 });
