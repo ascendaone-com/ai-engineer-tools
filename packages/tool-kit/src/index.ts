@@ -145,6 +145,7 @@ export {
   forgeFullNameFromConfig,
   recordForgeProjectAlias
 } from "./forgeProject";
+export { deriveAccountKey, extraClaudeProfileDirs, readPlanTier, ACCOUNT_KEY_VERSION } from "./accountKey";
 export { REPO_KEYS_ENV_VAR, deriveForgeKeysForCwd, repoKeysEnabled } from "./forgeKeys";
 export type { ForgeKeys } from "./forgeKeys";
 export { runSquadronJoin, leaseEnd, generateCallsign, normaliseBookingReference, callsignProblem, describeGate, describeSquadronRefusal, SQUADRON_AIRCRAFT, SQUADRON_COLOURS } from "./squadronJoin";

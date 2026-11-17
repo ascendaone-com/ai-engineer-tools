@@ -77,7 +77,7 @@ test("SessionEnd: only the reason leaves, never the transcript path or the postu
   const values = JSON.stringify(event);
   assert.ok(!values.includes("transcript"), values);
   assert.ok(!values.includes("abc123"), values);
-  assert.deepEqual(Object.keys(event.metadata).filter((k) => k !== "branchHash").sort(), ["activity", "host", "runtime", "sessionEndReason"]);
+  assert.deepEqual(Object.keys(event.metadata).filter((k) => k !== "branchHash" && k !== "accountKey").sort(), ["activity", "host", "runtime", "sessionEndReason"]);
 });
 
 test("classifySessionEndReason is total and forgiving of case and whitespace", () => {
@@ -305,7 +305,7 @@ test("Stop: the turn-end event carries no content from the payload", () => {
   const end = events.find((e) => e.eventType === "ai_turn_completed");
   assert.ok(end);
   assert.equal(end.metadata.autonomyMode, "accept_edits");
-  const allowed = new Set(["host", "runtime", "branchHash", "autonomyMode", "durationBucket"]);
+  const allowed = new Set(["host", "runtime", "branchHash", "accountKey", "accountKey", "autonomyMode", "durationBucket"]);
   assert.deepEqual(Object.keys(end.metadata).filter((k) => !allowed.has(k)), []);
   assert.equal(JSON.stringify(end).includes("secret"), false, "payload content leaked into the event");
 });

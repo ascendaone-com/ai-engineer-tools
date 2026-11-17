@@ -94,6 +94,21 @@ when you answer. The hooks now work out the end themselves and send
 - **Nothing changes for existing readers.** The field is additive and sent
   only where `pid` is.
 
+### Two Claude accounts on one machine stay apart
+
+Every Claude Code event and imported session now carries `accountKey`, a
+salted digest of the config folder and the plan tier. A work profile and a
+personal one get different keys.
+
+- **Only the plan tier is read.** That's `organizationRateLimitTier` from
+  `.claude.json`. No token, email or account id is opened, hashed or sent.
+- **Extra profiles are found.** `setup` registers the hooks in each
+  `~/.claude-<name>` folder that has a `projects` dir, and the history import
+  reads them even when `CLAUDE_CONFIG_DIR` isn't set. `uninstall` removes them
+  again.
+- **The key can't be traced back.** The machine salt keeps it from being
+  compared across machines or reversed to a path.
+
 ## v0.1.43
 
 Corrected import figures for Codex and Claude Code, Claude Desktop Cowork

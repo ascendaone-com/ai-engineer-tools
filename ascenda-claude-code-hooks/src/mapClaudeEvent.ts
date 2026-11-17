@@ -1,4 +1,4 @@
-import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, classifyEffortClass, claudeCodeModelRoute, modelFieldsFor, withModelOnChange, deriveBranchHashForCwd, deriveForgeKeysForCwd, promptSizeMetadata } from "@ascenda-one/tool-kit";
+import { classifyCommand, classifyGitAction, isVerificationCommand, isReworkGitAction, classifyWorkMilestone, classifyMcpWorkMilestone, invitesDebrief, classifyModelClass, classifyEffortClass, claudeCodeModelRoute, modelFieldsFor, withModelOnChange, deriveBranchHashForCwd, deriveForgeKeysForCwd, deriveAccountKey, promptSizeMetadata } from "@ascenda-one/tool-kit";
 import type { AutonomyMode, SessionEndReason, SubagentClass } from "@ascenda-one/tool-contract";
 import { CLAUDE_HOST, ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent, claudeRuntime } from "./types.js";
 import { bucketDurationMs, bucketLinesChanged, getNested, getNestedNumber, getNestedString, getNumber, getString, outcomeForHook, looksLikeCorrection } from "./safeExtract.js";
@@ -40,12 +40,13 @@ export function mapClaudeEvent(
   // The unsalted pair a pull request can be matched on. Per event, like the
   // branch digest, because a session can move between branches.
   const { repoKey, branchKey } = deriveForgeKeysForCwd(cwd);
+  const accountKey = deriveAccountKey();
   const promptId = readPromptId(input);
   const runtime = claudeRuntime();
   const subagentId = readSubagentId(input);
   return events.map((event) => ({
     ...event,
-    metadata: { host: CLAUDE_HOST, runtime, ...(branchHash ? { branchHash } : {}), ...(repoKey ? { repoKey } : {}), ...(branchKey ? { branchKey } : {}), ...(promptId ? { promptId } : {}), ...(subagentId ? { subagentId } : {}), ...event.metadata }
+    metadata: { host: CLAUDE_HOST, runtime, ...(branchHash ? { branchHash } : {}), ...(accountKey ? { accountKey } : {}), ...(repoKey ? { repoKey } : {}), ...(branchKey ? { branchKey } : {}), ...(promptId ? { promptId } : {}), ...(subagentId ? { subagentId } : {}), ...event.metadata }
   }));
 }
 

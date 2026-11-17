@@ -50,7 +50,7 @@ test("a Notification maps to supervision_interruption carrying only a kind", () 
   assert.equal(event.metadata.interruptionKind, "permission_request");
   // host, runtime and branchHash are stamped on every event by the adapter; the only
   // thing this mapping contributes is the kind.
-  const contributed = Object.keys(event.metadata).filter((k) => k !== "host" && k !== "runtime" && k !== "branchHash");
+  const contributed = Object.keys(event.metadata).filter((k) => k !== "host" && k !== "runtime" && k !== "branchHash" && k !== "accountKey");
   assert.deepEqual(contributed, ["interruptionKind"]);
 });
 
