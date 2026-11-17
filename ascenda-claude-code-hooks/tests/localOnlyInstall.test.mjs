@@ -232,6 +232,7 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
     // is present only when the suite runs under a `claude`. `pidMatch` and
     // `pidMarker` say which process it names, under an npm Claude Code, and
     // only ride with it: identity fields, outside D64 (register v1.45, v1.47).
+    // `pidStartedAt`, when the process started, rides with it too.
     // errorKind is a reason field (P-D64.1, #452), and only on the
     // StopFailure halted. resumesAt (P-D64.2) may ride with a rate_limit
     // errorKind and nowhere else, and only as a whole number of seconds.
@@ -239,7 +240,7 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
     // v1.48), set aside with the identity keys on every event, with exactly
     // their ratified types: hookSet a positive integer or absent, viaPlugin
     // true or absent, never false.
-    const { pid, pidMatch, pidMarker, hookSet, viaPlugin, errorKind, resumesAt, ...rest } = signal;
+    const { pid, pidMatch, pidMarker, pidStartedAt, hookSet, viaPlugin, errorKind, resumesAt, ...rest } = signal;
     const fromPlugin = index === 4;
     assert.ok(hookSet === undefined || (Number.isInteger(hookSet) && hookSet >= 1), `hookSet must be absent or a positive integer, got ${hookSet}`);
     assert.equal(hookSet, HOOK_SET, "every event repeats the set its registration names");
@@ -247,6 +248,7 @@ test("a turn that ends without Stop tells the live bus it halted, and sends noth
     if (fromPlugin) assert.equal(viaPlugin, true, "a plugin hook says so");
     else assert.equal("viaPlugin" in signal, false, `only a plugin hook carries viaPlugin, not ${signal.event} #${index}`);
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
+    if (pidStartedAt !== undefined) assert.ok(pid !== undefined, "pidStartedAt only rides with a pid");
     if (pidMatch !== undefined || pidMarker !== undefined) {
       assert.ok(pid !== undefined, "pidMatch and pidMarker only ride with a pid");
       assert.equal(pidMatch, "path");

@@ -170,7 +170,9 @@ test("the built CLI puts exactly one awaiting on the socket for a permission pro
     // `claude` (this suite run from Claude Code) the hook finds it, and
     // anywhere else it doesn't. A number is not a word either way; that it is
     // the right number is liveSignalPid.test.mjs's job.
-    const [{ pid, ...rest }] = lines;
+    // `pidStartedAt` rides with it.
+    const [{ pid, pidStartedAt, ...rest }] = lines;
+    if (pidStartedAt !== undefined) assert.ok(pid !== undefined, "pidStartedAt only rides with a pid");
     assert.ok(pid === undefined || Number.isInteger(pid), `pid must be absent or a pid, got ${pid}`);
     assert.equal(lines.length, 1);
     assert.deepEqual(rest, { tool: "claude_code", session: "s1", event: "awaiting" });
