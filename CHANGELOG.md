@@ -12,11 +12,15 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.44
 
+Plugin 0.3.3: work signals read a second line on the day's intention, and
+the faster plugin hooks from v0.1.43 reach plugin users. The CLIs and the
+extension are unchanged.
+
 ### An intention can have a second line
 
 The Flow app's morning card can now hold an "And if there's time" line beside
 the main one. Its local `get_plans` tool passes it to the agent as `roomFor`,
-and the work-signals skill reads it. This reaches you with plugin 0.3.3.
+and the work-signals skill reads it.
 
 - **The second line is scope you allowed in advance.** Moving onto it isn't
   drift, so it never reports `goal_drift_detected`.
@@ -30,6 +34,12 @@ and the work-signals skill reads it. This reaches you with plugin 0.3.3.
   No work signal carries either line's text, and the agent never learns
   whether a line landed.
 - Every work signal now carries `skillVersion` `1.1.0`.
+
+### Faster plugin hooks after `setup`
+
+- **Now in the plugin.** v0.1.43 taught the plugin to run the hooks `setup`
+  installed until its own copy arrives. Plugin 0.3.2 carried that change,
+  and 0.3.3 includes it.
 
 ## v0.1.43
 
