@@ -1,6 +1,7 @@
 import { bucketPromptSize, getNestedString, getString, inferOutcome } from "@ascenda-one/tool-kit";
 import type { LiveBusSignal } from "@ascenda-one/tool-kit";
 import { CodexHookEventName, CodexHookInput } from "./types.js";
+import { isBlockingTool } from "./mapCodexEvent.js";
 
 /** A live signal minus the two fields only the CLI can supply. */
 export type LiveSignalBody = Omit<LiveBusSignal, "tool" | "session">;
@@ -48,7 +49,10 @@ export function liveSignalFor(hookName: CodexHookEventName, input: CodexHookInpu
       // reading than asserting a size we did not observe.
       return prompt === undefined ? { event: "prompt_submitted" } : { event: "prompt_submitted", sizeBucket: bucketPromptSize(prompt) };
     }
-    case "PreToolUse": return { event: "tool_call" };
+    // Codex models a question or an approval gate as an ordinary tool call, so
+    // a bare PreToolUse would read as work. The call parks the agent on the
+    // person, and replaces `tool_call` as `AskUserQuestion` does for Claude.
+    case "PreToolUse": return isBlockingTool(input) ? { event: "awaiting" } : { event: "tool_call" };
     case "PostToolUse": return inferOutcome(input) === "failure" ? { event: "tool_failure" } : undefined;
     case "PreCompact": return { event: "compaction" };
     case "Stop": return { event: "stop" };

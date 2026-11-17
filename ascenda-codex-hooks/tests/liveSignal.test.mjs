@@ -267,3 +267,12 @@ test("the built CLI puts awaiting on the socket for an approval gate", async () 
 test("SessionEnd halts the session, so closing Codex mid-turn doesn't leave it held", () => {
   assert.deepEqual(liveSignalFor("SessionEnd", { reason: "other" }), { event: "halted" });
 });
+
+test("PreToolUse for a question or approval gate is awaiting, not tool_call", () => {
+  for (const name of ["request_user_input", "request_user_input_async", "request_permissions", "exec_approval_request", "apply_patch_approval_request", "elicitation_request"]) {
+    assert.deepEqual(liveSignalFor("PreToolUse", { tool_name: name }), { event: "awaiting" }, name);
+    assert.deepEqual(liveSignalFor("PreToolUse", { tool_name: `functions.${name}` }), { event: "awaiting" }, name);
+  }
+  assert.deepEqual(liveSignalFor("PreToolUse", { tool_name: "exec_command" }), { event: "tool_call" });
+  assert.deepEqual(liveSignalFor("PreToolUse", {}), { event: "tool_call" });
+});
