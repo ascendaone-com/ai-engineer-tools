@@ -104,6 +104,7 @@
     "pull_request_merged",
     "ai_turn_completed",
     "supervision_interruption",
+    "supervision_wait_ended",
     "permission_requested",
     "permission_denied",
     "subagent_started",

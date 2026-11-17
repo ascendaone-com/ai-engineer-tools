@@ -510,6 +510,7 @@ SubagentStart      -> subagent_started (subagentId, subagentClass)
 SubagentStop       -> subagent_stopped (subagentId, subagentClass)
 PermissionRequest  -> permission_requested (toolName, autonomyMode)
 PermissionDenied   -> permission_denied (toolName, autonomyMode), auto mode only
+(the next tool call, denial or prompt after a wait) -> supervision_wait_ended (interruptionKind, waitMs, waitEndedBy, waitConfidence)
 ```
 
 ## Privacy defaults
