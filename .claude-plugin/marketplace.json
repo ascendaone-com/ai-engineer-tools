@@ -16,7 +16,7 @@
         "sha": "e2827cb68c61bb48a2e2266cd10d822d61afc43e"
       },
       "description": "Cognitive performance and AI-work telemetry for Claude Code — a passive work-signals skill, a metadata-only MCP reporting tool, and lifecycle hooks, all reading from the same Ascenda pairing.",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "author": {
         "name": "Ascenda One",
         "url": "https://ascenda.one"
