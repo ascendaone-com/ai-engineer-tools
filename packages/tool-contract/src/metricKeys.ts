@@ -508,6 +508,21 @@ export const METRIC_KEYS = {
     readBy: ["diagnostic"],
     note: "Claude Code only: advisor calls (a second model consulted inside one API message). Their tokens and models are already folded into the session totals and model mix, and this is the receipt for how much of that they are."
   },
+  apiErrorMessageCount: {
+    family: "outcome",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: assistant lines the runtime flagged isApiErrorMessage, the error text shown where a reply should be. Counted apart from apiErrorCount, which reads the api_error system lines, so the two can be compared. Absent when there are none."
+  },
+  compactSummaryCount: {
+    family: "context",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: user lines flagged isCompactSummary, the summary a compaction leaves as the next turn's opening. A cross-check on compactionCount, which reads compact_boundary lines. Absent when there are none."
+  },
+  nestedSubagentCount: {
+    family: "counts",
+    readBy: ["diagnostic"],
+    note: "Claude Code only: subagents launched by another subagent, linked by the agent id in the launching subagent's own tool results. Absent when there are none."
+  },
   advisorTokensTotal: {
     family: "context",
     readBy: ["diagnostic"],

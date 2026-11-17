@@ -131,7 +131,9 @@ test("one subagent: class, own window, active minutes, calls, failures, result s
       resultChars: 1234,
       background: false,
       retouchedAfterReturn: true,
-      modelClass: "anthropic:opus"
+      modelClass: "anthropic:opus",
+      nested: false,
+      spawnedCount: 0
     }
   ]);
 });

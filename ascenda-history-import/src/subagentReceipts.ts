@@ -55,6 +55,11 @@ export interface SubagentReceipt {
    * messages. Null where none of its lines named a model. The slug itself
    * stays off the receipt; the session's model mix already carries slugs. */
   modelClass: ModelClass | null;
+  /** True when another subagent's own `tool_result` carries this one's agent
+   * id, so the main thread did not launch it directly. */
+  nested: boolean;
+  /** Subagents this one launched, by the agent ids in its own tool results. */
+  spawnedCount: number;
 }
 
 /** Built up while one subagent transcript is read. */
@@ -75,6 +80,8 @@ export interface SidechainTally {
   editHashes: Set<string>;
   /** API messages per model, from the subagent's own lines. */
   models: Map<string, number>;
+  /** Agent ids carried by this subagent's own `tool_result` lines. */
+  spawnedAgentIds: Set<string>;
 }
 
 export function newSidechainTally(): SidechainTally {
@@ -88,7 +95,8 @@ export function newSidechainTally(): SidechainTally {
     toolCalls: 0,
     toolFailures: 0,
     editHashes: new Set(),
-    models: new Map()
+    models: new Map(),
+    spawnedAgentIds: new Set()
   };
 }
 
@@ -203,7 +211,11 @@ function activeMsOf(times: readonly number[]): number {
   return total;
 }
 
-export function buildReceipt(tally: SidechainTally, parent: ParentRecord): SubagentReceipt {
+export function buildReceipt(
+  tally: SidechainTally,
+  parent: ParentRecord,
+  spawnedBySubagents: ReadonlySet<string> = new Set()
+): SubagentReceipt {
   // The parent's result for this subagent: by the tool_use id the sibling
   // `.meta.json` names, else by the agent id the parent's result carries.
   let useId = tally.toolUseId;
@@ -241,7 +253,9 @@ export function buildReceipt(tally: SidechainTally, parent: ParentRecord): Subag
     resultChars: result && !background ? result.chars : null,
     background,
     retouchedAfterReturn: retouched,
-    modelClass: topModelClassOf(tally.models)
+    modelClass: topModelClassOf(tally.models),
+    nested: tally.agentId !== null && spawnedBySubagents.has(tally.agentId),
+    spawnedCount: tally.spawnedAgentIds.size
   };
 }
 
