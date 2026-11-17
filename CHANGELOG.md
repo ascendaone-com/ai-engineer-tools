@@ -54,6 +54,15 @@ and the work-signals skill reads it.
   installed until its own copy arrives. Plugin 0.3.2 carried that change,
   and 0.3.3 includes it.
 
+### Live signals carry when the agent process started
+
+- **`pidStartedAt` rides with `pid`.** It's the process start time in epoch
+  milliseconds, read with `ps`. A reader that wants to close a session killed
+  by Ctrl-C or a closed terminal can check the pid and this time together, so
+  a recycled pid isn't mistaken for the agent. Absent when the read fails.
+- **Nothing changes for existing readers.** The field is additive and sent
+  only where `pid` is.
+
 ## v0.1.43
 
 Corrected import figures for Codex and Claude Code, Claude Desktop Cowork
