@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentPid, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup, readSentModelId, recordSentModelId, clearSentModelId } from "@ascenda-one/tool-kit";
-import { mapCodexEvent, sentModelId } from "./mapCodexEvent.js";
+import { isSuggestionsOnlyStop, mapCodexEvent, sentModelId } from "./mapCodexEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
 import { ASCENDA_TOOL_TYPE, CODEX_HOST, CodexHookEventName, CodexHookInput } from "./types.js";
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   const promptId = hookName === "UserPromptSubmit"
     ? recordTurnStart(CODEX_HOST, sessionId)
     : readTurnPromptId(CODEX_HOST, sessionId);
-  if (hookName === "Stop") turnDurationMs = consumeTurnDurationMs(CODEX_HOST, sessionId);
+  if (hookName === "Stop" && !isSuggestionsOnlyStop(input)) turnDurationMs = consumeTurnDurationMs(CODEX_HOST, sessionId);
 
   // Where the work happened, for the repository and branch keys.
   const workDir = typeof input.cwd === "string" ? input.cwd : undefined;
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   if (hookName === "SessionEnd") process.env.ASCENDA_HTTP_TIMEOUT_MS ??= "1500";
 
   // The local live bus, before the cloud send. See `emitLive` below.
-  await emitLive(hookName, input, sessionId);
+  if (!(hookName === "Stop" && isSuggestionsOnlyStop(input))) await emitLive(hookName, input, sessionId);
 
   // The model rides on the opening event and again only when it changes, so
   // the mapper is told what this session last sent. Recorded as soon as the
