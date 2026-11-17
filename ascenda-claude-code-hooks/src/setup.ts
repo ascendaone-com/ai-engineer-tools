@@ -11,6 +11,9 @@ import { LAUNCHER_OPTIONS } from "./launcher.js";
 import { claudeConfigDir, credentialsFilePath, hookBinPath, selfCommand, hookBundlePath, hookNoNodePath, hookNodeRecordPath, readCredentials, removeCredentials, writeCredentials } from "./paths.js";
 import type { MachineCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE } from "./types.js";
+import { quotaSnapshotPath } from "./quotaSnapshot.js";
+import { statuslineChainPath, readChain } from "./statusline.js";
+import type { StatusLineSetting } from "./statusline.js";
 
 /**
  * Hook events worth registering.
@@ -107,6 +110,8 @@ type Options = {
   eventLog?: string;
   /** `--repo-keys` (true) or `--no-repo-keys` (false). Absent leaves the saved setting alone. */
   repoKeys?: boolean;
+  /** `--capture-quota` (true) or `--no-capture-quota` (false). Absent leaves the status line alone. */
+  captureQuota?: boolean;
   action: "install" | "status" | "uninstall" | "help";
 };
 
@@ -139,6 +144,9 @@ Options
                                 names can reproduce. Machine-wide. --repo-keys turns them back on
   --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
+  --capture-quota               keep Claude Code's 5-hour and 7-day usage numbers on this machine, so a usage-limit
+                                hold uses the real reset time. Wraps your status line, and keeps its output
+                                unchanged. User scope only. --no-capture-quota puts your own status line back
   --dry-run                     print what would change, write nothing
   -h, --help
 `;
@@ -214,6 +222,17 @@ export async function runSetup(argv: string[]): Promise<number> {
   if (written === null) return 1;
   const reach = options.scope === "user" ? "every project" : "this project only";
   row("ok", "hooks", `${tidyHome(settingsFile)} ${ui.dim(`(${HOOK_EVENTS.length} events, ${reach}${written ? "" : ", already current"})`)}`);
+  if (options.captureQuota !== undefined) {
+    if (options.scope !== "user") {
+      row("warn", "quota", "needs user scope; the status line is left alone");
+    } else {
+      const outcome = options.captureQuota
+        ? wrapStatusLine(settingsFile, binary, options.dryRun)
+        : unwrapStatusLine(settingsFile, options.dryRun);
+      if (outcome === null) return 1;
+      row("ok", "quota", `${outcome}${options.dryRun ? ui.dim(" (dry run)") : ""}`);
+    }
+  }
   const changes = describeHookSetChanges(hookSetChanges(before, HOOK_EVENTS), HOOK_SET);
   if (changes) detail("", changes);
   // Both scopes fire. An install in the other one means every event runs
@@ -365,6 +384,12 @@ function parseArgs(argv: string[]): Options {
         break;
       case "--no-repo-keys":
         options.repoKeys = false;
+        break;
+      case "--capture-quota":
+        options.captureQuota = true;
+        break;
+      case "--no-capture-quota":
+        options.captureQuota = false;
         break;
       case "--no-pair":
       // `--no-pairing` is the spelling the CLI agents' setup landed under
@@ -930,7 +955,9 @@ function uninstall(options: Options): number {
       return 1;
     }
     console.log(`hooks removed from ${settingsFile}`);
+    if (unwrapStatusLine(settingsFile, false) === null) console.error(`could not restore your status line in ${settingsFile}`);
   }
+  for (const file of [quotaSnapshotPath(), statuslineChainPath()]) fs.rmSync(file, { force: true });
 
   for (const file of [hookBinPath(), hookBundlePath(), hookNodeRecordPath(), hookNoNodePath(), `${hookBinPath()}.version`]) {
     if (!fs.existsSync(file)) continue;
@@ -948,4 +975,81 @@ function uninstall(options: Options): number {
     ? "this install was never paired, so there is no token here and nothing to revoke"
     : `tokens left in ${path.join(ascendaHome(), "tokens")} — revoke in the Ascenda app to invalidate them`);
   return 0;
+}
+
+// ------------------------------------------------------------ status line ---
+
+/**
+ * What the wrapped `statusLine.command` runs: the launcher with `statusline`.
+ * The marker is the same one the hooks carry, so `isOurStatusLine` can tell
+ * ours from anyone else's.
+ */
+function statuslineCommand(binary: string): string {
+  return `${hookCommand(binary)} statusline`;
+}
+
+function isOurStatusLine(setting: StatusLineSetting | undefined): boolean {
+  return typeof setting?.command === "string" && setting.command.includes(HOOK_MARKER) && / statusline$/.test(setting.command);
+}
+
+function readStatusLineSettings(settingsFile: string): Settings | null {
+  if (!fs.existsSync(settingsFile)) return {};
+  const raw = fs.readFileSync(settingsFile, "utf8").trim();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Settings;
+  } catch {
+    console.error(`\n${settingsFile} is not valid JSON. Fix or move it, then run setup again.`);
+    return null;
+  }
+}
+
+/**
+ * Points `statusLine.command` at our wrapper. The status line that was
+ * there is saved to the chain file first, and the wrapper runs it, so the
+ * bar looks as it did. Its other keys (`padding`, `refreshInterval`) stay on
+ * the setting. The settings file's first-ever backup is kept beside it, as
+ * for the hooks. A second run changes nothing, and never saves the wrapper
+ * as the thing to wrap. Returns a line for the setup output, or null on
+ * error.
+ */
+export function wrapStatusLine(settingsFile: string, binary: string, dryRun: boolean): string | null {
+  const settings = readStatusLineSettings(settingsFile);
+  if (settings === null) return null;
+  const current = settings.statusLine && typeof settings.statusLine === "object" ? settings.statusLine as StatusLineSetting : undefined;
+  if (isOurStatusLine(current)) return "status line already wrapped";
+
+  const wrapped: StatusLineSetting = { ...(current ?? {}), type: "command", command: statuslineCommand(binary) };
+  const had = typeof current?.command === "string";
+  if (!dryRun) {
+    if (had) {
+      fs.mkdirSync(path.dirname(statuslineChainPath()), { recursive: true });
+      fs.writeFileSync(statuslineChainPath(), `${JSON.stringify(current)}\n`, { mode: 0o600 });
+    } else {
+      fs.rmSync(statuslineChainPath(), { force: true });
+    }
+    replaceSettingsFile(settingsFile, `${JSON.stringify({ ...settings, statusLine: wrapped }, null, 2)}\n`);
+  }
+  return had
+    ? `wrapped your status line, its output is passed through (backup ${tidyHome(`${settingsFile}.ascenda-backup`)})`
+    : "added a status line that keeps the usage numbers and prints nothing";
+}
+
+/** Puts back the status line `wrapStatusLine` replaced, or removes ours when there was none. */
+export function unwrapStatusLine(settingsFile: string, dryRun: boolean): string | null {
+  if (!fs.existsSync(settingsFile)) return "no status line wrapper to remove";
+  const settings = readStatusLineSettings(settingsFile);
+  if (settings === null) return null;
+  const current = settings.statusLine && typeof settings.statusLine === "object" ? settings.statusLine as StatusLineSetting : undefined;
+  if (!isOurStatusLine(current)) return "no status line wrapper to remove";
+
+  const original = readChain();
+  const updated: Settings = { ...settings };
+  if (original) updated.statusLine = original;
+  else delete updated.statusLine;
+  if (!dryRun) {
+    replaceSettingsFile(settingsFile, `${JSON.stringify(updated, null, 2)}\n`);
+    fs.rmSync(statuslineChainPath(), { force: true });
+  }
+  return original ? "put your own status line back" : "removed the wrapper, you had no status line";
 }

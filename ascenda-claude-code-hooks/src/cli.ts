@@ -45,6 +45,7 @@ import type { CollectorState, DisclosureFamily, LiveBusEvent, TerminalStyle, Wor
 import { AscendaClient } from "./ascendaClient.js";
 import { liveEventFor } from "./liveEvent.js";
 import { autoContinueEnabled, resumesAtFor } from "./usageLimitReset.js";
+import { readQuota, resumesAtFromQuota } from "./quotaSnapshot.js";
 import {
   MissingInstallationIdError,
   envOverride,
@@ -341,6 +342,14 @@ async function main(): Promise<void> {
   // pluginBundle.ts in tool-kit.
   if (command === PLUGIN_SYNC_COMMAND) {
     setupExitCode = runPluginSync();
+    return;
+  }
+  // The opt-in status line wrapper (`setup --capture-quota`). It reads the
+  // status line input from stdin itself, so it sits with the commands that
+  // don't take a hook payload.
+  if (command === "statusline") {
+    const { runStatusline } = await import("./statusline.js");
+    setupExitCode = await runStatusline();
     return;
   }
   if (MANAGEMENT_COMMANDS.has(command)) {
@@ -688,12 +697,18 @@ async function emitLive(hookName: ClaudeHookEventName, input: ClaudeHookInput): 
  * The `resumesAt` for a rate-limited StopFailure, or undefined. Only when
  * `autoContinueAtUsageLimit` is on, because otherwise nothing happens at the
  * reset and there's nothing to wait for; and only for a reset within six
- * hours, which leaves weekly limits out.
+ * hours, which leaves weekly limits out. The time comes from the stored
+ * status line quota when a window there is exhausted (quotaSnapshot.ts),
+ * and from the message text otherwise.
  */
 function usageLimitResumesAt(input: ClaudeHookInput): number | undefined {
   const projectDir = process.env.CLAUDE_PROJECT_DIR ?? getString(input, ["cwd"]);
   if (!autoContinueEnabled({ projectDir })) return undefined;
   const now = new Date();
+  // The reset Claude Code reported as a number, when the status line wrapper
+  // is installed, beats reading it out of a sentence.
+  const reported = resumesAtFromQuota(readQuota(), now);
+  if (reported !== undefined) return reported;
   // error_details is a string on some builds and { type, message } on others.
   const texts = [
     getString(input, ["error_details"]),

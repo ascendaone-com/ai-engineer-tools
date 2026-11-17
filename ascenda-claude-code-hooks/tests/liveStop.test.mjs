@@ -25,7 +25,7 @@ function runHook(hook, payload, env) {
   });
 }
 
-async function linesFor(runs, settings) {
+async function linesFor(runs, settings, quota) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ascenda-livestop-"));
   const socket = path.join(root, "live.sock");
   const received = [];
@@ -45,6 +45,10 @@ async function linesFor(runs, settings) {
   if (settings) {
     fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
     fs.writeFileSync(path.join(root, ".claude", "settings.json"), JSON.stringify(settings));
+  }
+  if (quota) {
+    fs.mkdirSync(path.join(root, ".ascenda"), { recursive: true });
+    fs.writeFileSync(path.join(root, ".ascenda", "claude-quota.json"), JSON.stringify(quota));
   }
   for (const [hook, payload] of runs) assert.equal(await runHook(hook, payload, env), 0);
   await new Promise((resolve) => listener.close(resolve));
@@ -172,4 +176,23 @@ test("without auto-continue a usage limit has no reset to wait for", async () =>
   ]);
   assert.deepEqual(off, [{ tool: "claude_code", session: "s1", event: "halted", errorKind: "rate_limit" }]);
   assert.deepEqual(unset, [{ tool: "claude_code", session: "s2", event: "halted", errorKind: "rate_limit" }]);
+});
+
+test("the stored status line quota names the reset, ahead of the sentence", async () => {
+  const { text } = resetInTwoHours();
+  const resetsAt = Math.floor(Date.now() / 1000) + 90 * 60;
+  const quota = { capturedAt: Math.floor(Date.now() / 1000), fiveHour: { usedPercentage: 100, resetsAt } };
+  const rateLimited = { session_id: "s1", hook_event_name: "StopFailure", error: "rate_limit", last_assistant_message: text };
+
+  const [signal] = await linesFor([["StopFailure", rateLimited]], { autoContinueAtUsageLimit: true }, quota);
+  assert.equal(signal.resumesAt, resetsAt);
+
+  // Still gated on auto-continue: with it off nothing is waited for.
+  const [off] = await linesFor([["StopFailure", rateLimited]], undefined, quota);
+  assert.equal(off.resumesAt, undefined);
+
+  // A window short of 100% falls back to the sentence.
+  const short = { ...quota, fiveHour: { usedPercentage: 90, resetsAt } };
+  const [fallback] = await linesFor([["StopFailure", rateLimited]], { autoContinueAtUsageLimit: true }, short);
+  assert.equal(fallback.resumesAt, resetInTwoHours().expected);
 });
