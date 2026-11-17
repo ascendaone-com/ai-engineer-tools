@@ -8,6 +8,7 @@
 import { readdirSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { extraClaudeProfileDirs } from "@ascenda-one/tool-kit";
 
 export interface StorePaths {
   home: string;
@@ -105,6 +106,17 @@ export function claudeConfigDirsOf(
   }
   if (out.length === 0) {
     out.push({ configDir: path.join(home, ".claude"), projectsDir: path.join(home, ".claude", "projects") });
+  }
+  // Profile folders beside the default one, `~/.claude-work` and the like,
+  // which people point CLAUDE_CONFIG_DIR at from a shell alias. A process
+  // started without the variable would never see them. Only a folder that
+  // already holds a `projects` dir counts, so `~/.claude-backup` copies of
+  // settings alone don't.
+  for (const configDir of extraClaudeProfileDirs(home)) {
+    const dirs = { configDir, projectsDir: path.join(configDir, "projects") };
+    if (seen.has(dirs.projectsDir)) continue;
+    seen.add(dirs.projectsDir);
+    out.push(dirs);
   }
   return out;
 }

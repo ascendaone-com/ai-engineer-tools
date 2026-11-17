@@ -170,6 +170,12 @@ export const METRIC_KEYS = {
     backendAliases: ["gitAction", "git_action"],
     note: "The live hooks set it on a shell event; the git extractor sets it to commit on each commit event it emits."
   },
+  accountKey: {
+    family: "session",
+    readBy: ["backend"],
+    backendAliases: ["accountKey", "account_key"],
+    note: "Machine-salted digest of the Claude config folder plus the plan tier, from deriveAccountKey. Same value the live hooks send, so two profiles on one machine stay apart. Never a token, email or account id. Absent when no salt is readable."
+  },
   repoKey: {
     family: "repo",
     readBy: ["backend"],

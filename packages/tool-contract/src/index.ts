@@ -799,6 +799,7 @@ export const EVENT_METADATA_DISCLOSURE: Readonly<Record<string, Disclosure>> = {
   gitAction: "git",
   milestoneKind: "git",
   branchHash: "repo",
+  accountKey: "session",
   repoKey: "forge",
   headRepoKey: "forge",
   prCreatedAt: "git",
@@ -914,6 +915,13 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * re-keyed, so the older digest is registered as a local alias instead.
    */
   branchHash?: string;
+  /**
+   * Which Claude config folder and plan tier the session ran under: a
+   * machine-salted digest, so two accounts on one machine stay apart. Never a
+   * token, email or account id. Present on Claude Code events and imported
+   * sessions; absent when no salt is readable.
+   */
+  accountKey?: string;
 
   /**
    * The repository this work was in, as the code-forge collector names it: the
@@ -1292,6 +1300,7 @@ export const EVENT_METADATA_FIELDS = [
   "gitAction",
   "milestoneKind",
   "branchHash",
+  "accountKey",
   "repoKey",
   "headRepoKey",
   "prCreatedAt",

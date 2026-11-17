@@ -48,7 +48,7 @@ test("neither event carries the command, the suggestions or the classifier's rea
   for (const [hook, input] of [["PermissionRequest", REQUEST], ["PermissionDenied", DENIED]]) {
     const [event] = mapClaudeEvent(hook, input);
     assert.ok(!JSON.stringify(event).includes("AcmeCorp"), `${hook} leaked content: ${JSON.stringify(event)}`);
-    const contributed = Object.keys(event.metadata).filter((k) => !["host", "runtime", "branchHash", "repoKey", "branchKey", "promptId", "subagentId"].includes(k));
+    const contributed = Object.keys(event.metadata).filter((k) => !["host", "runtime", "branchHash", "accountKey", "repoKey", "branchKey", "promptId", "subagentId"].includes(k));
     assert.deepEqual(contributed.sort(), ["autonomyMode", "toolName"], hook);
   }
 });

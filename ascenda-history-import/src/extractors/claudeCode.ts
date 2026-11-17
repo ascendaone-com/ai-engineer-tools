@@ -128,6 +128,7 @@ import {
   type ParentRecord,
   type SidechainTally
 } from "../subagentReceipts.js";
+import { readAccountKeys } from "../accountKeys.js";
 import { sliceSessionByLocalDay } from "../daySlice.js";
 import { effortChangesOf, foldEffort, newEffortTrack, primaryEffortOf, type EffortTrack } from "../effortFold.js";
 import { modelTurnsMetrics } from "../modelTurns.js";
@@ -1509,6 +1510,7 @@ export async function* extractClaudeCode(
     { projectsDir: path.join(snapshotDir, "projects"), clientName: null },
     { projectsDir: path.join(snapshotDir, COWORK_SNAPSHOT_DIR), clientName: COWORK_CLIENT_NAME }
   ];
+  const accountKeys = await readAccountKeys(snapshotDir);
   const projectRoots: { projectsDir: string; clientName: string | null; slugs: string[] }[] = [];
   for (const root of roots) {
     try {
@@ -1837,6 +1839,8 @@ export async function* extractClaudeCode(
       const effortChanges = effortChangesOf(fold.effort);
       if (fold.gitBranch) sessionMetrics.gitBranch = fold.gitBranch;
       if (clientName) sessionMetrics.clientName = clientName;
+      const accountKey = fold.sessionId ? accountKeys[fold.sessionId] : undefined;
+      if (accountKey) sessionMetrics.accountKey = accountKey;
       yield {
         occurredAt: fold.lastTs,
         store: "claude_code",

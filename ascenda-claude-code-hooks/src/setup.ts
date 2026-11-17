@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, createPairingAttempt, pairingAttemptLines, pairingJoinOutcome, settleStudyJoin, writePairingJoinOutcome, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, COLLECTOR_VERSION, describeCollectorVersion, describeReleaseCheck, installedBundleVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import { ascendaHome, extraClaudeProfileDirs, createPairingAttempt, pairingAttemptLines, pairingJoinOutcome, settleStudyJoin, writePairingJoinOutcome, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, COLLECTOR_VERSION, describeCollectorVersion, describeReleaseCheck, installedBundleVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
 import type { DisclosureFamily, PairingAttempt, Tone } from "@ascenda-one/tool-kit";
 import type { PairingStatusResponse } from "@ascenda-one/tool-contract";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
@@ -235,6 +235,21 @@ export async function runSetup(argv: string[]): Promise<number> {
   }
   const changes = describeHookSetChanges(hookSetChanges(before, HOOK_EVENTS), HOOK_SET);
   if (changes) detail("", changes);
+  // Other Claude profile folders (`~/.claude-work` and the like) are read by
+  // a Claude Code started with CLAUDE_CONFIG_DIR pointing at them, which this
+  // run's environment may not say. User scope covers each one it can find.
+  if (options.scope === "user") {
+    for (const profileDir of extraClaudeProfileDirs()) {
+      const profileSettings = path.join(profileDir, "settings.json");
+      if (path.resolve(profileSettings) === path.resolve(settingsFile)) continue;
+      const profileWritten = writeSettings(profileSettings, binary, options.dryRun);
+      if (profileWritten === null) {
+        row("warn", "hooks", `${tidyHome(profileSettings)} could not be updated`);
+        continue;
+      }
+      row("ok", "hooks", `${tidyHome(profileSettings)} ${ui.dim(`(extra profile${profileWritten ? "" : ", already current"})`)}`);
+    }
+  }
   // Both scopes fire. An install in the other one means every event runs
   // twice and every count doubles, and an older install there may name a
   // binary this run just replaced. Our entries are told apart from anyone
@@ -958,6 +973,13 @@ function uninstall(options: Options): number {
     if (unwrapStatusLine(settingsFile, false) === null) console.error(`could not restore your status line in ${settingsFile}`);
   }
   for (const file of [quotaSnapshotPath(), statuslineChainPath()]) fs.rmSync(file, { force: true });
+  if (options.scope === "user") {
+    for (const profileDir of extraClaudeProfileDirs()) {
+      const profileSettings = path.join(profileDir, "settings.json");
+      if (path.resolve(profileSettings) === path.resolve(settingsFile) || !fs.existsSync(profileSettings)) continue;
+      if (removeOurHooks(profileSettings)) console.log(`hooks removed from ${profileSettings}`);
+    }
+  }
 
   for (const file of [hookBinPath(), hookBundlePath(), hookNodeRecordPath(), hookNoNodePath(), `${hookBinPath()}.version`]) {
     if (!fs.existsSync(file)) continue;

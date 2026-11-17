@@ -52,6 +52,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { resolveStorePaths } from "./stores.js";
+import { accountKeysFor, writeAccountKeys } from "./accountKeys.js";
 import { scanAll, scanClaudeCode, scanCodex, scanCopilotCli, scanCursor, scanVsCode } from "./scan.js";
 import { applyClaudeRetentionFix, planClaudeRetentionFix } from "./retention.js";
 import {
@@ -670,6 +671,10 @@ async function main(): Promise<number> {
               path.join("claude_code", cowork ? COWORK_SNAPSHOT_DIR : "projects")
             );
           }
+          await writeAccountKeys(
+            snapshotRoot,
+            accountKeysFor(paths.claudeConfigDirs.map((configDir, i) => ({ configDir, projectsDir: paths.claudeProjectsDirs[i] })), paths.home)
+          );
           for await (const event of extractClaudeCode(snapshotRoot, area.extractionId)) collect(event);
         }, (events) => buildHandoff(events, area.extractionId, new Date().toISOString()), claudeScan.scanError, crossStore);
 
