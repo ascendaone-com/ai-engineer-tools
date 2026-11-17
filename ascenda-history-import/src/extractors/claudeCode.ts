@@ -476,6 +476,13 @@ interface SessionFold {
    * the same basis as `toolCallCount`. */
   mainThreadToolFailureCount: number;
   apiErrorCount: number;
+  /** Assistant lines the runtime flagged `isApiErrorMessage`: the error text
+   * shown in place of a reply. Kept apart from `apiErrorCount`, which reads
+   * the `api_error` system lines. */
+  apiErrorMessageCount: number;
+  /** User lines flagged `isCompactSummary`: the summary a compaction leaves
+   * as the next turn's opening. Cross-checks `compactionCount`. */
+  compactSummaryCount: number;
   contextWindowPeakTokens: number;
   userModifiedEditCount: number;
   /** What the main thread did that a subagent receipt compares against, and
@@ -594,6 +601,8 @@ function newFold(sessionId: string, projectSlug: string): SessionFold {
     toolResultErrorCount: 0,
     mainThreadToolFailureCount: 0,
     apiErrorCount: 0,
+    apiErrorMessageCount: 0,
+    compactSummaryCount: 0,
     contextWindowPeakTokens: 0,
     userModifiedEditCount: 0,
     parentRecord: newParentRecord(),
@@ -1062,11 +1071,15 @@ async function foldLinesInto(
             if (tally) tally.toolFailures += 1;
             if (!opts.isSidechain) fold.mainThreadToolFailureCount += failedToolResultCountOf(record);
           }
+          if (owned && record.isCompactSummary === true) fold.compactSummaryCount += 1;
           if (isToolResultUserLine(record)) {
             // A tool round-trip completing is the agent's work landing.
             agentOutputHere = true;
             if (!owned) break;
             fold.toolResults += 1;
+            if (tally) {
+              for (const r of receiptToolResultsOf(record)) if (r.agentId) tally.spawnedAgentIds.add(r.agentId);
+            }
             if (!opts.isSidechain) {
               const at = lineMs(sniffed.occurredAt);
               for (const r of receiptToolResultsOf(record)) {
@@ -1164,6 +1177,7 @@ async function foldLinesInto(
             if (copiedModel) fold.lastMainModel = copiedModel;
             break;
           }
+          if (record.isApiErrorMessage === true) fold.apiErrorMessageCount += 1;
           const message = record.message as Record<string, unknown> | undefined;
           const usage = message?.usage as Record<string, unknown> | undefined;
           // Counted once per API message, not once per line: see
@@ -1783,7 +1797,15 @@ export async function* extractClaudeCode(
       if (fold.repeatedLines > 0) sessionMetrics.repeatedLines = fold.repeatedLines;
       // Counts only, each family behind its own seen flag. See costEvidence.ts.
       Object.assign(sessionMetrics, costEvidenceMetrics(fold.costEvidence));
-      const subagentReceipts = fold.sidechainTallies.filter((t) => t.ownedLines > 0).map((t) => buildReceipt(t, fold.parentRecord));
+      const spawnedBySubagents = new Set<string>();
+      for (const t of fold.sidechainTallies) for (const id of t.spawnedAgentIds) spawnedBySubagents.add(id);
+      const subagentReceipts = fold.sidechainTallies
+        .filter((t) => t.ownedLines > 0)
+        .map((t) => buildReceipt(t, fold.parentRecord, spawnedBySubagents));
+      if (fold.apiErrorMessageCount > 0) sessionMetrics.apiErrorMessageCount = fold.apiErrorMessageCount;
+      if (fold.compactSummaryCount > 0) sessionMetrics.compactSummaryCount = fold.compactSummaryCount;
+      const nestedSubagents = subagentReceipts.filter((r) => r.nested).length;
+      if (nestedSubagents > 0) sessionMetrics.nestedSubagentCount = nestedSubagents;
       sessionMetrics.premiumSubagents = subagentReceipts.filter((r) => isPremiumModelClass(r.modelClass ?? undefined)).length;
       if (fold.advisorMessageCount > 0) {
         sessionMetrics.advisorMessageCount = fold.advisorMessageCount;
