@@ -13,8 +13,21 @@ targets, error counts or internal resource names — this repository is public.
 ## v0.1.44
 
 Plugin 0.3.3: work signals read a second line on the day's intention, and
-the faster plugin hooks from v0.1.43 reach plugin users. The CLIs and the
-extension are unchanged.
+the faster plugin hooks from v0.1.43 reach plugin users. The Claude Code hooks
+CLI gains an opt-in quota capture. The other CLIs and the extension are
+unchanged.
+
+### Usage-limit holds can use the real reset time
+
+`setup --capture-quota` is a new opt-in. It wraps your status line so Claude
+Code's 5-hour and 7-day usage numbers are kept on your machine, and the
+status line itself looks the same. `--dry-run` shows the change, the first
+backup of your settings file is kept, and `--no-capture-quota` puts your own
+line back.
+
+When a limit halts a session and a stored window is at 100%, the hold's
+`resumesAt` is that window's reset. Without it the hold is read from the
+message text as before. The numbers stay in `~/.ascenda/claude-quota.json`.
 
 ### Codex questions and approvals aren't work
 

@@ -95,7 +95,9 @@ the events above. Three hook moments end a turn there:
   is no more than six hours away. The time is read from the reset clause of
   `error_details` or `last_assistant_message` ("resets 4:30pm
   (Asia/Nicosia)"), in memory. Only the number goes on the bus. A sentence
-  the parser can't read sends nothing.
+  the parser can't read sends nothing. With `setup --capture-quota` the
+  reset comes from the status line's `rate_limits` instead, when a window
+  there reads 100%: see "Quota capture" below.
 - The idle-prompt `Notification` ("waiting for your input") also sends
   `halted`, with no `errorKind`. Pressing Esc runs no hook, so an interrupted
   turn never sends `stop`, and the idle prompt is the first thing that fires
@@ -469,3 +471,33 @@ Renewed tokens are persisted under `~/.ascenda/tokens/<toolInstallationId>` (or 
 ## Privacy
 
 Metadata-only. Raw prompts are used locally for correction inference only; outbound events carry `reason` and `trigger`, not prompt text.
+
+## Quota capture (opt-in)
+
+Claude Code passes a status line command a JSON document on stdin. For
+claude.ai Pro, Max and Ultra accounts it carries `rate_limits`, with a
+`five_hour` and a `seven_day` window, each holding `used_percentage` (0 to
+100) and `resets_at` (Unix epoch seconds). Either window can be absent, and
+the object is absent until the session's first API response.
+
+`setup --capture-quota` points `statusLine.command` at
+`ascenda-claude-hook statusline`. That command:
+
+1. reads the input and stores the four numbers and the capture time in
+   `~/.ascenda/claude-quota.json` (mode 0600, on this machine only);
+2. runs the status line you had before, with the same input, and prints its
+   output unchanged. With no previous status line it prints nothing.
+
+Your previous setting is saved to `~/.ascenda/claude-statusline-chain.json`,
+and the settings file's first-ever backup sits beside it as
+`settings.json.ascenda-backup`. `--dry-run` prints what would change and
+writes nothing. `setup --no-capture-quota`, and `uninstall`, put your own
+status line back. It's user scope only: a project's `statusLine` setting
+overrides the user's, so a project-scope wrapper would need its own chain.
+
+When a usage limit halts a session, the `resumesAt` rule above is unchanged
+except for where the time comes from. If a stored window reads 100% and
+hasn't reset, its `resets_at` is the answer (the latest one when both are
+out), and the six-hour ceiling still applies, so an exhausted weekly window
+sends nothing. Otherwise the sentence is parsed as before. Nothing is read
+from Claude Code's credentials and no usage endpoint is called.
