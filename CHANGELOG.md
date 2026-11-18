@@ -10,12 +10,12 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
-## v0.1.44
+## v0.1.45
 
-Plugin 0.3.3: work signals read a second line on the day's intention, and
-the faster plugin hooks from v0.1.43 reach plugin users. The Claude Code hooks
-CLI gains an opt-in quota capture. The other CLIs and the extension are
-unchanged.
+The Claude Code hooks CLI works out how long you were kept waiting, tags each
+session with the account it ran under, and gains an opt-in quota capture.
+Codex questions and approvals read as waiting on you, and live signals carry
+when the agent process started. The extension and the plugin are unchanged.
 
 ### Usage-limit holds can use the real reset time
 
@@ -42,25 +42,6 @@ gauges now read it as waiting on you. Away Mode no longer counts it as load.
 - **Imported history.** The minutes between one of those calls and what
   follows it are left out of active time. Re-import to pick up the change.
 
-### An intention can have a second line
-
-The Flow app's morning card can now hold an "And if there's time" line beside
-the main one. Its local `get_plans` tool passes it to the agent as `roomFor`,
-and the work-signals skill reads it.
-
-- **The second line is scope you allowed in advance.** Moving onto it isn't
-  drift, so it never reports `goal_drift_detected`.
-- **Drift means outside both lines.** That's the only time the event fires.
-- **Starting the second line early gets one question at most.** If the agent
-  sees you turn to it before the first looks done, it may ask whether that's
-  deliberate, once a session. The question sends nothing. Saying yes is a
-  declared scope change, same as before.
-- **One line works exactly as it did.** An intention without a second line,
-  or an app version that doesn't send one, gets the same behaviour as today.
-  No work signal carries either line's text, and the agent never learns
-  whether a line landed.
-- Every work signal now carries `skillVersion` `1.1.0`.
-
 ### How long a wait lasted
 
 Claude Code tells the hooks when it stops to ask you something, and never
@@ -78,12 +59,6 @@ when you answer. The hooks now work out the end themselves and send
   fold into the first, and only the first sends `supervision_interruption`.
 - Nothing about the tool, the command or the message leaves your machine. The
   setup disclosure now mentions the duration.
-
-### Faster plugin hooks after `setup`
-
-- **Now in the plugin.** v0.1.43 taught the plugin to run the hooks `setup`
-  installed until its own copy arrives. Plugin 0.3.2 carried that change,
-  and 0.3.3 includes it.
 
 ### Live signals carry when the agent process started
 
@@ -108,6 +83,37 @@ personal one get different keys.
   again.
 - **The key can't be traced back.** The machine salt keeps it from being
   compared across machines or reversed to a path.
+
+## v0.1.44
+
+Plugin 0.3.3: work signals read a second line on the day's intention, and
+the faster plugin hooks from v0.1.43 reach plugin users. The CLIs and the
+extension are unchanged.
+
+### An intention can have a second line
+
+The Flow app's morning card can now hold an "And if there's time" line beside
+the main one. Its local `get_plans` tool passes it to the agent as `roomFor`,
+and the work-signals skill reads it.
+
+- **The second line is scope you allowed in advance.** Moving onto it isn't
+  drift, so it never reports `goal_drift_detected`.
+- **Drift means outside both lines.** That's the only time the event fires.
+- **Starting the second line early gets one question at most.** If the agent
+  sees you turn to it before the first looks done, it may ask whether that's
+  deliberate, once a session. The question sends nothing. Saying yes is a
+  declared scope change, same as before.
+- **One line works exactly as it did.** An intention without a second line,
+  or an app version that doesn't send one, gets the same behaviour as today.
+  No work signal carries either line's text, and the agent never learns
+  whether a line landed.
+- Every work signal now carries `skillVersion` `1.1.0`.
+
+### Faster plugin hooks after `setup`
+
+- **Now in the plugin.** v0.1.43 taught the plugin to run the hooks `setup`
+  installed until its own copy arrives. Plugin 0.3.2 carried that change,
+  and 0.3.3 includes it.
 
 ## v0.1.43
 
