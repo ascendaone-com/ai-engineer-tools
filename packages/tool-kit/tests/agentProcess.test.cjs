@@ -6,7 +6,10 @@ const { AGENT_PROCESS, findAgentPid, findAgentProcess, livePidFields, probeProce
 function table(rows) {
   return {
     lookup: (pid) => (rows[pid] ? { ppid: rows[pid][0], command: rows[pid][1] } : undefined),
-    argsLookup: (pid) => rows[pid]?.[2] ?? rows[pid]?.[1]
+    argsLookup: (pid) => rows[pid]?.[2] ?? rows[pid]?.[1],
+    // The fake pids are real pids on the runner, so the default ps-backed
+    // start lookup would read whatever process holds them.
+    startLookup: () => undefined
   };
 }
 
@@ -233,7 +236,7 @@ test("psLookup reads a real process, path and all", { skip: process.platform !==
 
 test("the match carries the process start time, and the signal fields name it", () => {
   const t = table({ 300: [200, "/bin/sh"], 200: [1, NATIVE_CLAUDE] });
-  const m = findAgentProcess(AGENT_PROCESS.claude_code, { startPid: 300, platform: "darwin", startLookup: () => 1000, ...t });
+  const m = findAgentProcess(AGENT_PROCESS.claude_code, { startPid: 300, platform: "darwin", ...t, startLookup: () => 1000 });
   assert.equal(m.startedAt, 1000);
   assert.deepEqual(livePidFields(m), { pid: 200, pidStartedAt: 1000 });
   const none = findAgentProcess(AGENT_PROCESS.claude_code, { startPid: 300, platform: "darwin", startLookup: () => undefined, ...t });
