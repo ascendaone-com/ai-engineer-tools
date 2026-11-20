@@ -1,3 +1,4 @@
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateCorpus, SHAPE_FLAGS } from "./support/corpus.mjs";

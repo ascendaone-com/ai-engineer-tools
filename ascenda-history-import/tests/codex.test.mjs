@@ -7,6 +7,7 @@
  * follows it (which shares its role with injected environment context) must
  * not be counted a second time.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

@@ -14,6 +14,7 @@
  *   3. the wire, end to end: the built CLI, a real socket, and the failure
  *      posture when nothing is listening.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

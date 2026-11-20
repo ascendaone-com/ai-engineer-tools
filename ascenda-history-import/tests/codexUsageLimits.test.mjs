@@ -3,6 +3,7 @@
  * lines, folded into the session's `usageLimit*` keys and each day slice's
  * own peaks. The account and plan fields on the same object never ship.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

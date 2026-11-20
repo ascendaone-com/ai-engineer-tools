@@ -22,6 +22,7 @@
  *     perturbing its derivation would make a re-run look like a second span of
  *     work and double a person's baseline.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyModelClass } from "@ascenda-one/tool-kit";

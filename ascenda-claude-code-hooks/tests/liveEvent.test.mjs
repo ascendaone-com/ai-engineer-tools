@@ -9,6 +9,7 @@
  * vocabulary against what the app's `LiveSignal.tryParse` accepts; and the
  * built CLI end to end on a real socket.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

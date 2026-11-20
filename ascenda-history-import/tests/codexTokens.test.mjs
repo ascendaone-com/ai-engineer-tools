@@ -8,6 +8,7 @@
  * is read line by line, and one that fails partway leaves its session as it
  * was before the file was opened.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

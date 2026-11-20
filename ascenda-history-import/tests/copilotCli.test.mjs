@@ -17,6 +17,7 @@
  *  - `…0c`: `version: 2`. `…0d`: no `session.start`. Neither is read.
  *  - `…0e`: the same log as a directory and as a flat file. Read once.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

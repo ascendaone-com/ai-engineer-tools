@@ -3,6 +3,7 @@
  * model picker, or `Unknown`. Checked against the hooks reference, not a
  * captured payload.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mapWindsurfEvent, readWindsurfModel, sentModelId } from "../dist/mapWindsurfEvent.js";

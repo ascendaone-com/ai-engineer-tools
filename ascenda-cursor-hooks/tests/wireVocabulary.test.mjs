@@ -14,6 +14,7 @@
  * offset and the idempotency key on the wire. A fifth adapter copies this
  * file and its fixtures; the assertions do not change.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
