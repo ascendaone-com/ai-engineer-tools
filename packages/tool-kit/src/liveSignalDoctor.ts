@@ -71,7 +71,7 @@ export async function liveSignalDoctorLines(options: LiveSignalDoctorOptions): P
 
   if (options.launcher && process.platform !== "win32") {
     const node = resolveHookNode(options.launcher);
-    if (node.problem) row("bad", "Node", `${node.problem}. Install Node 20 or newer, then run setup again`);
+    if (node.problem) row("bad", "Node", `${node.problem}. ${node.remedy}`);
     else row("ok", "Node", `${node.node} ${ui.dim(`(${node.version}, ${node.how === "recorded" ? "recorded at setup" : "found by the launcher"})`)}`);
   }
 

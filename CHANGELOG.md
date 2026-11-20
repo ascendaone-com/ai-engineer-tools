@@ -10,6 +10,25 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.46
+
+The hook CLIs notice a hook bundle that's gone missing. The extension and the
+plugin are unchanged.
+
+### A missing hook bundle is reported once
+
+Each agent's hooks run a small launcher in `~/.ascenda/bin`, which starts the
+bundle beside it. If the bundle is deleted and the launcher stays, the hooks
+now stay quiet, and Claude Code shows one line at session start naming the
+file and the command that restores it. Before, Node printed a stack trace on
+every tool call.
+
+- **`status` and `doctor` check the bundle.** Both name the missing file and
+  exit non-zero. `status` used to pass on the launcher alone.
+- **The fix is `setup`.** Run it again.
+- An existing install picks this up the next time `setup` runs, which is when
+  the launcher is rewritten.
+
 ## v0.1.45
 
 The Claude Code hooks CLI works out how long you were kept waiting, tags each

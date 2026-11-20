@@ -286,7 +286,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
 
   const binary = installBinary(spec, options.dryRun);
   const node = options.dryRun || process.platform === "win32" ? undefined : resolveHookNode(binary);
-  if (node?.problem) row("bad", "hook binary", `${tidyHomePath(binary, os.homedir())}, but ${node.problem}. Install Node 20 or newer, then run setup again`);
+  if (node?.problem) row("bad", "hook binary", `${tidyHomePath(binary, os.homedir())}, but ${node.problem}. ${node.remedy}`);
   else row("ok", "hook binary", `${tidyHomePath(binary, os.homedir())}${node?.version ? ui.dim(` (Node ${node.version})`) : ""}`);
 
   if (!options.dryRun) {
@@ -943,7 +943,7 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
   const node = process.platform === "win32" ? undefined : resolveHookNode(binary);
   if (node) {
     console.log(node.problem
-      ? `node           — ${node.problem}. Install Node 20 or newer, then run setup again`
+      ? `node           — ${node.problem}. ${node.remedy}`
       : `node           ${node.node} (${node.version}, ${node.how === "recorded" ? "recorded at setup" : "found by the launcher"})`);
   }
   const last = readLastHook(spec.host);
