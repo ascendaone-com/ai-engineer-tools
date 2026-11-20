@@ -17,6 +17,7 @@
  * real sessions the prompts-only reading came to 2,730 minutes against 18,938
  * — an 85.6% under-report.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

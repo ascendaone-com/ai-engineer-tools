@@ -11,6 +11,7 @@
  * `fixtures/claude-session-interrupts.jsonl` holds six typed prompts, six
  * interrupt markers, one slash command's output and one tool result.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

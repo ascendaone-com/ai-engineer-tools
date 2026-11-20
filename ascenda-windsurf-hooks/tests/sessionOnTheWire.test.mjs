@@ -1,3 +1,4 @@
+import "./isolateHome.cjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sessionOnTheWire } from "../../scripts/test-support/hookSessionWire.mjs";

@@ -4,6 +4,7 @@
  * entry may name the config dir or its `projects/` dir. Unset or empty, the
  * defaults under the home dir apply.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

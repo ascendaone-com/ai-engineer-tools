@@ -7,6 +7,7 @@
  * payload obeys it. These tests hold `ship.ts` to the declaration, for every
  * `local` key there is and any added later.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { METRIC_KEYS, localMetricKeys } from "@ascenda-one/tool-contract";

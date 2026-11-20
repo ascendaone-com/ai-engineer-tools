@@ -15,6 +15,7 @@
  * point of the warning is that the window is short by an unknown amount, and
  * a silent zero says the opposite.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

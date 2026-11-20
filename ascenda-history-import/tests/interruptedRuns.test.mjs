@@ -22,6 +22,7 @@
  * `fixtures/handoff-before-interrupted-runs.json` is a handoff written by this
  * package before the count existed, for a small session with no marker in it.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

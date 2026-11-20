@@ -14,6 +14,7 @@
  * unit test over the pool would pass just as happily with the file written
  * beside the handoffs where every older build would read it as a store.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
