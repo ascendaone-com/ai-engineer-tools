@@ -90,33 +90,86 @@ sniffer has to handle each.
 `cursor.ts` already shells to `sqlite3` with `json_extract` so blob content
 never enters the process. Both apply here as they stand.
 
-The tables that matter:
+### Two table generations in one file
 
-- **`session`**, one row per session, and the richest header this repo has
-  read. `version` is a real column, which hands design rule 3 its dispatch
-  key for free. Alongside it: `tokens_input`, `tokens_output`,
+OpenCode 2 renamed and split the session tables. A reader that only knows
+`session`, `message` and `part` finds a 2.x database, opens it cleanly, and
+imports nothing written since the upgrade. Checked against OpenCode's
+published source at v2.3.0 on 17 Nov 2026 (`packages/core/src/session/sql.ts`
+and `packages/core/src/database/migration/`):
+
+| | 1.x | 2.x |
+| --- | --- | --- |
+| Session header | `session` | `session_v2` |
+| Messages | `message` | `session_message`, with `type` and `seq` as real columns |
+| Parts | `part` | `session_part`, keyed by `message_id` + `ordinal`, with `type` and `call_id` as real columns |
+| Queued user input | none | `session_inbox` |
+
+Migration `20260804233008` does the rename. A database already on the 2.x
+lineage has `session` renamed in place. Any other database gets `session_v2`
+created beside whatever was there, so the old tables can stay behind with
+the pre-upgrade history in them. `session_part` arrived later, in migration
+`20261029002625`, so a 2.x store from before that date has `session_message`
+and no part table.
+
+That gives three shapes to dispatch on, and the session `version` column
+can't tell them apart. Use the tables that exist:
+
+1. Read `sqlite_master` for `session_v2`, `session_message`, `session_part`,
+   `session`, `message`, `part`.
+2. Record the newest `id` in the `migration` table as the schema revision.
+   Several earlier migrations cleared `session_message` outright, so a
+   fixture is only good for the revision it was taken at.
+3. When both generations hold rows, read both and dedupe on session `id`,
+   2.x winning. Whether one session can appear in both is a question for
+   the real store in step 1.
+4. An unknown combination ships nothing and reports the table list as
+   drift.
+
+### The tables that matter
+
+- **`session_v2`** (`session` on 1.x), one row per session, and the richest
+  header this repo has read: `tokens_input`, `tokens_output`,
   `tokens_reasoning`, `tokens_cache_read`, `tokens_cache_write`, `cost`,
   `summary_additions`, `summary_deletions`, `summary_files`, `agent`,
-  `model`, `directory`, `time_created`, `time_updated`, `time_compacting`.
-  A `parent_id` links a child session to its parent, the same subagent
-  problem Cursor's `subagentInfo` posed and the same fix.
-- **`part`** holds one row per message part, tool calls included, with the
-  payload in a `data` JSON column. Select scalars out of it with
-  `json_extract`; never read the column whole. Tool calls ship per row,
-  because the backend derives `toolCallCount` by counting
-  `ai_tool_call_started` and reads no aggregate.
-- **`message`** gives one row per message, `data` JSON. It attributes a part
-  to a role, and little else we need.
+  `directory`, `time_created`, `time_updated`, `time_compacting`. On 2.x,
+  `model` is a JSON object (`id`, `providerID`, optional `variant`), so
+  select its fields with `json_extract`. 2.x also adds `time_busy`,
+  `time_idle` and `time_archived`. Check on the real store whether
+  `time_busy` is a duration or a timestamp before leaning on it for active
+  time.
+- **Subagents and forks are separate columns.** `parent_id` links a child
+  session to its parent, the same subagent problem Cursor's `subagentInfo`
+  posed and the same fix. `fork_session_id` and `fork_boundary` mark a
+  session forked from another. Check on the real store whether a fork
+  copies its parent's messages. If it does, count only what follows the
+  boundary, as the Claude Code extractor does for resumed copies.
+- **`session_part`** (`part` on 1.x) holds one row per message part, tool
+  calls included, with the payload in a `data` JSON column. Select scalars
+  out of it with `json_extract`; never read the column whole. On 2.x the
+  part `type` and the tool `call_id` are columns, so counting tool calls
+  needs no JSON at all. Tool calls ship per row, because the backend
+  derives `toolCallCount` by counting `ai_tool_call_started` and reads no
+  aggregate.
+- **`session_message`** (`message` on 1.x) gives one row per message, `data`
+  JSON. On 2.x `type` is a column and `seq` orders messages within a
+  session, unique per session, so order by it.
+- **`session_inbox`** holds user input queued for delivery. Count prompts
+  from `session_message` only, and confirm on the real store that a
+  delivered prompt leaves the inbox, so none is counted twice.
 - **`event`** is OpenCode's own log, typed and sequenced. Read it on a real
   store before writing anything. If it records what the messages imply,
   reconstructing from parts is work we can skip.
 
 ## Order of work
 
-1. Install OpenCode, run a real session, snapshot the database.
+1. Install OpenCode 2, run a real session, fork one, snapshot the database.
+   Do the same on a 1.x install, then upgrade it and snapshot again: that
+   third snapshot is the one that shows what the migration leaves behind.
 2. The second setup variant in `tool-kit`, with its own tests.
 3. The plugin package, its mapping doc, and fixtures per event.
-4. The extractor, with fixtures per known session `version`.
+4. The extractor, with a fixture per table generation, each labelled with
+   the migration id it was taken at.
 
 Steps 2 and 3 are the ones Pi reuses. The README coverage tables stay as they
 are until each piece runs.
