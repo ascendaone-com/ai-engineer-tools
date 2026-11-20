@@ -138,6 +138,25 @@ export function hookLauncherScript(options: HookLauncherOptions): string {
     "  exit 0",
     "fi",
     "",
+    "# A launcher with no bundle beside it has nothing to run. Handled like no",
+    "# Node, or Node prints a stack trace on every tool call.",
+    "if [ -n \"$node\" ] && [ ! -f \"$bundle\" ]; then",
+    "  case \"$1\" in",
+    ...(loudEvent ? [
+      `    ${loudEvent})`,
+      "      cat >/dev/null 2>&1",
+      `      echo "Ascenda hooks are missing $bundle, so none of them are running. Run: ${setupCommand}" >&2`,
+      "      exit 1 ;;"
+    ] : []),
+    `    ${LAUNCHER_MANAGEMENT_COMMANDS.join("|")})`,
+    `      echo "${binaryName}: $bundle is missing. Run: ${setupCommand}" >&2`,
+    "      exit 1 ;;",
+    "    *)",
+    "      cat >/dev/null 2>&1",
+    "      exit 0 ;;",
+    "  esac",
+    "fi",
+    "",
     "if [ -z \"$node\" ]; then",
     "  date -u +%Y-%m-%dT%H:%M:%SZ > \"$missing\" 2>/dev/null",
     "  case \"$1\" in",
@@ -337,9 +356,14 @@ export interface NodeResolution {
   /** How it was found: `recorded` or `found` (searched and recorded). */
   how?: string;
   version?: string;
-  /** Set when nothing usable was found, or the launcher itself is missing. */
+  /** Set when nothing usable was found, or the launcher or its bundle is missing. */
   problem?: string;
+  /** What fixes `problem`, as a sentence. Set whenever `problem` is. */
+  remedy?: string;
 }
+
+const NEEDS_NODE = "Install Node 20 or newer, then run setup again";
+const NEEDS_SETUP = "Run setup again";
 
 /**
  * Asks the installed launcher which Node it would run, with the environment
@@ -348,7 +372,7 @@ export interface NodeResolution {
  * nvm finds Node, an agent started from the Dock or an IDE may not.
  */
 export function resolveHookNode(launcher: string): NodeResolution {
-  if (!fs.existsSync(launcher)) return { problem: "the hook launcher is not installed" };
+  if (!fs.existsSync(launcher)) return { problem: "the hook launcher is not installed", remedy: NEEDS_SETUP };
   const probe = spawnSync("/bin/sh", [launcher], {
     encoding: "utf8",
     timeout: 5000,
@@ -356,10 +380,14 @@ export function resolveHookNode(launcher: string): NodeResolution {
   });
   const [node, how] = (probe.stdout ?? "").trim().split("\t");
   if (probe.status !== 0 || !node) {
-    return { problem: (probe.stderr ?? "").trim() || "the launcher found no Node it can run" };
+    return { problem: (probe.stderr ?? "").trim() || "the launcher found no Node it can run", remedy: NEEDS_NODE };
   }
   const version = spawnSync(node, ["--version"], { encoding: "utf8", timeout: 5000 });
-  if (version.status !== 0) return { node, how, problem: `${node} did not run` };
+  if (version.status !== 0) return { node, how, problem: `${node} did not run`, remedy: NEEDS_NODE };
+  // The launcher is only half of it: with the bundle gone every hook fails
+  // while the launcher, the Node and the registrations all check out.
+  const bundle = `${launcher}.mjs`;
+  if (!fs.existsSync(bundle)) return { node, how, version: version.stdout.trim(), problem: `the hook bundle ${tidyHomePath(bundle)} is missing`, remedy: NEEDS_SETUP };
   return { node, how, version: version.stdout.trim() };
 }
 

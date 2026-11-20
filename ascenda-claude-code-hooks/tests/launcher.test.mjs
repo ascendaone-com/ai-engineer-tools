@@ -117,6 +117,37 @@ test("with no Node anywhere, SessionStart says so and other hooks stay quiet", {
   }
 });
 
+test("with the bundle gone, SessionStart says so, other hooks stay quiet, and status fails", { skip: process.platform === "win32" }, () => {
+  const m = installed();
+  try {
+    fs.rmSync(m.bundle);
+    const start = launch(m, ["SessionStart"], { input: "{}" });
+    assert.equal(start.status, 1);
+    assert.equal(start.stderr.trim(), `Ascenda hooks are missing ${m.bundle}, so none of them are running. Run: npx @ascenda-one/claude-code-hooks setup`);
+
+    const tool = launch(m, ["PreToolUse", "--hook-set", "4"], { input: "{}" });
+    assert.equal(tool.status, 0, "one notice per session, not a stack trace per tool call");
+    assert.equal(tool.stderr, "");
+
+    const doctor = launch(m, ["doctor"]);
+    assert.equal(doctor.status, 1);
+    assert.equal(doctor.stderr.trim(), `ascenda-claude-hook: ${m.bundle} is missing. Run: npx @ascenda-one/claude-code-hooks setup`);
+
+    // Run from the package, the way someone checking a broken install would.
+    const status = spawnSync("node", [CLI, "status"], { encoding: "utf8", cwd: m.root, env: { ...process.env, ...m.env } });
+    assert.equal(status.status, 1, "the launcher alone is not a working install");
+    assert.match(status.stdout, /^node {11}— the hook bundle ~\/\.ascenda\/bin\/ascenda-claude-hook\.mjs is missing\. Run setup again$/m);
+
+    // Setup puts it back.
+    const setup = spawnSync("node", [CLI, "setup", "--no-pair"], { encoding: "utf8", cwd: m.root, env: { ...process.env, ...m.env } });
+    assert.equal(setup.status, 0, setup.stderr);
+    assert.ok(fs.existsSync(m.bundle));
+    assert.equal(launch(m, ["PreToolUse"], { input: "{}" }).stderr, "");
+  } finally {
+    m.cleanup();
+  }
+});
+
 test("status names the Node the hooks will run and the last hook Claude Code ran", { skip: process.platform === "win32" }, () => {
   const m = installed();
   try {

@@ -195,7 +195,7 @@ export async function runSetup(argv: string[]): Promise<number> {
 
   const binary = installBinary(options.dryRun);
   const node = options.dryRun || process.platform === "win32" ? undefined : resolveHookNode();
-  if (node?.problem) row("bad", "hook binary", `${tidyHome(binary)}, but ${node.problem}. Install Node 20 or newer, then run setup again`);
+  if (node?.problem) row("bad", "hook binary", `${tidyHome(binary)}, but ${node.problem}. ${node.remedy}`);
   else row("ok", "hook binary", `${tidyHome(binary)}${node?.version ? ui.dim(` (Node ${node.version})`) : ""}`);
 
   if (!options.dryRun) {
@@ -890,7 +890,7 @@ async function printStatus(options: Options): Promise<number> {
   const node = process.platform === "win32" ? undefined : resolveHookNode();
   if (node) {
     console.log(node.problem
-      ? `node           — ${node.problem}. Install Node 20 or newer, then run setup again`
+      ? `node           — ${node.problem}. ${node.remedy}`
       : `node           ${node.node} (${node.version}, ${node.how === "recorded" ? "recorded at setup" : "found by the launcher"})`);
   }
   const last = readLastHook();
