@@ -98,3 +98,36 @@ test("the event carries no tool name, command or message", () => {
   const rs = run([[0, "PermissionRequest", { tool_name: "Bash", tool_input: { command: "AcmeCorp" } }], [4000, "PreToolUse", { tool_name: "Bash" }]]);
   assert.ok(!JSON.stringify(rs.flatMap((r) => r.events)).includes("Bash"));
 });
+
+const Q = { tool_name: "AskUserQuestion" };
+
+test("a question is timed from its PreToolUse to its PostToolUse", () => {
+  const rs = run([[0, "PreToolUse", Q], [7000, "PostToolUse", Q]]);
+  assert.deepEqual(ended(rs), [{ interruptionKind: "question", waitMs: 7000, waitEndedBy: "tool_finished", waitConfidence: "inferred" }]);
+});
+
+test("a dismissed question ends at PostToolUseFailure", () => {
+  const rs = run([[0, "PreToolUse", Q], [2500, "PostToolUseFailure", Q]]);
+  assert.equal(ended(rs)[0].waitEndedBy, "tool_finished");
+  assert.equal(ended(rs)[0].waitMs, 2500);
+});
+
+test("parallel questions report one lower-bound wait once all are answered", () => {
+  const rs = run([[0, "PreToolUse", Q], [100, "PreToolUse", Q], [4000, "PostToolUse", Q], [6000, "PostToolUse", Q]]);
+  assert.deepEqual(ended(rs), [{ interruptionKind: "question", waitMs: 6000, waitEndedBy: "tool_finished", waitConfidence: "lower_bound" }]);
+});
+
+test("a new prompt closes an open question as an upper bound", () => {
+  const rs = run([[0, "PreToolUse", Q], [9000, "UserPromptSubmit"]]);
+  assert.deepEqual(ended(rs), [{ interruptionKind: "question", waitMs: 9000, waitEndedBy: "prompt_submitted", waitConfidence: "upper_bound" }]);
+});
+
+test("a question doesn't answer a permission prompt, and other tools don't close a question", () => {
+  const rs = run([[0, "PreToolUse", Q], [3000, "PostToolUse", { tool_name: "Read" }], [5000, "PostToolUse", Q]]);
+  assert.deepEqual(ended(rs).map((m) => m.waitMs), [5000]);
+});
+
+test("Stop drops an open question without a duration", () => {
+  const rs = run([[0, "PreToolUse", Q], [3000, "Stop"], [5000, "PostToolUse", Q]]);
+  assert.deepEqual(ended(rs), []);
+});

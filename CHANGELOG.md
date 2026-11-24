@@ -12,8 +12,25 @@ targets, error counts or internal resource names — this repository is public.
 
 ## v0.1.46
 
-The hook CLIs notice a hook bundle that's gone missing. The extension and the
-plugin are unchanged.
+The hook CLIs notice a hook bundle that's gone missing, and the Claude Code
+hooks time the questions an agent asks you. The extension and the plugin are
+unchanged.
+
+### Questions are timed
+
+When Claude Code asks you a multiple-choice question, the hooks now record how
+long it waited for your answer. It's the same wait-ended event that permission
+and input prompts already send, with `question` as its kind. The tool raises
+no notification, so the clock runs from the tool starting to the tool
+finishing.
+
+- **A dismissed question still counts.** The tool fails, and that ends the
+  wait too.
+- **Several questions at once** report one wait, marked as a lower bound.
+- **A new prompt** ends an open question as an upper bound, since Esc looks
+  the same.
+- Codex isn't timed. Its approval hook fires after the tool's own start hook,
+  and nothing fires when you answer, so there's no honest end to measure.
 
 ### A missing hook bundle is reported once
 

@@ -1154,8 +1154,13 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
 
   /**
    * Which kind of wait an agent stopped on: `permission_request`,
-   * `input_request` (the agent asked the person a question), `idle_prompt` or
-   * `other`, and never anything else.
+   * `input_request` (the agent asked the person a question), `idle_prompt`,
+   * `question` or `other`, and never anything else.
+   *
+   * `question` is a multiple-choice question the agent put to the person
+   * through a tool (Claude Code's `AskUserQuestion`). That tool raises no
+   * notification, so the value appears only on `supervision_wait_ended`,
+   * timed from the tool's own start and finish hooks.
    *
    * The only payload field `supervision_interruption` carries. It was emitted
    * by the Claude Code and Codex mappers for months and registered in neither
@@ -1176,7 +1181,7 @@ export type AscendaEventMetadata = Record<string, string | number | boolean | nu
    * The notification's own wording is read on the machine to choose one of the
    * three labels and is then discarded; it never leaves the hook process.
    */
-  interruptionKind?: "permission_request" | "input_request" | "idle_prompt" | "other";
+  interruptionKind?: "permission_request" | "input_request" | "idle_prompt" | "question" | "other";
 
   /**
    * On `supervision_wait_ended`: milliseconds from the wait opening to the
