@@ -27,11 +27,22 @@ import type { ClaudeHookEventName, ClaudeHookInput, MappedAscendaEvent } from ".
  * Waits are kept per session and per subagent, so one agent's calls never
  * answer another's prompt.
  *
+ * A question (`AskUserQuestion`) is timed from its own tool hooks: the tool
+ * is the wait, so its PostToolUse is the answer and the duration is
+ * `inferred`, or `lower_bound` when more than one question was open.
+ *
  * Nothing here reads a message or a tool input. Only the notification's type
  * and the tool's name are looked at.
  */
 
-export type WaitKind = "permission_request" | "input_request" | "idle_prompt";
+export type WaitKind = "permission_request" | "input_request" | "idle_prompt" | "question";
+
+/**
+ * The tool Claude Code uses to put a multiple-choice question to the person.
+ * It sends no Notification, so its own PreToolUse opens the wait and its
+ * PostToolUse (or PostToolUseFailure, when the person dismisses it) closes it.
+ */
+export const QUESTION_TOOL = "AskUserQuestion";
 export type WaitConfidence = "inferred" | "lower_bound" | "upper_bound";
 export type WaitEndedBy = "tool_started" | "tool_finished" | "permission_denied" | "prompt_submitted";
 
@@ -123,6 +134,31 @@ export function advanceWait(previous: WaitState, hookName: ClaudeHookEventName, 
     return { state, events, suppressInterruption };
   }
 
+  if (getToolName(input) === QUESTION_TOOL) {
+    if (hookName === "PreToolUse") {
+      const open = state.waits.question;
+      if (open) {
+        open.requests += 1;
+        open.maxRequests = Math.max(open.maxRequests, open.requests);
+      } else {
+        state.waits.question = { startedAt: now, requests: 1, maxRequests: 1, toolName: QUESTION_TOOL };
+        state.lastStart.question = now;
+      }
+      return { state, events, suppressInterruption };
+    }
+    if (hookName === "PostToolUse" || hookName === "PostToolUseFailure") {
+      const open = state.waits.question;
+      if (open) {
+        open.requests -= 1;
+        if (open.requests <= 0) {
+          events.push(waitEvent("question", open, now, "tool_finished", "inferred"));
+          delete state.waits.question;
+        }
+      }
+      return { state, events, suppressInterruption };
+    }
+  }
+
   const close = (kind: WaitKind, endedBy: WaitEndedBy, confidence: WaitConfidence): void => {
     const wait = state.waits[kind];
     if (!wait) return;
@@ -163,6 +199,7 @@ export function advanceWait(previous: WaitState, hookName: ClaudeHookEventName, 
     }
     case "UserPromptSubmit": {
       for (const kind of ANSWERABLE) close(kind, "prompt_submitted", "upper_bound");
+      close("question", "prompt_submitted", "upper_bound");
       close("idle_prompt", "prompt_submitted", "inferred");
       break;
     }
@@ -171,6 +208,7 @@ export function advanceWait(previous: WaitState, hookName: ClaudeHookEventName, 
       // The turn is over, so whatever it was waiting on is moot. No duration:
       // nothing says the person ever answered.
       for (const kind of ANSWERABLE) delete state.waits[kind];
+      delete state.waits.question;
       break;
     }
     case "SessionEnd":

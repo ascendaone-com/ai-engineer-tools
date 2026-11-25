@@ -60,7 +60,7 @@ export const FAMILY_SENTENCES: Readonly<Record<DisclosureFamily, string>> = {
   git: "that a commit, push or revert happened, and when a pull request opened or merged",
   edits: "roughly how much a file changed, as a bucket, and whether you edited it after the agent wrote it",
   context: "how full the context window got",
-  waiting: "that your agent stopped and waited for you, as one word: permission_request, input_request, idle_prompt, or other, how many milliseconds the wait lasted as worked out on your machine, and that it asked permission for a tool or had one refused in auto mode, with the tool's name",
+  waiting: "that your agent stopped and waited for you, as one word: permission_request, input_request, idle_prompt, question, or other, how many milliseconds the wait lasted as worked out on your machine, and that it asked permission for a tool or had one refused in auto mode, with the tool's name",
   subagents: "when a subagent starts and stops, the id your agent gives it, and whether it was built in, from a plugin or one you defined — never its name or what it was asked",
   forge: "for a GitHub repository, one digest of owner/repo and one of the branch, which anyone who guesses the names can reproduce, so a pull request can be matched to your session (turn off with setup --no-repo-keys)",
   turns: "an opaque id your agent gives each prompt, so one turn's events group together",

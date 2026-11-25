@@ -67,6 +67,7 @@ function waitReasonOf(metadata: Record<string, unknown>): "permission" | "idle" 
     case "permission_request": return "permission";
     case "input_request": return "input";
     case "idle_prompt": return "idle";
+    case "question": return "input";
     case undefined: return undefined;
     default: return "other";
   }
