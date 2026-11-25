@@ -43,6 +43,13 @@ export type HostCredentials = {
    * only. Written by any adapter's `setup --no-repo-keys`. Absent means on.
    */
   repoKeys?: false;
+  /**
+   * `false` stops hooks bringing their own registration up to date (see
+   * hookRefresh.ts). Machine-wide, like `eventLogPath`: read from the top
+   * level only. Written by any adapter's `setup --no-hook-refresh`. Absent
+   * means on.
+   */
+  hookRefresh?: false;
 };
 
 export type MachineCredentials = HostCredentials & {
@@ -87,10 +94,12 @@ export function writeTopLevelCredentials(credentials: HostCredentials): void {
   const existing = readMachineCredentials();
   const eventLogPath = credentials.eventLogPath ?? existing?.eventLogPath;
   const repoKeys = credentials.repoKeys ?? existing?.repoKeys;
+  const hookRefresh = credentials.hookRefresh ?? existing?.hookRefresh;
   writeMachineCredentials({
     ...credentials,
     ...(eventLogPath ? { eventLogPath } : {}),
     ...(repoKeys === false ? { repoKeys } : {}),
+    ...(hookRefresh === false ? { hookRefresh } : {}),
     ...(existing?.tools ? { tools: existing.tools } : {})
   });
 }
@@ -100,6 +109,13 @@ export function writeRepoKeysSetting(on: boolean): void {
   const existing = readMachineCredentials() ?? {};
   const { repoKeys: _dropped, ...rest } = existing;
   writeMachineCredentials(on ? rest : { ...rest, repoKeys: false });
+}
+
+/** Saves the machine-wide hook refresh setting. `on` removes the override. */
+export function writeHookRefreshSetting(on: boolean): void {
+  const existing = readMachineCredentials() ?? {};
+  const { hookRefresh: _dropped, ...rest } = existing;
+  writeMachineCredentials(on ? rest : { ...rest, hookRefresh: false });
 }
 
 /** Saves the machine-wide event log setting: a path, or `off`. */

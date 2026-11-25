@@ -2,8 +2,8 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ascendaHome, extraClaudeProfileDirs, createPairingAttempt, pairingAttemptLines, pairingJoinOutcome, settleStudyJoin, writePairingJoinOutcome, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, COLLECTOR_VERSION, describeCollectorVersion, describeReleaseCheck, installedBundleVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
-import type { DisclosureFamily, PairingAttempt, Tone } from "@ascenda-one/tool-kit";
+import { ascendaHome, extraClaudeProfileDirs, createPairingAttempt, pairingAttemptLines, pairingJoinOutcome, settleStudyJoin, writePairingJoinOutcome, describeEventLog, parseEventLogFlag, resolveEventLog, writeEventLogSetting, writeRepoKeysSetting, writeHookRefreshSetting, forgetHookRegistration, hookRefreshOffReason, readLastHookRefresh, recordHookRegistration, refreshHookRegistrations, runsFromInstalledBundle, hookRunnerCommand, installHookRunner, terminalStyle, defaultTokenFilePath, COLLECTOR_VERSION, describeCollectorVersion, describeReleaseCheck, installedBundleVersion, describeHookSetChanges, getPairingStatus, hookSetArgument, hookSetChanges, hookSetOfCommand, initiativesStatusLines, persistEventWriteToken, readTokenFile, renderSetupDisclosure, replaceSettingsFile, studyNoticeStatus } from "@ascenda-one/tool-kit";
+import type { DisclosureFamily, HookRefreshAdapter, HookRefreshResult, PairingAttempt, Tone } from "@ascenda-one/tool-kit";
 import type { PairingStatusResponse } from "@ascenda-one/tool-contract";
 import { DEFAULT_API_BASE_URL, envOverride, localOnlyInstall } from "./config.js";
 import { describeAge, readLastHook, resolveHookNode } from "./hookHealth.js";
@@ -112,6 +112,8 @@ type Options = {
   repoKeys?: boolean;
   /** `--capture-quota` (true) or `--no-capture-quota` (false). Absent leaves the status line alone. */
   captureQuota?: boolean;
+  /** `--hook-refresh` (true) or `--no-hook-refresh` (false). Absent leaves the saved setting alone. */
+  hookRefresh?: boolean;
   action: "install" | "status" | "uninstall" | "help";
 };
 
@@ -142,6 +144,8 @@ Options
                                 repository gets a key and, off its default branch, a branch key, so a pull
                                 request can be matched to a session. They are digests anyone who guesses the
                                 names can reproduce. Machine-wide. --repo-keys turns them back on
+  --no-hook-refresh             stop the installed hooks bringing their own registration up to date once a day
+                                (see "Hook updates" in docs/INSTALL.md). Machine-wide. --hook-refresh turns it back on
   --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
   --capture-quota               keep Claude Code's 5-hour and 7-day usage numbers on this machine, so a usage-limit
@@ -210,6 +214,7 @@ export async function runSetup(argv: string[]): Promise<number> {
     });
     if (options.eventLog !== undefined) writeEventLogSetting(options.eventLog);
     if (options.repoKeys !== undefined) writeRepoKeysSetting(options.repoKeys);
+    if (options.hookRefresh !== undefined) writeHookRefreshSetting(options.hookRefresh);
   }
 
   if (isHomeProject(options)) {
@@ -220,6 +225,8 @@ export async function runSetup(argv: string[]): Promise<number> {
   const before = ourHookSets(readSettingsFile(settingsFile));
   const written = writeSettings(settingsFile, binary, options.dryRun);
   if (written === null) return 1;
+  // The version stamp a later refresh compares against. See hookRefresh.ts in tool-kit.
+  if (!options.dryRun) recordHookRegistration(CLAUDE_CODE_TOOL, { settingsFile, scope: options.scope, hookSet: HOOK_SET, events: HOOK_EVENTS });
   const reach = options.scope === "user" ? "every project" : "this project only";
   row("ok", "hooks", `${tidyHome(settingsFile)} ${ui.dim(`(${HOOK_EVENTS.length} events, ${reach}${written ? "" : ", already current"})`)}`);
   if (options.captureQuota !== undefined) {
@@ -247,6 +254,7 @@ export async function runSetup(argv: string[]): Promise<number> {
         row("warn", "hooks", `${tidyHome(profileSettings)} could not be updated`);
         continue;
       }
+      if (!options.dryRun) recordHookRegistration(CLAUDE_CODE_TOOL, { settingsFile: profileSettings, scope: "user", hookSet: HOOK_SET, events: HOOK_EVENTS });
       row("ok", "hooks", `${tidyHome(profileSettings)} ${ui.dim(`(extra profile${profileWritten ? "" : ", already current"})`)}`);
     }
   }
@@ -267,6 +275,7 @@ export async function runSetup(argv: string[]): Promise<number> {
     if (options.dryRun) {
       row("info", "moved", `would remove the copy in ${tidyHome(otherFile)}, so each event runs once`);
     } else if (removeOurHooks(otherFile)) {
+      forgetHookRegistration(CLAUDE_CODE_TOOL, otherFile);
       row("ok", "moved", `removed the copy in ${tidyHome(otherFile)}, so each event runs once ${ui.dim("(backup beside it)")}`);
     } else {
       row("warn", "note", `${tidyHome(otherFile)} registers these hooks too, so each event runs twice.`);
@@ -402,6 +411,12 @@ function parseArgs(argv: string[]): Options {
         break;
       case "--capture-quota":
         options.captureQuota = true;
+        break;
+      case "--hook-refresh":
+        options.hookRefresh = true;
+        break;
+      case "--no-hook-refresh":
+        options.hookRefresh = false;
         break;
       case "--no-capture-quota":
         options.captureQuota = false;
@@ -634,7 +649,7 @@ type Settings = { hooks?: Record<string, HookGroup[]> } & Record<string, unknown
  * Merge our hooks into the settings file, preserving everything else. Returns
  * true when the file changed, false when it was already current, null on error.
  */
-export function writeSettings(settingsFile: string, binary: string, dryRun: boolean): boolean | null {
+export function writeSettings(settingsFile: string, binary: string, dryRun: boolean, events: readonly string[] = HOOK_EVENTS): boolean | null {
   let settings: Settings = {};
   const exists = fs.existsSync(settingsFile);
 
@@ -655,7 +670,7 @@ export function writeSettings(settingsFile: string, binary: string, dryRun: bool
   const command = hookCommand(binary);
   const hooks = { ...(settings.hooks ?? {}) };
 
-  for (const event of HOOK_EVENTS) {
+  for (const event of events) {
     hooks[event] = placeOurEntry(hooks[event] ?? [], { type: "command", command: `${command} ${event}${hookSetArgument(HOOK_SET)}`, timeout: HOOK_TIMEOUT_SECONDS });
   }
 
@@ -838,6 +853,65 @@ export function registrationSummary(projectDir: string): { file: string; scope: 
   return found;
 }
 
+// ---------------------------------------------------------------- refresh ---
+
+/** The key this adapter's registrations are recorded under (hookRefresh.ts). */
+export const CLAUDE_CODE_TOOL = "claude_code";
+
+/**
+ * What hookRefresh.ts needs to keep the registration in step with the
+ * installed bundle: the reader and the merge `setup` itself uses. The
+ * candidates are every file `setup` may have written, for installs from
+ * before registrations were recorded.
+ */
+export function claudeRefreshAdapter(projectDir: string = process.env.CLAUDE_PROJECT_DIR ?? process.cwd()): HookRefreshAdapter {
+  const user = settingsPath({ scope: "user", projectDir } as Options);
+  const project = settingsPath({ scope: "project", projectDir } as Options);
+  return {
+    tool: CLAUDE_CODE_TOOL,
+    events: HOOK_EVENTS,
+    hookSet: HOOK_SET,
+    registered: (settingsFile) => {
+      const settings = readSettingsStrict(settingsFile);
+      return settings ? ourHookSets(settings) : undefined;
+    },
+    // Parsed first, so writeSettings never reaches its message for a file it
+    // can't read: a hook's stdout is Claude Code's to parse.
+    reapply: (settingsFile, events) => (readSettingsStrict(settingsFile) ? writeSettings(settingsFile, hookBinPath(), false, events) : null),
+    candidates: () => [
+      { settingsFile: user, scope: "user" as const },
+      ...extraClaudeProfileDirs().map((dir) => ({ settingsFile: path.join(dir, "settings.json"), scope: "user" as const })),
+      { settingsFile: project, scope: "project" as const },
+      { settingsFile: homeProjectSettingsPath(), scope: "project" as const }
+    ]
+  };
+}
+
+/**
+ * The once-a-day check, for the hook path. Only the bundle `setup` installed
+ * runs it: a plugin or npx run has its registration in the plugin's
+ * `hooks.json`, and adding ours beside it would run every hook twice.
+ * Never throws, never prints.
+ */
+export function refreshClaudeHooks(options: { script?: string } = {}): HookRefreshResult | undefined {
+  try {
+    if (!runsFromInstalledBundle(options.script) || process.env.CLAUDE_PLUGIN_ROOT) return undefined;
+    return refreshHookRegistrations(claudeRefreshAdapter());
+  } catch {
+    return undefined;
+  }
+}
+
+/** A settings file, or undefined when it's missing or isn't a JSON object. */
+function readSettingsStrict(settingsFile: string): Settings | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Settings : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** How many events setup registers, for the summary above. */
 export const REGISTERED_EVENT_COUNT = HOOK_EVENTS.length;
 
@@ -908,6 +982,11 @@ async function printStatus(options: Options): Promise<number> {
       ? `hook set       ${oldest}, this version registers ${HOOK_SET}. Upgrade: npx @ascenda-one/claude-code-hooks setup${where.scope === "user" ? " --scope user" : ""}`
       : `hook set       ${HOOK_SET} (current)`);
   }
+  const refreshOff = hookRefreshOffReason();
+  const lastRefresh = readLastHookRefresh(CLAUDE_CODE_TOOL);
+  console.log(`hook refresh   ${refreshOff
+    ? `off (${refreshOff})`
+    : `on, once a day from the installed bundle${lastRefresh ? ` (last checked ${describeAge(Date.now() - Date.parse(lastRefresh.checkedAt))})` : " (not checked yet)"}`}`);
 
   if (stale.length) {
     console.log(`stale hooks    ${stale.length} not pointing at the installed binary — each one fails silently per event:`);
@@ -970,6 +1049,7 @@ function uninstall(options: Options): number {
       return 1;
     }
     console.log(`hooks removed from ${settingsFile}`);
+    forgetHookRegistration(CLAUDE_CODE_TOOL, settingsFile);
     if (unwrapStatusLine(settingsFile, false) === null) console.error(`could not restore your status line in ${settingsFile}`);
   }
   for (const file of [quotaSnapshotPath(), statuslineChainPath()]) fs.rmSync(file, { force: true });
@@ -977,7 +1057,10 @@ function uninstall(options: Options): number {
     for (const profileDir of extraClaudeProfileDirs()) {
       const profileSettings = path.join(profileDir, "settings.json");
       if (path.resolve(profileSettings) === path.resolve(settingsFile) || !fs.existsSync(profileSettings)) continue;
-      if (removeOurHooks(profileSettings)) console.log(`hooks removed from ${profileSettings}`);
+      if (removeOurHooks(profileSettings)) {
+        forgetHookRegistration(CLAUDE_CODE_TOOL, profileSettings);
+        console.log(`hooks removed from ${profileSettings}`);
+      }
     }
   }
 

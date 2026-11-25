@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, stampLastHook, livePidFields, readHookSet, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { AGENT_PROCESS, consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, findAgentProcess, isCliAgentManagementCommand, stampLastHook, livePidFields, readHookSet, recordTurnStart, readTurnPromptId, refreshCliAgentHooks, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapGeminiEvent } from "./mapGeminiEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -39,6 +39,9 @@ async function main(): Promise<void> {
   let turnDurationMs: number | undefined;
   // That this agent ran a hook at all, for `status` and `doctor`.
   stampLastHook(GEMINI_HOST, hookName);
+  // At most once a day, brings this install's hook registration up to the
+  // events this bundle handles. Local files only; see hookRefresh.ts.
+  refreshCliAgentHooks(SETUP);
   // These agents give hooks no id for the prompt a turn answers, so the turn's
   // first hook mints one and the rest read it back. Read before the turn-end
   // hook consumes the state.

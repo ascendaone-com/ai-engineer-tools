@@ -178,8 +178,11 @@ test("a hook on an unpaired install emits on the live bus and journals nothing",
   assert.equal(tool.stderr, "");
   assert.equal(prompt.stderr, "");
   // The one file a hook always leaves is its last-run stamp, which records
-  // only the event name and the time (see hookHealth.ts).
-  const state = fs.existsSync(m.stateDir()) ? fs.readdirSync(m.stateDir()) : [];
+  // only the event name and the time (see hookHealth.ts). Setup's record of
+  // what it registered, and the daily refresh's stamp, are about the install,
+  // not a send (see hookRefresh.ts in tool-kit).
+  const install = new Set(["hook-registrations.json", "hook-refresh-claude_code.stamp"]);
+  const state = (fs.existsSync(m.stateDir()) ? fs.readdirSync(m.stateDir()) : []).filter((file) => !install.has(file));
   assert.deepEqual(state, ["claude_code-last-hook.json"], "an unpaired install has nothing to journal");
 
   // The session prompt is unaffected — it never depended on a pairing.

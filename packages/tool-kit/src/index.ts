@@ -64,9 +64,11 @@ export {
 export type { CliAgentConfig, CliAgentIdentity, HookDeliveryOptions, InstallationIdSource, ResolvedInstallationId } from "./hookAdapter";
 export {
   cliAgentHookBinPath,
+  cliAgentRefreshAdapter,
   findStaleHookCommands,
   isCliAgentManagementCommand,
   ourHookPositions,
+  refreshCliAgentHooks,
   registeredHookSets,
   runCliAgentSetup,
   trustProblemLines,
@@ -84,6 +86,7 @@ export {
   writeHostCredentials,
   writeEventLogSetting,
   writeRepoKeysSetting,
+  writeHookRefreshSetting,
   writeMachineCredentials,
   writeTopLevelCredentials
 } from "./credentials";
@@ -167,6 +170,22 @@ export type { HookRegistration, LiveSignalDoctorOptions } from "./liveSignalDoct
 export type { LiveBusEvent, LiveBusSignal, LiveBusStopFailureKind, PromptSizeBucket } from "./liveBus";
 export { HOOK_SET_FLAG, UNVERSIONED_HOOK_SET, describeHookSetChanges, hookSetArgument, hookSetChanges, hookSetOfCommand, isHookSet, readHookSet, readViaPlugin } from "./hookSet";
 export type { HookSetChanges } from "./hookSet";
+export {
+  HOOK_REFRESH_ENV_VAR,
+  HOOK_REFRESH_INTERVAL_MS,
+  assessHookRegistrations,
+  forgetHookRegistration,
+  hookRefreshDisabled,
+  hookRefreshOffReason,
+  hookRefreshStampPath,
+  hookRegistrationDoctorLines,
+  hookRegistrationsPath,
+  readHookRegistrations,
+  readLastHookRefresh,
+  recordHookRegistration,
+  refreshHookRegistrations
+} from "./hookRefresh";
+export type { HookRefreshAdapter, HookRefreshOutcome, HookRefreshResult, HookRegistrationAssessment, HookRegistrationRecord, HookRegistrationScope } from "./hookRefresh";
 export { AGENT_PROCESS, findAgentPid, findAgentProcess, livePidFields, probeProcess, psArgsLookup, psLookup, psStartLookup, scriptMarkerIn } from "./agentProcess";
 export type { AgentProcessMatch, AgentProcessRule, FindAgentPidOptions, ProcessArgsLookup, ProcessInfo, ProcessLiveness, ProcessLookup, ProcessStartLookup, ProbeOptions } from "./agentProcess";
 export {

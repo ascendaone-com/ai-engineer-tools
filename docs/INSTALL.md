@@ -129,6 +129,43 @@ doesn't register yet, and names `claude plugin update`. An unpaired install
 never checks. To turn the check off, set
 `ASCENDA_DISABLE_UPDATE_CHECK=true`.
 
+### Hook updates
+
+The hooks keep their own registration in step with the bundle they run. Once
+a day, the first hook to run from `~/.ascenda/bin` compares each settings file
+it's registered in with the events its release handles. When a file is
+missing one, or was written by an older release, it re-applies its own entries
+with the same merge `setup` uses. It reads and writes files on this machine
+and nothing else. It never downloads code or changes which bundle runs, so a
+newer release still arrives through `setup`; what this saves is the second
+step, where the events that release added only start once someone runs it.
+
+It's careful in four ways:
+
+- **Your own hooks aren't touched.** Only entries that run the Ascenda
+  launcher are rewritten, and the rest of the file is kept as it was.
+- **A file you've emptied stays empty.** If none of our hooks are left in a
+  file, that's an uninstall, and nothing is put back.
+- **An event you took out stays out.** `setup` records which release wrote
+  each file and which events it listed, in
+  `~/.ascenda/state/hook-registrations.json`. Only events added since then
+  are registered.
+- **Only the installed bundle does it.** The plugin, `npx` and a build from a
+  checkout never write a registration.
+
+Codex skips a hook until you approve it, so a newly added event shows under
+`/hooks` in Codex waiting for approval, and `status` lists it until it's
+approved.
+
+`doctor` prints a **Hook versions** section: the installed bundle against the
+CLI you ran, each registration's release and hook set, any missing events, and
+what the last check did. `status` has a `hook refresh` line.
+
+To turn it off on this machine, run `setup --no-hook-refresh` (or
+`--hook-refresh` to turn it back on). That setting reaches an agent started
+from the Dock, which never sees your shell. For one process,
+`ASCENDA_DISABLE_HOOK_REFRESH=true` does the same.
+
 ## Install from a release (no registry)
 
 For machines that can't reach the Marketplace or npm, or for anyone who wants
