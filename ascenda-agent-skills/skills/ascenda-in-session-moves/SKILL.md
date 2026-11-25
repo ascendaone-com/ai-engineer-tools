@@ -1,6 +1,6 @@
 ---
 name: ascenda-in-session-moves
-description: When you have just seen a known work pattern in this session (three or more different approaches to the same problem with none working, the work drifting from the goal the person stated, about twenty minutes with no passing run, commit or fix, a change of 200 or more lines you wrote just accepted, or this session's context compacted after more than two hours), ask the Ascenda Flow app's local get_in_session_move tool whether you may offer one change to try, and if it says yes, offer that one change once, as a question, at the next boundary the work produces. Use this passively, only when the local tool is available, and never more than once per session.
+description: When you have just seen a known work pattern in this session (three or more different approaches to the same problem with none working, the work drifting from the goal the person stated, about twenty minutes with no passing run, commit or fix, a change of 200 or more lines you wrote just accepted, or this session's context compacted after more than two hours), or when the app may have seen one you cannot (the person back after more than an hour away, or this session's context running past their usual), ask the Ascenda Flow app's local get_in_session_move tool whether you may offer one change to try, and if it says yes, offer that one change once, as a question, at the next boundary the work produces. Use this passively, only when the local tool is available, and never more than once per session.
 license: Apache-2.0
 ---
 
@@ -30,10 +30,10 @@ skill does nothing: don't mention Ascenda, don't apologise, don't suggest
 installing anything. Quiet is the correct behaviour for an unpaired machine,
 and for a Flow build that does not have the tool yet.
 
-## The five patterns
+## The patterns you can see
 
-Ask only when one of these is true **in this session**, from what you have
-seen yourself:
+Ask about one of these only when it is true **in this session**, from what
+you have seen yourself:
 
 | `trigger` | When |
 |---|---|
@@ -49,6 +49,22 @@ hold both skills, report the event there and ask here. Neither depends on the
 other. For drift, work-signals tells you to pair the event with a question:
 when this tool is available, the question is this skill's, asked this way,
 so the person hears one question about the drift, not two.
+
+## Two the app sees, not you
+
+The app watches two patterns you have no way to see: how long the session
+sat quiet before the person wrote, and how deep its context runs against the
+person's own usual. For these, you ask on the chance that the app saw one,
+and most of the time it will say `nothing_seen`.
+
+| `trigger` | When to ask |
+|---|---|
+| `session_return_after_an_hour` | At the end of your reply to the person's first message after the session may have sat idle: a resumed session, or a message that reads like they are back. The app answers yes only if it saw them come back more than an hour after your last reply. |
+| `context_past_usual` | At a boundary in a long session. The app answers yes only if it saw this session's context run past the person's own usual. |
+
+Ask about each at most once per session, like any other pattern. You saw no
+count for these, so when `offer` is true, skip step 2 below: the question
+already says what happened.
 
 **When more than one holds,** name the one that produced the boundary you are
 at. If you can't tell, take them in the table's order: a large change first,
@@ -75,6 +91,8 @@ reason around them:
   mention that they set it aside.
 - `history_unread`: the app has not read their past changes yet. Ask again
   next session, not this one.
+- `nothing_seen`: for the two patterns only the app sees, it did not see one.
+  This is the usual answer, not an error.
 
 Ask once per pattern. Do not call the tool again for the same pattern in the
 same session to see whether the answer has changed. A refusal for one pattern
