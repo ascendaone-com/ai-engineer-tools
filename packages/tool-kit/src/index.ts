@@ -222,3 +222,27 @@ export {
 } from "./pairingStudyJoin";
 export type { PairingAttempt, PairingJoinOutcome } from "./pairingStudyJoin";
 export type { StudyJoinContext, StudyJoinOutcome } from "./studyJoin";
+export {
+  CALL_CAPTURE_ENV_VAR,
+  READ_ONLY_TOOLS,
+  captureDir,
+  captureEnabled,
+  captureStatus,
+  setCaptureEnabled,
+  pruneCapture,
+  runCallCapture,
+  hashCapturePath,
+  hashCaptureLine,
+  hashCaptureRepo,
+  normaliseLine,
+  isTrivialLine,
+  offloadableFolders,
+  touchesOffloadable,
+  parseUnifiedDiff,
+  diffSnapshots,
+  pathSaltFilePath,
+  dayFilePath
+} from "./callCapture";
+export type { CaptureRecord, CaptureFileDelta, CaptureInput, CaptureOutcome, CaptureStatus } from "./callCapture";
+export { captureReport, classifyHunk, indexRecords, parseHunks, readRecords, isGeneratedPath } from "./callCaptureMatch";
+export type { CaptureReport, RepoReport, HunkResult, HunkVerdict, ReportOptions } from "./callCaptureMatch";

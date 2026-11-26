@@ -558,6 +558,37 @@ prompt a turn answers, and says nothing about its text.
 
 Correction detection uses local pattern matching on prompt text in the hook process only — classified metadata (`reason: repeated_reprompting`) is sent; raw prompt text is not.
 
+### Per-call file capture (local only, off by default)
+
+`ascenda-claude-hook capture on` records, around each tool call that can
+write, which lines of which files changed in the working tree, and separately
+what changed between calls. It reads the tree with `git diff HEAD -U0` and
+`git ls-files --others --exclude-standard`, with `GIT_OPTIONAL_LOCKS=0` so it
+never takes the index lock, and no external diff or textconv.
+
+- Records live in `~/.ascenda/capture/calls-<UTC day>.jsonl`. Paths, lines and
+  repository roots are stored only as truncated HMAC-SHA-256 digests under
+  `~/.ascenda/capture/path-salt`, a salt separate from `~/.ascenda/salt`. No
+  file contents, names, line numbers, commit SHAs or branch names are kept.
+- No capture value goes on any event. `tests/callCapture.test.mjs` runs the
+  hooks against a local ingest endpoint with capture on and fails if any
+  digest, the salt, or a clear path or line appears in what was sent, queued
+  or logged.
+- Skipped: folders outside a git repository, and any repository in or
+  containing `~/Library/Mobile Documents`, `~/Library/CloudStorage`, or
+  `~/Desktop` / `~/Documents` when iCloud syncs them, so a capture never
+  downloads an offloaded file. Read-only tools (`Read`, `Grep`, …) are not
+  snapshotted, and a `PreToolUse` within 3 s of the last snapshot of the same
+  folder is skipped.
+- Bounds: day files older than 120 days are deleted, then the oldest while the
+  folder is over 256 MB. Untracked files over 256 KB, or past the 300th, are
+  not read. Pruning only ever removes capture files.
+- `capture off` deletes the whole folder, salt included. `capture status`
+  summarises it. `capture report --repo <dir> --since <date>` counts, for a
+  repository's default branch, the hunks a captured call wrote, the ones
+  written outside the calls, and the ones it cannot tell; it prints counts.
+- Set `ASCENDA_CALL_CAPTURE=on` or `off` to override the switch.
+
 ## Compliance
 
 `consentScope: ide_telemetry` and `provenance: ai_work_telemetry` on every

@@ -306,7 +306,7 @@ async function main(): Promise<void> {
   const command = process.argv[2];
   if (!command) {
     throw new Error(
-      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | squadron | object | doctor | setup | status | uninstall | plugin-sync"
+      "Usage: ascenda-claude-hook <ClaudeHookEventName> | pair | join | squadron | object | doctor | capture | setup | status | uninstall | plugin-sync"
     );
   }
 
@@ -331,6 +331,12 @@ async function main(): Promise<void> {
   }
   if (command === "doctor") {
     await runDoctor();
+    return;
+  }
+  // Local per-call file capture: on, off, status, report. No stdin.
+  if (command === "capture") {
+    const { runCaptureCommand } = await import("./capture.js");
+    setupExitCode = await runCaptureCommand(process.argv.slice(3));
     return;
   }
   // A detached flusher an earlier hook started, not a hook: no stdin, and no
@@ -383,6 +389,15 @@ async function main(): Promise<void> {
   }
 
   const input = await readJsonFromStdin();
+
+  // Per-call file capture: local, off by default, and before anything that
+  // can fail on pairing or the network, because it owes nothing to either.
+  // It reads the working tree and writes hashes under ~/.ascenda/capture;
+  // none of it is ever put on an event. Never throws.
+  if (hookName === "PreToolUse" || hookName === "PostToolUse" || hookName === "PostToolUseFailure") {
+    const { captureForHook } = await import("./capture.js");
+    await captureForHook(hookName, input);
+  }
 
   // Everything that can put a line in front of the user is composed here and
   // written exactly once, below. Claude Code parses this hook's stdout as a
