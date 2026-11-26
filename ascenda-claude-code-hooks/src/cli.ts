@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import {
   AGENT_PROCESS,
   findAgentProcess,
@@ -37,7 +38,7 @@ import {
   runSquadronJoin,
   runStudyObjection
 } from "@ascenda-one/tool-kit";
-import { HOOK_DELIVERY_ENV_VAR, OUTBOX_FLUSH_COMMAND, hookDeliveryInline, pendingReleaseNotice, runOutboxFlush, runsFromInstalledBundle, startBackgroundFlush, terminalStyle } from "@ascenda-one/tool-kit";
+import { HOOK_DELIVERY_ENV_VAR, OUTBOX_FLUSH_COMMAND, hookDeliveryInline, hookRegistrationDoctorLines, installedBundleVersion, pendingReleaseNotice, runOutboxFlush, runsFromInstalledBundle, startBackgroundFlush, terminalStyle, tidyHomePath } from "@ascenda-one/tool-kit";
 import { describePluginBundleOutcome, installPluginBundle, pluginBundlePaths } from "@ascenda-one/tool-kit";
 import { clearSentEffortLevel, readSentEffortLevel, recordSentEffortLevel } from "@ascenda-one/tool-kit";
 import { clearSentModelId, readSentModelId, recordSentModelId } from "@ascenda-one/tool-kit";
@@ -61,7 +62,7 @@ import { isNewSessionStart, mapClaudeEvent, milestoneInviting, sentEffortLevel, 
 
 /** The agent name the effort state file is keyed under in the state directory. */
 const CLAUDE_EFFORT_STATE_AGENT = "claude";
-import { credentialsFilePath, readCredentials, selfCommand, writeCredentials } from "./paths.js";
+import { credentialsFilePath, hookBinPath, readCredentials, selfCommand, writeCredentials } from "./paths.js";
 import { ASCENDA_TOOL_TYPE, ClaudeHookEventName, claudeRuntime, ClaudeHookInput, IngestResult, MappedAscendaEvent, isClaudeHookEventName } from "./types.js";
 import { stampLastHook } from "./hookHealth.js";
 import { pendingPluginHookSetNotice } from "./pluginHookSet.js";
@@ -367,6 +368,19 @@ async function main(): Promise<void> {
   // First, and unconditionally: "has Claude Code ever run this hook" is the
   // question a silent install could not answer. See hookHealth.ts.
   stampLastHook(hookName);
+  // At most once a day, brings a `setup` install's registration up to the
+  // events this bundle handles. Local files only, nothing printed; see
+  // hookRefresh.ts in tool-kit. The path check first, so a plugin or npx run
+  // pays nothing for it. The plugin's launcher can run the setup bundle
+  // in-process before its own first sync, so a plugin root rules it out too.
+  if (runsFromInstalledBundle() && !process.env.CLAUDE_PLUGIN_ROOT) {
+    try {
+      const { refreshClaudeHooks } = await import("./setup.js");
+      refreshClaudeHooks();
+    } catch {
+      // Never in the way of the event.
+    }
+  }
 
   const input = await readJsonFromStdin();
 
@@ -871,6 +885,18 @@ async function runDoctor(): Promise<void> {
     lines.push(...await localSignalLines(process.env.CLAUDE_PROJECT_DIR ?? process.cwd()), "");
   } catch (error) {
     lines.push(`  Live signal           (could not be checked: ${error instanceof Error ? error.message : String(error)})`, "");
+  }
+  try {
+    const { claudeRefreshAdapter } = await import("./setup.js");
+    const versionLines = hookRegistrationDoctorLines({
+      adapter: claudeRefreshAdapter(),
+      installedBundleVersion: installedBundleVersion(`${hookBinPath()}.version`),
+      setupCommand: "npx -y @ascenda-one/claude-code-hooks setup",
+      tidy: (file) => tidyHomePath(file, os.homedir())
+    });
+    lines.push(`  ${ui.bold(versionLines[0].trim())}`, ...versionLines.slice(1), "");
+  } catch (error) {
+    lines.push(`  Hook versions         (could not be checked: ${error instanceof Error ? error.message : String(error)})`, "");
   }
   const unpaired = localOnlyInstall();
   lines.push(`  ${ui.bold("Local events")}  ${describeEventLog(resolveEventLog({ localOnly: unpaired }), "npx @ascenda-one/claude-code-hooks setup")}`, "");

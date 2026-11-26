@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup } from "@ascenda-one/tool-kit";
+import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, refreshCliAgentHooks, runCliAgentSetup } from "@ascenda-one/tool-kit";
 import { mapCopilotEvent } from "./mapCopilotEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { HOOK_EVENTS, SETUP } from "./setup.js";
@@ -49,6 +49,9 @@ async function main(): Promise<void> {
   // That this agent ran a hook at all, for `status` and `doctor`, and which
   // session it ran in, for doctor's runtime check (sessionRecord.ts).
   stampLastHook(COPILOT_HOST, hookName);
+  // At most once a day, brings this install's hook registration up to the
+  // events this bundle handles. Local files only; see hookRefresh.ts.
+  refreshCliAgentHooks(SETUP);
   recordSessionHook(sessionId, hookName, HOOK_EVENTS);
   // No hook names the prompt a turn answers, so the prompt hook mints an id
   // and the rest read it back. `sessionStart` can arrive after the first

@@ -3,8 +3,10 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { COLLECTOR_VERSION, describeCollectorVersion } from "./collectorVersion";
-import { describeReleaseCheck, installedBundleVersion } from "./releaseCheck";
-import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeEventLogSetting, writeHostCredentials, writeRepoKeysSetting } from "./credentials";
+import { describeReleaseCheck, installedBundleVersion, runsFromInstalledBundle } from "./releaseCheck";
+import { forgetHookRegistration, hookRefreshOffReason, hookRegistrationDoctorLines, readLastHookRefresh, recordHookRegistration, refreshHookRegistrations } from "./hookRefresh";
+import type { HookRefreshAdapter, HookRefreshResult } from "./hookRefresh";
+import { credentialsFilePath, isLocalOnlyHostInstall, readHostCredentials, removeHostCredentials, writeEventLogSetting, writeHookRefreshSetting, writeHostCredentials, writeRepoKeysSetting } from "./credentials";
 import { describeEventLog, parseEventLogFlag, resolveEventLog } from "./eventLog";
 import { DEFAULT_API_BASE_URL, MissingInstallationIdError, resolveCliAgentInstallationId } from "./hookAdapter";
 import { getPairingStatus, readInitiatives } from "./http";
@@ -167,6 +169,8 @@ type SetupOptions = {
   eventLog?: string;
   /** `--repo-keys`'s value. Absent leaves the saved setting alone. */
   repoKeys?: boolean;
+  /** `--hook-refresh`'s value. Absent leaves the saved setting alone. */
+  hookRefresh?: boolean;
   action: SetupAction;
 };
 
@@ -219,6 +223,8 @@ Options
                                 repository gets a key and, off its default branch, a branch key, so a pull
                                 request can be matched to a session. They are digests anyone who guesses the
                                 names can reproduce. Machine-wide. --repo-keys turns them back on
+  --no-hook-refresh             stop the installed hooks bringing their own registration up to date once a day
+                                (see "Hook updates" in docs/INSTALL.md). Machine-wide. --hook-refresh turns it back on
   --scope user|project          where hooks are registered (default user: every project)
   --project-dir <path>          project root for --scope project (default cwd)
   --dry-run                     print what would change, write nothing
@@ -307,6 +313,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
     });
     if (options.eventLog !== undefined) writeEventLogSetting(options.eventLog);
     if (options.repoKeys !== undefined) writeRepoKeysSetting(options.repoKeys);
+    if (options.hookRefresh !== undefined) writeHookRefreshSetting(options.hookRefresh);
   }
 
   if (isHomeProject(options)) {
@@ -317,6 +324,15 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
   const before = registeredHookSets(readSettings(settingsFile), spec);
   const written = writeHookSettings(settingsFile, binary, spec, options.dryRun);
   if (written === null) return 1;
+  // The version stamp a later refresh compares against. See hookRefresh.ts.
+  if (!options.dryRun) {
+    recordHookRegistration(spec.host, {
+      settingsFile,
+      scope: options.scope,
+      ...(spec.hookSet !== undefined ? { hookSet: spec.hookSet } : {}),
+      events: spec.hookEvents
+    });
+  }
   const reach = options.scope === "user" ? "every project" : "this project only";
   row("ok", "hooks", `${tidyHomePath(settingsFile, os.homedir())} ${ui.dim(`(${spec.hookEvents.length} events, ${reach}${written ? "" : ", already current"})`)}`);
   const changes = spec.hookSet === undefined ? undefined : describeHookSetChanges(hookSetChanges(before, spec.hookEvents), spec.hookSet);
@@ -332,6 +348,7 @@ export async function runCliAgentSetup(argv: string[], spec: CliAgentSetupSpec):
     if (options.dryRun) {
       row("info", "moved", `would remove the copy in ${tidyHomePath(otherFile, os.homedir())}, so each event runs once`);
     } else if (removeOurHookEntries(otherFile, spec)) {
+      forgetHookRegistration(spec.host, otherFile);
       row("ok", "moved", `removed the copy in ${tidyHomePath(otherFile, os.homedir())}, so each event runs once${spec.settings.owned ? "" : ` ${ui.dim("(backup beside it)")}`}`);
     } else {
       row("warn", "note", `${tidyHomePath(otherFile, os.homedir())} registers these hooks too, so each event runs twice.`);
@@ -467,6 +484,12 @@ function parseArgs(argv: string[], spec: CliAgentSetupSpec): SetupOptions {
         break;
       case "--no-repo-keys":
         options.repoKeys = false;
+        break;
+      case "--hook-refresh":
+        options.hookRefresh = true;
+        break;
+      case "--no-hook-refresh":
+        options.hookRefresh = false;
         break;
       case "--no-pair":
       // `--no-pairing` is the spelling this landed under first. Both appeared
@@ -902,6 +925,60 @@ export function findStaleHookCommands(settings: HookSettings, binary: string, sp
   return [...stale];
 }
 
+// ---------------------------------------------------------------- refresh ---
+
+/**
+ * What hookRefresh.ts needs to keep this adapter's registration in step with
+ * its installed bundle: the same file reader and the same merge `setup` uses.
+ */
+export function cliAgentRefreshAdapter(spec: CliAgentSetupSpec, projectDir = process.cwd()): HookRefreshAdapter {
+  return {
+    tool: spec.host,
+    events: spec.hookEvents,
+    ...(spec.hookSet !== undefined ? { hookSet: spec.hookSet } : {}),
+    registered: (settingsFile) => {
+      const settings = readSettingsStrict(settingsFile);
+      return settings ? registeredHookSets(settings, spec) : undefined;
+    },
+    // Checked parseable just above by `registered`, so `writeHookSettings`
+    // never reaches its message for a file it can't read. It prints only on
+    // a dry run otherwise.
+    reapply: (settingsFile, events) => {
+      if (!readSettingsStrict(settingsFile)) return null;
+      return writeHookSettings(settingsFile, cliAgentHookBinPath(spec.binaryName), { ...spec, hookEvents: events }, false);
+    },
+    candidates: () => {
+      const user = spec.settings.settingsPath("user", projectDir);
+      const project = spec.settings.settingsPath("project", projectDir);
+      return [{ settingsFile: user, scope: "user" as const }, ...(project === user ? [] : [{ settingsFile: project, scope: "project" as const }])];
+    }
+  };
+}
+
+/**
+ * The once-a-day registration check, for an adapter's hook path. Runs only
+ * for the bundle `setup` installed: under `npx` the registration isn't ours
+ * to manage. Never throws, never prints.
+ */
+export function refreshCliAgentHooks(spec: CliAgentSetupSpec, options: { script?: string } = {}): HookRefreshResult | undefined {
+  try {
+    if (!runsFromInstalledBundle(options.script)) return undefined;
+    return refreshHookRegistrations(cliAgentRefreshAdapter(spec));
+  } catch {
+    return undefined;
+  }
+}
+
+/** A settings file, or undefined when it's missing or isn't JSON. */
+function readSettingsStrict(settingsFile: string): HookSettings | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(settingsFile, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as HookSettings : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // --------------------------------------------------------------- lifecycle ---
 
 function readSettings(settingsFile: string): HookSettings {
@@ -964,6 +1041,12 @@ async function printStatus(options: SetupOptions, spec: CliAgentSetupSpec): Prom
       ? `hook set       ${oldest}, this version registers ${spec.hookSet}. Upgrade: npx ${spec.packageName} setup${options.scope === "user" ? " --scope user" : ""}`
       : `hook set       ${spec.hookSet} (current)`);
   }
+
+  const refreshOff = hookRefreshOffReason();
+  const lastRefresh = readLastHookRefresh(spec.host);
+  console.log(`hook refresh   ${refreshOff
+    ? `off (${refreshOff})`
+    : `on, once a day from the installed bundle${lastRefresh ? ` (last checked ${describeAge(Date.now() - Date.parse(lastRefresh.checkedAt))})` : " (not checked yet)"}`}`);
 
   const trustLines = trustProblemLines(spec, settingsFile, settings, "");
   if (trustLines.length) {
@@ -1054,6 +1137,16 @@ async function runDoctor(options: SetupOptions, spec: CliAgentSetupSpec): Promis
     }));
   } catch (error) {
     lines.push(`  Live signal           (could not be checked: ${error instanceof Error ? error.message : String(error)})`);
+  }
+  try {
+    lines.push("", ...hookRegistrationDoctorLines({
+      adapter: cliAgentRefreshAdapter(spec, options.projectDir),
+      installedBundleVersion: installedBundleVersion(hookRunnerPaths(spec.binaryName).version),
+      setupCommand: `npx -y ${spec.packageName} setup`,
+      tidy: (file) => tidyHomePath(file, os.homedir())
+    }).map((line, index) => (index === 0 ? `  ${ui.bold(line.trim())}` : line)));
+  } catch (error) {
+    lines.push("", `  Hook versions         (could not be checked: ${error instanceof Error ? error.message : String(error)})`);
   }
   if (spec.trust) {
     const found = trustDoctorLines(spec, options.projectDir, ui);
@@ -1160,6 +1253,7 @@ function uninstall(options: SetupOptions, spec: CliAgentSetupSpec): number {
     }
     console.log(spec.settings.owned ? `removed ${settingsFile}` : `hooks removed from ${settingsFile}`);
   }
+  forgetHookRegistration(spec.host, settingsFile);
 
   for (const file of removeHookRunner(spec.binaryName)) {
     if (!file.endsWith(".node") && !file.endsWith(".no-node")) console.log(`removed ${file}`);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, runCliAgentSetup, readSentModelId, recordSentModelId, clearSentModelId } from "@ascenda-one/tool-kit";
+import { consumeTurnDurationMs, deliverHookEvents, flushHookOutbox, OUTBOX_FLUSH_COMMAND, emitLiveSignal, isCliAgentManagementCommand, stampLastHook, recordTurnStart, readTurnPromptId, refreshCliAgentHooks, runCliAgentSetup, readSentModelId, recordSentModelId, clearSentModelId } from "@ascenda-one/tool-kit";
 import { mapWindsurfEvent, sentModelId } from "./mapWindsurfEvent.js";
 import { liveSignalFor } from "./liveSignal.js";
 import { SETUP } from "./setup.js";
@@ -42,6 +42,9 @@ async function main(): Promise<void> {
   let turnDurationMs: number | undefined;
   // That this agent ran a hook at all, for `status` and `doctor`.
   stampLastHook(WINDSURF_HOST, hookName);
+  // At most once a day, brings this install's hook registration up to the
+  // events this bundle handles. Local files only; see hookRefresh.ts.
+  refreshCliAgentHooks(SETUP);
   // These agents give hooks no id for the prompt a turn answers, so the turn's
   // first hook mints one and the rest read it back. Read before the turn-end
   // hook consumes the state.

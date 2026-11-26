@@ -10,6 +10,34 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.47
+
+Hooks installed with `setup` now keep their own registration up to date.
+The extension and the plugin are unchanged.
+
+### New events reach existing installs
+
+Once a day, the first hook that runs from `~/.ascenda/bin` checks each
+settings file it's registered in. If a file is missing an event this release
+handles, or an older release wrote it, the hook re-applies its own entries,
+the same way `setup` does. Until now, an event a release added, such as a
+failed tool call or a permission prompt, only fired after someone ran
+`setup` again.
+
+- **It's local.** Nothing is downloaded, and the bundle that runs doesn't
+  change. A newer release still comes from `setup`.
+- **Your hooks stay yours.** Entries that aren't Ascenda's are left where they
+  are, an event you removed stays removed, and a file with none of ours left
+  in it isn't touched.
+- **`doctor` shows it.** A new Hook versions section lists the installed
+  bundle against the CLI, which release wrote each registration, and anything
+  missing. `status` gains a `hook refresh` line.
+- **You can turn it off.** Run `setup --no-hook-refresh`, or set
+  `ASCENDA_DISABLE_HOOK_REFRESH=true`.
+
+In Codex, a newly added event waits for your approval under `/hooks`, as it
+does after `setup`.
+
 ## v0.1.46
 
 The hook CLIs notice a hook bundle that's gone missing, and the Claude Code
