@@ -50,13 +50,15 @@ test("it names the tool, and stays quiet when the tool is absent", () => {
   assert.match(skill, /don't mention Ascenda/i);
 });
 
-test("it names exactly the five triggers the tool accepts", () => {
+test("it names exactly the seven triggers the tool accepts", () => {
   const triggers = [
     "large_accepted_change",
     "approach_churn_detected",
     "progress_stalled",
     "goal_drift_detected",
     "session_compacted",
+    "session_return_after_an_hour",
+    "context_past_usual",
   ];
   for (const trigger of triggers) {
     assert.match(skill, new RegExp("\\| `" + trigger + "` \\|"), trigger);
@@ -71,6 +73,14 @@ test("it names exactly the five triggers the tool accepts", () => {
   assert.match(skill, /No stated goal, no drift/);
   assert.match(skill, /200 or more lines/);
   assert.match(skill, /more than two hours/);
+});
+
+test("the two the app sees are asked on chance, once, with no count", () => {
+  assert.match(skill, /Two the app sees, not you/);
+  assert.match(skill, /most of the time it will say `nothing_seen`/);
+  assert.match(skill, /more than an hour after your last reply/);
+  assert.match(skill, /at most once per session/);
+  assert.match(skill, /skip step 2 below/);
 });
 
 test("when several hold, it names one, in a set order", () => {
@@ -89,6 +99,7 @@ test("a refusal means silence, for every reason the tool can give", () => {
     "flow_holds_the_ask",
     "rested",
     "history_unread",
+    "nothing_seen",
   ]) {
     assert.match(skill, new RegExp("`" + reason + "`"), reason);
   }
