@@ -16,6 +16,7 @@
  * Stores without a committed fixture (cursor, vscode, git) build theirs
  * inline in their own tests and aren't covered here; `UNGUARDED` says so.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";

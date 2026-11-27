@@ -3,6 +3,7 @@
  * status line input, wrapping and restoring a user's status line, and the
  * hold's reset time preferring the reported number.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";

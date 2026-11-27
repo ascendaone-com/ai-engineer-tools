@@ -1,3 +1,4 @@
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyAutonomyMode, classifyModelClass, classifySessionEndReason, classifySubagentType, isNewSessionStart, mapClaudeEvent, milestoneInviting, readSubagentId } from "../dist/mapClaudeEvent.js";

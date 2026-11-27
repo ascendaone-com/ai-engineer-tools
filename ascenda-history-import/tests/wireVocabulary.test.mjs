@@ -13,6 +13,7 @@
  * downstream raises when a name is wrong, so the only place it can be caught
  * is here.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

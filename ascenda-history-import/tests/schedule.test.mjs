@@ -3,6 +3,7 @@
  * retention guard, and install/remove/status against a scratch home with the
  * scheduler stubbed out. Nothing here touches launchd, systemd or a crontab.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

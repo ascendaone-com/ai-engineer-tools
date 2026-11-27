@@ -3,6 +3,7 @@
  * `<target>.tmp` for every writer: writer B truncated it after A wrote, A's
  * rename moved it, and B's rename failed with ENOENT.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

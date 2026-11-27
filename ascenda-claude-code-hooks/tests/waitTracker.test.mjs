@@ -1,3 +1,4 @@
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { advanceWait, emptyWaitState, IDLE_COOLDOWN_MS, SETTLE_MS, STALE_MS } from "../dist/waitTracker.js";

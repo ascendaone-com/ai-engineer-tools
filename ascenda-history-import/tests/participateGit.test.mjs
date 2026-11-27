@@ -10,6 +10,7 @@
  * The machine has a real git repository with two commits, named as the cwd
  * of one Claude Code session, which is how the extractor finds it.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";

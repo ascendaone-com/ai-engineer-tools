@@ -11,6 +11,7 @@
  * The counts still ride the session event too, because the local handoff has
  * no event stream to count — it reads the session digest.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

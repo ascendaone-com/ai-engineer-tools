@@ -13,6 +13,7 @@
  * it: an off-catalog type or a missing importKey is a per-event problem, and
  * the events that are fine must still land.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { shipEvents } from "../dist/ship.js";

@@ -3,6 +3,7 @@
  * its hook payloads. Checked against the hooks reference, not a captured
  * payload: no capture in this repo has them yet.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mapCursorEvent, readCursorModel, sentModelId } from "../dist/mapCursorEvent.js";

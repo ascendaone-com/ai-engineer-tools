@@ -3,6 +3,7 @@
  * (`claude_code_subagent_receipts_test.dart`) built on the same scenario, so
  * a change to the rules has to land in both.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";

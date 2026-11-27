@@ -16,6 +16,7 @@
  * So the maximum has to be taken after the union and before the clip. These
  * tests pin both ends of that window, and the absent case at the writer.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { longestRunOf, unionActiveTime } from "../dist/activeUnion.js";

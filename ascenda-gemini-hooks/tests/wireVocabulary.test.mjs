@@ -5,6 +5,7 @@
  * three silent drifts this exists to catch; the assertions are identical
  * across adapters, only the fixtures differ.
  */
+import "./isolateHome.cjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
