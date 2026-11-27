@@ -10,6 +10,40 @@ Rules for what goes in a section: what a user of the CLIs, the extension or
 the plugin will notice, in their terms. Nothing about backend state, deploy
 targets, error counts or internal resource names — this repository is public.
 
+## v0.1.48
+
+The Claude Code hooks can record, on your machine only, which lines each tool
+call changed. It's off unless you turn it on. Nothing else changes.
+
+### Per-call file capture, off by default
+
+Run `ascenda-claude-hook capture on` and, around every tool call that can
+write, the hooks note which lines of which files changed in the working tree.
+Shell commands count as much as the edit tools: a `sed -i`, a heredoc, a
+formatter or a `git apply` shows up the same way. Changes made between calls,
+by you or another tool, are recorded separately, so a later commit can be
+traced to the call that wrote each line, or to neither.
+
+- **Nothing leaves your machine.** No capture value is put on any event, and
+  a test fails if one ever is.
+- **Nothing is kept in clear.** Paths and lines are stored only as keyed
+  hashes under a salt of their own in `~/.ascenda/capture`. No file contents,
+  no file names, no commit or branch names.
+- **It stays out of the way.** Repositories in iCloud Drive, a cloud storage
+  folder, or a synced Desktop or Documents folder are skipped, so a capture
+  never downloads an offloaded file. Folders that aren't git repositories are
+  skipped too. On a 3,000-file repository, a capture adds about 40 ms to the
+  hook (median, 64 ms at the 95th percentile).
+- **It tidies itself.** Records older than 120 days go first, and the folder
+  is held under 256 MB. Only capture files are ever removed.
+- **Off deletes it.** `capture off` stops at once and deletes every record and
+  the salt. `capture status` says what it holds, and `capture report` counts,
+  for a repository's default branch, which committed hunks a call wrote.
+
+If you installed the hooks with `setup`, run `setup` again to get this
+release's hook code. Registrations update themselves since v0.1.47, but the
+code they run doesn't. Plugin installs pick it up on their daily sync.
+
 ## v0.1.47
 
 Hooks installed with `setup` now keep their own registration up to date.
